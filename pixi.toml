@@ -16,6 +16,9 @@ typer = ">=0.12"
 rich = ">=13.7"
 pyyaml = ">=6.0"
 
+[pypi-dependencies]
+ynab-il-importer = { path = ".", editable = true }
+
 [feature.dev.dependencies]
 pytest = ">=8.0"
 ruff = ">=0.6"

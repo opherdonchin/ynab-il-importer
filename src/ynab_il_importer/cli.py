@@ -1,5 +1,8 @@
+
 import argparse
 from pathlib import Path
+from ynab_il_importer.io_bank import read_bank
+from ynab_il_importer.io_ynab import read_ynab_register
 
 try:
     import typer
@@ -15,7 +18,10 @@ if typer is not None:
         in_path: Path = typer.Option(..., "--in"),
         out_path: Path = typer.Option(..., "--out"),
     ) -> None:
-        typer.echo(f"Would parse bank file from {in_path} to {out_path}")
+        df = read_bank(in_path)
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(out_path, index=False, encoding="utf-8-sig")
+        typer.echo(f"Wrote {len(df)} rows to {out_path}")
 
     @app.command("parse-card")
     def parse_card(
@@ -29,7 +35,10 @@ if typer is not None:
         in_path: Path = typer.Option(..., "--in"),
         out_path: Path = typer.Option(..., "--out"),
     ) -> None:
-        typer.echo(f"Would parse YNAB register from {in_path} to {out_path}")
+        df = read_ynab_register(in_path)
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(out_path, index=False, encoding="utf-8-sig")
+        print(f"Wrote {len(df)} rows to {out_path}")
 
     @app.command("match-pairs")
     def match_pairs(
@@ -81,11 +90,17 @@ def _fallback_main() -> None:
 
     args = parser.parse_args()
     if args.command == "parse-bank":
-        print(f"Would parse bank file from {args.in_path} to {args.out_path}")
+        df = read_bank(args.in_path)
+        Path(args.out_path).parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(args.out_path, index=False, encoding="utf-8-sig")
+        print(f"Wrote {len(df)} rows to {args.out_path}")
     elif args.command == "parse-card":
         print(f"Would parse card file from {args.in_path} to {args.out_path}")
     elif args.command == "parse-ynab":
-        print(f"Would parse YNAB register from {args.in_path} to {args.out_path}")
+        df = read_ynab_register(args.in_path)
+        Path(args.out_path).parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(args.out_path, index=False, encoding="utf-8-sig")
+        print(f"Wrote {len(df)} rows to {args.out_path}")
     elif args.command == "match-pairs":
         print(
             "Would match pairs using "
