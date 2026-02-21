@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ynab-il-importer"
+version = "0.1.0"
+description = "Minimal ETL scaffold for Israeli bank/card imports into YNAB."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pandas>=2.2",
+  "openpyxl>=3.1",
+  "xlrd>=2.0",
+  "lxml>=5.0",
+  "python-dateutil>=2.9",
+  "rapidfuzz>=3.6",
+  "pydantic>=2.6",
+  "typer>=0.12",
+  "rich>=13.7",
+  "pyyaml>=6.0",
+]
+
+[project.scripts]
+ynab-il = "ynab_il_importer.cli:app"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

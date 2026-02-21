@@ -1,0 +1,31 @@
+[project]
+name = "ynab-il-importer"
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
+
+[dependencies]
+python = ">=3.11"
+pandas = ">=2.2"
+openpyxl = ">=3.1"
+xlrd = ">=2.0"
+lxml = ">=5.0"
+python-dateutil = ">=2.9"
+rapidfuzz = ">=3.6"
+pydantic = ">=2.6"
+typer = ">=0.12"
+rich = ">=13.7"
+pyyaml = ">=6.0"
+
+[feature.dev.dependencies]
+pytest = ">=8.0"
+ruff = ">=0.6"
+mypy = ">=1.10"
+
+[environments]
+default = { features = ["dev"] }
+
+[tasks]
+lint = "ruff check ."
+fmt = "ruff format ."
+test = "pytest -q"
+smoke = "python -m ynab_il_importer.cli --help"
