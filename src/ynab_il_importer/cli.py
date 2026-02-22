@@ -106,7 +106,24 @@ def _load_csv_paths(paths: list[Path], label: str) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
-def _top_examples(series: pd.Series, limit: int = 2) -> str:
+def _bounded_text(value: object, max_len: int = 100) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    text = str(value).strip()
+    return text[:max_len]
+
+
+def _choose_example_text(merchant_raw: object, description_clean_norm: object, max_len: int = 100) -> str:
+    merchant = _bounded_text(merchant_raw, max_len=max_len)
+    description_norm = _bounded_text(description_clean_norm, max_len=max_len)
+    if merchant and description_norm:
+        if merchant.casefold() == description_norm.casefold():
+            return merchant
+        return merchant if len(merchant) >= len(description_norm) else description_norm
+    return merchant or description_norm
+
+
+def _collect_examples(series: pd.Series, limit: int = 2) -> list[str]:
     clean = series.astype("string").fillna("").str.strip()
     examples: list[str] = []
     for value in clean.tolist():
@@ -115,7 +132,17 @@ def _top_examples(series: pd.Series, limit: int = 2) -> str:
         examples.append(value)
         if len(examples) == limit:
             break
-    return " | ".join(examples)
+    while len(examples) < limit:
+        examples.append("")
+    return examples
+
+
+def _example_1(series: pd.Series) -> str:
+    return _collect_examples(series, limit=2)[0]
+
+
+def _example_2(series: pd.Series) -> str:
+    return _collect_examples(series, limit=2)[1]
 
 
 def _top_counts(series: pd.Series, limit: int = 3) -> str:
@@ -149,11 +176,34 @@ def _derive_candidate_status(series: pd.Series) -> str:
     return "matched_uniquely"
 
 
-def _build_hint_distributions(matched_pairs: pd.DataFrame) -> pd.DataFrame:
+def _most_common_non_empty(series: pd.Series) -> str:
+    clean = series.astype("string").fillna("").str.strip()
+    clean = clean[clean != ""]
+    if clean.empty:
+        return ""
+    return str(clean.value_counts().index[0])
+
+
+def _build_fingerprint_lookup(parsed_prepared: pd.DataFrame) -> pd.DataFrame:
+    lookup = (
+        parsed_prepared.groupby("fingerprint", dropna=False)
+        .agg(
+            txn_kind=("txn_kind", _most_common_non_empty),
+            fingerprint_hash=("fingerprint_hash", _most_common_non_empty),
+        )
+        .reset_index()
+    )
+    for col in ["fingerprint", "txn_kind", "fingerprint_hash"]:
+        lookup[col] = lookup[col].astype("string").fillna("").str.strip()
+    return lookup
+
+
+def _build_hint_distributions(matched_pairs: pd.DataFrame, fingerprint_lookup: pd.DataFrame) -> pd.DataFrame:
     if matched_pairs.empty:
         return pd.DataFrame(
             columns=[
-                "fingerprint",
+                "txn_kind",
+                "fingerprint_hash",
                 "suggested_payee_distribution",
                 "suggested_category_distribution",
             ]
@@ -170,9 +220,27 @@ def _build_hint_distributions(matched_pairs: pd.DataFrame) -> pd.DataFrame:
         if "ynab_category_raw" in matched_pairs.columns
         else ""
     )
+    if not fingerprint_lookup.empty:
+        prepared = prepared.merge(
+            fingerprint_lookup,
+            on="fingerprint",
+            how="left",
+            suffixes=("", "_lookup"),
+        )
+        prepared["txn_kind"] = prepared["txn_kind"].where(
+            prepared["txn_kind"].astype("string").fillna("").str.strip() != "",
+            prepared["txn_kind_lookup"].astype("string").fillna("").str.strip(),
+        )
+        prepared["fingerprint_hash"] = prepared["fingerprint_hash"].where(
+            prepared["fingerprint_hash"].astype("string").fillna("").str.strip() != "",
+            prepared["fingerprint_hash_lookup"].astype("string").fillna("").str.strip(),
+        )
+        prepared = prepared.drop(columns=["txn_kind_lookup", "fingerprint_hash_lookup"])
+    prepared["txn_kind"] = prepared["txn_kind"].astype("string").fillna("").str.strip()
+    prepared["fingerprint_hash"] = prepared["fingerprint_hash"].astype("string").fillna("").str.strip()
 
     hints = (
-        prepared.groupby("fingerprint", dropna=False)
+        prepared.groupby(["txn_kind", "fingerprint_hash"], dropna=False)
         .agg(
             suggested_payee_distribution=("ynab_payee_raw", _top_counts),
             suggested_category_distribution=("ynab_category_raw", _top_counts),
@@ -196,16 +264,26 @@ def _run_build_payee_map(
     rules = load_payee_map(map_path)
     applied = apply_payee_map_rules(parsed_prepared, rules)
     preview = parsed_prepared.join(applied)
+    candidate_examples = [
+        _choose_example_text(merchant_raw, description_clean_norm)
+        for merchant_raw, description_clean_norm in zip(
+            preview["merchant_raw"].tolist() if "merchant_raw" in preview.columns else [""] * len(preview),
+            preview["description_clean_norm"].tolist(),
+        )
+    ]
+    preview_for_candidates = preview.assign(candidate_example=candidate_examples)
 
     matched_pairs = _load_csv_paths(matched_pairs_paths, "matched-pairs")
-    hints = _build_hint_distributions(matched_pairs)
+    fingerprint_lookup = _build_fingerprint_lookup(parsed_prepared)
+    hints = _build_hint_distributions(matched_pairs, fingerprint_lookup)
 
-    candidate_group_keys = ["txn_kind", "fingerprint", "description_clean_norm"]
+    candidate_group_keys = ["txn_kind", "fingerprint_hash", "description_clean_norm"]
     candidates = (
-        preview.groupby(candidate_group_keys, dropna=False)
+        preview_for_candidates.groupby(candidate_group_keys, dropna=False)
         .agg(
-            count_in_period=("fingerprint", "size"),
-            examples=("example_text", _top_examples),
+            count_in_period=("fingerprint_hash", "size"),
+            example_1=("candidate_example", _example_1),
+            example_2=("candidate_example", _example_2),
             existing_rules_hit_count=("match_candidate_rule_ids", _count_unique_rule_ids),
             status=("match_status", _derive_candidate_status),
         )
@@ -216,7 +294,7 @@ def _run_build_payee_map(
         candidates["suggested_payee_distribution"] = ""
         candidates["suggested_category_distribution"] = ""
     else:
-        candidates = candidates.merge(hints, on="fingerprint", how="left")
+        candidates = candidates.merge(hints, on=["txn_kind", "fingerprint_hash"], how="left")
         candidates["suggested_payee_distribution"] = (
             candidates["suggested_payee_distribution"].astype("string").fillna("")
         )
@@ -227,16 +305,25 @@ def _run_build_payee_map(
     candidates = candidates[
         [
             "txn_kind",
-            "fingerprint",
+            "fingerprint_hash",
             "description_clean_norm",
             "count_in_period",
-            "examples",
+            "example_1",
+            "example_2",
             "suggested_payee_distribution",
             "suggested_category_distribution",
             "existing_rules_hit_count",
             "status",
         ]
     ]
+    for col in [
+        "example_1",
+        "example_2",
+        "suggested_payee_distribution",
+        "suggested_category_distribution",
+        "status",
+    ]:
+        candidates[col] = candidates[col].astype("string").fillna("").str.strip()
 
     out_dir.mkdir(parents=True, exist_ok=True)
     candidates_out = out_dir / "payee_map_candidates.csv"
