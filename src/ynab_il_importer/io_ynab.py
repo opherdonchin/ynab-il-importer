@@ -27,6 +27,14 @@ def _parse_amount(series: pd.Series) -> pd.Series:
     return pd.to_numeric(text, errors="coerce").fillna(0.0)
 
 
+def _direction_from_amount(amount: float) -> str:
+    if amount > 0:
+        return "inflow"
+    if amount < 0:
+        return "outflow"
+    return "zero"
+
+
 def read_ynab_register(path: str | Path) -> pd.DataFrame:
     raw = pd.read_csv(Path(path))
     raw.columns = [str(col).strip() for col in raw.columns]
@@ -64,9 +72,13 @@ def read_ynab_register(path: str | Path) -> pd.DataFrame:
             "outflow": outflow.round(2),
             "inflow": inflow.round(2),
             "memo": _series_or_default(raw, memo_col).astype("string").fillna(""),
+            "currency": "ILS",
+            "amount_bucket": "",
         }
     )
     result["amount_ils"] = (result["inflow"] - result["outflow"]).round(2)
+    result["direction"] = result["amount_ils"].map(_direction_from_amount)
+    result["txn_kind"] = result["direction"]
 
     return result[
         [
@@ -78,6 +90,10 @@ def read_ynab_register(path: str | Path) -> pd.DataFrame:
             "outflow",
             "inflow",
             "amount_ils",
+            "direction",
+            "txn_kind",
+            "currency",
+            "amount_bucket",
             "memo",
         ]
     ]

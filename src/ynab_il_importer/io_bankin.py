@@ -154,6 +154,12 @@ def read_bankin_dat(path: str | Path, account_name: str) -> pd.DataFrame:
         outflow_ils = abs(txn_amount) if txn_amount < 0 else 0.0
         inflow_ils = txn_amount if txn_amount > 0 else 0.0
         amount_ils = round(inflow_ils - outflow_ils, 2)
+        if amount_ils > 0:
+            direction = "inflow"
+        elif amount_ils < 0:
+            direction = "outflow"
+        else:
+            direction = "zero"
 
         rows.append(
             {
@@ -169,6 +175,9 @@ def read_bankin_dat(path: str | Path, account_name: str) -> pd.DataFrame:
                 "outflow_ils": round(outflow_ils, 2),
                 "inflow_ils": round(inflow_ils, 2),
                 "amount_ils": amount_ils,
+                "currency": "ILS",
+                "direction": direction,
+                "amount_bucket": "",
             }
         )
 
@@ -187,5 +196,8 @@ def read_bankin_dat(path: str | Path, account_name: str) -> pd.DataFrame:
             "outflow_ils",
             "inflow_ils",
             "amount_ils",
+            "currency",
+            "direction",
+            "amount_bucket",
         ],
     )
