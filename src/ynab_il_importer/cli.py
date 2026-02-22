@@ -96,6 +96,159 @@ def _resolve_account_column(df: pd.DataFrame) -> pd.Series:
     raise ValueError("No account column found. Expected 'account_name' or 'Account'.")
 
 
+def _load_csv_paths(paths: list[Path], label: str) -> pd.DataFrame:
+    if not paths:
+        return pd.DataFrame()
+    frames: list[pd.DataFrame] = []
+    for path in paths:
+        if not path.exists():
+            raise FileNotFoundError(f"{label} file does not exist: {path}")
+        frames.append(pd.read_csv(path))
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+def _top_examples(series: pd.Series, limit: int = 2) -> str:
+    clean = series.astype("string").fillna("").str.strip()
+    examples: list[str] = []
+    for value in clean.tolist():
+        if not value or value in examples:
+            continue
+        examples.append(value)
+        if len(examples) == limit:
+            break
+    return " | ".join(examples)
+
+
+def _top_counts(series: pd.Series, limit: int = 3) -> str:
+    clean = series.astype("string").fillna("").str.strip()
+    clean = clean[clean != ""]
+    if clean.empty:
+        return ""
+    counts = clean.value_counts().head(limit)
+    return "; ".join(f"{name} ({count})" for name, count in counts.items())
+
+
+def _count_unique_rule_ids(series: pd.Series) -> int:
+    clean = series.astype("string").fillna("").str.strip()
+    rule_ids: set[str] = set()
+    for value in clean.tolist():
+        if not value:
+            continue
+        for token in value.split(";"):
+            token_norm = token.strip()
+            if token_norm:
+                rule_ids.add(token_norm)
+    return len(rule_ids)
+
+
+def _derive_candidate_status(series: pd.Series) -> str:
+    statuses = {s for s in series.astype("string").fillna("").str.strip().tolist() if s}
+    if not statuses or statuses == {"none"}:
+        return "unmatched"
+    if "ambiguous" in statuses or "none" in statuses:
+        return "ambiguous"
+    return "matched_uniquely"
+
+
+def _build_hint_distributions(matched_pairs: pd.DataFrame) -> pd.DataFrame:
+    if matched_pairs.empty:
+        return pd.DataFrame(
+            columns=[
+                "fingerprint",
+                "suggested_payee_distribution",
+                "suggested_category_distribution",
+            ]
+        )
+
+    prepared = prepare_transactions_for_rules(matched_pairs)
+    prepared["ynab_payee_raw"] = (
+        matched_pairs["ynab_payee_raw"].astype("string").fillna("").str.strip()
+        if "ynab_payee_raw" in matched_pairs.columns
+        else ""
+    )
+    prepared["ynab_category_raw"] = (
+        matched_pairs["ynab_category_raw"].astype("string").fillna("").str.strip()
+        if "ynab_category_raw" in matched_pairs.columns
+        else ""
+    )
+
+    hints = (
+        prepared.groupby("fingerprint", dropna=False)
+        .agg(
+            suggested_payee_distribution=("ynab_payee_raw", _top_counts),
+            suggested_category_distribution=("ynab_category_raw", _top_counts),
+        )
+        .reset_index()
+    )
+    return hints
+
+
+def _run_build_payee_map(
+    parsed_paths: list[Path],
+    matched_pairs_paths: list[Path],
+    out_dir: Path,
+    map_path: Path = Path("mappings/payee_map.csv"),
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    parsed_raw = _load_csv_paths(parsed_paths, "parsed")
+    if parsed_raw.empty:
+        raise ValueError("No rows found in --parsed inputs.")
+
+    parsed_prepared = prepare_transactions_for_rules(parsed_raw)
+    rules = load_payee_map(map_path)
+    applied = apply_payee_map_rules(parsed_prepared, rules)
+    preview = parsed_prepared.join(applied)
+
+    matched_pairs = _load_csv_paths(matched_pairs_paths, "matched-pairs")
+    hints = _build_hint_distributions(matched_pairs)
+
+    candidate_group_keys = ["txn_kind", "fingerprint", "description_clean_norm"]
+    candidates = (
+        preview.groupby(candidate_group_keys, dropna=False)
+        .agg(
+            count_in_period=("fingerprint", "size"),
+            examples=("example_text", _top_examples),
+            existing_rules_hit_count=("match_candidate_rule_ids", _count_unique_rule_ids),
+            status=("match_status", _derive_candidate_status),
+        )
+        .reset_index()
+    )
+
+    if hints.empty:
+        candidates["suggested_payee_distribution"] = ""
+        candidates["suggested_category_distribution"] = ""
+    else:
+        candidates = candidates.merge(hints, on="fingerprint", how="left")
+        candidates["suggested_payee_distribution"] = (
+            candidates["suggested_payee_distribution"].astype("string").fillna("")
+        )
+        candidates["suggested_category_distribution"] = (
+            candidates["suggested_category_distribution"].astype("string").fillna("")
+        )
+
+    candidates = candidates[
+        [
+            "txn_kind",
+            "fingerprint",
+            "description_clean_norm",
+            "count_in_period",
+            "examples",
+            "suggested_payee_distribution",
+            "suggested_category_distribution",
+            "existing_rules_hit_count",
+            "status",
+        ]
+    ]
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    candidates_out = out_dir / "payee_map_candidates.csv"
+    preview_out = out_dir / "payee_map_applied_preview.csv"
+    candidates.to_csv(candidates_out, index=False, encoding="utf-8-sig")
+    preview.to_csv(preview_out, index=False, encoding="utf-8-sig")
+    print(f"Wrote {len(candidates)} rows to {candidates_out}")
+    print(f"Wrote {len(preview)} rows to {preview_out}")
+    return candidates, preview
+
+
 if typer is not None:
     app = typer.Typer(help="YNAB IL Importer CLI")
 
