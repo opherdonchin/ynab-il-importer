@@ -23,8 +23,8 @@ def _top_counts(series: pd.Series, limit: int = 3) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build fingerprint groups from matched pairs")
-    parser.add_argument("--pairs", type=Path, default=Path("data/derived/matched_pairs.csv"))
-    parser.add_argument("--out", type=Path, default=Path("data/derived/fingerprint_groups.csv"))
+    parser.add_argument("--pairs", type=Path, default=Path("outputs/matched_pairs.csv"))
+    parser.add_argument("--out", type=Path, default=Path("outputs/fingerprint_groups.csv"))
     args = parser.parse_args()
 
     pairs = pd.read_csv(args.pairs)

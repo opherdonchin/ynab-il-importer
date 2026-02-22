@@ -18,7 +18,7 @@ def main() -> None:
     parser.add_argument("--bank", type=Path, default=Path("data/derived/bank_normalized.csv"))
     parser.add_argument("--card", type=Path, default=Path("data/derived/card_normalized.csv"))
     parser.add_argument("--ynab", type=Path, default=Path("data/derived/ynab_normalized.csv"))
-    parser.add_argument("--out", type=Path, default=Path("data/derived/matched_pairs.csv"))
+    parser.add_argument("--out", type=Path, default=Path("outputs/matched_pairs.csv"))
     args = parser.parse_args()
 
     bank_df = pd.read_csv(args.bank)

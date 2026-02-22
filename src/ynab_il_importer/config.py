@@ -6,6 +6,7 @@ from pathlib import Path
 class ProjectPaths:
     raw_dir: Path = Path("data/raw")
     derived_dir: Path = Path("data/derived")
+    outputs_dir: Path = Path("outputs")
 
     @property
     def bank_raw(self) -> Path:
@@ -33,8 +34,8 @@ class ProjectPaths:
 
     @property
     def matched_pairs(self) -> Path:
-        return self.derived_dir / "matched_pairs.csv"
+        return self.outputs_dir / "matched_pairs.csv"
 
     @property
     def fingerprint_groups(self) -> Path:
-        return self.derived_dir / "fingerprint_groups.csv"
+        return self.outputs_dir / "fingerprint_groups.csv"

@@ -2,6 +2,10 @@
 
 Minimal ETL scaffold for importing Israeli bank/card exports into YNAB by learning payee/category hints from historical YNAB register data.
 
+Directory convention:
+- `data/derived/`: parsed/normalized snapshots of raw files (treated as local, not for commit).
+- `outputs/`: generated review/labeling artifacts that are intended to be shared/committed.
+
 ## Quickstart
 
 1. Install environment:
@@ -33,21 +37,21 @@ pixi run python scripts/bootstrap_pairs.py \
   --bank data/derived/bank_normalized.csv \
   --card data/derived/card_normalized.csv \
   --ynab data/derived/ynab_normalized.csv \
-  --out data/derived/matched_pairs.csv
+  --out outputs/matched_pairs.csv
 ```
 
 5. Build fingerprint groups for human labeling:
 
 ```bash
 pixi run python scripts/build_groups.py \
-  --pairs data/derived/matched_pairs.csv \
-  --out data/derived/fingerprint_groups.csv
+  --pairs outputs/matched_pairs.csv \
+  --out outputs/fingerprint_groups.csv
 ```
 
 Expected outputs:
 
-- `data/derived/matched_pairs.csv`
-- `data/derived/fingerprint_groups.csv`
+- `outputs/matched_pairs.csv`
+- `outputs/fingerprint_groups.csv`
 
 ## Payee Map Rules
 
@@ -71,8 +75,8 @@ Build review outputs:
 ```bash
 pixi run ynab-il build-payee-map \
   --parsed data/derived/bankin_fuller_parsed.csv \
-  --matched-pairs data/derived/matched_pairs_bankin_fuller.csv \
-  --out-dir data/derived
+  --matched-pairs outputs/matched_pairs.csv \
+  --out-dir outputs/payee_map
 ```
 
 Generated files:
