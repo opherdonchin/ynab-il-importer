@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 from ynab_il_importer.io_bank import read_bank
+from ynab_il_importer.io_bankin import read_bankin_dat
 from ynab_il_importer.io_card import read_card
 from ynab_il_importer.io_ynab import read_ynab_register
 from ynab_il_importer.pairing import match_pairs as pair_match_pairs
@@ -127,6 +128,17 @@ if typer is not None:
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
 
+    @app.command("parse-bankin")
+    def parse_bankin(
+        in_path: Path = typer.Option(..., "--in"),
+        account_name: str = typer.Option(..., "--account-name"),
+        out_path: Path = typer.Option(..., "--out"),
+    ) -> None:
+        df = read_bankin_dat(in_path, account_name=account_name)
+        _ensure_parent(out_path)
+        df.to_csv(out_path, index=False, encoding="utf-8-sig")
+        print(f"Wrote {len(df)} rows to {out_path}")
+
     @app.command("match-pairs")
     def match_pairs(
         bank_paths: list[Path] = typer.Option(None, "--bank"),
@@ -196,6 +208,11 @@ def _fallback_main() -> None:
     parse_ynab_parser.add_argument("--account-name", dest="account_name", default="")
     parse_ynab_parser.add_argument("--out", dest="out_path", required=True)
 
+    parse_bankin_parser = subparsers.add_parser("parse-bankin")
+    parse_bankin_parser.add_argument("--in", dest="in_path", required=True)
+    parse_bankin_parser.add_argument("--account-name", dest="account_name", required=True)
+    parse_bankin_parser.add_argument("--out", dest="out_path", required=True)
+
     match_pairs_parser = subparsers.add_parser("match-pairs")
     match_pairs_parser.add_argument("--bank", action="append", default=[])
     match_pairs_parser.add_argument("--card", action="append", default=[])
@@ -224,6 +241,12 @@ def _fallback_main() -> None:
         print(f"Wrote {len(df)} rows to {out_path}")
     elif args.command == "parse-ynab":
         df = _fill_and_validate_ynab_account(read_ynab_register(args.in_path), args.account_name)
+        out_path = Path(args.out_path)
+        _ensure_parent(out_path)
+        df.to_csv(out_path, index=False, encoding="utf-8-sig")
+        print(f"Wrote {len(df)} rows to {out_path}")
+    elif args.command == "parse-bankin":
+        df = read_bankin_dat(args.in_path, account_name=args.account_name)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
