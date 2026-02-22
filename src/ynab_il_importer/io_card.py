@@ -53,7 +53,9 @@ def _pick_amount_column(df: pd.DataFrame) -> str:
 
 
 def _normalize_currency(series: pd.Series) -> pd.Series:
-    out = series.astype("string").fillna("").str.strip().str.upper()
+    out = series.astype("string").fillna("").str.strip()
+    out = out.replace({"₪": "ILS", "ש\"ח": "ILS", "שח": "ILS"})
+    out = out.str.upper()
     return out.where(out != "", "ILS")
 
 
@@ -100,6 +102,14 @@ def read_card(path: str | Path, account_name: str = "") -> pd.DataFrame:
             "currency": _normalize_currency(_get_column(raw, "מטבע חיוב", "")),
         }
     )
+
+    # Drop pure empty noise rows often present in report footers.
+    result = result[
+        result["date"].notna()
+        | (result["description_raw"].astype("string").fillna("").str.strip() != "")
+        | (result["merchant_raw"].astype("string").fillna("").str.strip() != "")
+        | (result["amount_ils"] != 0)
+    ]
 
     return result[
         [

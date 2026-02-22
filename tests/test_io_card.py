@@ -51,3 +51,43 @@ def test_read_card_emits_normalized_schema_from_fixture(monkeypatch: pytest.Monk
     actual_cmp["amount_ils"] = pd.to_numeric(actual_cmp["amount_ils"], errors="coerce").round(2)
 
     pd.testing.assert_frame_equal(actual_cmp.reset_index(drop=True), expected, check_dtype=False)
+
+
+def test_read_card_drops_pure_empty_noise_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    raw = pd.DataFrame(
+        [
+            {
+                "תאריך עסקה": "01/02/2026",
+                "תאריך חיוב": "10/02/2026",
+                "שם בית העסק": "MERCHANT A",
+                "הערות": "",
+                "סכום עסקה": "10.00",
+                "מטבע חיוב": "₪",
+            },
+            {
+                "תאריך עסקה": "",
+                "תאריך חיוב": "",
+                "שם בית העסק": "",
+                "הערות": "",
+                "סכום עסקה": "",
+                "מטבע חיוב": "",
+            },
+        ],
+        dtype="string",
+    ).fillna("")
+    workbook_df = _mock_card_workbook_df(raw)
+
+    def _fake_read_excel(path: Path, sheet_name=None, header=None, dtype=None):  # noqa: ANN001
+        if sheet_name is None and header is None:
+            return {"עסקאות": workbook_df}
+        if sheet_name == "עסקאות" and header == 2:
+            return raw
+        raise AssertionError(
+            f"Unexpected read_excel invocation: path={path}, sheet_name={sheet_name}, header={header}, dtype={dtype}"
+        )
+
+    monkeypatch.setattr("ynab_il_importer.io_card.pd.read_excel", _fake_read_excel)
+    actual = read_card("tests/fixtures/card/noise_case.xlsx", account_name="Test Card")
+
+    assert len(actual) == 1
+    assert actual.iloc[0]["currency"] == "ILS"
