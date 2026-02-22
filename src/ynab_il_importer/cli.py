@@ -18,7 +18,9 @@ def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
-def _fill_and_validate_ynab_account(df: pd.DataFrame, fallback_account_name: str) -> pd.DataFrame:
+def _fill_and_validate_ynab_account(
+    df: pd.DataFrame, fallback_account_name: str
+) -> pd.DataFrame:
     out = df.copy()
     if "account_name" not in out.columns:
         out["account_name"] = ""
@@ -27,7 +29,9 @@ def _fill_and_validate_ynab_account(df: pd.DataFrame, fallback_account_name: str
     if fallback:
         out.loc[out["account_name"] == "", "account_name"] = fallback
     if (out["account_name"] == "").any():
-        raise ValueError("YNAB data has empty account_name. Provide --account-name or fix source data.")
+        raise ValueError(
+            "YNAB data has empty account_name. Provide --account-name or fix source data."
+        )
     return out
 
 
@@ -156,7 +160,9 @@ if typer is not None:
         ynab_df = pd.read_csv(ynab_path)
         if "account_name" not in ynab_df.columns:
             raise ValueError(f"ynab file missing account_name column: {ynab_path}")
-        ynab_df["account_name"] = ynab_df["account_name"].astype("string").fillna("").str.strip()
+        ynab_df["account_name"] = (
+            ynab_df["account_name"].astype("string").fillna("").str.strip()
+        )
         if (ynab_df["account_name"] == "").any():
             raise ValueError("ynab file has empty account_name rows.")
 
@@ -182,9 +188,12 @@ if typer is not None:
     ) -> None:
         df = pd.read_csv(in_path)
         accounts = _resolve_account_column(df).astype("string").fillna("").str.strip()
-        unique_accounts = sorted({value for value in accounts.tolist() if value}, key=str.casefold)
+        unique_accounts = sorted(
+            {value for value in accounts.tolist() if value}, key=str.casefold
+        )
         for account in unique_accounts:
             print(account)
+
 else:
     app = None
 
@@ -210,7 +219,9 @@ def _fallback_main() -> None:
 
     parse_bankin_parser = subparsers.add_parser("parse-bankin")
     parse_bankin_parser.add_argument("--in", dest="in_path", required=True)
-    parse_bankin_parser.add_argument("--account-name", dest="account_name", required=True)
+    parse_bankin_parser.add_argument(
+        "--account-name", dest="account_name", required=True
+    )
     parse_bankin_parser.add_argument("--out", dest="out_path", required=True)
 
     match_pairs_parser = subparsers.add_parser("match-pairs")
@@ -240,7 +251,9 @@ def _fallback_main() -> None:
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
     elif args.command == "parse-ynab":
-        df = _fill_and_validate_ynab_account(read_ynab_register(args.in_path), args.account_name)
+        df = _fill_and_validate_ynab_account(
+            read_ynab_register(args.in_path), args.account_name
+        )
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
@@ -259,7 +272,9 @@ def _fallback_main() -> None:
         ynab_df = pd.read_csv(Path(args.ynab))
         if "account_name" not in ynab_df.columns:
             raise ValueError(f"ynab file missing account_name column: {args.ynab}")
-        ynab_df["account_name"] = ynab_df["account_name"].astype("string").fillna("").str.strip()
+        ynab_df["account_name"] = (
+            ynab_df["account_name"].astype("string").fillna("").str.strip()
+        )
         if (ynab_df["account_name"] == "").any():
             raise ValueError("ynab file has empty account_name rows.")
         pairs_df = pair_match_pairs(bank_df, card_df, ynab_df)
@@ -277,7 +292,9 @@ def _fallback_main() -> None:
     elif args.command == "list-accounts":
         df = pd.read_csv(Path(args.in_path))
         accounts = _resolve_account_column(df).astype("string").fillna("").str.strip()
-        unique_accounts = sorted({value for value in accounts.tolist() if value}, key=str.casefold)
+        unique_accounts = sorted(
+            {value for value in accounts.tolist() if value}, key=str.casefold
+        )
         for account in unique_accounts:
             print(account)
 
