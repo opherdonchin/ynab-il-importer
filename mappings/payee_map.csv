@@ -1,0 +1,1 @@
+rule_id,is_active,priority,txn_kind,fingerprint,description_clean_norm,account_name,source,direction,currency,amount_bucket,payee_canonical,category_target,notes

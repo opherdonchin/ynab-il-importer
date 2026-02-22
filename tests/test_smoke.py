@@ -27,3 +27,4 @@ def test_cli_help_runs() -> None:
     result = cli_runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "parse-bank" in result.output
+    assert "build-payee-map" in result.output
