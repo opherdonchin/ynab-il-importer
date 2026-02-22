@@ -170,7 +170,7 @@ if typer is not None:
     ) -> None:
         df = pd.read_csv(in_path)
         accounts = _resolve_account_column(df).astype("string").fillna("").str.strip()
-        unique_accounts = sorted([value for value in accounts.unique().tolist() if value])
+        unique_accounts = sorted({value for value in accounts.tolist() if value}, key=str.casefold)
         for account in unique_accounts:
             print(account)
 else:
@@ -254,7 +254,7 @@ def _fallback_main() -> None:
     elif args.command == "list-accounts":
         df = pd.read_csv(Path(args.in_path))
         accounts = _resolve_account_column(df).astype("string").fillna("").str.strip()
-        unique_accounts = sorted([value for value in accounts.unique().tolist() if value])
+        unique_accounts = sorted({value for value in accounts.tolist() if value}, key=str.casefold)
         for account in unique_accounts:
             print(account)
 
