@@ -48,7 +48,7 @@ def _pick_amount_column(df: pd.DataFrame) -> str:
     raise ValueError(f"Could not infer amount column in card file. Columns: {list(df.columns)}")
 
 
-def read_card(path: str | Path) -> pd.DataFrame:
+def read_card(path: str | Path, account_name: str = "") -> pd.DataFrame:
     path = Path(path)
     sheet_name, header_row = _find_header(path)
     raw = _clean_columns(pd.read_excel(path, sheet_name=sheet_name, header=header_row))
@@ -66,6 +66,7 @@ def read_card(path: str | Path) -> pd.DataFrame:
     result = pd.DataFrame(
         {
             "source": "card",
+            "account_name": str(account_name).strip(),
             "date": pd.to_datetime(
                 _get_column(raw, "תאריך עסקה", None), errors="coerce", dayfirst=True
             ).dt.date,
@@ -80,5 +81,14 @@ def read_card(path: str | Path) -> pd.DataFrame:
     )
 
     return result[
-        ["source", "date", "charge_date", "merchant_raw", "description_raw", "amount_ils", "currency"]
+        [
+            "source",
+            "account_name",
+            "date",
+            "charge_date",
+            "merchant_raw",
+            "description_raw",
+            "amount_ils",
+            "currency",
+        ]
     ]

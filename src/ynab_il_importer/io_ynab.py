@@ -42,6 +42,7 @@ def read_ynab_register(path: str | Path) -> pd.DataFrame:
     outflow_col = _find_column(raw, ["Outflow", "הוצאה", "חיוב"])
     inflow_col = _find_column(raw, ["Inflow", "הכנסה", "זיכוי"])
     memo_col = _find_column(raw, ["Memo", "הערה", "הערות"])
+    account_col = _find_column(raw, ["Account", "account"])
 
     if category_col:
         category = _series_or_default(raw, category_col).astype("string").fillna("")
@@ -56,6 +57,7 @@ def read_ynab_register(path: str | Path) -> pd.DataFrame:
     result = pd.DataFrame(
         {
             "source": "ynab",
+            "account_name": _series_or_default(raw, account_col).astype("string").fillna("").str.strip(),
             "date": pd.to_datetime(raw[date_col], errors="coerce", dayfirst=True).dt.date,
             "payee_raw": _series_or_default(raw, payee_col).astype("string").fillna(""),
             "category_raw": category,
@@ -67,5 +69,15 @@ def read_ynab_register(path: str | Path) -> pd.DataFrame:
     result["amount_ils"] = (result["inflow"] - result["outflow"]).round(2)
 
     return result[
-        ["source", "date", "payee_raw", "category_raw", "outflow", "inflow", "amount_ils", "memo"]
+        [
+            "source",
+            "account_name",
+            "date",
+            "payee_raw",
+            "category_raw",
+            "outflow",
+            "inflow",
+            "amount_ils",
+            "memo",
+        ]
     ]

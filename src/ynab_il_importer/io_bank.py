@@ -192,7 +192,7 @@ def _read_bank_table(path: Path) -> pd.DataFrame:
     raise ValueError(f"Could not parse bank file as HTML or Excel: {path}")
 
 
-def read_bank(path: str | Path) -> pd.DataFrame:
+def read_bank(path: str | Path, account_name: str = "") -> pd.DataFrame:
     raw = _read_bank_table(Path(path))
 
     outflow = _parse_amount(_get_column(raw, "בחובה", 0.0))
@@ -201,6 +201,7 @@ def read_bank(path: str | Path) -> pd.DataFrame:
     result = pd.DataFrame(
         {
             "source": "bank",
+            "account_name": str(account_name).strip(),
             "date": pd.to_datetime(
                 _get_column(raw, "תאריך"), errors="coerce", dayfirst=True
             ).dt.date,
@@ -228,6 +229,7 @@ def read_bank(path: str | Path) -> pd.DataFrame:
     return result[
         [
             "source",
+            "account_name",
             "date",
             "value_date",
             "description_raw",
