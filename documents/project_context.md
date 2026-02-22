@@ -1,166 +1,198 @@
 # ynab-il-importer — Project Context
 
-## High-Level Goal
+## Purpose
 
-Build a robust, human-in-the-loop pipeline that:
+The goal of this project is to build a robust, repeatable, human-correctable
+pipeline for importing Israeli bank and credit card transactions into YNAB.
 
-1. Parses Israeli bank and credit card exports (Leumi, Max, etc.)
-2. Extracts stable merchant identifiers (`merchant_raw`, `description_clean`)
-3. Maps transactions to a canonical payee (`payee_canonical`)
-4. Optionally assigns categories
-5. Creates transactions in YNAB via API
-6. Continuously improves through lightweight review and mapping updates
+The system must:
 
-The system must support automation while remaining transparent and controllable.
+1. Parse Israeli financial exports (bank + card).
+2. Normalize transactions into a unified schema.
+3. Deduplicate against existing YNAB transactions.
+4. Map transactions to canonical payee and category using a maintained mapping table.
+5. Allow human review and correction.
+6. Update both YNAB and the payee mapping based on review decisions.
+7. Be safe to re-run (idempotent).
 
----
-
-## Core Design Principle
-
-The **central artifact** of the system is a mapping table:
-
-> (txn features) → payee_canonical (+ optional category)
-
-Everything else (matching, hints, bootstrapping) supports building and refining this mapping.
+The system is intentionally deterministic and mapping-driven.
+Machine learning is not part of v1.
 
 ---
 
-## Current Architecture
+# Architectural Principles
 
-### Stage 1: Parsing (Completed)
+## 1. Fingerprint-Centric Mapping
 
-Raw bank/card exports → normalized transaction rows.
+Every normalized transaction has a stable:
 
-Each parsed transaction includes:
+    fingerprint_hash  (v1)
 
-- `date` (purchase date; authoritative)
-- `posting_date` (bank date; secondary)
-- `txn_kind` (debit_card, bit, transfer, loan, other)
-- `merchant_raw` (extracted merchant core)
-- `description_clean`
-- `description_clean_norm`
-- `fingerprint_hash`
-- `amount_ils`
-- `account_name`
-- `source`
+This fingerprint is the primary key used for mapping inference.
 
-Merchant extraction is rule-based and removes boilerplate.
-
-Fingerprinting uses normalized merchant text and txn_kind.
+The fingerprint algorithm is frozen for Milestone 1.
+If improvements are needed later, a versioned fingerprint (v2) will be added
+without breaking v1 mappings.
 
 ---
 
-### Stage 2: Payee Mapping (Current Focus)
+## 2. Mapping Model
 
-We maintain:
+Mapping is defined by:
 
-## mappings/payee_map.csv  (Source of Truth)
+    fingerprint_hash → (payee, category) options
 
-Each row is a rule:
+`payee_map.csv` is the source of truth.
 
-**Matching columns (wildcard if blank):**
-- txn_kind
+Grain:
+
+    One row = one (fingerprint → payee, category) candidate.
+
+Columns:
+
 - fingerprint_hash
-- description_clean_norm
-- account_name
-- source
-- direction
-- currency
-- other optional discriminators
-
-**Rule output:**
 - payee_canonical
-- category_target (optional)
-- priority
-- is_active
-- notes
+- category
+- is_default (blank or TRUE)
+- count (bootstrap hint)
+- active (blank/TRUE means active; FALSE means ignore)
+- note (free text)
 
-### Wildcard Semantics
+Rules:
 
-If a rule column is blank:
-→ It does NOT constrain matching.
+- Multiple rows per fingerprint allowed.
+- At most one default per fingerprint.
+- category must be non-empty for upload.
+- payee and category are coupled in the mapping table.
 
-More specific rules override more general ones.
-
----
-
-### Rule Resolution
-
-For a given transaction:
-
-1. Find all matching rules.
-2. Sort by:
-   - priority (desc)
-   - specificity (number of filled key columns)
-3. If one clear winner → assign payee.
-4. If tie → mark ambiguous.
-5. If no rule → mark unmatched.
+Mapping affects future inference only.
+Past resolved transactions are never rewritten.
 
 ---
 
-### Stage 3: Category Assignment
+## 3. Transaction States
 
-Two possible approaches:
+After mapping application, each transaction is classified:
 
-- Rule-based (category_target in payee_map)
-- Learned (historical payee → category mapping)
-- Hybrid (preferred)
+- unmatched      (no mapping rows)
+- defaulted      (single row OR single default)
+- needs_choice   (multiple options, no default)
 
-Currently category is optional in mapping rules.
+The system generates:
 
----
+    outputs/proposed_transactions.csv
 
-## Bootstrapping Strategy
+with:
 
-Historical YNAB data is:
+- payee_options
+- category_options
+- payee_selected
+- category_selected
+- update_map flag
 
-- Noisy
-- Inconsistent
-- But valuable
-
-We use it to generate:
-
-- `suggested_payee_distribution`
-- `suggested_category_distribution`
-
-These are hints only.
-
-The user decides canonical payee assignments.
+User review determines final selections.
 
 ---
 
-## Regular Processing Pipeline
+## 4. Workflow Phases
 
-1. Parse bank/card exports
-2. Apply payee_map rules
-3. Flag unmatched or ambiguous
-4. Review and update payee_map
-5. Assign categories
-6. Create YNAB transactions
+### Phase 0 — Freeze Conventions
+- Fingerprint v1 frozen.
+- Amount sign convention fixed.
+- Date semantics fixed.
+
+### Phase 1 — Normalize Sources
+- Bank parsing complete.
+- Credit card parsing must emit same normalized schema.
+
+### Phase 2 — Bootstrap Mapping
+- Download historical bank + card + YNAB.
+- Match transactions.
+- Generate initial payee_map with counts and suggested defaults.
+- User curates payee_map.
+
+### Phase 3 — Regular Processing
+- Download new bank/card transactions.
+- Download YNAB transactions for date range.
+- Deduplicate.
+- Apply payee_map.
+- Emit proposed_transactions.
+
+### Phase 4 — Review
+- User edits payee/category.
+- User marks update_map when desired.
+- Category selection required before upload.
+
+### Phase 5 — Update
+- Append unique new (fingerprint, payee, category) rows to payee_map.
+- Upload transactions via YNAB API.
+- Ensure idempotency.
+
+### Phase 6 — Steady State Loop
+Repeat:
+parse → dedupe → map → review → update → upload.
 
 ---
 
-## Key Design Decisions
+## 5. Idempotency
 
-- Mapping file is editable CSV (portable, version-controlled)
-- Optional keys default blank (wildcards)
-- fingerprint_hash is stable join key
-- description_clean_norm is human-readable display key
-- No reliance on YNAB file imports long-term (API preferred)
-- No database dependency required
+Uploads must be safe to re-run.
+
+Preferred strategy:
+
+- Deterministic import_id generation.
+- Remove already-existing transactions before upload.
+
+No duplicate uploads should occur.
 
 ---
 
-## Current State
+## 6. Review UI
 
-- Parsing stable
-- Merchant extraction working
-- Fingerprinting stable
-- Payee map scaffolding exists
-- Candidate and preview CSVs generated
-- Rule engine implemented
-- No canonical payees defined yet
+A local review UI (likely Streamlit) will:
 
-Next major milestone:
+- Display proposed_transactions.
+- Provide dropdown selection for payee and category.
+- Enforce category selection.
+- Support update_map flag.
+- Save edits to CSV.
 
-> Populate payee_map.csv and validate rule engine on real data.
+The UI is not the source of truth.
+CSV files remain authoritative and versionable.
+
+---
+
+## 7. Scope Boundaries (v1)
+
+Not in scope for now:
+
+- Automatic learning of mapping rules.
+- Retrofitting historical transactions in YNAB.
+- Complex rule precedence systems.
+- Fingerprint algorithm redesign.
+
+Focus: deterministic mapping + clean workflow.
+
+---
+
+## 8. Success Criteria (Milestone 1)
+
+The system is considered successful when:
+
+- ≥90% of new transactions default automatically.
+- Review workload is small and clear.
+- Upload is idempotent.
+- payee_map grows cleanly over time.
+- Credit card and bank are processed through identical workflow.
+
+---
+
+# Operational Philosophy
+
+This project prioritizes:
+
+- Explicitness over cleverness
+- Stability over dynamism
+- Auditability over automation
+- CSV-driven state over hidden state
+- Iterative improvement over premature generalization

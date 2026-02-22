@@ -6,6 +6,9 @@ Directory convention:
 - `data/derived/`: parsed/normalized snapshots of raw files (treated as local, not for commit).
 - `outputs/`: generated review/labeling artifacts that are intended to be shared/committed.
 
+- `documents/project_context.md` contains the file used as context for AI agents.
+- `documents/plan.md` contains the current plan of action.
+
 ## Quickstart
 
 1. Install environment:

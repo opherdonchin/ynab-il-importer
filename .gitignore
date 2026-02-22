@@ -180,5 +180,4 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-# Local raw and parser snapshot data
 data/

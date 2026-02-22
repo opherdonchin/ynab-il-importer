@@ -2,9 +2,13 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from ynab_il_importer.fingerprint import fingerprint_hash_v1
+from ynab_il_importer.fingerprint import fingerprint_v0
+from ynab_il_importer.normalize import normalize_text
 
 
 HEADER_MARKER = "תאריך עסקה"
+CARD_TXN_KIND = "card"
 
 
 def _clean_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -48,6 +52,11 @@ def _pick_amount_column(df: pd.DataFrame) -> str:
     raise ValueError(f"Could not infer amount column in card file. Columns: {list(df.columns)}")
 
 
+def _normalize_currency(series: pd.Series) -> pd.Series:
+    out = series.astype("string").fillna("").str.strip().str.upper()
+    return out.where(out != "", "ILS")
+
+
 def read_card(path: str | Path, account_name: str = "") -> pd.DataFrame:
     path = Path(path)
     sheet_name, header_row = _find_header(path)
@@ -62,6 +71,13 @@ def read_card(path: str | Path, account_name: str = "") -> pd.DataFrame:
     merchant = _get_column(raw, "שם בית העסק", "").astype("string").fillna("").str.strip()
     notes = _get_column(raw, "הערות", "").astype("string").fillna("").str.strip()
     description = merchant.where(notes == "", merchant + " | " + notes).str.strip(" |")
+    description_clean = description.where(description != "", merchant).astype("string").fillna("").str.strip()
+    description_clean_norm = description_clean.map(normalize_text)
+    fingerprint = description_clean_norm.map(fingerprint_v0)
+    fingerprint_hash = [
+        fingerprint_hash_v1(CARD_TXN_KIND, description_norm)
+        for description_norm in description_clean_norm.tolist()
+    ]
 
     result = pd.DataFrame(
         {
@@ -73,10 +89,15 @@ def read_card(path: str | Path, account_name: str = "") -> pd.DataFrame:
             "charge_date": pd.to_datetime(
                 _get_column(raw, "תאריך חיוב", None), errors="coerce", dayfirst=True
             ).dt.date,
+            "txn_kind": CARD_TXN_KIND,
             "merchant_raw": merchant,
             "description_raw": description,
+            "description_clean": description_clean,
+            "description_clean_norm": description_clean_norm,
+            "fingerprint": fingerprint,
+            "fingerprint_hash": pd.Series(fingerprint_hash, index=raw.index, dtype="string"),
             "amount_ils": amount.round(2),
-            "currency": _get_column(raw, "מטבע חיוב", "").astype("string").fillna(""),
+            "currency": _normalize_currency(_get_column(raw, "מטבע חיוב", "")),
         }
     )
 
@@ -86,8 +107,13 @@ def read_card(path: str | Path, account_name: str = "") -> pd.DataFrame:
             "account_name",
             "date",
             "charge_date",
+            "txn_kind",
             "merchant_raw",
             "description_raw",
+            "description_clean",
+            "description_clean_norm",
+            "fingerprint",
+            "fingerprint_hash",
             "amount_ils",
             "currency",
         ]

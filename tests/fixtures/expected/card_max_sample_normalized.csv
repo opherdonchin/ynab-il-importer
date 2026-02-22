@@ -1,0 +1,3 @@
+source,account_name,date,charge_date,txn_kind,merchant_raw,description_raw,description_clean,description_clean_norm,fingerprint,fingerprint_hash,amount_ils,currency
+card,Test Card,2026-02-01,2026-02-10,card,סופר פארם,סופר פארם,סופר פארם,סופר פארם,סופר פארם,b1fefa09d81e,-123.45,ILS
+card,Test Card,2026-02-03,2026-02-10,card,AMAZON MKTPLACE PMTS,AMAZON MKTPLACE PMTS | ORDER 1234-5678,AMAZON MKTPLACE PMTS | ORDER 1234-5678,amazon mktplace pmts order,amazon mktplace pmts order,fde04f963222,-89.9,USD
