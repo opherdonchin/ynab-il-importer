@@ -109,7 +109,7 @@ def _join_pairs(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
 def match_pairs(bank_df: pd.DataFrame, card_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
     ynab_prepared = _prepare_ynab(ynab_df)
     bank_pairs = _join_pairs(
-        _prepare_source(bank_df, ["description_raw"], "bank-ynab"),
+        _prepare_source(bank_df, ["description_clean", "merchant_raw", "description_raw"], "bank-ynab"),
         ynab_prepared,
     )
     card_pairs = _join_pairs(
