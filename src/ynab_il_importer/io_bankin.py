@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+from ynab_il_importer.account_map import apply_account_name_map
 
 
 _PURCHASE_DATE_RE = re.compile(r"\b(\d{2})/(\d{2})/(\d{2})\b")
@@ -124,14 +125,13 @@ def extract_merchant(description: str) -> tuple[str, str]:
     return fallback, "other"
 
 
-def read_bankin_dat(path: str | Path, account_name: str) -> pd.DataFrame:
+def read_bankin_dat(path: str | Path) -> pd.DataFrame:
     source_path = Path(path)
     decoded_lines = [line.decode("cp862", errors="replace").strip() for line in source_path.read_bytes().splitlines()]
     decoded_lines = [line for line in decoded_lines if line]
     reader = csv.reader(decoded_lines, delimiter=",", quotechar='"')
 
     rows: list[dict[str, object]] = []
-    account = str(account_name).strip()
 
     for fields in reader:
         if len(fields) < 5:
@@ -161,10 +161,12 @@ def read_bankin_dat(path: str | Path, account_name: str) -> pd.DataFrame:
         else:
             direction = "zero"
 
+        source_account = str(fields[6]).strip() if len(fields) >= 7 else ""
+
         rows.append(
             {
                 "source": "bank",
-                "account_name": account,
+                "account_name": source_account,
                 "date": purchase_date,
                 "posting_date": posting_date,
                 "txn_kind": txn_kind,
@@ -181,7 +183,7 @@ def read_bankin_dat(path: str | Path, account_name: str) -> pd.DataFrame:
             }
         )
 
-    return pd.DataFrame(
+    result = pd.DataFrame(
         rows,
         columns=[
             "source",
@@ -201,3 +203,4 @@ def read_bankin_dat(path: str | Path, account_name: str) -> pd.DataFrame:
             "amount_bucket",
         ],
     )
+    return apply_account_name_map(result, source="bank")

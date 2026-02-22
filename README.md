@@ -56,6 +56,29 @@ Expected outputs:
 - `outputs/matched_pairs.csv`
 - `outputs/fingerprint_groups.csv`
 
+## Account Name Mapping
+
+Account identity now comes from source files:
+
+- Card exports: `4 ספרות אחרונות...` -> normalized as `xNNNN`
+- Bank `.dat` exports: account number from the last field
+
+Optional mapping to YNAB account names is read from:
+
+- `mappings/account_name_map.csv`
+
+CSV schema:
+
+- `source` (`card` or `bank`; optional blank for global rows)
+- `source_account` (for example `x1234` or bank account id from `.dat`)
+- `ynab_account_name` (target YNAB account name)
+
+Behavior:
+
+- If the mapping file is missing, parsed account names remain as in source files.
+- If a parsed account is not found in the mapping file, it remains as in source files.
+- In both cases, a warning is emitted with unmatched account names.
+
 ## Payee Map Rules
 
 `mappings/payee_map.csv` is the source of truth for deterministic payee/category mapping.

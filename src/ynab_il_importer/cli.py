@@ -266,10 +266,9 @@ if typer is not None:
     @app.command("parse-card")
     def parse_card(
         in_path: Path = typer.Option(..., "--in"),
-        account_name: str = typer.Option(..., "--account-name"),
         out_path: Path = typer.Option(..., "--out"),
     ) -> None:
-        df = read_card(in_path, account_name=account_name)
+        df = read_card(in_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
@@ -288,10 +287,9 @@ if typer is not None:
     @app.command("parse-bankin")
     def parse_bankin(
         in_path: Path = typer.Option(..., "--in"),
-        account_name: str = typer.Option(..., "--account-name"),
         out_path: Path = typer.Option(..., "--out"),
     ) -> None:
-        df = read_bankin_dat(in_path, account_name=account_name)
+        df = read_bankin_dat(in_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
@@ -362,7 +360,6 @@ def _fallback_main() -> None:
 
     parse_card_parser = subparsers.add_parser("parse-card")
     parse_card_parser.add_argument("--in", dest="in_path", required=True)
-    parse_card_parser.add_argument("--account-name", dest="account_name", required=True)
     parse_card_parser.add_argument("--out", dest="out_path", required=True)
 
     parse_ynab_parser = subparsers.add_parser("parse-ynab")
@@ -372,9 +369,6 @@ def _fallback_main() -> None:
 
     parse_bankin_parser = subparsers.add_parser("parse-bankin")
     parse_bankin_parser.add_argument("--in", dest="in_path", required=True)
-    parse_bankin_parser.add_argument(
-        "--account-name", dest="account_name", required=True
-    )
     parse_bankin_parser.add_argument("--out", dest="out_path", required=True)
 
     match_pairs_parser = subparsers.add_parser("match-pairs")
@@ -398,7 +392,7 @@ def _fallback_main() -> None:
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
     elif args.command == "parse-card":
-        df = read_card(args.in_path, account_name=args.account_name)
+        df = read_card(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
@@ -412,7 +406,7 @@ def _fallback_main() -> None:
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
     elif args.command == "parse-bankin":
-        df = read_bankin_dat(args.in_path, account_name=args.account_name)
+        df = read_bankin_dat(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")

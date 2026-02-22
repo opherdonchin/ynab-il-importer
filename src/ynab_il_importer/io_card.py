@@ -1,7 +1,9 @@
 from pathlib import Path
 from typing import Any
+import re
 
 import pandas as pd
+from ynab_il_importer.account_map import apply_account_name_map
 from ynab_il_importer.fingerprint import fingerprint_hash_v1
 from ynab_il_importer.fingerprint import fingerprint_v0
 from ynab_il_importer.normalize import normalize_text
@@ -9,6 +11,7 @@ from ynab_il_importer.normalize import normalize_text
 
 HEADER_MARKER = "תאריך עסקה"
 CARD_TXN_KIND = "card"
+_NON_DIGIT_RE = re.compile(r"\D+")
 
 
 def _clean_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -59,7 +62,31 @@ def _normalize_currency(series: pd.Series) -> pd.Series:
     return out.where(out != "", "ILS")
 
 
-def read_card(path: str | Path, account_name: str = "") -> pd.DataFrame:
+def _normalize_card_account_name(series: pd.Series) -> pd.Series:
+    digits = (
+        series.astype("string").fillna("").str.strip().map(lambda v: _NON_DIGIT_RE.sub("", str(v)))
+    )
+    valid = digits.str.len() >= 4
+    out = pd.Series([""] * len(series), index=series.index, dtype="string")
+    out.loc[valid] = "x" + digits.loc[valid].str[-4:]
+    return out
+
+
+def _pick_card_account_column(df: pd.DataFrame) -> str | None:
+    candidates = [
+        "4 ספרות אחרונות של כרטיס האשראי",
+        "4 ספרות אחרונות",
+    ]
+    for name in candidates:
+        if name in df.columns:
+            return name
+    for col in df.columns:
+        if "4 ספרות אחרונות" in str(col):
+            return str(col)
+    return None
+
+
+def read_card(path: str | Path) -> pd.DataFrame:
     path = Path(path)
     sheet_name, header_row = _find_header(path)
     raw = _clean_columns(pd.read_excel(path, sheet_name=sheet_name, header=header_row))
@@ -81,10 +108,16 @@ def read_card(path: str | Path, account_name: str = "") -> pd.DataFrame:
         for description_norm in description_clean_norm.tolist()
     ]
 
+    account_col = _pick_card_account_column(raw)
+    if account_col is not None:
+        account_name = _normalize_card_account_name(raw[account_col])
+    else:
+        account_name = pd.Series([""] * len(raw), index=raw.index, dtype="string")
+
     result = pd.DataFrame(
         {
             "source": "card",
-            "account_name": str(account_name).strip(),
+            "account_name": account_name,
             "date": pd.to_datetime(
                 _get_column(raw, "תאריך עסקה", None), errors="coerce", dayfirst=True
             ).dt.date,
@@ -110,6 +143,7 @@ def read_card(path: str | Path, account_name: str = "") -> pd.DataFrame:
         | (result["merchant_raw"].astype("string").fillna("").str.strip() != "")
         | (result["amount_ils"] != 0)
     ]
+    result = apply_account_name_map(result, source="card")
 
     return result[
         [
