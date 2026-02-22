@@ -55,10 +55,9 @@ def read_bankin_dat(path: str | Path, account_name: str) -> pd.DataFrame:
         else:
             purchase_date = posting_date
 
-        outflow_value = _parse_amount(fields[3])
-        inflow_value = _parse_amount(fields[4])
-        outflow_ils = abs(outflow_value) if outflow_value < 0 else 0.0
-        inflow_ils = inflow_value if inflow_value > 0 else 0.0
+        txn_amount = _parse_amount(fields[3])
+        outflow_ils = abs(txn_amount) if txn_amount < 0 else 0.0
+        inflow_ils = txn_amount if txn_amount > 0 else 0.0
         amount_ils = round(inflow_ils - outflow_ils, 2)
 
         rows.append(
