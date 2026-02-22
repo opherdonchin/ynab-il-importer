@@ -5,6 +5,7 @@ from typing import Any
 
 import pandas as pd
 
+from ynab_il_importer.fingerprint import fingerprint_hash_v1
 from ynab_il_importer.fingerprint import fingerprint_v0
 from ynab_il_importer.normalize import normalize_text
 
@@ -20,6 +21,7 @@ PAYEE_MAP_COLUMNS = [
     "is_active",
     "priority",
     "txn_kind",
+    "fingerprint_hash",
     "fingerprint",
     "description_clean_norm",
     "account_name",
@@ -34,6 +36,7 @@ PAYEE_MAP_COLUMNS = [
 
 RULE_KEY_COLUMNS = [
     "txn_kind",
+    "fingerprint_hash",
     "fingerprint",
     "description_clean_norm",
     "account_name",
@@ -61,6 +64,8 @@ def _normalize_key_value(column: str, value: Any) -> str | None:
     if column == "txn_kind":
         return text.lower()
     if column in {"source", "direction"}:
+        return text.lower()
+    if column == "fingerprint_hash":
         return text.lower()
     if column == "currency":
         return text.upper()
@@ -172,6 +177,14 @@ def prepare_transactions_for_rules(df: pd.DataFrame) -> pd.DataFrame:
         ],
     )
     out["description_clean_norm"] = raw_for_norm.map(normalize_text)
+    out["fingerprint_hash"] = [
+        fingerprint_hash_v1(txn_kind, description_clean_norm)
+        for txn_kind, description_clean_norm in zip(
+            out["txn_kind"].tolist(),
+            out["description_clean_norm"].tolist(),
+        )
+    ]
+    out["fingerprint_hash"] = out["fingerprint_hash"].astype("string").fillna("").str.strip()
 
     out["fingerprint"] = _pick_series(out, ["fingerprint", "fingerprint_v0"])
     no_fp = out["fingerprint"] == ""
@@ -186,8 +199,11 @@ def prepare_transactions_for_rules(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _rule_matches(rule: pd.Series, txn: pd.Series) -> bool:
+    has_fingerprint_hash = _blank_to_none(rule["fingerprint_hash"]) is not None
     has_fingerprint = _blank_to_none(rule["fingerprint"]) is not None
     for col in RULE_KEY_COLUMNS:
+        if col in {"fingerprint", "description_clean_norm"} and has_fingerprint_hash:
+            continue
         if col == "description_clean_norm" and has_fingerprint:
             continue
         rule_value = _blank_to_none(rule[col])
@@ -201,8 +217,11 @@ def _rule_matches(rule: pd.Series, txn: pd.Series) -> bool:
 
 def _compute_specificity(rule: pd.Series) -> int:
     score = 0
+    has_fingerprint_hash = _blank_to_none(rule["fingerprint_hash"]) is not None
     has_fingerprint = _blank_to_none(rule["fingerprint"]) is not None
     for col in RULE_KEY_COLUMNS:
+        if col in {"fingerprint", "description_clean_norm"} and has_fingerprint_hash:
+            continue
         if col == "description_clean_norm" and has_fingerprint:
             continue
         if _blank_to_none(rule[col]) is not None:
