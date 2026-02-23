@@ -1,0 +1,7 @@
+nis_transfer_rows: 18
+ynab_transfer_rows: 421
+nis_rows_with_ynab_transfer_match_by_date_amount: 0
+nis_rows_without_match: 18
+unique_nis_fingerprint_hashes: 15
+ambiguous_date_amount_keys_in_join: 0
+max_join_multiplicity_for_single_key: 1
