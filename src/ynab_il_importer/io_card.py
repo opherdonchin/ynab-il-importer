@@ -12,6 +12,8 @@ from ynab_il_importer.normalize import normalize_text
 HEADER_MARKER = "תאריך עסקה"
 CARD_TXN_KIND = "card"
 _NON_DIGIT_RE = re.compile(r"\D+")
+_DIGITS_ONLY_RE = re.compile(r"^\d+$")
+_DECIMAL_ZERO_RE = re.compile(r"^\d+\.0+$")
 
 
 def _clean_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -63,9 +65,17 @@ def _normalize_currency(series: pd.Series) -> pd.Series:
 
 
 def _normalize_card_account_name(series: pd.Series) -> pd.Series:
-    digits = (
-        series.astype("string").fillna("").str.strip().map(lambda v: _NON_DIGIT_RE.sub("", str(v)))
-    )
+    def _extract_digits(value: object) -> str:
+        text = str(value).strip()
+        if text in {"", "nan", "NaN", "None"}:
+            return ""
+        if _DIGITS_ONLY_RE.match(text):
+            return text
+        if _DECIMAL_ZERO_RE.match(text):
+            return text.split(".", 1)[0]
+        return _NON_DIGIT_RE.sub("", text)
+
+    digits = series.astype("string").fillna("").map(_extract_digits)
     valid = digits.str.len() >= 4
     out = pd.Series([""] * len(series), index=series.index, dtype="string")
     out.loc[valid] = "x" + digits.loc[valid].str[-4:]

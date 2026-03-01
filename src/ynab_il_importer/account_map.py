@@ -76,9 +76,9 @@ def apply_account_name_map(
     raw = raw[(raw["source_account"] != "") & (raw["ynab_account_name"] != "")]
 
     if "source" in raw.columns:
-        source_col = _normalize_text_series(raw["source"]).str.lower()
+        source_series = _normalize_text_series(raw["source"]).str.lower()
         source_key = str(source).strip().lower()
-        raw = raw[(source_col == "") | (source_col == source_key)]
+        raw = raw[(source_series == "") | (source_series == source_key)]
 
     mapping = {
         row["source_account"]: row["ynab_account_name"]

@@ -26,11 +26,20 @@ pixi install
 3. Normalize source inputs:
 
 ```bash
-pixi run python scripts/normalize_inputs.py \
-  --bank-in data/raw/bank.xls \
-  --card-in data/raw/card.xlsx \
-  --ynab-in data/raw/ynab_register.csv \
-  --out-dir data/derived
+pixi run python scripts/normalize_file.py \
+  --format leumi \
+  --in data/raw/Bankin.dat \
+  --out data/derived/bank_normalized.csv
+
+pixi run python scripts/normalize_file.py \
+  --format max \
+  --in data/raw/card.xlsx \
+  --out data/derived/card_normalized.csv
+
+pixi run python scripts/normalize_file.py \
+  --format ynab \
+  --in data/raw/ynab_register.csv \
+  --out data/derived/ynab_normalized.csv
 ```
 
 4. Build matched pairs:
