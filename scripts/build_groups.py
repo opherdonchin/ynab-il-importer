@@ -21,6 +21,15 @@ def _top_counts(series: pd.Series, limit: int = 3) -> str:
     return "; ".join(f"{name} ({count})" for name, count in top.items())
 
 
+def _single_value_or_blank(series: pd.Series) -> str:
+    clean = series.astype("string").fillna("").str.strip()
+    clean = clean[clean != ""]
+    uniques = sorted({str(value) for value in clean}, key=str.casefold)
+    if len(uniques) == 1:
+        return uniques[0]
+    return ""
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build fingerprint groups from matched pairs")
     parser.add_argument("--pairs", type=Path, default=Path("outputs/matched_pairs.csv"))
@@ -38,10 +47,10 @@ def main() -> None:
             example_raw_text=("raw_text", _most_common_text),
             top_ynab_payees=("ynab_payee_raw", _top_counts),
             top_ynab_categories=("ynab_category_raw", _top_counts),
+            canonical_payee=("ynab_payee_raw", _single_value_or_blank),
         )
         .reset_index()
     )
-    grouped["canonical_payee"] = ""
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     grouped.to_csv(args.out, index=False)

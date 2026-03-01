@@ -14,10 +14,10 @@ from ynab_il_importer.rules import PAYEE_MAP_COLUMNS
 
 
 def test_fingerprint_hash_v1_is_stable() -> None:
-    value = fingerprint_hash_v1("debit_card", "coffee shop")
-    assert value == "2fee62f9078a"
-    assert value == fingerprint_hash_v1("debit_card", "coffee shop")
-    assert value != fingerprint_hash_v1("bit", "coffee shop")
+    value = fingerprint_hash_v1("expense", "coffee shop")
+    assert value == "610547d2f1e0"
+    assert value == fingerprint_hash_v1("expense", "coffee shop")
+    assert value != fingerprint_hash_v1("transfer", "coffee shop")
     assert len(value) == 12
 
 
@@ -25,29 +25,32 @@ def test_build_payee_map_outputs_have_bounded_examples_and_no_nan_hints(tmp_path
     parsed = pd.DataFrame(
         [
             {
-                "txn_kind": "debit_card",
+                "txn_kind": "expense",
                 "source": "bank",
                 "account_name": "A",
                 "currency": "ILS",
-                "amount_ils": -20,
+                "outflow_ils": 20,
+                "inflow_ils": 0,
                 "description_clean_norm": "local cafe",
                 "merchant_raw": "M" * 140,
             },
             {
-                "txn_kind": "debit_card",
+                "txn_kind": "expense",
                 "source": "bank",
                 "account_name": "A",
                 "currency": "ILS",
-                "amount_ils": -21,
+                "outflow_ils": 21,
+                "inflow_ils": 0,
                 "description_clean_norm": "local cafe",
                 "merchant_raw": "Second merchant example",
             },
             {
-                "txn_kind": "bit",
+                "txn_kind": "transfer",
                 "source": "bank",
                 "account_name": "A",
                 "currency": "ILS",
-                "amount_ils": -30,
+                "outflow_ils": 30,
+                "inflow_ils": 0,
                 "description_clean_norm": "bit transfer",
                 "merchant_raw": "BIT",
             },
@@ -61,7 +64,8 @@ def test_build_payee_map_outputs_have_bounded_examples_and_no_nan_hints(tmp_path
         columns=[
             "account_name",
             "date",
-            "amount_ils",
+            "outflow_ils",
+            "inflow_ils",
             "raw_text",
             "raw_norm",
             "fingerprint_v0",
@@ -102,5 +106,5 @@ def test_build_payee_map_outputs_have_bounded_examples_and_no_nan_hints(tmp_path
     assert all(len(value) <= 100 for value in candidates["example_1"].tolist())
     assert all(len(value) <= 100 for value in candidates["example_2"].tolist())
 
-    bit_row = candidates[candidates["txn_kind"] == "bit"].iloc[0]
-    assert bit_row["example_2"] == ""
+    transfer_row = candidates[candidates["txn_kind"] == "transfer"].iloc[0]
+    assert transfer_row["example_2"] == ""

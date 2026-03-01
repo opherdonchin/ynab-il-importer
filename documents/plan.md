@@ -52,7 +52,8 @@ Grain: **one row per candidate transaction to upload** (after removing already-p
 Required columns:
 - `transaction_id` (stable per parsed txn; used for overrides and logging)
 - `date`
-- `amount_ils` (signed, consistent convention)
+- `outflow_ils`
+- `inflow_ils`
 - `memo` (original description)
 - `fingerprint_hash`
 - `payee_options`     (semicolon-delimited)
@@ -94,7 +95,7 @@ Columns:
 - Single authoritative date per source:
   - bank: purchase date if available, else posting date
   - card: transaction date
-- Amount sign convention fixed across sources (e.g., outflows negative).
+- Amounts stored as explicit `outflow_ils` / `inflow_ils` across sources.
 
 Deliverable:
 - A short “schema + conventions” section in docs/SCHEMA.md (or inside this plan).
@@ -108,7 +109,7 @@ Status (current):
 - Completed for one supported source: Excel export with `תאריך עסקה` header marker
   (the format handled by `src/ynab_il_importer/io_card.py`).
 - Parser now emits normalized fields needed by mapping/dedupe bootstrap:
-  `source`, `account_name`, `date`, `charge_date`, `amount_ils`, `currency`,
+  `source`, `account_name`, `date`, `secondary_date`, `outflow_ils`, `inflow_ils`, `currency`,
   `txn_kind`, `merchant_raw`, `description_raw`, `description_clean`,
   `description_clean_norm`, `fingerprint`, `fingerprint_hash`.
 - Added a golden fixture test for this source:
@@ -140,7 +141,7 @@ Deliverables:
 Goal: infer `(fingerprint_hash → payee, category)` candidates from what already exists in YNAB.
 
 Approach (v1 pragmatic):
-- Match on (date, amount) with a tolerance window if needed (±1 day optional)
+- Match on (date, outflow_ils, inflow_ils) with a tolerance window if needed (±1 day optional)
 - Use memo similarity as a tie-break when multiple candidates exist
 - Keep conservative: prefer fewer false matches over aggressive linking
 
@@ -191,7 +192,7 @@ Deliverables:
 
 4.3 Dedupe (remove already present)
 - Primary method (preferred): deterministic `import_id` if we implement it
-- Fallback method (v1): (date, amount, memo fingerprint) heuristic
+- Fallback method (v1): (date, outflow_ils, inflow_ils, memo fingerprint) heuristic
 
 4.4 Apply payee_map to remaining transactions
 For each txn:

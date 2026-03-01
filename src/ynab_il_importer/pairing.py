@@ -22,16 +22,19 @@ def _pick_raw_text(df: pd.DataFrame, candidates: list[str]) -> pd.Series:
 
 
 def _prepare_source(
-    df: pd.DataFrame, raw_candidates: list[str], pair_source: str
+    df: pd.DataFrame, raw_candidates: list[str], source_type: str
 ) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(
             columns=[
+                "source_type",
+                "source_file",
+                "source_account",
                 "account_name",
                 "date",
-                "amount_ils",
+                "outflow_ils",
+                "inflow_ils",
                 "raw_text",
-                "pair_source",
                 "account_key",
                 "date_key",
                 "amount_key",
@@ -41,22 +44,41 @@ def _prepare_source(
     account_name = (
         _series_or_default(df, "account_name").astype("string").fillna("").str.strip()
     )
+    source_account = (
+        _series_or_default(df, "source_account").astype("string").fillna("").str.strip()
+    )
+    outflow_ils = pd.to_numeric(
+        _series_or_default(df, "outflow_ils", 0.0), errors="coerce"
+    ).fillna(0.0).round(2)
+    inflow_ils = pd.to_numeric(
+        _series_or_default(df, "inflow_ils", 0.0), errors="coerce"
+    ).fillna(0.0).round(2)
+    if "outflow_ils" not in df.columns and "inflow_ils" not in df.columns:
+        amount = pd.to_numeric(
+            _series_or_default(df, "amount_ils", 0.0), errors="coerce"
+        ).fillna(0.0).round(2)
+        outflow_ils = amount.where(amount < 0, 0.0).abs().round(2)
+        inflow_ils = amount.where(amount > 0, 0.0).round(2)
     prepared = pd.DataFrame(
         {
+            "source_type": str(source_type).strip(),
+            "source_file": _series_or_default(df, "source_file")
+            .astype("string")
+            .fillna("")
+            .str.strip(),
+            "source_account": source_account,
             "account_name": account_name,
             "date": pd.to_datetime(
                 _series_or_default(df, "date"), errors="coerce"
             ).dt.date,
-            "amount_ils": pd.to_numeric(
-                _series_or_default(df, "amount_ils", 0.0), errors="coerce"
-            ).round(2),
+            "outflow_ils": outflow_ils,
+            "inflow_ils": inflow_ils,
             "raw_text": _pick_raw_text(df, raw_candidates),
-            "pair_source": pair_source,
         }
     )
     prepared["account_key"] = prepared["account_name"]
     prepared["date_key"] = prepared["date"]
-    prepared["amount_key"] = prepared["amount_ils"]
+    prepared["amount_key"] = (prepared["inflow_ils"] - prepared["outflow_ils"]).round(2)
     return prepared.dropna(subset=["date_key", "amount_key", "account_key"])
 
 
@@ -67,23 +89,42 @@ def _prepare_ynab(df: pd.DataFrame) -> pd.DataFrame:
                 "account_key",
                 "date_key",
                 "amount_key",
+                "ynab_file",
+                "ynab_account",
                 "ynab_payee_raw",
                 "ynab_category_raw",
             ]
         )
 
+    ynab_account = (
+        _series_or_default(df, "account_name").astype("string").fillna("").str.strip()
+    )
+    outflow_ils = pd.to_numeric(
+        _series_or_default(df, "outflow_ils", 0.0), errors="coerce"
+    ).fillna(0.0).round(2)
+    inflow_ils = pd.to_numeric(
+        _series_or_default(df, "inflow_ils", 0.0), errors="coerce"
+    ).fillna(0.0).round(2)
+    if "outflow_ils" not in df.columns and "inflow_ils" not in df.columns:
+        amount = pd.to_numeric(
+            _series_or_default(df, "amount_ils", 0.0), errors="coerce"
+        ).fillna(0.0).round(2)
+        outflow_ils = amount.where(amount < 0, 0.0).abs().round(2)
+        inflow_ils = amount.where(amount > 0, 0.0).round(2)
     prepared = pd.DataFrame(
         {
-            "account_key": _series_or_default(df, "account_name")
-            .astype("string")
-            .fillna("")
-            .str.strip(),
+            "account_key": ynab_account,
             "date_key": pd.to_datetime(
                 _series_or_default(df, "date"), errors="coerce"
             ).dt.date,
-            "amount_key": pd.to_numeric(
-                _series_or_default(df, "amount_ils", 0.0), errors="coerce"
-            ).round(2),
+            "amount_key": (inflow_ils - outflow_ils).round(2),
+            "ynab_file": _series_or_default(df, "ynab_file")
+            .astype("string")
+            .fillna("")
+            .str.strip(),
+            "ynab_account": ynab_account,
+            "ynab_outflow_ils": outflow_ils,
+            "ynab_inflow_ils": inflow_ils,
             "ynab_payee_raw": _series_or_default(df, "payee_raw")
             .astype("string")
             .fillna(""),
@@ -99,13 +140,20 @@ def _join_pairs(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
     if source_df.empty or ynab_df.empty:
         return pd.DataFrame(
             columns=[
+                "source_type",
+                "source_file",
+                "source_account",
                 "account_name",
                 "date",
-                "amount_ils",
+                "outflow_ils",
+                "inflow_ils",
                 "raw_text",
+                "ynab_file",
+                "ynab_account",
+                "ynab_outflow_ils",
+                "ynab_inflow_ils",
                 "ynab_payee_raw",
                 "ynab_category_raw",
-                "pair_source",
                 "account_key",
                 "date_key",
                 "amount_key",
@@ -117,13 +165,20 @@ def _join_pairs(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
     )
     return joined[
         [
+            "source_type",
+            "source_file",
+            "source_account",
             "account_name",
             "date",
-            "amount_ils",
+            "outflow_ils",
+            "inflow_ils",
             "raw_text",
+            "ynab_file",
+            "ynab_account",
+            "ynab_outflow_ils",
+            "ynab_inflow_ils",
             "ynab_payee_raw",
             "ynab_category_raw",
-            "pair_source",
             "account_key",
             "date_key",
             "amount_key",
@@ -141,7 +196,7 @@ def match_pairs(
         _prepare_source(
             bank_df,
             ["description_clean", "merchant_raw", "description_raw"],
-            "bank-ynab",
+            "bank",
         ),
         ynab_prepared,
     )
@@ -149,7 +204,7 @@ def match_pairs(
         _prepare_source(
             card_df,
             ["description_clean", "description_raw", "merchant_raw"],
-            "card-ynab",
+            "card",
         ),
         ynab_prepared,
     )
@@ -158,15 +213,22 @@ def match_pairs(
     if pairs.empty:
         return pd.DataFrame(
             columns=[
+                "source_type",
+                "source_file",
+                "source_account",
                 "account_name",
                 "date",
-                "amount_ils",
+                "outflow_ils",
+                "inflow_ils",
                 "raw_text",
                 "raw_norm",
                 "fingerprint_v0",
+                "ynab_file",
+                "ynab_account",
+                "ynab_outflow_ils",
+                "ynab_inflow_ils",
                 "ynab_payee_raw",
                 "ynab_category_raw",
-                "pair_source",
                 "ambiguous_key",
             ]
         )
@@ -187,15 +249,22 @@ def match_pairs(
 
     return pairs[
         [
+            "source_type",
+            "source_file",
+            "source_account",
             "account_name",
             "date",
-            "amount_ils",
+            "outflow_ils",
+            "inflow_ils",
             "raw_text",
             "raw_norm",
             "fingerprint_v0",
+            "ynab_file",
+            "ynab_account",
+            "ynab_outflow_ils",
+            "ynab_inflow_ils",
             "ynab_payee_raw",
             "ynab_category_raw",
-            "pair_source",
             "ambiguous_key",
         ]
     ]

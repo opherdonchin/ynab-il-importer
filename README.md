@@ -23,31 +23,33 @@ pixi install
 - `data/raw/card.xlsx`
 - `data/raw/ynab_register.csv`
 
-3. Normalize source inputs:
+3. Normalize source inputs (default output naming):
 
 ```bash
 pixi run python scripts/normalize_file.py \
   --format leumi \
-  --in data/raw/Bankin.dat \
-  --out data/derived/bank_normalized.csv
+  --in data/raw/Bankin.dat
 
 pixi run python scripts/normalize_file.py \
   --format max \
-  --in data/raw/card.xlsx \
-  --out data/derived/card_normalized.csv
+  --in data/raw/card.xlsx
 
 pixi run python scripts/normalize_file.py \
   --format ynab \
-  --in data/raw/ynab_register.csv \
-  --out data/derived/ynab_normalized.csv
+  --in data/raw/ynab_register.csv
 ```
+
+Default output name:
+- `data/derived/{raw_file_stem}_{format}_norm.csv`
 
 4. Build matched pairs:
 
 ```bash
 pixi run python scripts/bootstrap_pairs.py \
   --bank data/derived/bank_normalized.csv \
+  --bank data/derived/bank_normalized_other.csv \
   --card data/derived/card_normalized.csv \
+  --card data/derived/card_normalized_other.csv \
   --ynab data/derived/ynab_normalized.csv \
   --out outputs/matched_pairs.csv
 ```

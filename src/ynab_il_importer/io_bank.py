@@ -238,7 +238,7 @@ def read_bank(path: str | Path, account_name: str = "") -> pd.DataFrame:
             "date": pd.to_datetime(
                 _get_column(raw, "תאריך"), errors="coerce", dayfirst=True
             ).dt.date,
-            "value_date": pd.to_datetime(
+            "secondary_date": pd.to_datetime(
                 _get_column(raw, "תאריך ערך", None), errors="coerce", dayfirst=True
             ).dt.date,
             "description_raw": _get_column(raw, "תיאור", "")
@@ -249,7 +249,6 @@ def read_bank(path: str | Path, account_name: str = "") -> pd.DataFrame:
             "inflow_ils": inflow,
         }
     )
-    result["amount_ils"] = (result["inflow_ils"] - result["outflow_ils"]).round(2)
 
     # Drop pure empty noise rows.
     result = result[
@@ -267,11 +266,10 @@ def read_bank(path: str | Path, account_name: str = "") -> pd.DataFrame:
             "account_name",
             "source_account",
             "date",
-            "value_date",
+            "secondary_date",
             "description_raw",
             "ref",
             "outflow_ils",
             "inflow_ils",
-            "amount_ils",
         ]
     ]

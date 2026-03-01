@@ -1,3 +1,3 @@
-source,account_name,date,charge_date,txn_kind,merchant_raw,description_raw,description_clean,description_clean_norm,fingerprint,fingerprint_hash,amount_ils,currency
-card,x1234,2026-02-01,2026-02-10,card,סופר פארם,סופר פארם,סופר פארם,סופר פארם,סופר פארם,b1fefa09d81e,-123.45,ILS
-card,x5678,2026-02-03,2026-02-10,card,AMAZON MKTPLACE PMTS,AMAZON MKTPLACE PMTS | ORDER 1234-5678,AMAZON MKTPLACE PMTS | ORDER 1234-5678,amazon mktplace pmts order,amazon mktplace pmts order,fde04f963222,-89.9,USD
+source,account_name,source_account,date,secondary_date,txn_kind,merchant_raw,description_raw,description_clean,description_clean_norm,fingerprint,fingerprint_hash,outflow_ils,inflow_ils,currency
+card,x1234,x1234,2026-02-01,2026-02-10,expense,סופר פארם,סופר פארם,סופר פארם,סופר פארם,סופר פארם,eb5b2271807b,123.45,0,ILS
+card,x5678,x5678,2026-02-03,2026-02-10,expense,AMAZON MKTPLACE PMTS,AMAZON MKTPLACE PMTS | ORDER 1234-5678,AMAZON MKTPLACE PMTS | ORDER 1234-5678,amazon mktplace pmts order,amazon mktplace pmts order,006d9e8493ac,89.9,0,USD

@@ -77,12 +77,11 @@ Also add `pyproject.toml` with:
 
     * `source="bank"`
     * `date` (use `תאריך` parsed to date)
-    * `value_date` (use `תאריך ערך` if present)
+    * `secondary_date` (use `תאריך ערך` if present)
     * `description_raw` (use `תיאור`)
     * `ref` (use `אסמכתא`)
     * `outflow_ils` (from `בחובה`)
     * `inflow_ils` (from `בזכות`)
-    * `amount_ils` (inflow - outflow; signed)
 * `io_card.read_card(path) -> df`:
 
   * Use `read_excel` and locate the header row by searching for `תאריך עסקה` in the sheet.
@@ -90,10 +89,10 @@ Also add `pyproject.toml` with:
 
     * `source="card"`
     * `date` (use `תאריך עסקה`)
-    * `charge_date` (use `תאריך חיוב` if present)
+    * `secondary_date` (use `תאריך חיוב` if present)
     * `merchant_raw` (use `שם בית העסק`)
     * `description_raw` (merchant_raw + optional `הערות`)
-    * `amount_ils` (signed: spending negative; if file uses positive, convert)
+    * `outflow_ils` / `inflow_ils` (derived from amount; spending goes to outflow)
     * `currency` (use `מטבע חיוב` if present)
 * `io_ynab.read_ynab_register(path) -> df`:
 
@@ -104,9 +103,8 @@ Also add `pyproject.toml` with:
     * `date`
     * `payee_raw`
     * `category_raw` (category name columns if present)
-    * `outflow`
-    * `inflow`
-    * `amount_ils` (signed in ILS units; infer from outflow/inflow)
+    * `outflow_ils`
+    * `inflow_ils`
     * `memo`
 
 6. Normalization + fingerprint v0
@@ -120,17 +118,22 @@ Also add `pyproject.toml` with:
 * Convert all `date` to date (no time).
 * Build keys:
 
-  * `key = (date, round(amount_ils, 2))`
+* `key = (date, outflow_ils, inflow_ils)`
 * Inner-join bank↔ynab on key; card↔ynab on key; concatenate results with columns:
 
   * `date`
-  * `amount_ils`
+  * `outflow_ils`
+  * `inflow_ils`
   * `raw_text` (bank description_raw or card description_raw)
   * `raw_norm`
   * `fingerprint_v0`
   * `ynab_payee_raw` (hint)
   * `ynab_category_raw`
-  * `pair_source` (“bank-ynab” / “card-ynab”)
+  * `source_type` (`bank` / `card`)
+  * `source_file`
+  * `source_account`
+  * `ynab_file`
+  * `ynab_account`
 * If duplicates (same key matches multiple rows), keep all but add `ambiguous_key=true`.
 
 8. Group builder v0

@@ -138,6 +138,16 @@ def _compute_direction(amount_ils: Any) -> str:
     return "zero"
 
 
+def _compute_direction_from_flows(inflow_ils: Any, outflow_ils: Any) -> str:
+    inflow = pd.to_numeric(pd.Series([inflow_ils]), errors="coerce").fillna(0.0).iloc[0]
+    outflow = pd.to_numeric(pd.Series([outflow_ils]), errors="coerce").fillna(0.0).iloc[0]
+    if inflow > 0:
+        return "inflow"
+    if outflow > 0:
+        return "outflow"
+    return "zero"
+
+
 def _pick_series(df: pd.DataFrame, columns: list[str], default: str = "") -> pd.Series:
     for col in columns:
         if col in df.columns:
@@ -161,7 +171,15 @@ def prepare_transactions_for_rules(df: pd.DataFrame) -> pd.DataFrame:
     else:
         out["direction"] = ""
 
-    if "amount_ils" in out.columns:
+    if "inflow_ils" in out.columns or "outflow_ils" in out.columns:
+        inflow = out["inflow_ils"] if "inflow_ils" in out.columns else 0.0
+        outflow = out["outflow_ils"] if "outflow_ils" in out.columns else 0.0
+        flow_direction = pd.Series(
+            [_compute_direction_from_flows(i, o) for i, o in zip(inflow, outflow)],
+            index=out.index,
+        )
+        out["direction"] = out["direction"].where(out["direction"] != "", flow_direction)
+    elif "amount_ils" in out.columns:
         out["direction"] = out["direction"].where(out["direction"] != "", out["amount_ils"].map(_compute_direction))
     out["direction"] = out["direction"].replace("", "zero")
 

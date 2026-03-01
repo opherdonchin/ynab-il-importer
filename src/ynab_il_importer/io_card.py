@@ -10,7 +10,6 @@ from ynab_il_importer.normalize import normalize_text
 
 
 HEADER_MARKER = "תאריך עסקה"
-CARD_TXN_KIND = "card"
 _NON_DIGIT_RE = re.compile(r"\D+")
 _DIGITS_ONLY_RE = re.compile(r"^\d+$")
 _DECIMAL_ZERO_RE = re.compile(r"^\d+\.0+$")
@@ -96,6 +95,14 @@ def _pick_card_account_column(df: pd.DataFrame) -> str | None:
     return None
 
 
+def _infer_txn_kind(inflow_ils: pd.Series, outflow_ils: pd.Series) -> pd.Series:
+    inflow = pd.to_numeric(inflow_ils, errors="coerce").fillna(0.0)
+    outflow = pd.to_numeric(outflow_ils, errors="coerce").fillna(0.0)
+    kind = pd.Series(["expense"] * len(inflow), index=inflow.index, dtype="string")
+    kind.loc[inflow > 0] = "credit"
+    return kind
+
+
 def read_card(path: str | Path) -> pd.DataFrame:
     path = Path(path)
     sheet_name, header_row = _find_header(path)
@@ -113,9 +120,14 @@ def read_card(path: str | Path) -> pd.DataFrame:
     description_clean = description.where(description != "", merchant).astype("string").fillna("").str.strip()
     description_clean_norm = description_clean.map(normalize_text)
     fingerprint = description_clean_norm.map(fingerprint_v0)
+    amount = amount.round(2)
+    outflow_ils = amount.where(amount < 0, 0.0).abs().round(2)
+    inflow_ils = amount.where(amount > 0, 0.0).round(2)
+    txn_kind = _infer_txn_kind(inflow_ils, outflow_ils)
+
     fingerprint_hash = [
-        fingerprint_hash_v1(CARD_TXN_KIND, description_norm)
-        for description_norm in description_clean_norm.tolist()
+        fingerprint_hash_v1(kind, description_norm)
+        for kind, description_norm in zip(txn_kind.tolist(), description_clean_norm.tolist())
     ]
 
     account_col = _pick_card_account_column(raw)
@@ -132,17 +144,18 @@ def read_card(path: str | Path) -> pd.DataFrame:
             "date": pd.to_datetime(
                 _get_column(raw, "תאריך עסקה", None), errors="coerce", dayfirst=True
             ).dt.date,
-            "charge_date": pd.to_datetime(
+            "secondary_date": pd.to_datetime(
                 _get_column(raw, "תאריך חיוב", None), errors="coerce", dayfirst=True
             ).dt.date,
-            "txn_kind": CARD_TXN_KIND,
+            "txn_kind": txn_kind,
             "merchant_raw": merchant,
             "description_raw": description,
             "description_clean": description_clean,
             "description_clean_norm": description_clean_norm,
             "fingerprint": fingerprint,
             "fingerprint_hash": pd.Series(fingerprint_hash, index=raw.index, dtype="string"),
-            "amount_ils": amount.round(2),
+            "outflow_ils": outflow_ils,
+            "inflow_ils": inflow_ils,
             "currency": _normalize_currency(_get_column(raw, "מטבע חיוב", "")),
         }
     )
@@ -152,7 +165,8 @@ def read_card(path: str | Path) -> pd.DataFrame:
         result["date"].notna()
         | (result["description_raw"].astype("string").fillna("").str.strip() != "")
         | (result["merchant_raw"].astype("string").fillna("").str.strip() != "")
-        | (result["amount_ils"] != 0)
+        | (result["outflow_ils"] != 0)
+        | (result["inflow_ils"] != 0)
     ]
     result = apply_account_name_map(result, source="card")
 
@@ -162,7 +176,7 @@ def read_card(path: str | Path) -> pd.DataFrame:
             "account_name",
             "source_account",
             "date",
-            "charge_date",
+            "secondary_date",
             "txn_kind",
             "merchant_raw",
             "description_raw",
@@ -170,7 +184,8 @@ def read_card(path: str | Path) -> pd.DataFrame:
             "description_clean_norm",
             "fingerprint",
             "fingerprint_hash",
-            "amount_ils",
+            "outflow_ils",
+            "inflow_ils",
             "currency",
         ]
     ]

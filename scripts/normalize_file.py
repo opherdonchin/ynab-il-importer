@@ -23,7 +23,7 @@ FORMAT_READERS = {
 def main() -> None:
     parser = argparse.ArgumentParser(description="Normalize a single input file")
     parser.add_argument("--in", dest="in_path", type=Path, required=True)
-    parser.add_argument("--out", dest="out_path", type=Path, required=True)
+    parser.add_argument("--out", dest="out_path", type=Path, required=False)
     parser.add_argument(
         "--format",
         dest="format_name",
@@ -35,9 +35,14 @@ def main() -> None:
     reader = FORMAT_READERS[args.format_name]
     df = reader(args.in_path)
 
-    args.out_path.parent.mkdir(parents=True, exist_ok=True)
-    write_dataframe(df, args.out_path)
-    print(f"Wrote {args.out_path} ({len(df)} rows)")
+    out_path = args.out_path
+    if out_path is None:
+        stem = args.in_path.stem
+        out_path = Path("data/derived") / f"{stem}_{args.format_name}_norm.csv"
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    write_dataframe(df, out_path)
+    print(f"Wrote {out_path} ({len(df)} rows)")
 
 
 if __name__ == "__main__":

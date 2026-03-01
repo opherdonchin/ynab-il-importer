@@ -125,6 +125,22 @@ def extract_merchant(description: str) -> tuple[str, str]:
     return fallback, "other"
 
 
+def _infer_txn_kind(base_kind: str, inflow_ils: float, outflow_ils: float) -> str:
+    kind = str(base_kind).strip().lower()
+    inflow = float(inflow_ils or 0.0)
+    outflow = float(outflow_ils or 0.0)
+
+    if kind in {"transfer", "loan"}:
+        return "transfer"
+    if kind == "bit":
+        return "credit" if inflow > 0 else "expense"
+    if kind == "debit_card":
+        return "credit" if inflow > 0 else "expense"
+    if kind == "other":
+        return "income" if inflow > 0 else "expense"
+    return "income" if inflow > 0 else "expense"
+
+
 def read_bankin_dat(path: str | Path) -> pd.DataFrame:
     source_path = Path(path)
     decoded_lines = [line.decode("cp862", errors="replace").strip() for line in source_path.read_bytes().splitlines()]
@@ -141,7 +157,7 @@ def read_bankin_dat(path: str | Path) -> pd.DataFrame:
         posting_date_code = str(fields[1]).strip()
         description_decoded = str(fields[2]).strip()
         description_fixed = fix_hebrew_visual_order(description_decoded).strip()
-        merchant_raw, txn_kind = extract_merchant(description_fixed)
+        merchant_raw, base_kind = extract_merchant(description_fixed)
 
         posting_date = _parse_ddmmyy_compact(posting_date_code)
         purchase_date_match = _PURCHASE_DATE_RE.search(description_decoded)
@@ -153,13 +169,7 @@ def read_bankin_dat(path: str | Path) -> pd.DataFrame:
         txn_amount = _parse_amount(fields[3])
         outflow_ils = abs(txn_amount) if txn_amount < 0 else 0.0
         inflow_ils = txn_amount if txn_amount > 0 else 0.0
-        amount_ils = round(inflow_ils - outflow_ils, 2)
-        if amount_ils > 0:
-            direction = "inflow"
-        elif amount_ils < 0:
-            direction = "outflow"
-        else:
-            direction = "zero"
+        txn_kind = _infer_txn_kind(base_kind, inflow_ils, outflow_ils)
 
         source_account = str(fields[6]).strip() if len(fields) >= 7 else ""
 
@@ -169,7 +179,7 @@ def read_bankin_dat(path: str | Path) -> pd.DataFrame:
                 "account_name": source_account,
                 "source_account": source_account,
                 "date": purchase_date,
-                "posting_date": posting_date,
+                "secondary_date": posting_date,
                 "txn_kind": txn_kind,
                 "merchant_raw": merchant_raw,
                 "description_clean": merchant_raw,
@@ -177,9 +187,7 @@ def read_bankin_dat(path: str | Path) -> pd.DataFrame:
                 "ref": ref,
                 "outflow_ils": round(outflow_ils, 2),
                 "inflow_ils": round(inflow_ils, 2),
-                "amount_ils": amount_ils,
                 "currency": "ILS",
-                "direction": direction,
                 "amount_bucket": "",
             }
         )
@@ -191,7 +199,7 @@ def read_bankin_dat(path: str | Path) -> pd.DataFrame:
             "account_name",
             "source_account",
             "date",
-            "posting_date",
+            "secondary_date",
             "txn_kind",
             "merchant_raw",
             "description_clean",
@@ -199,9 +207,7 @@ def read_bankin_dat(path: str | Path) -> pd.DataFrame:
             "ref",
             "outflow_ils",
             "inflow_ils",
-            "amount_ils",
             "currency",
-            "direction",
             "amount_bucket",
         ],
     )

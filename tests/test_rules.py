@@ -28,8 +28,8 @@ def test_wildcard_blank_fields_match_any_context() -> None:
     )
     tx = pd.DataFrame(
         [
-            {"fingerprint": "supermarket", "source": "bank", "account_name": "A", "amount_ils": -20},
-            {"fingerprint": "supermarket", "source": "card", "account_name": "B", "amount_ils": -30},
+            {"fingerprint": "supermarket", "source": "bank", "account_name": "A", "outflow_ils": 20, "inflow_ils": 0},
+            {"fingerprint": "supermarket", "source": "card", "account_name": "B", "outflow_ils": 30, "inflow_ils": 0},
         ]
     )
     out = apply_payee_map_rules(tx, rules)
@@ -50,7 +50,7 @@ def test_specificity_wins_when_priority_equal() -> None:
             },
         ]
     )
-    tx = pd.DataFrame([{"fingerprint": "bit", "source": "bank", "amount_ils": -50}])
+    tx = pd.DataFrame([{"fingerprint": "bit", "source": "bank", "outflow_ils": 50, "inflow_ils": 0}])
     out = apply_payee_map_rules(tx, rules)
     assert out.loc[0, "match_status"] == "unique"
     assert out.loc[0, "match_rule_id"] == "r2"
@@ -75,7 +75,7 @@ def test_priority_wins_over_specificity() -> None:
             },
         ]
     )
-    tx = pd.DataFrame([{"fingerprint": "rent", "source": "bank", "amount_ils": -1000}])
+    tx = pd.DataFrame([{"fingerprint": "rent", "source": "bank", "outflow_ils": 1000, "inflow_ils": 0}])
     out = apply_payee_map_rules(tx, rules)
     assert out.loc[0, "match_status"] == "unique"
     assert out.loc[0, "match_rule_id"] == "r2"
@@ -101,7 +101,7 @@ def test_ambiguous_when_top_priority_and_specificity_tie() -> None:
             },
         ]
     )
-    tx = pd.DataFrame([{"fingerprint": "same", "source": "bank", "amount_ils": -5}])
+    tx = pd.DataFrame([{"fingerprint": "same", "source": "bank", "outflow_ils": 5, "inflow_ils": 0}])
     out = apply_payee_map_rules(tx, rules)
     assert out.loc[0, "match_status"] == "ambiguous"
     assert out.loc[0, "match_rule_id"] == "a_rule;b_rule"
@@ -119,7 +119,7 @@ def test_blank_category_target_stays_unassigned() -> None:
             }
         ]
     )
-    tx = pd.DataFrame([{"fingerprint": "coffee", "amount_ils": -15}])
+    tx = pd.DataFrame([{"fingerprint": "coffee", "outflow_ils": 15, "inflow_ils": 0}])
     out = apply_payee_map_rules(tx, rules)
     assert out.loc[0, "match_status"] == "unique"
     assert out.loc[0, "payee_canonical_suggested"] == "Cafe"

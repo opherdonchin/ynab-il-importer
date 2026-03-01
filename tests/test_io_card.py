@@ -48,8 +48,9 @@ def test_read_card_emits_normalized_schema_from_fixture(monkeypatch: pytest.Monk
 
     actual_cmp = actual[expected.columns].copy()
     actual_cmp["date"] = actual_cmp["date"].astype("string")
-    actual_cmp["charge_date"] = actual_cmp["charge_date"].astype("string")
-    actual_cmp["amount_ils"] = pd.to_numeric(actual_cmp["amount_ils"], errors="coerce").round(2)
+    actual_cmp["secondary_date"] = actual_cmp["secondary_date"].astype("string")
+    actual_cmp["outflow_ils"] = pd.to_numeric(actual_cmp["outflow_ils"], errors="coerce").round(2)
+    actual_cmp["inflow_ils"] = pd.to_numeric(actual_cmp["inflow_ils"], errors="coerce").round(2)
 
     pd.testing.assert_frame_equal(actual_cmp.reset_index(drop=True), expected, check_dtype=False)
 

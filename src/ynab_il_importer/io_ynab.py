@@ -27,12 +27,23 @@ def _parse_amount(series: pd.Series) -> pd.Series:
     return pd.to_numeric(text, errors="coerce").fillna(0.0)
 
 
-def _direction_from_amount(amount: float) -> str:
-    if amount > 0:
-        return "inflow"
-    if amount < 0:
-        return "outflow"
-    return "zero"
+def _infer_txn_kind(
+    inflow_ils: pd.Series, outflow_ils: pd.Series, payee_raw: pd.Series, category_raw: pd.Series
+) -> pd.Series:
+    inflow = pd.to_numeric(inflow_ils, errors="coerce").fillna(0.0)
+    outflow = pd.to_numeric(outflow_ils, errors="coerce").fillna(0.0)
+    payee = payee_raw.astype("string").fillna("").str.strip().str.lower()
+    category = category_raw.astype("string").fillna("").str.strip().str.lower()
+
+    kind = pd.Series(["expense"] * len(inflow), index=inflow.index, dtype="string")
+    is_transfer = payee.str.startswith("transfer :") | payee.str.startswith("transfer:")
+    kind.loc[is_transfer] = "transfer"
+
+    is_inflow = inflow > 0
+    is_income = is_inflow & category.str.contains("ready to assign", regex=False)
+    kind.loc[is_income] = "income"
+    kind.loc[is_inflow & ~is_income & ~is_transfer] = "credit"
+    return kind
 
 
 def read_ynab_register(path: str | Path) -> pd.DataFrame:
@@ -59,8 +70,8 @@ def read_ynab_register(path: str | Path) -> pd.DataFrame:
         sub = _series_or_default(raw, sub_col).astype("string").fillna("").str.strip()
         category = master.where(sub == "", master + ":" + sub).str.strip(":")
 
-    outflow = _parse_amount(_series_or_default(raw, outflow_col, "0"))
-    inflow = _parse_amount(_series_or_default(raw, inflow_col, "0"))
+    outflow_ils = _parse_amount(_series_or_default(raw, outflow_col, "0")).round(2)
+    inflow_ils = _parse_amount(_series_or_default(raw, inflow_col, "0")).round(2)
 
     result = pd.DataFrame(
         {
@@ -69,16 +80,19 @@ def read_ynab_register(path: str | Path) -> pd.DataFrame:
             "date": pd.to_datetime(raw[date_col], errors="coerce", dayfirst=True).dt.date,
             "payee_raw": _series_or_default(raw, payee_col).astype("string").fillna(""),
             "category_raw": category,
-            "outflow": outflow.round(2),
-            "inflow": inflow.round(2),
+            "outflow_ils": outflow_ils,
+            "inflow_ils": inflow_ils,
             "memo": _series_or_default(raw, memo_col).astype("string").fillna(""),
             "currency": "ILS",
             "amount_bucket": "",
         }
     )
-    result["amount_ils"] = (result["inflow"] - result["outflow"]).round(2)
-    result["direction"] = result["amount_ils"].map(_direction_from_amount)
-    result["txn_kind"] = result["direction"]
+    result["txn_kind"] = _infer_txn_kind(
+        result["inflow_ils"],
+        result["outflow_ils"],
+        result["payee_raw"],
+        result["category_raw"],
+    )
 
     return result[
         [
@@ -87,10 +101,8 @@ def read_ynab_register(path: str | Path) -> pd.DataFrame:
             "date",
             "payee_raw",
             "category_raw",
-            "outflow",
-            "inflow",
-            "amount_ils",
-            "direction",
+            "outflow_ils",
+            "inflow_ils",
             "txn_kind",
             "currency",
             "amount_bucket",
