@@ -167,6 +167,7 @@ def read_bankin_dat(path: str | Path) -> pd.DataFrame:
             {
                 "source": "bank",
                 "account_name": source_account,
+                "source_account": source_account,
                 "date": purchase_date,
                 "posting_date": posting_date,
                 "txn_kind": txn_kind,
@@ -188,6 +189,7 @@ def read_bankin_dat(path: str | Path) -> pd.DataFrame:
         columns=[
             "source",
             "account_name",
+            "source_account",
             "date",
             "posting_date",
             "txn_kind",

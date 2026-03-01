@@ -2,6 +2,15 @@
     "workbench.colorCustomizations": {
         "activityBar.background": "#233213",
         "titleBar.activeBackground": "#31461A",
-        "titleBar.activeForeground": "#F8FBF4"
-    }
+        "titleBar.activeForeground": "#F8FBF4",
+        "titleBar.inactiveBackground": "#233213",
+        "titleBar.inactiveForeground": "#141C0B",
+        "statusBar.background": "#2D4119",
+        "statusBar.foreground": "#F9FCF7",
+        "statusBar.debuggingBackground": "#2D4119",
+        "statusBar.debuggingForeground": "#F9FCF7",
+        "statusBar.noFolderBackground": "#2D4119",
+        "statusBar.noFolderForeground": "#F9FCF7"
+    },
+    "python-envs.defaultEnvManager": "ms-python.python:system"
 }

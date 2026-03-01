@@ -23,7 +23,12 @@ def test_apply_account_name_map_maps_known_and_warns_unknown(tmp_path: Path) -> 
     map_path = tmp_path / "account_name_map.csv"
     pd.DataFrame(
         [
-            {"source": "card", "source_account": "x1234", "ynab_account_name": "Family Visa"},
+            {
+                "source": "card",
+                "source_account": "x1234",
+                "ynab_account_name": "Family Visa",
+                "ynab_account_id": "acc-123",
+            },
         ]
     ).to_csv(map_path, index=False)
 
@@ -31,3 +36,4 @@ def test_apply_account_name_map_maps_known_and_warns_unknown(tmp_path: Path) -> 
     with pytest.warns(UserWarning, match="Unmatched account names: x9999"):
         out = apply_account_name_map(df, source="card", account_map_path=map_path)
     assert out["account_name"].tolist() == ["Family Visa", "x9999"]
+    assert out["ynab_account_id"].tolist() == ["acc-123", ""]

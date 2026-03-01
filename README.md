@@ -63,7 +63,7 @@ Account identity now comes from source files:
 - Card exports: `4 ספרות אחרונות...` -> normalized as `xNNNN`
 - Bank `.dat` exports: account number from the last field
 
-Optional mapping to YNAB account names is read from:
+Optional mapping to YNAB account names/IDs is read from:
 
 - `mappings/account_name_map.csv`
 
@@ -71,7 +71,9 @@ CSV schema:
 
 - `source` (`card` or `bank`; optional blank for global rows)
 - `source_account` (for example `x1234` or bank account id from `.dat`)
+- `source_account_label` (optional, human label)
 - `ynab_account_name` (target YNAB account name)
+- `ynab_account_id` (target YNAB account id; optional but recommended)
 
 Behavior:
 

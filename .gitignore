@@ -129,12 +129,14 @@ celerybeat.pid
 
 # Environments
 .env
+.env.local
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+config/ynab.local.toml
 
 # Spyder project settings
 .spyderproject

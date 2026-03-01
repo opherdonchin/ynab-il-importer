@@ -40,7 +40,10 @@ def apply_account_name_map(
         out["account_name"] = ""
     out["account_name"] = _normalize_text_series(out["account_name"])
 
-    source_accounts = _normalized_unique(out["account_name"].tolist())
+    source_col = "source_account" if "source_account" in out.columns else "account_name"
+    out[source_col] = _normalize_text_series(out[source_col])
+
+    source_accounts = _normalized_unique(out[source_col].tolist())
     if not source_accounts:
         return out
 
@@ -68,6 +71,8 @@ def apply_account_name_map(
 
     raw["source_account"] = _normalize_text_series(raw["source_account"])
     raw["ynab_account_name"] = _normalize_text_series(raw["ynab_account_name"])
+    if "ynab_account_id" in raw.columns:
+        raw["ynab_account_id"] = _normalize_text_series(raw["ynab_account_id"])
     raw = raw[(raw["source_account"] != "") & (raw["ynab_account_name"] != "")]
 
     if "source" in raw.columns:
@@ -79,6 +84,13 @@ def apply_account_name_map(
         row["source_account"]: row["ynab_account_name"]
         for _, row in raw.iterrows()
     }
+    id_mapping = {}
+    if "ynab_account_id" in raw.columns:
+        id_mapping = {
+            row["source_account"]: row["ynab_account_id"]
+            for _, row in raw.iterrows()
+            if str(row.get("ynab_account_id", "")).strip() != ""
+        }
     if not mapping:
         _warn_unmatched(
             source=source,
@@ -87,11 +99,19 @@ def apply_account_name_map(
         )
         return out
 
-    mapped = out["account_name"].map(mapping).astype("string")
+    original_accounts = out[source_col].copy()
+    mapped = original_accounts.map(mapping).astype("string")
     has_map = mapped.notna() & (mapped.str.strip() != "")
     out.loc[has_map, "account_name"] = mapped.loc[has_map].str.strip()
 
-    unmatched_accounts = _normalized_unique(out.loc[~has_map, "account_name"].tolist())
+    if id_mapping:
+        if "ynab_account_id" not in out.columns:
+            out["ynab_account_id"] = ""
+        mapped_ids = original_accounts.map(id_mapping).astype("string")
+        has_id = mapped_ids.notna() & (mapped_ids.str.strip() != "")
+        out.loc[has_id, "ynab_account_id"] = mapped_ids.loc[has_id].str.strip()
+
+    unmatched_accounts = _normalized_unique(out.loc[~has_map, source_col].tolist())
     _warn_unmatched(
         source=source,
         message=f"Account map file '{map_path}' does not include all accounts",

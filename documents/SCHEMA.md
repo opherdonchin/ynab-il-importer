@@ -7,6 +7,7 @@ downstream mapping, dedupe, and review.
 
 - `source`: source label, lowercased (`bank` / `card`)
 - `account_name`: logical account name used for pairing and dedupe
+- `source_account`: raw account identifier from the source file (for debugging)
 - `date`: authoritative transaction date
 - `amount_ils`: signed amount in ILS convention (outflows negative, inflows positive)
 - `currency`: uppercase ISO-like code, default `ILS` when missing

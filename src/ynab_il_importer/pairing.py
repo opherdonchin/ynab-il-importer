@@ -4,7 +4,9 @@ from ynab_il_importer.fingerprint import fingerprint_v0
 from ynab_il_importer.normalize import normalize_text
 
 
-def _series_or_default(df: pd.DataFrame, col: str, default: str | float = "") -> pd.Series:
+def _series_or_default(
+    df: pd.DataFrame, col: str, default: str | float = ""
+) -> pd.Series:
     if col in df.columns:
         return df[col]
     return pd.Series([default] * len(df), index=df.index)
@@ -19,7 +21,9 @@ def _pick_raw_text(df: pd.DataFrame, candidates: list[str]) -> pd.Series:
     return pd.Series([""] * len(df), index=df.index, dtype="string")
 
 
-def _prepare_source(df: pd.DataFrame, raw_candidates: list[str], pair_source: str) -> pd.DataFrame:
+def _prepare_source(
+    df: pd.DataFrame, raw_candidates: list[str], pair_source: str
+) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(
             columns=[
@@ -34,11 +38,15 @@ def _prepare_source(df: pd.DataFrame, raw_candidates: list[str], pair_source: st
             ]
         )
 
-    account_name = _series_or_default(df, "account_name").astype("string").fillna("").str.strip()
+    account_name = (
+        _series_or_default(df, "account_name").astype("string").fillna("").str.strip()
+    )
     prepared = pd.DataFrame(
         {
             "account_name": account_name,
-            "date": pd.to_datetime(_series_or_default(df, "date"), errors="coerce").dt.date,
+            "date": pd.to_datetime(
+                _series_or_default(df, "date"), errors="coerce"
+            ).dt.date,
             "amount_ils": pd.to_numeric(
                 _series_or_default(df, "amount_ils", 0.0), errors="coerce"
             ).round(2),
@@ -55,18 +63,33 @@ def _prepare_source(df: pd.DataFrame, raw_candidates: list[str], pair_source: st
 def _prepare_ynab(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(
-            columns=["account_key", "date_key", "amount_key", "ynab_payee_raw", "ynab_category_raw"]
+            columns=[
+                "account_key",
+                "date_key",
+                "amount_key",
+                "ynab_payee_raw",
+                "ynab_category_raw",
+            ]
         )
 
     prepared = pd.DataFrame(
         {
-            "account_key": _series_or_default(df, "account_name").astype("string").fillna("").str.strip(),
-            "date_key": pd.to_datetime(_series_or_default(df, "date"), errors="coerce").dt.date,
+            "account_key": _series_or_default(df, "account_name")
+            .astype("string")
+            .fillna("")
+            .str.strip(),
+            "date_key": pd.to_datetime(
+                _series_or_default(df, "date"), errors="coerce"
+            ).dt.date,
             "amount_key": pd.to_numeric(
                 _series_or_default(df, "amount_ils", 0.0), errors="coerce"
             ).round(2),
-            "ynab_payee_raw": _series_or_default(df, "payee_raw").astype("string").fillna(""),
-            "ynab_category_raw": _series_or_default(df, "category_raw").astype("string").fillna(""),
+            "ynab_payee_raw": _series_or_default(df, "payee_raw")
+            .astype("string")
+            .fillna(""),
+            "ynab_category_raw": _series_or_default(df, "category_raw")
+            .astype("string")
+            .fillna(""),
         }
     )
     return prepared.dropna(subset=["account_key", "date_key", "amount_key"])
@@ -89,7 +112,9 @@ def _join_pairs(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
             ]
         )
 
-    joined = source_df.merge(ynab_df, on=["account_key", "date_key", "amount_key"], how="inner")
+    joined = source_df.merge(
+        ynab_df, on=["account_key", "date_key", "amount_key"], how="inner"
+    )
     return joined[
         [
             "account_name",
@@ -106,14 +131,26 @@ def _join_pairs(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
     ]
 
 
-def match_pairs(bank_df: pd.DataFrame, card_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
+def match_pairs(
+    bank_df: pd.DataFrame, card_df: pd.DataFrame, ynab_df: pd.DataFrame
+) -> pd.DataFrame:
     ynab_prepared = _prepare_ynab(ynab_df)
+    ynab_prepared.head()
+
     bank_pairs = _join_pairs(
-        _prepare_source(bank_df, ["description_clean", "merchant_raw", "description_raw"], "bank-ynab"),
+        _prepare_source(
+            bank_df,
+            ["description_clean", "merchant_raw", "description_raw"],
+            "bank-ynab",
+        ),
         ynab_prepared,
     )
     card_pairs = _join_pairs(
-        _prepare_source(card_df, ["description_clean", "description_raw", "merchant_raw"], "card-ynab"),
+        _prepare_source(
+            card_df,
+            ["description_clean", "description_raw", "merchant_raw"],
+            "card-ynab",
+        ),
         ynab_prepared,
     )
 
@@ -143,7 +180,9 @@ def match_pairs(bank_df: pd.DataFrame, card_df: pd.DataFrame, ynab_df: pd.DataFr
         .rename("_key_count")
         .reset_index()
     )
-    pairs = pairs.merge(key_counts, on=["account_key", "date_key", "amount_key"], how="left")
+    pairs = pairs.merge(
+        key_counts, on=["account_key", "date_key", "amount_key"], how="left"
+    )
     pairs["ambiguous_key"] = pairs["_key_count"].fillna(0).astype(int) > 1
 
     return pairs[

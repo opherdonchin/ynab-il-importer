@@ -1,0 +1,4 @@
+# Copy to ynab.local.toml and fill in your IDs.
+# Keep this file out of git.
+
+budget_id = ""

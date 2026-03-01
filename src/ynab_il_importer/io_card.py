@@ -118,6 +118,7 @@ def read_card(path: str | Path) -> pd.DataFrame:
         {
             "source": "card",
             "account_name": account_name,
+            "source_account": account_name,
             "date": pd.to_datetime(
                 _get_column(raw, "תאריך עסקה", None), errors="coerce", dayfirst=True
             ).dt.date,
@@ -149,6 +150,7 @@ def read_card(path: str | Path) -> pd.DataFrame:
         [
             "source",
             "account_name",
+            "source_account",
             "date",
             "charge_date",
             "txn_kind",

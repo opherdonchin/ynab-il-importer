@@ -15,9 +15,9 @@ from ynab_il_importer.io_ynab import read_ynab_register
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Normalize bank/card/YNAB raw inputs")
-    parser.add_argument("--bank-in", type=Path, required=True)
-    parser.add_argument("--card-in", type=Path, required=True)
-    parser.add_argument("--ynab-in", type=Path, required=True)
+    parser.add_argument("--bank-in", type=Path, required=False)
+    parser.add_argument("--card-in", type=Path, required=False)
+    parser.add_argument("--ynab-in", type=Path, required=False)
     parser.add_argument("--out-dir", type=Path, default=Path("data/derived"))
     args = parser.parse_args()
 

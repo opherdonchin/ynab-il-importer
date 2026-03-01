@@ -6,7 +6,16 @@ from io import StringIO
 import pandas as pd
 from lxml import html
 
+from ynab_il_importer.account_map import apply_account_name_map
+
 _BANK_REQUIRED_HEADERS = {"תאריך", "תיאור", "בחובה", "בזכות"}
+_BANK_ACCOUNT_HEADERS = {
+    "מספר חשבון",
+    "מס' חשבון",
+    "חשבון",
+    "חשבון בנק",
+    "מספר חשבון בנק",
+}
 
 
 def _clean_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -35,6 +44,25 @@ def _parse_amount(series: pd.Series) -> pd.Series:
     text = text.str.replace(r"[^\d.\-()]", "", regex=True)
     text = text.str.replace(r"^\((.*)\)$", r"-\1", regex=True)
     return pd.to_numeric(text, errors="coerce").fillna(0.0)
+
+
+def _pick_account_column(df: pd.DataFrame) -> str | None:
+    for name in _BANK_ACCOUNT_HEADERS:
+        if name in df.columns:
+            return name
+    return None
+
+
+def _extract_account_name(df: pd.DataFrame) -> pd.Series:
+    account_col = _pick_account_column(df)
+    if account_col is not None:
+        return df[account_col].astype("string").fillna("").str.strip()
+
+    # Fallback: use the 5th column (1-based) if present.
+    if df.shape[1] >= 5:
+        return df.iloc[:, 4].astype("string").fillna("").str.strip()
+
+    return pd.Series([""] * len(df), index=df.index, dtype="string")
 
 
 def _looks_like_transaction_table(df: pd.DataFrame) -> bool:
@@ -198,10 +226,15 @@ def read_bank(path: str | Path, account_name: str = "") -> pd.DataFrame:
     outflow = _parse_amount(_get_column(raw, "בחובה", 0.0))
     inflow = _parse_amount(_get_column(raw, "בזכות", 0.0))
 
+    source_account = _extract_account_name(raw)
+    if str(account_name).strip():
+        source_account = pd.Series([str(account_name).strip()] * len(raw), index=raw.index)
+
     result = pd.DataFrame(
         {
             "source": "bank",
-            "account_name": str(account_name).strip(),
+            "account_name": source_account,
+            "source_account": source_account,
             "date": pd.to_datetime(
                 _get_column(raw, "תאריך"), errors="coerce", dayfirst=True
             ).dt.date,
@@ -226,10 +259,13 @@ def read_bank(path: str | Path, account_name: str = "") -> pd.DataFrame:
         | (result["inflow_ils"] != 0)
     ]
 
+    result = apply_account_name_map(result, source="bank")
+
     return result[
         [
             "source",
             "account_name",
+            "source_account",
             "date",
             "value_date",
             "description_raw",

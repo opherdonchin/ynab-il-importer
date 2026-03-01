@@ -1,1 +1,9 @@
-source,source_account,ynab_account_name
+source,source_account,source_account_label,ynab_account_name,ynab_account_id
+card,x9922,,Opher x9922,e29cf845-7b3e-4ea1-aa16-cf7d84e2545c
+card,x7195,,Liya X7195,24279166-d166-4758-982c-c3e15cfedcef
+card,x5898,,Opher X5898,05c8a478-b0df-4f5d-ac31-6da5d17bf86e
+card,x0849,,Bank Leumi,2d778fb7-bac9-4397-ba7f-75f936b5e516
+card,x0740,,Bank Leumi,2d778fb7-bac9-4397-ba7f-75f936b5e516
+bank,67833011333622,,Bank Leumi,2d778fb7-bac9-4397-ba7f-75f936b5e516
+bank,67833022523701,,Pilates Leumi,614547a9-b98f-4df0-9f6d-3e850069b29c
+bank,0005,,,
