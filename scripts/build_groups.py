@@ -57,8 +57,15 @@ def main() -> None:
     )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    grouped.to_csv(args.out, index=False, encoding="utf-8-sig")
-    print(f"Wrote {args.out} ({len(grouped)} rows)")
+    out_path = args.out
+    try:
+        grouped.to_csv(out_path, index=False, encoding="utf-8-sig")
+    except PermissionError as exc:
+        raise SystemExit(
+            f"Permission denied writing {out_path}. "
+            "Close the file (e.g., in Excel) and rerun."
+        ) from exc
+    print(f"Wrote {out_path} ({len(grouped)} rows)")
 
 
 if __name__ == "__main__":

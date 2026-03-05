@@ -33,10 +33,119 @@ LOG_COLUMNS = [
 _STANDALONE_NUMBER_RE = re.compile(r"\b\d+\b")
 _SPACE_RE = re.compile(r"\s+")
 
+_DROP_TOKENS = {
+    # Hebrew transactional noise
+    "הו",
+    "הוראת",
+    "הוראה",
+    "קבע",
+    "קבוע",
+    "קבועה",
+    "חיוב",
+    "תשלום",
+    "תשלומים",
+    "עסקה",
+    "זיכוי",
+    "עמלה",
+    "הפקדה",
+    "העברה",
+    "משיכה",
+    "משיכת",
+    "מטבע",
+    "מטח",
+    # Hebrew corporate suffixes
+    "בע",
+    "בעמ",
+    # English transactional noise
+    "payment",
+    "payments",
+    "debit",
+    "credit",
+    "charge",
+    "fee",
+    "fees",
+    "transaction",
+    "transfer",
+    "standing",
+    "order",
+    "recurring",
+    "installment",
+    "installments",
+    "atm",
+    "pos",
+    "purchase",
+    "refund",
+    "reversal",
+    "pmt",
+    "pmts",
+    # English corporate/web suffixes
+    "www",
+    "com",
+    "co",
+    "company",
+    "ltd",
+    "limited",
+    "inc",
+    "llc",
+    "corp",
+    "gmbh",
+    "sarl",
+    "sa",
+    "spa",
+    "plc",
+    "ag",
+    "bv",
+    "oy",
+    "pty",
+    "srl",
+    "sro",
+    # Common country codes
+    "il",
+    "us",
+    "uk",
+    "de",
+    "fr",
+    "es",
+    "it",
+    "bg",
+    "gr",
+    "sg",
+    "au",
+    "ca",
+    "ch",
+    "nl",
+    "be",
+    "at",
+    "cz",
+    "ro",
+    "hu",
+    "pl",
+    "pt",
+    "se",
+    "no",
+    "dk",
+    "fi",
+    "ie",
+}
+
+
+def _strip_noise_tokens(text: str) -> str:
+    tokens = []
+    for token in text.split():
+        if not token:
+            continue
+        if len(token) == 1:
+            continue
+        if token in _DROP_TOKENS:
+            continue
+        tokens.append(token)
+    return " ".join(tokens)
+
 
 def fingerprint_v0(value: Any, token_limit: int = DEFAULT_TOKEN_LIMIT) -> str:
     text = normalize_text(value)
     text = _STANDALONE_NUMBER_RE.sub(" ", text)
+    text = _strip_noise_tokens(text)
     text = _SPACE_RE.sub(" ", text).strip()
     tokens = text.split()
     return " ".join(tokens[:token_limit])

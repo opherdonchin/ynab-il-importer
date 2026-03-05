@@ -1,12 +1,12 @@
-fingerprint_v0,count,example_raw_text,top_ynab_payees,top_ynab_categories,canonical_payee
+﻿fingerprint,count,example_raw_text,top_ynab_payees,top_ynab_categories,canonical_payee
 ab_airport_343 spata gr,1,AB_AIRPORT_343 SPATA GR,AB Airport (1),Greece 2025 (1),AB Airport
 angeli eirini vytina gr,1,ANGELI EIRINI VYTINA GR,Agelini Iyrini (1),Greece 2025 (1),Agelini Iyrini
 anivals ood sofia bg,1,ANIVALS OOD SOFIA BG,Anivals Sofia (1),Bulgaria July 2025 (1),Anivals Sofia
-atlas,4,ATLAS,Train food (2); Oren Meshi Bakery (1); Atlas (1),Going out and restaurants (3); 🛍️Groceries (1),Groceries
+atlas,4,ATLAS,Train food (2); Oren Meshi Bakery (1); Atlas (1),Going out and restaurants (3); 🛍️Groceries (1),Train food; Oren Meshi Bakery; Atlas
 bbb ב עין שמר,1,BBB ב-עין שמר,Bbb (1),University (1),Bbb
 bili eood bansko bg,1,BILI 3211 EOOD BANSKO BG,Bili Bansko (1),Bulgaria July 2025 (1),Bili Bansko
 billa sofia bg,2,BILLA 191 02 SOFIA BG,Billa Sofia (2),Bulgaria July 2025 (2),Billa Sofia
-bit,181,BIT,Subject payment (55); Subject (39); Bit (17),University (94); Chugim parents (16); Unexplained expenses (11),Bit
+bit,181,BIT,Subject payment (55); Subject (39); Bit (17),University (94); Chugim parents (16); Unexplained expenses (11),Subject payment; Subject; Bit; Shira Yahav; Voice lessons; Yam Guvrin; Mikael; Hava; Tal Sabach; Math tutoring Mikael; Roee seminar; Mike Feinberg; Harel Aikido; Bialik; Asaf Bril; Gift to Sayarut teachers; Pizza Capoiera; Merkaz Hahalbasha; Present; Avishai Gilad; Luka food; Supermarket; Nofshon Yiron; Maya photographer; Tunisian sandwhich; Salon Table; Maayan Shachar; Meir Halachmi Woodworking; Efrat Taig; Park Hasofrim Market; Lychee; Bake sale; Hilla; Pizza Hatahana; Yoga; Earrings; Music museum Jerusalem; Juggling Jerusalem; Maya Meirav; Ben Shofan Trainer; Fruits; Yarden Mom; Italy Concert; Mikael Italy; Mika Airbnb Yodfat; Dates; Yehuda Computer repair; Eilat
 bordo,1,BORDO,Bordo (1),Going out and restaurants (1),Bordo
 cafe nook,1,CAFE NOOK,Cafe nook Rehobot (1),Opher food (1),Cafe nook Rehobot
 carbon grip,1,CARBON GRIP,Carbon grip climbing shop (1),🛍️Groceries (1),Carbon grip climbing shop
@@ -33,15 +33,15 @@ hot mobile הו ק הוראת קבע,4,"HOT MOBILE הו""ק | הוראת קבע"
 i vitina arkadias gr,1,I VITINA ARKADIAS GR,Vitina Arkadius (1),Greece 2025 (1),Vitina Arkadius
 ice city,4,ICE CITY,Ice City (4),Going out and restaurants (4),Ice City
 iherb iherb com iherb com nl,3,IHERB IHERB.COM IHERB.COM NL,iHerb (3),House and stuff (2); Loans and transfers (1),iHerb
-ikea ב איקאה,23,IKEA ב-איקאה,Ikea (18); Ikea food (4); Ikea groceries (1),House and stuff (14); House 2024 4000 (4); 🛍️Groceries (3),Ikea
+ikea ב איקאה,23,IKEA ב-איקאה,Ikea (18); Ikea food (4); Ikea groceries (1),House and stuff (14); House 2024 4000 (4); 🛍️Groceries (3),Ikea; Ikea food; Ikea groceries
 illusions sofia sofiya bg,1,ILLUSIONS SOFIA SOFIYA BG,Illusions Sofia (1),Bulgaria July 2025 (1),Illusions Sofia
 isweet,1,ISWEET,Isweet (1),Going out and restaurants (1),Isweet
 jatin z experiment jatin pandit,4,JATIN Z4614544 EXPERIMENT JATIN PANDIT,Subject (4),University (4),Subject
 juice bar pier west schwechat at,1,JUICE BAR PIER WEST SCHWECHAT AT,Juice Bar Vienna Airport (1),University (1),Juice Bar Vienna Airport
 kokkina pytharia vytina gr,1,KOKKINA PYTHARIA VYTINA GR,Kokkina (1),Greece 2025 (1),Kokkina
 ksp ב ש,2,"KSP ב""ש",KSP (2),House and stuff (1); Bulgaria July 2025 (1),KSP
-lime payoff jby5 www li me,2,LIME*PAYOFF JBY5 WWW.LI.ME US,Lime (2),Transportation (2),Lime
-lime ride jby5 www li me,2,LIME*RIDE JBY5 WWW.LI.ME US,Lime (2),Transportation (2),Lime
+lime payoff jby5 www li me us,2,LIME*PAYOFF JBY5 WWW.LI.ME US,Lime (2),Transportation (2),Lime
+lime ride jby5 www li me us,2,LIME*RIDE JBY5 WWW.LI.ME US,Lime (2),Transportation (2),Lime
 ma baker eood sofia bg,1,MA BAKER EOOD SOFIA BG,Baker Food Sofia (1),Bulgaria July 2025 (1),Baker Food Sofia
 mona liza bg eood sofiya bg,1,MONA LIZA BG EOOD SOFIYA BG,Mona Liza Bulgaria (1),Bulgaria July 2025 (1),Mona Liza Bulgaria
 mr pretzels israel,1,MR PRETZELS ISRAEL,Mr. Pretzel (1),Going out and restaurants (1),Mr. Pretzel
@@ -54,23 +54,23 @@ oomai,1,OOMAI,Oomai sushi tel aviv (1),Going out and restaurants (1),Oomai sushi
 open spot,1,OPEN SPOT 4,Offen Spot (1),🛍️Groceries (1),Offen Spot
 opher donchin,19,OPHER DONCHIN,Transfer : US Money (19),Ready to Assign (17); Future planned expenses (2),Transfer : US Money
 ortokal httpsortokal us,2,ORTOKAL HTTPSORTOKAL. US,Ortokal (2),Pilates (2),Ortokal
-paybox,7,PAYBOX,Sarah Therapist (2); Strategies teacher (2); Liron study help (2),Chugim (4); Chugim parents (1); Medical (1),Paybox
-paybox tel aviv il,15,PAYBOX TEL AVIV IL,Noga Homeopathy (3); Elian (1); Pomegrante juice (1),Chugim parents (5); Gifts (4); Going out and restaurants (2),Paybox
-paybox tel aviv il למי lior,1,PAYBOX                 TEL AVIV      IL | למי: Lior Israel,Theatre (1),Chugim (1),Paybox
-paybox tel aviv il למי כפיר,1,PAYBOX                 TEL AVIV      IL | למי: כפיר מושליון,Paybox (1),Unexplained expenses (1),Paybox
-paybox tel aviv il למי מתנה,1,PAYBOX                 TEL AVIV      IL | למי: מתנה לרינת לסוף שנה,Mikael's teacher (1),Gifts (1),Mikael's teacher
-paybox tel aviv il למי נעמה,2,PAYBOX                 TEL AVIV      IL | למי: נעמה חייט,Sarah Therapist (2),Chugim parents (2),Sarah Therapist
+paybox,7,PAYBOX,Sarah Therapist (2); Strategies teacher (2); Liron study help (2),Chugim (4); Chugim parents (1); Medical (1),Sarah Therapist; Strategies teacher; Liron study help; Mark driving instructor
+paybox tel aviv il,15,PAYBOX TEL AVIV IL,Noga Homeopathy (3); Elian (1); Pomegrante juice (1),Chugim parents (5); Gifts (4); Going out and restaurants (2),Noga Homeopathy; Elian; Pomegrante juice; Ishai gift; Paybox for someone; Shira Yahav; Paybox; Hadbara Rehovot; Yaara gift; Homeopathy; Boaz; Amir Diet; Park food
+paybox tel aviv il למי lior israel,1,PAYBOX                 TEL AVIV      IL | למי: Lior Israel,Theatre (1),Chugim (1),Theatre
+paybox tel aviv il למי כפיר מושליון,1,PAYBOX                 TEL AVIV      IL | למי: כפיר מושליון,Paybox (1),Unexplained expenses (1),Paybox
+paybox tel aviv il למי מתנה לרינת לסוף שנה,1,PAYBOX                 TEL AVIV      IL | למי: מתנה לרינת לסוף שנה,Mikael's teacher (1),Gifts (1),Mikael's teacher
+paybox tel aviv il למי נעמה חייט,2,PAYBOX                 TEL AVIV      IL | למי: נעמה חייט,Sarah Therapist (2),Chugim parents (2),Sarah Therapist
 paybox למי נעמה חייט,3,PAYBOX | למי: נעמה חייט,Sarah Therapist (3),Chugim parents (3),Sarah Therapist
 paypal alipaysinga sg,3,PAYPAL *ALIPAYSINGA 17280818884 SG,Ali Express (3),House and stuff (1); Pets (1); University (1),Ali Express
-puzzle outlet,2,PUZZLE OUTLET,Soft cookies Jerualem (1); Puzzle outlet Jerusalem (1),Summer 2024 8000 (2),
+puzzle outlet,2,PUZZLE OUTLET,Soft cookies Jerualem (1); Puzzle outlet Jerusalem (1),Summer 2024 8000 (2),Soft cookies Jerualem; Puzzle outlet Jerusalem
 reimbursement yixin wan,1,REIMBURSEMENT YIXIN WAN,Yixin Wan (1),University (1),Yixin Wan
 rewe duesseldorf flugh duesseldorf de,1,REWE DUESSELDORF FLUGH DUESSELDORF DE,Rewe Dusseldorf Airport (1),University (1),Rewe Dusseldorf Airport
 rexail קניות אונליין גמא,1,REXAIL קניות אונליין-גמא,Rexail (1),🛍️Groceries (1),Rexail
-roasters,29,ROASTERS,Roasters (28); Food machine (1),Going out and restaurants (13); Opher food (10); 🛍️Groceries (5),
+roasters,29,ROASTERS,Roasters (28); Food machine (1),Going out and restaurants (13); Opher food (10); 🛍️Groceries (5),Roasters; Food machine
 rossmann essen de,1,ROSSMANN 1950 ESSEN DE,Rossman Essen (1),University (1),Rossman Essen
-sebocelm,2,SEBOCELM,Sabo calm (1); seboclem (1),Pilates (1); House and stuff (1),
+sebocelm,2,SEBOCELM,Sabo calm (1); seboclem (1),Pilates (1); House and stuff (1),Sabo calm; seboclem
 sisira r experiment sisira kunnath,4,SISIRA R5541272 EXPERIMENT SISIRA KUNNATH,Subject (4),University (4),Subject
-so bing,2,SO BING,So Bing (1); So Bing Tel Aviv (1),Going out and restaurants (1); Birthdays (1),
+so bing,2,SO BING,So Bing (1); So Bing Tel Aviv (1),Going out and restaurants (1); Birthdays (1),So Bing; So Bing Tel Aviv
 studio garazh eood gr sofiya bg,1,STUDIO GARAZH EOOD GR SOFIYA BG,Studio Garazh (1),Bulgaria July 2025 (1),Studio Garazh
 sumup em dzhi e bansko bg,1,SUMUP *EM DZHI 2023 E BANSKO BG,Sumup Bansko (1),Bulgaria July 2025 (1),Sumup Bansko
 sweet things bg ood sofia bg,2,SWEET THINGS BG OOD SOFIA BG,Sweet Things Sofia (2),Bulgaria July 2025 (2),Sweet Things Sofia
@@ -86,8 +86,8 @@ vrr duesseldorf duesseldorf de,1,VRR DUESSELDORF DUESSELDORF DE,VRR (1),Universi
 wolt,2,WOLT,Wolt (2),Mikael (2),Wolt
 yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 א זכאי איילה,1,א זכאי איילה,Ayala tours (1),University (1),Ayala tours
-א מכונות אוטומטיות ב מ,14,א מכונות אוטומטיות. ב-מ,Food machine (5); Train food (5); Tulitul Bakery (1),🛍️Groceries (9); Going out and restaurants (2); Opher food (2),
-א פתרונות מזון ועוד נ ב,1,א פתרונות מזון ועוד.נ. ב- א,ANA Food Solutions (1),🛍️Groceries (1),ANA Food Solutions
+א מכונות אוטומטיות ב מ,14,א מכונות אוטומטיות. ב-מ,Food machine (5); Train food (5); Tulitul Bakery (1),🛍️Groceries (9); Going out and restaurants (2); Opher food (2),Food machine; Train food; Tulitul Bakery; Goomba; Roasters; Rav pas
+א פתרונות מזון ועוד נ ב א,1,א פתרונות מזון ועוד.נ. ב- א,ANA Food Solutions (1),🛍️Groceries (1),ANA Food Solutions
 אאוטלט גן שמואל,1,אאוטלט גן שמואל,Gan Shmuel (1),House and stuff (1),Gan Shmuel
 אאוטלט סינמה סי54 ב פקטורי,1,אאוטלט סינמה סי54 ב-פקטורי,Factory 54 Outlet (1),Clothing (1),Factory 54 Outlet
 אביב ליברמן ניהול הפקה,1,אביב ליברמן - ניהול הפקה,Aviv liberman (1),Going out and restaurants (1),Aviv liberman
@@ -96,11 +96,11 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 אגד מקומות שמורים,2,אגד- מקומות שמורים,Egged (2),University (2),Egged
 אדריאן דדון הוראת קבע,6,אדריאן דדון | הוראת קבע,Adrian Sports Trainer (6),Chugim parents (5); Chugim (1),Adrian Sports Trainer
 אדריאן דדון מאמן כושר ובר,1,אדריאן דדון-מאמן כושר ובר,Adrian Sports Trainer (1),Chugim parents (1),Adrian Sports Trainer
-אהרו ו ב סלתיק אלקטרומכניקה,2,אהרו ו) ב-סלתיק אלקטרומכניקה,Saltik Electromechanics (1); Seltick Electromechanics (1),House and stuff (2),
-או לה לה,20,או לה לה,Oh Lala (15); Oh la la (3); Ohlala (2),Opher food (11); Going out and restaurants (9),
+אהרו ו ב סלתיק אלקטרומכניקה,2,אהרו ו) ב-סלתיק אלקטרומכניקה,Saltik Electromechanics (1); Seltick Electromechanics (1),House and stuff (2),Saltik Electromechanics; Seltick Electromechanics
+או לה לה,20,או לה לה,Oh Lala (15); Oh la la (3); Ohlala (2),Opher food (11); Going out and restaurants (9),Oh Lala; Oh la la; Ohlala
 או לה לה אונליין,1,או לה לה אונליין,Oh la la (1),Gifts (1),Oh la la
 אודי גלילי,1,אודי גלילי,Udi Galili (1),House and stuff (1),Udi Galili
-אונ בן גורי י,26,אונ' בן גורי-י,BGU Salary (24); Salary Opher (2),Ready to Assign (26),
+אונ בן גורי י,26,אונ' בן גורי-י,BGU Salary (24); Salary Opher (2),Ready to Assign (26),BGU Salary; Salary Opher
 אונ ת א י,1,אונ' ת א-י,Tel Aviv University (1),Ready to Assign (1),Tel Aviv University
 אוניברסיטת ב י,24,אוניברסיטת ב-י,BGU (24),University (24),BGU
 אופן ספוט ווגאס,4,אופן ספוט ווגאס,Offen Spot (4),🛍️Groceries (4),Offen Spot
@@ -111,23 +111,23 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 אור ראשון,1,אור ראשון,Or Rishon (1),House and stuff (1),Or Rishon
 אור רובין,1,אור רובין,Isshin Aikido (1),Aikido (1),Isshin Aikido
 אורבניקה,1,אורבניקה,Urbanica (1),Clothing (1),Urbanica
-אורבניקה גרנד קניון באר ש,4,אורבניקה גרנד קניון באר ש,Urbanica (3); Clothing store (1),Clothing (4),
+אורבניקה גרנד קניון באר ש,4,אורבניקה גרנד קניון באר ש,Urbanica (3); Clothing store (1),Clothing (4),Urbanica; Clothing store
 אורן צביאלי,5,אורן צביאלי,Isshin Aikido (5),Aikido (5),Isshin Aikido
 אחוזות החוף מוזיאונים,1,אחוזות החוף מוזיאונים,Parking Tel Aviv Science Museum (1),Transportation (1),Parking Tel Aviv Science Museum
 אחוזת חוף חניון החשמל,1,אחוזת חוף חניון החשמל,Parking Tel Aviv (1),Transportation (1),Parking Tel Aviv
-אחים ובקבוזה טרמינל,4,אחים ובקבוזה טרמינל,Ahim Bokobza (3); Bokoboza Terminal (1),🛍️Groceries (2); Bat Mitzvah 17000 (1); Aikido (1),
+אחים ובקבוזה טרמינל,4,אחים ובקבוזה טרמינל,Ahim Bokobza (3); Bokoboza Terminal (1),🛍️Groceries (2); Bat Mitzvah 17000 (1); Aikido (1),Ahim Bokobza; Bokoboza Terminal
 איגוד ערים כנרת אמנון,4,איגוד ערים כנרת -אמנון,Parking Amnun beach (4),Summer 2024 8000 (4),Parking Amnun beach
 איי דיגיטל סטור באר שבע,1,איי דיגיטל סטור באר-שבע,Idigital (1),House and stuff (1),Idigital
 אייבורי,1,אייבורי,Ivory (1),Birthdays (1),Ivory
 אייבורי מחשבים,1,אייבורי מחשבים,Ivory (1),Pilates (1),Ivory
-אייס באר שבע,16,אייס באר שבע,Ace (15); Ace car (1),House and stuff (13); Auto Maintenance (3),
-אייקון ב ש הו ק הוראת,7,"אייקון ב""ש - הו""ק | הוראת קבע",Icon (7),Chugim parents (7),Icon
+אייס באר שבע,16,אייס באר שבע,Ace (15); Ace car (1),House and stuff (13); Auto Maintenance (3),Ace; Ace car
+אייקון ב ש הו ק הוראת קבע,7,"אייקון ב""ש - הו""ק | הוראת קבע",Icon (7),Chugim parents (7),Icon
 אייקון ב ש רגיל,1,"אייקון ב""ש  - רגיל",Icon (1),Chugim parents (1),Icon
-אילנס רכבת באר שבע צפון,5,אילנס רכבת באר שבע צפון,Train food (3); Ilans (1); Oren Meshi Bakery (1),Going out and restaurants (3); 🛍️Groceries (2),
+אילנס רכבת באר שבע צפון,5,אילנס רכבת באר שבע צפון,Train food (3); Ilans (1); Oren Meshi Bakery (1),Going out and restaurants (3); 🛍️Groceries (2),Train food; Ilans; Oren Meshi Bakery
 אילנס רכבת בית יהושע,2,אילנס רכבת-בית יהושע,Train food (2),Opher food (1); Going out and restaurants (1),Train food
 אילנס רכבת תא האוניברסי,1,אילנס רכבת -תא האוניברסי,Train food (1),Opher food (1),Train food
 אילנס רכבת תא ההגנה,1,אילנס רכבת-תא ההגנה,Train food (1),Going out and restaurants (1),Train food
-אימפריית הממתקים בעמ בא,3,אימפריית הממתקים בעמ- בא,Empire of sweets (2); Imperiyat Hamamtakim (1),🛍️Groceries (3),
+אימפריית הממתקים בעמ בא,3,אימפריית הממתקים בעמ- בא,Empire of sweets (2); Imperiyat Hamamtakim (1),🛍️Groceries (3),Empire of sweets; Imperiyat Hamamtakim
 אינטימה ביג באר שבע,2,אינטימה ביג באר שבע,Intima (2),Clothing (2),Intima
 אינספייר אינט בעמ,1,אינספייר אינט בעמ,Inspire (1),Pilates (1),Inspire
 איקאה ikea,1,איקאה IKEA,Ikea (1),House and stuff (1),Ikea
@@ -136,11 +136,11 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 אל הל,1,אל הל,El halev (1),Aikido (1),El halev
 אלגו השקיה בעמ צמרת,1,אלגו השקיה בעמ-צמרת,Elgo watering (1),House and stuff (1),Elgo watering
 אלה אוריאן,1,אלה אוריאן,Ella Tzur (1),Gifts (1),Ella Tzur
-אלו מציאות מזרחי,2,אלו מציאות-מזרחי,Sabih Tshernichovsky Tel Aviv (1); Elo Deals Mizrahi (1),Going out and restaurants (1); House and stuff (1),
+אלו מציאות מזרחי,2,אלו מציאות-מזרחי,Sabih Tshernichovsky Tel Aviv (1); Elo Deals Mizrahi (1),Going out and restaurants (1); House and stuff (1),Sabih Tshernichovsky Tel Aviv; Elo Deals Mizrahi
 אלונית בית יהושוע,1,אלונית בית יהושוע,Gas Food (1),🛍️Groceries (1),Gas Food
 אלונית נען מזרח,1,אלונית - נען מזרח,Gas Food (1),🛍️Groceries (1),Gas Food
-אלונית נען מער,8,אלונית - נען מער,Gas Food (5); Alonit (3),🛍️Groceries (4); Opher food (3); Going out and restaurants (1),
-אלטשולר שחם י,22,אלטשולר שחם-י,Altshuler Shaham (21); Excellence (1),Pilates (22),
+אלונית נען מער,8,אלונית - נען מער,Gas Food (5); Alonit (3),🛍️Groceries (4); Opher food (3); Going out and restaurants (1),Gas Food; Alonit
+אלטשולר שחם י,22,אלטשולר שחם-י,Altshuler Shaham (21); Excellence (1),Pilates (22),Altshuler Shaham; Excellence
 אלי אורן,1,אלי אורן,Bake sale (1),Pocket money (1),Bake sale
 אליזבט פונצינסקה,2,אליזבט פונצינסקה,Isshin Aikido (2),Aikido (2),Isshin Aikido
 אליטל באר שבע,2,אליטל באר שבע,Alital (2),Clothing (2),Alital
@@ -149,19 +149,19 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 אלמשהדאוי קינג סטור בעמ,1,אלמשהדאוי קינג סטור בעמ,King Store (1),🛍️Groceries (1),King Store
 אלעד דמרי,2,אלעד דמרי,Isshin Aikido (2),Aikido (2),Isshin Aikido
 אם הדרךjapanika,1,אם הדרךJAPANIKA,Japanika (1),Going out and restaurants (1),Japanika
-אם שד יהודית פי אם ב,1,אם שד' יהודית.פי.אם. ב-אי,Am Pm (1),🛍️Groceries (1),Am Pm
-אם שרותי מזון בעמ בי ב,6,אם שרותי מזון בעמ.בי. ב-אס,Campus Food (2); SBS Food (2); Airport food (1),University (2); Opher food (2); Going out and restaurants (2),
+אם שד יהודית פי אם ב אי,1,אם שד' יהודית.פי.אם. ב-אי,Am Pm (1),🛍️Groceries (1),Am Pm
+אם שרותי מזון בעמ בי ב אס,6,אם שרותי מזון בעמ.בי. ב-אס,Campus Food (2); SBS Food (2); Airport food (1),University (2); Opher food (2); Going out and restaurants (2),Campus Food; SBS Food; Airport food; Transmeet
 אמריקן איגל,9,אמריקן איגל,American Eagle (9),Clothing (9),American Eagle
 אנאגו בעמ אונמי,1,אנאגו בעמ -אונמי,Onami Tel Aviv (1),Birthdays (1),Onami Tel Aviv
 אניטה גלידה בעמ,2,אניטה גלידה בעמ,Anita Ice Cream (2),Going out and restaurants (2),Anita Ice Cream
-אצטדיון באר שבעyellow ב פז,35,אצטדיון באר שבעYELLOW ב-פז,Yellow (18); Paz (16); Gas Food (1),Gas (33); Bat Mitzvah 17000 (1); 🛍️Groceries (1),
+אצטדיון באר שבעyellow ב פז,35,אצטדיון באר שבעYELLOW ב-פז,Yellow (18); Paz (16); Gas Food (1),Gas (33); Bat Mitzvah 17000 (1); 🛍️Groceries (1),Yellow; Paz; Gas Food
 אצל גוטה קפה ומעדניה,1,אצל גוטה קפה ומעדניה,Etzel Guta Matan (1),Going out and restaurants (1),Etzel Guta Matan
 אר סלולר בעמ אי1,1,אר סלולר בעמ. - אי1,Er Selular (1),House and stuff (1),Er Selular
 אר קפה רחובות,1,אר קפה רחובות,ArCaffe Rehovot (1),Opher food (1),ArCaffe Rehovot
-ארומה אוניבסריסטת בן גורי,24,ארומה אוניבסריסטת בן גורי,Aroma (22); Tulitul Bakery (1); Campus Food (1),Opher food (18); Going out and restaurants (6),
+ארומה אוניבסריסטת בן גורי,24,ארומה אוניבסריסטת בן גורי,Aroma (22); Tulitul Bakery (1); Campus Food (1),Opher food (18); Going out and restaurants (6),Aroma; Tulitul Bakery; Campus Food
 ארומה אפליקציה,12,ארומה אפליקציה,Aroma (12),Opher food (9); Going out and restaurants (3),Aroma
 ארומה בית קמה,3,ארומה בית קמה,Aroma (3),Going out and restaurants (3),Aroma
-ארומה בן גוריון,6,ארומה בן גוריון,Aroma (4); Campus Food (1); Stopper Locks (1),Opher food (4); Going out and restaurants (1); Unplanned extra expense (1),
+ארומה בן גוריון,6,ארומה בן גוריון,Aroma (4); Campus Food (1); Stopper Locks (1),Opher food (4); Going out and restaurants (1); Unplanned extra expense (1),Aroma; Campus Food; Stopper Locks
 ארומה דיזנגוף סנטר,2,ארומה דיזנגוף סנטר,Aroma Dizengoff Center (2),Going out and restaurants (2),Aroma Dizengoff Center
 ארומה הנשיאים,4,ארומה הנשיאים,Aroma (4),Going out and restaurants (3); Opher food (1),Aroma
 ארומה סטאר אשדוד,1,ארומה סטאר אשדוד,Aroma Ashdod (1),Going out and restaurants (1),Aroma Ashdod
@@ -169,12 +169,12 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 ארומה רגר,1,ארומה רגר,Aroma (1),Opher food (1),Aroma
 ב אריכא סביח אגריפס,1,83 ב-אריכא סביח אגריפס,Aricha Sabich Jerusalem (1),Opher food (1),Aricha Sabich Jerusalem
 ב ב טאיו סופרמרקט אסיאתי,9,ב) ב-טאיו - סופרמרקט אסיאתי,Tayo (9),🛍️Groceries (9),Tayo
-ב ביאליק,8,26 ב-ביאליק,Bialek 26 (5); Bialik (2); Subject payment (1),Going out and restaurants (7); University (1),
-ב בן זינו אינסטלציה ושי ב,1,ב בן זינו אינסטלציה ושי. ב-ש,Ben Zino Plumbing (1),Unplanned extra expense (1),Ben Zino Plumbing
+ב ביאליק,8,26 ב-ביאליק,Bialek 26 (5); Bialik (2); Subject payment (1),Going out and restaurants (7); University (1),Bialek 26; Bialik; Subject payment
+ב בן זינו אינסטלציה ושי ב ש,1,ב בן זינו אינסטלציה ושי. ב-ש,Ben Zino Plumbing (1),Unplanned extra expense (1),Ben Zino Plumbing
 ב החלוץ,2,33 ב-החלוץ,Hahalutz 33 (2),Going out and restaurants (2),Hahalutz 33
-ב טיקצ אק כרטיסים,2,6565* ב-טיקצ'אק כרטיסים,SBS Food (1); Transmeet (1),Going out and restaurants (1); University (1),
+ב טיקצ אק כרטיסים,2,6565* ב-טיקצ'אק כרטיסים,SBS Food (1); Transmeet (1),Going out and restaurants (1); University (1),SBS Food; Transmeet
 ב סברס באר שבע בניין,3,30 ב-סברס באר שבע בניין,Campus Food (3),Opher food (3),Campus Food
-ב סופר פארם באר שבע,19,4 ב-סופר פארם באר שבע,Superpharm (18); Superfarm (1),House and stuff (13); Medical (5); Opher food (1),
+ב סופר פארם באר שבע,19,4 ב-סופר פארם באר שבע,Superpharm (18); Superfarm (1),House and stuff (13); Medical (5); Opher food (1),Superpharm; Superfarm
 ב סופר פארם גן שמואל,1,84 ב-סופר פארם גן שמואל,Superpharm (1),House and stuff (1),Superpharm
 ב סופרפארם ביג באר שבע,3,55 ב-סופרפארם ביג באר-שבע,Superpharm (3),House and stuff (2); Medical (1),Superpharm
 ב קפאסה,1,? ב-קפאסה,Kepasa (1),Going out and restaurants (1),Kepasa
@@ -185,7 +185,7 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 באג ביג באר שבע,2,באג ביג באר שבע,Bug (2),House and stuff (2),Bug
 באג מולטיסיסטם בעמ,1,באג מולטיסיסטם בעמ,Bug (1),House and stuff (1),Bug
 באלה חומוס,2,באלה חומוס,Baleh Humus Rakefet (2),🛍️Groceries (1); Opher food (1),Baleh Humus Rakefet
-באר שבע חדש ביג,14,באר שבע חדש ביג,Rami Levi (7); Rami Levy (7),🛍️Groceries (14),
+באר שבע חדש ביג,14,באר שבע חדש ביג,Rami Levi (7); Rami Levy (7),🛍️Groceries (14),Rami Levi; Rami Levy
 באר שבע מזרחksp,1,באר שבע מזרחKSP,KSP (1),House and stuff (1),KSP
 באר שבע מרכז yellow ב פז,1,באר שבע מרכז/YELLOW ב-פז,Yellow (1),Gas (1),Yellow
 באר שבע צפון yellow ב פז,2,באר שבע צפון/YELLOW ב-פז,Yellow (2),Gas (2),Yellow
@@ -196,10 +196,10 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 בוטיק דגים בעמ,5,בוטיק דגים בעמ,Fish boutique (5),🛍️Groceries (4); Bat Mitzvah 17000 (1),Fish boutique
 בועות שירותי כביסה,1,בועות שירותי כביסה,Soap suds laundry (1),House and stuff (1),Soap suds laundry
 בועז נחייסי,6,בועז נחייסי,Boaz (6),Pilates (6),Boaz
-בוקאיט תיירות ואטרקציות,3,בוקאיט תיירות ואטרקציות,Bookit attractions (2); Lehem Hemed (1),Going out and restaurants (2); 🛍️Groceries (1),
+בוקאיט תיירות ואטרקציות,3,בוקאיט תיירות ואטרקציות,Bookit attractions (2); Lehem Hemed (1),Going out and restaurants (2); 🛍️Groceries (1),Bookit attractions; Lehem Hemed
 בורגוס קציר שדה,4,בורגוס קציר שדה,Bbb (4),Going out and restaurants (4),Bbb
 בטוח לאומי ח י,4,בטוח לאומי ח-י,Bituach Leumi (4),Pilates (2); Ready to Assign (2),Bituach Leumi
-בי פרש בן יהודה,2,בי פרש בן יהודה,Turkish coffee Jerusalem (1); Be Fresh Midrahov Jerusalem (1),Summer 2024 8000 (2),
+בי פרש בן יהודה,2,בי פרש בן יהודה,Turkish coffee Jerusalem (1); Be Fresh Midrahov Jerusalem (1),Summer 2024 8000 (2),Turkish coffee Jerusalem; Be Fresh Midrahov Jerusalem
 ביג באר שבע ב עידן,1,ביג באר שבע2000 ב-עידן,Idan Zoo (1),Gifts (1),Idan Zoo
 ביג בש פוט לוקר,2,ביג בש פוט לוקר,Foot locker (2),Clothing (2),Foot locker
 ביג סטוק באר שבע,2,ביג סטוק באר שבע,Big Stok (2),House and stuff (1); Birthdays (1),Big Stok
@@ -221,23 +221,23 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 בית מאפה נורית,1,בית מאפה נורית,Bei Mafe (1),🛍️Groceries (1),Bei Mafe
 בית מרקחת מגאר טורעאן,1,בית מרקחת מגאר-טורעאן,Pharmacy Magar (1),Medical (1),Pharmacy Magar
 בית מרקחת מכבי באר שבע,2,בית מרקחת מכבי באר שבע,Maccabi Pharm (2),Medical (2),Maccabi Pharm
-בית קמה,3,בית קמה,Beit Kama (2); Gas (1),Gas (3),
-בית קמהyellow ב פז,6,בית קמהYELLOW / ב-פז,Yellow (4); Gas Food (2),Gas (4); 🛍️Groceries (2),
-בליקר בייקרי נתבג,2,בליקר בייקרי נתבג,Bleeker Bakery Airport (1); Bleeker (1),Bulgaria July 2025 (1); University (1),
+בית קמה,3,בית קמה,Beit Kama (2); Gas (1),Gas (3),Beit Kama; Gas
+בית קמהyellow ב פז,6,בית קמהYELLOW / ב-פז,Yellow (4); Gas Food (2),Gas (4); 🛍️Groceries (2),Yellow; Gas Food
+בליקר בייקרי נתבג,2,בליקר בייקרי נתבג,Bleeker Bakery Airport (1); Bleeker (1),Bulgaria July 2025 (1); University (1),Bleeker Bakery Airport; Bleeker
 בליקר בייקרי קריית גת,1,בליקר בייקרי קריית גת,Bleeker (1),🛍️Groceries (1),Bleeker
-במכשיר הפועלים סניף משיכת מזומן נמשך,1,411 במכשיר הפועלים סניף0849-משיכת מזומן נמשך מכרטיס המסתיים ב,Transfer : Cash (1),,Transfer : Cash
-בן דוד ענת שיננית,6,בן דוד ענת שיננית,David Anat Hygienist (5); Hygienist (1),Medical (6),
+במכשיר הפועלים סניף משיכת מזומן נמשך מכרטיס המסתיים ב,1,411 במכשיר הפועלים סניף0849-משיכת מזומן נמשך מכרטיס המסתיים ב,Transfer : Cash (1),,Transfer : Cash
+בן דוד ענת שיננית,6,בן דוד ענת שיננית,David Anat Hygienist (5); Hygienist (1),Medical (6),David Anat Hygienist; Hygienist
 בנדיקט באר שבע,1,בנדיקט באר שבע,Benedict Beer Sheva (1),Going out and restaurants (1),Benedict Beer Sheva
 בנה פ הזמנת מט ח,2,"בנה""פ - הזמנת מט""ח",Airport Change (2),Bulgaria July 2025 (2),Airport Change
-בנהפbit ב העברה,88,בנהפBIT ב-העברה,Shira Yahav (42); Bit (14); Mark driving instructor (5),Chugim parents (43); Unexplained expenses (11); Pilates (5),
+בנהפbit ב העברה,88,בנהפBIT ב-העברה,Shira Yahav (42); Bit (14); Mark driving instructor (5),Chugim parents (43); Unexplained expenses (11); Pilates (5),Shira Yahav; Bit; Mark driving instructor; Oded Dog Trainer; Bit fees; Naama Himob Consult; Sayarut food; Hadas Yaara Birthday; David Broza; Itai Cohen; Birthday gift; Tania Massage; Strawberries; Hava; Present; Shai Aikido; Rehovot apartment; Gift to teacher; Malka Mayan Ben Ari; Gift Mikael teacher; Pizza; Lychee; Malabi; Adrian Sports Trainer; Vaad Horim; Pilates marketing; Vegetables Chen
 בנק הדואר י,2,בנק הדואר-י,Isshin Aikido (2),Aikido (2),Isshin Aikido
-בנק הפועלים,21,בנק הפועלים,Isshin Aikido (18); Poalim (2); Kosher Kravi (1),Aikido (18); University (2); Chugim (1),
+בנק הפועלים,21,בנק הפועלים,Isshin Aikido (18); Poalim (2); Kosher Kravi (1),Aikido (18); University (2); Chugim (1),Isshin Aikido; Poalim; Kosher Kravi
 בנק מזרחי,1,בנק מזרחי,Isshin Aikido (1),Aikido (1),Isshin Aikido
-בע ספקטור את פז ב הובי,3,בע)ספקטור את פז( ב-הובי לי,Hobi Lee (2); Hobee Lee (1),House and stuff (2); Birthdays (1),
+בע ספקטור את פז ב הובי לי,3,בע)ספקטור את פז( ב-הובי לי,Hobi Lee (2); Hobee Lee (1),House and stuff (2); Birthdays (1),Hobi Lee; Hobee Lee
 בעיר הבלוק7,2,בעיר הבלוק7,Minimarket 7 BaIr (2),🛍️Groceries (2),Minimarket 7 BaIr
 בעיר סניף תקוע7,4,בעיר - סניף תקוע7,Minimarket 7 BaIr (4),🛍️Groceries (4),Minimarket 7 BaIr
 בעיר7,1,בעיר7,Kvutzat Hahim (1),🛍️Groceries (1),Kvutzat Hahim
-בעיר7 ב רשת,19,בעיר7 ב-רשת,Minimarket 7 BaIr (14); Kvutzat Hahim (4); Rami Levi (1),🛍️Groceries (18); Aikido (1),
+בעיר7 ב רשת,19,בעיר7 ב-רשת,Minimarket 7 BaIr (14); Kvutzat Hahim (4); Rami Levi (1),🛍️Groceries (18); Aikido (1),Minimarket 7 BaIr; Kvutzat Hahim; Rami Levi
 בעמ א ע ב לי אופיס,1,בעמ(א.ע) ב-לי אופיס,Lee Office (1),Chugim (1),Lee Office
 בעמ ב לוקר אמבין,1,בעמ(21) ב-לוקר אמבין,Locker Ambin (1),Locker Danielle 160 August (1),Locker Ambin
 בעמ ב פז בר,2,בעמ(1989) ב-פז - בר,Paz (2),Gas (2),Paz
@@ -250,13 +250,13 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 בעמ97 ב מפעלי אלן,4,בעמ97 ב-מפעלי אלן,Allen car test (4),Mazda registration 1500 Dec (3); Hyundai registration 1500 May (1),Allen car test
 בעמ98 ב אס,1,בעמ98 ב-אס,AS 98 Shoes (1),Clothing (1),AS 98 Shoes
 בריאותא,2,בריאותא,Briuta (2),Medical (2),Briuta
-ברפוט התנועה הטבעית,3,ברפוט התנועה הטבעית,Barefoot Natural Motion Tel Aviv (2); Barefoot lady comfort (1),Clothing (3),
-ברשקה ביג באר שבע,2,ברשקה ביג באר שבע,Bareshka (1); Bershka (1),Clothing (2),
+ברפוט התנועה הטבעית,3,ברפוט התנועה הטבעית,Barefoot Natural Motion Tel Aviv (2); Barefoot lady comfort (1),Clothing (3),Barefoot Natural Motion Tel Aviv; Barefoot lady comfort
+ברשקה ביג באר שבע,2,ברשקה ביג באר שבע,Bareshka (1); Bershka (1),Clothing (2),Bareshka; Bershka
 בש ב כרמים,1,בש) ב-כרמים,Cramim (1),Birthdays (1),Cramim
 בשksp,1,בשKSP,KSP (1),House and stuff (1),KSP
 בשירי מרדכי ובניו בעמ,1,בשירי מרדכי ובניו בעמ,Bashiri (1),House and stuff (1),Bashiri
-בתי קולנוע לב תא,2,בתי קולנוע לב תא,Lev Movies (1); Movie Food (1),Going out and restaurants (2),
-בתי קולנוע תאטראות בעמ,2,בתי קולנוע תאטראות בעמ,Yes Planet (1); Movies (1),Going out and restaurants (2),
+בתי קולנוע לב תא,2,בתי קולנוע לב תא,Lev Movies (1); Movie Food (1),Going out and restaurants (2),Lev Movies; Movie Food
+בתי קולנוע תאטראות בעמ,2,בתי קולנוע תאטראות בעמ,Yes Planet (1); Movies (1),Going out and restaurants (2),Yes Planet; Movies
 ג אפן ג אפן הגבעה הצרפתית,1,ג'אפן ג'אפן הגבעה הצרפתית,Japan Japan Jerusalem (1),Going out and restaurants (1),Japan Japan Jerusalem
 ג ול,1,ג'ול,Jule (1),Clothing (1),Jule
 ג וני קריספי מרכז הנגב ה,2,ג'וני קריספי מרכז הנגב ה,Jonny Crispy (2),Going out and restaurants (2),Jonny Crispy
@@ -268,7 +268,7 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 גוד פארם סינמה סיטי בש,1,גוד פארם סינמה סיטי בש,Goodpharm (1),🛍️Groceries (1),Goodpharm
 גולן טלקום הוראת קבע,3,גולן טלקום | הוראת קבע,Golan telecom (3),Internet (3),Golan telecom
 גומבה,1,גומבה,Goomba (1),Going out and restaurants (1),Goomba
-גומבה ביג,8,גומבה ביג,Goomba (6); Tulitul Bakery (1); Food machine (1),Going out and restaurants (7); 🛍️Groceries (1),
+גומבה ביג,8,גומבה ביג,Goomba (6); Tulitul Bakery (1); Food machine (1),Going out and restaurants (7); 🛍️Groceries (1),Goomba; Tulitul Bakery; Food machine
 גומעה,1,גומעה,Gomaa Sde Boker (1),Summer 2024 8000 (1),Gomaa Sde Boker
 גוניור פיצה,1,גוניור פיצה,Junior Pizza Jerusalem (1),Going out and restaurants (1),Junior Pizza Jerusalem
 גוסטה פיצה,1,גוסטה פיצה,Gusta Pizza (1),Mikael (1),Gusta Pizza
@@ -284,7 +284,7 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 גלריה סול,1,גלריה סול,Galeria Sol (1),Pilates (1),Galeria Sol
 גן החיות התנכי בירושלים,1,גן החיות התנכי בירושלים,Aquarium Jerusalem (1),Summer 2024 8000 (1),Aquarium Jerusalem
 גפניקה,1,גפניקה,Japanika (1),Summer 2024 8000 (1),Japanika
-גרואו פיימנט י,7,גרואו פיימנט-י,Grow (3); Grow Isshin Aikido (2); Isshin Aikido (1),Aikido (5); Pilates (2),
+גרואו פיימנט י,7,גרואו פיימנט-י,Grow (3); Grow Isshin Aikido (2); Isshin Aikido (1),Aikido (5); Pilates (2),Grow; Grow Isshin Aikido; Isshin Aikido; Grow Pilates
 דבורה מילכיקר,1,דבורה מילכיקר,Isshin Aikido (1),Aikido (1),Isshin Aikido
 דביר מצנחי רחיפה,2,דביר מצנחי רחיפה,Dvir Parachutes (2),Birthdays (2),Dvir Parachutes
 דו יוגה,8,דו יוגה,Du Yoga (8),Chugim (8),Du Yoga
@@ -294,8 +294,8 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 דור אלון אום אל פאחם,1,דור אלון אום אל פאחם,Dor Alon (1),Gas (1),Dor Alon
 דור אלון ביג,1,דור אלון ביג,Gas (1),Gas (1),Gas
 דור אלון גבעת עדה,1,דור אלון גבעת עדה,Dor Alon (1),Gas (1),Dor Alon
-דור אלון דבירה,3,דור אלון דבירה,Dor Alon (2); Dor Alon Dvira (1),Gas (3),
-דור אלון העיר העתיקה בש,2,דור אלון העיר העתיקה בש,Dor Alon (1); Gas (1),Gas (2),
+דור אלון דבירה,3,דור אלון דבירה,Dor Alon (2); Dor Alon Dvira (1),Gas (3),Dor Alon; Dor Alon Dvira
+דור אלון העיר העתיקה בש,2,דור אלון העיר העתיקה בש,Dor Alon (1); Gas (1),Gas (2),Dor Alon; Gas
 דור אלון חבצלת השרון,1,דור אלון חבצלת השרון,Dor Alon (1),Gas (1),Dor Alon
 דור אלון מגד הדרים,1,דור אלון מגד הדרים,Dor Alon (1),Gas (1),Dor Alon
 דור אלון מגל מזרח,1,דור אלון מגל מזרח,Dor Alon (1),Gas (1),Dor Alon
@@ -304,7 +304,7 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 דור אלון קבוצת יבנה,1,דור אלון קבוצת יבנה,Dor Alon (1),Gas (1),Dor Alon
 דור אלון תדהר,1,דור אלון תדהר,Dor Alon (1),Gas (1),Dor Alon
 דור עמוס ז ורנו,1,דור עמוס ז'ורנו,Isshin Aikido (1),Aikido (1),Isshin Aikido
-דיל הר בוקר,45,דיל הר בוקר,Supersal (42); Supersal Deal (3),🛍️Groceries (45),
+דיל הר בוקר,45,דיל הר בוקר,Supersal (42); Supersal Deal (3),🛍️Groceries (45),Supersal; Supersal Deal
 דיפונט דיזינגוף,1,דיפונט דיזינגוף,Deponet Dizengoff Center (1),Pocket money (1),Deponet Dizengoff Center
 דלק אורים,1,דלק אורים,Delek (1),Gas (1),Delek
 דלק אשל אברהם,1,דלק אשל אברהם,Delek (1),Gas (1),Delek
@@ -312,15 +312,15 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 דלק להב אלון,2,דלק להב אלון,Delek (2),Gas (2),Delek
 דלק מנטה נאות חוב,1,דלק מנטה נאות חוב,Delek (1),Gas (1),Delek
 דלק מנטה צומת גילת,2,דלק מנטה צומת גילת,Delek (2),Gas (2),Delek
-דלק מנטה קמעונאות דרכים,4,דלק מנטה קמעונאות דרכים,Gas Food (2); Delek (1); Delek Mitzpeh Ramon (1),Gas (1); 🛍️Groceries (1); Going out and restaurants (1),
-דלק קמעונאות מפגש הספורט,5,דלק קמעונאות מפגש הספורט,Delek (4); Gas (1),Gas (5),
+דלק מנטה קמעונאות דרכים,4,דלק מנטה קמעונאות דרכים,Gas Food (2); Delek (1); Delek Mitzpeh Ramon (1),Gas (1); 🛍️Groceries (1); Going out and restaurants (1),Gas Food; Delek; Delek Mitzpeh Ramon
+דלק קמעונאות מפגש הספורט,5,דלק קמעונאות מפגש הספורט,Delek (4); Gas (1),Gas (5),Delek; Gas
 דלתא,9,דלתא,Delta (9),Clothing (7); Birthdays (1); House and stuff (1),Delta
 דמירל חומרי בנין בעמ,5,דמירל חומרי בנין בעמ,Demirol (5),House and stuff (5),Demirol
-דן דיל באר שבע,8,דן דיל באר שבע,Dan Dil (5); Dan Deal (2); Supersal (1),House and stuff (6); 🛍️Groceries (1); Birthdays (1),
+דן דיל באר שבע,8,דן דיל באר שבע,Dan Dil (5); Dan Deal (2); Supersal (1),House and stuff (6); 🛍️Groceries (1); Birthdays (1),Dan Dil; Dan Deal; Supersal
 דנה חופשי,1,דנה חופשי,Isshin Aikido (1),Aikido (1),Isshin Aikido
-דקטלון יישראל בעמ,21,דקטלון יישראל בעמ,Decathlon (17); Decathalon (3); Isshin Aikido (1),House and stuff (8); Clothing (6); Bulgaria July 2025 (4),
+דקטלון יישראל בעמ,21,דקטלון יישראל בעמ,Decathlon (17); Decathalon (3); Isshin Aikido (1),House and stuff (8); Clothing (6); Bulgaria July 2025 (4),Decathlon; Decathalon; Isshin Aikido
 דר לורה מעוז,6,דר לורה מעוז,Laura Maoz Dentist (6),Medical (6),Laura Maoz Dentist
-דרכי נעם,3,דרכי נעם,Way of Noam (2); Noam Geva (1),Pilates (3),
+דרכי נעם,3,דרכי נעם,Way of Noam (2); Noam Geva (1),Pilates (3),Way of Noam; Noam Geva
 ה מבנק מסד ס י,1,ה מבנק מסד ס-י,Isshin Aikido (1),Aikido (1),Isshin Aikido
 האחים,1,האחים,HaAhim Tel Aviv (1),Going out and restaurants (1),HaAhim Tel Aviv
 האיגוד הישראלי לשחמט,1,האיגוד הישראלי לשחמט,Chess (1),Chugim (1),Chess
@@ -336,30 +336,30 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 החומוס של טחינה באר שבע,2,החומוס של טחינה באר שבע,Humus Shel HaTahina (2),Aikido (1); Opher food (1),Humus Shel HaTahina
 החוף הירוק חוקוק חניון,6,החוף הירוק - חוקוק חניון,Huquq Beach (6),Vacation 2024 4000 (6),Huquq Beach
 החזר הוצאה yixin wan,1,החזר הוצאה YIXIN WAN,Yixin Wan (1),University (1),Yixin Wan
-החזר פריים,4,החזר פריים,Interest (2); Tax refund (2),Ready to Assign (2); Investment income and expenses (2),
-החצ פוריה,2,החצ'פוריה,Hatsporya Jerusalem (1); Hahatzporia Jerusalem (1),Summer 2024 8000 (2),
+החזר פריים,4,החזר פריים,Interest (2); Tax refund (2),Ready to Assign (2); Investment income and expenses (2),Interest; Tax refund
+החצ פוריה,2,החצ'פוריה,Hatsporya Jerusalem (1); Hahatzporia Jerusalem (1),Summer 2024 8000 (2),Hatsporya Jerusalem; Hahatzporia Jerusalem
 הטורקי מצפה רמון,1,הטורקי מצפה רמון,The Turk Mitzpe Ramon (1),Going out and restaurants (1),The Turk Mitzpe Ramon
 היי קוקי,2,היי קוקי,Hey cookie (2),Going out and restaurants (1); 🛍️Groceries (1),Hey cookie
 היפר טוי בש,3,היפר טוי בש,Hyper Toys (3),Gifts (2); Birthdays (1),Hyper Toys
 הירוק,8,הירוק,Felafel Hayarok (8),Going out and restaurants (8),Felafel Hayarok
 הירוק השלום,1,הירוק השלום,Felafel Hayarok (1),Going out and restaurants (1),Felafel Hayarok
-הירקניה שלי,60,הירקניה שלי,Vegetable Sheli (57); The yarkanya (2); Beit Hapaham (1),🛍️Groceries (60),
+הירקניה שלי,60,הירקניה שלי,Vegetable Sheli (57); The yarkanya (2); Beit Hapaham (1),🛍️Groceries (60),Vegetable Sheli; The yarkanya; Beit Hapaham
 הכל לאופה ולמטבח,1,הכל לאופה ולמטבח,Hakol laofeh (1),Birthdays (1),Hakol laofeh
 הכלב במושב מקסימוס,4,הכלב במושב-מקסימוס,Hakelev Bamoshav (4),Kelev Bamoshav 1500 August (3); Pets (1),Hakelev Bamoshav
 הכנאפה הטורקית,4,הכנאפה הטורקית,Haknafe Haturki First train jerusalem (4),Summer 2024 8000 (4),Haknafe Haturki First train jerusalem
 הלחם של תומר תלפיות,2,הלחם של תומר - תלפיות,Halehem Shel Tomer (2),Opher food (1); 🛍️Groceries (1),Halehem Shel Tomer
-הליקרים של אבן רם בעמ,2,הליקרים של אבן רם בעמ,Tarantino Jerusalem (1); Lickers Jerusalem (1),Summer 2024 8000 (2),
-המדור כושר קרבי,2,המדור כושר קרבי,Hamador fighting fitness (1); Kosher Kravi (1),Mikael teenager 20000 (1); Chugim (1),
+הליקרים של אבן רם בעמ,2,הליקרים של אבן רם בעמ,Tarantino Jerusalem (1); Lickers Jerusalem (1),Summer 2024 8000 (2),Tarantino Jerusalem; Lickers Jerusalem
+המדור כושר קרבי,2,המדור כושר קרבי,Hamador fighting fitness (1); Kosher Kravi (1),Mikael teenager 20000 (1); Chugim (1),Hamador fighting fitness; Kosher Kravi
 המוסד לביטוח לאומי חשבו הוראת קבע,5,המוסד לביטוח לאומי - חשבו | הוראת קבע,Bituach Leumi (5),Pilates (5),Bituach Leumi
 המוסד לביטוח לאומי מוקד ט,1,המוסד לביטוח לאומי מוקד ט,Bituach Leumi (1),Unplanned extra expense (1),Bituach Leumi
 המזנון שרונה,4,המזנון שרונה,Hamiznon Sarona (4),Going out and restaurants (4),Hamiznon Sarona
 המכולת שלי דרך הים,1,המכולת שלי דרך הים,Makolet (1),🛍️Groceries (1),Makolet
 המכללה לחינוך גופני,1,המכללה לחינוך גופני,Wingate College (1),Pilates (1),Wingate College
-המקסיקני אוניברסיטת בן גו,2,המקסיקני אוניברסיטת בן גו,Mexicani (1); Campus Food (1),Going out and restaurants (1); Opher food (1),
+המקסיקני אוניברסיטת בן גו,2,המקסיקני אוניברסיטת בן גו,Mexicani (1); Campus Food (1),Going out and restaurants (1); Opher food (1),Mexicani; Campus Food
 המרכז לאומן ג פטו,1,המרכז לאומן-ג'פטו,Hamerkaz Loman (1),House and stuff (1),Hamerkaz Loman
 המרכז לחינוך סייבר,1,המרכז לחינוך סייבר,Cyber Education Center (1),Chugim (1),Cyber Education Center
 המתססה בע מ,2,המתססה בע''מ,Hamatsesah (2),House and stuff (1); Going out and restaurants (1),Hamatsesah
-הנשיאיםyellow ב פז,14,הנשיאיםYELLOW / ב-פז,Yellow (9); Gas Food (3); Gas (1),Gas (11); 🛍️Groceries (3),
+הנשיאיםyellow ב פז,14,הנשיאיםYELLOW / ב-פז,Yellow (9); Gas Food (3); Gas (1),Gas (11); 🛍️Groceries (3),Yellow; Gas Food; Gas; Paz
 הסייריםyellow ב פז,1,הסייריםYELLOW ב-פז,Gas Food (1),🛍️Groceries (1),Gas Food
 העיראקי,1,העיראקי,HaIraqi (1),Going out and restaurants (1),HaIraqi
 העמדת הלואה,1,העמדת הלואה,Loan Pilates (1),Pilates (1),Loan Pilates
@@ -367,14 +367,14 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 הפינה של ישראל,1,הפינה של ישראל,Hapina Shel Israel (1),Opher food (1),Hapina Shel Israel
 הפינה של ליבי,1,הפינה של ליבי,Libby (1),Going out and restaurants (1),Libby
 הפניקס ביטוח הוראת קבע,2,הפניקס ביטוח | הוראת קבע,Phoenix travel insurance (2),Bulgaria July 2025 (2),Phoenix travel insurance
-הפניקס גמל ל י,5,הפניקס גמל ל-י,Transfer : Planned Liya (3); Transfer : Unplanned Opher (2),,
+הפניקס גמל ל י,5,הפניקס גמל ל-י,Transfer : Planned Liya (3); Transfer : Unplanned Opher (2),,Transfer : Planned Liya; Transfer : Unplanned Opher
 הפק מזומן י כ,7,הפק' מזומן י.כ,Transfer : Cash (7),,Transfer : Cash
 הפקדה,1,הפקדה,Mikael (1),Mikael (1),Mikael
-הפקדות קופג י,72,הפקדות קופג-י,Transfer : Unplanned Opher (24); Transfer : Planned Liya (24); Excellence (23),Pilates (23); University (1),
-הפקדת שיק,3,הפקדת שיק,Mekif A (1); Hava (1); Maof teaching (1),Unplanned extra expense (1); Danielle (1); Aikido (1),
+הפקדות קופג י,72,הפקדות קופג-י,Transfer : Unplanned Opher (24); Transfer : Planned Liya (24); Excellence (23),Pilates (23); University (1),Transfer : Unplanned Opher; Transfer : Planned Liya; Excellence; Subject
+הפקדת שיק,3,הפקדת שיק,Mekif A (1); Hava (1); Maof teaching (1),Unplanned extra expense (1); Danielle (1); Aikido (1),Mekif A; Hava; Maof teaching
 הצריף,1,הצריף,Hatzrif (1),Going out and restaurants (1),Hatzrif
-הראל ביטוח בריאות הוראת קבע,5,הראל-ביטוח בריאות | הוראת קבע,Harel health insurance (3); Harel life insurance (1); Harel insurance (1),Insurance! (4); Aikido (1),
-הראל ביטוח כללי,2,הראל ביטוח כללי,Harel Aikido (1); Harel insurance (1),Aikido (2),
+הראל ביטוח בריאות הוראת קבע,5,הראל-ביטוח בריאות | הוראת קבע,Harel health insurance (3); Harel life insurance (1); Harel insurance (1),Insurance! (4); Aikido (1),Harel health insurance; Harel life insurance; Harel insurance
+הראל ביטוח כללי,2,הראל ביטוח כללי,Harel Aikido (1); Harel insurance (1),Aikido (2),Harel Aikido; Harel insurance
 הרצוג פוקס ו,1,הרצוג פוקס ו,Herzog Fox Neeman (1),Investment income and expenses (1),Herzog Fox Neeman
 השתיל מושב תדהר,6,השתיל מושב תדהר,Hashtil moshav tidhar (6),House and stuff (6),Hashtil moshav tidhar
 התבלינים של איילת אינטר,3,התבלינים של איילת - אינטר,Tavlinim Shel Ayelet (3),🛍️Groceries (3),Tavlinim Shel Ayelet
@@ -401,14 +401,14 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 זיגו אירועים,1,זיגו אירועים,Zygo Events (1),Unexplained expenses (1),Zygo Events
 זיו קמחי,2,זיו קמחי,Isshin Aikido (2),Aikido (2),Isshin Aikido
 זיו שוורצמן,1,זיו שוורצמן,Schwartzman Dairy (1),Summer 2025 (1),Schwartzman Dairy
-זר תחנות דלק בעמ,4,זר תחנות דלק בעמ,Gas Food (3); Yellow (1),🛍️Groceries (3); Gas (1),
+זר תחנות דלק בעמ,4,זר תחנות דלק בעמ,Gas Food (3); Yellow (1),🛍️Groceries (3); Gas (1),Gas Food; Yellow
 חברת דואר ישראל הכנה למשל,1,חברת דואר ישראל-הכנה למשל,Postal Service (1),House and stuff (1),Postal Service
-חברת החשמל לישראל בע מ הוראת,3,"חברת החשמל לישראל בע""מ | הוראת קבע",Electricity (2); Electric bill (1),⚡Electric (3),
+חברת החשמל לישראל בע מ הוראת קבע,3,"חברת החשמל לישראל בע""מ | הוראת קבע",Electricity (2); Electric bill (1),⚡Electric (3),Electricity; Electric bill
 חגית רוזן,1,חגית רוזן,Hagit Rozen (1),Unplanned extra expense (1),Hagit Rozen
-חוה קאליר,7,חוה קאליר,Hava Kallir (6); Hava (1),Loans and transfers (6); Danielle (1),
+חוה קאליר,7,חוה קאליר,Hava Kallir (6); Hava (1),Loans and transfers (6); Danielle (1),Hava Kallir; Hava
 חוות האלפקות,3,חוות האלפקות,Alpaca Farm (3),Going out and restaurants (3),Alpaca Farm
 חוות קורנמל,3,חוות קורנמל,Kornmel (3),Going out and restaurants (2); Summer 2024 8000 (1),Kornmel
-חוות רימון,2,חוות רימון,Havat Rimon Food (1); Havat Rimon (1),Going out and restaurants (1); 🛍️Groceries (1),
+חוות רימון,2,חוות רימון,Havat Rimon Food (1); Havat Rimon (1),Going out and restaurants (1); 🛍️Groceries (1),Havat Rimon Food; Havat Rimon
 חומוס אליהו,9,חומוס אליהו,Humus Eliyahu (9),🛍️Groceries (9),Humus Eliyahu
 חומוס פול פארק הסופרים,2,חומוס פול פארק הסופרים,Humus Park Hosfrim (2),Opher food (2),Humus Park Hosfrim
 חוקוק נופש מסעדה,1,חוקוק נופש מסעדה,Huquq Beach (1),Vacation 2024 4000 (1),Huquq Beach
@@ -429,27 +429,27 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 טבע עברי ער,1,טבע עברי ער,Teva Ivri (1),🛍️Groceries (1),Teva Ivri
 טוגו,2,טוגו,Togo (2),Clothing (2),Togo
 טוטסי מ מ בע מ,1,"טוטסי מ.מ בע""מ",Tootsi Yodfat (1),🛍️Groceries (1),Tootsi Yodfat
-טוליטול בית מאפה וקפה,10,טוליטול בית מאפה וקפה,Tulitul Bakery (7); Goomba (1); Food machine (1),Going out and restaurants (8); 🛍️Groceries (1); Opher food (1),
+טוליטול בית מאפה וקפה,10,טוליטול בית מאפה וקפה,Tulitul Bakery (7); Goomba (1); Food machine (1),Going out and restaurants (8); 🛍️Groceries (1); Opher food (1),Tulitul Bakery; Goomba; Food machine; Aroma
 טיב טעם רשתות באר שבע חד,46,טיב טעם רשתות באר שבע חד,Tiv Taam (46),🛍️Groceries (43); Bat Mitzvah 17000 (2); Mikael (1),Tiv Taam
 טיב טעם רשתות כרמיאל,2,טיב טעם רשתות כרמיאל,Tiv Taam Karmiel (2),Summer 2025 (2),Tiv Taam Karmiel
 טיב טעם רשתות רחובות,1,טיב טעם רשתות רחובות,Tiv Taam (1),🛍️Groceries (1),Tiv Taam
 טינטו,1,טינטו,Tinto (1),Going out and restaurants (1),Tinto
 טיקטמאסטר ישראל כרטיסים,1,טיקטמאסטר ישראל כרטיסים,Ticketmaster (1),Going out and restaurants (1),Ticketmaster
-טל פרץ 1n מרקט3i,5,טל פרץ(( 1N מרקט3I,Mini market (2); Market (1); Tal Peretz Market Jerusalem (1),🛍️Groceries (2); Summer 2024 8000 (2); Opher food (1),
+טל פרץ 1n מרקט3i,5,טל פרץ(( 1N מרקט3I,Mini market (2); Market (1); Tal Peretz Market Jerusalem (1),🛍️Groceries (2); Summer 2024 8000 (2); Opher food (1),Mini market; Market; Tal Peretz Market Jerusalem; Makolet
 טליסמה מוצרי צריכה,2,טליסמה מוצרי צריכה,Museum food (2),Going out and restaurants (2),Museum food
 טן עמק שרה,1,טן עמק שרה,Ten (1),Gas (1),Ten
 טנא ירושלמי ע ר,2,"טנא ירושלמי ע""ר",Tena Yerushalmi (2),School 2500 Dec (2),Tena Yerushalmi
 טעמ לה,3,טעמ'לה,Taamle (3),Going out and restaurants (3),Taamle
 טראק במושבה אלונה,1,טראק במושבה אלונה,Track Bamoshava Alona (1),Going out and restaurants (1),Track Bamoshava Alona
-טרנטינו,4,טרנטינו,Tarantino Jerusalem (3); Lickers Jerusalem (1),Summer 2024 8000 (4),
-י השקעות ב ד ב צ,2,י השקעות ב.ד. ב-צ'יפר מרקט ד,minimarket Naor (1); Cheaper market (1),Aikido (1); 🛍️Groceries (1),
+טרנטינו,4,טרנטינו,Tarantino Jerusalem (3); Lickers Jerusalem (1),Summer 2024 8000 (4),Tarantino Jerusalem; Lickers Jerusalem
+י השקעות ב ד ב צ יפר מרקט ד,2,י השקעות ב.ד. ב-צ'יפר מרקט ד,minimarket Naor (1); Cheaper market (1),Aikido (1); 🛍️Groceries (1),minimarket Naor; Cheaper market
 יאיר השחר חניונים משרד רא,1,יאיר השחר חניונים משרד רא,Parking Tel Aviv (1),Transportation (1),Parking Tel Aviv
 יבגני גולדקין,17,יבגני גולדקין,Isshin Aikido (17),Aikido (17),Isshin Aikido
 יהונתן שמחון,2,יהונתן שמחון,Isshin Aikido (2),Aikido (2),Isshin Aikido
 יובל שרון,1,יובל שרון,Bake sale (1),Pocket money (1),Bake sale
 יוחננוף באר שבע,1,יוחננוף באר שבע,Yuhnaninov (1),🛍️Groceries (1),Yuhnaninov
 יומנגס באר שבע,1,יומנגס באר שבע,Humongous (1),Going out and restaurants (1),Humongous
-יונית פרידמן,3,יונית פרידמן,Mazal Shuker (1); Shean Shirakava (1); Yonit Friedman (1),Loans and transfers (2); Mikael (1),
+יונית פרידמן,3,יונית פרידמן,Mazal Shuker (1); Shean Shirakava (1); Yonit Friedman (1),Loans and transfers (2); Mikael (1),Mazal Shuker; Shean Shirakava; Yonit Friedman
 יוסף כהן היזדי,1,יוסף כהן היזדי,Yosef Cohen Hizdi Jerusalem (1),Summer 2024 8000 (1),Yosef Cohen Hizdi Jerusalem
 יזמות ת ב סער א,1,יזמות.ת. ב-סער א,Saar Ashdod (1),House and stuff (1),Saar Ashdod
 יכין yellow ב פז,1,יכין/YELLOW ב-פז,Paz (1),Vacation 2024 4000 (1),Paz
@@ -460,34 +460,34 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 יער הקקאו בעמ,1,יער הקקאו בעמ,Cacao forest (1),Birthdays (1),Cacao forest
 ירקות הגשר,1,ירקות הגשר,Yerakot Hagesher (1),Summer 2024 8000 (1),Yerakot Hagesher
 כביש הוראת קבע,4,כביש 6 | הוראת קבע,Kvish 6 (4),Transportation (4),Kvish 6
-כביש חוצה צפון בע מ הוראת,1,"כביש 6 חוצה צפון בע""מ | הוראת קבע",Kvish 6 (1),Transportation (1),Kvish 6
-כולל סטור בעמ,8,כולל סטור בעמ,Super kolel (7); Market (1),🛍️Groceries (8),
+כביש חוצה צפון בע מ הוראת קבע,1,"כביש 6 חוצה צפון בע""מ | הוראת קבע",Kvish 6 (1),Transportation (1),Kvish 6
+כולל סטור בעמ,8,כולל סטור בעמ,Super kolel (7); Market (1),🛍️Groceries (8),Super kolel; Market
 כיוונים צהרונים מעונות ח הוראת קבע,3,כיוונים- צהרונים/מעונות/ח | הוראת קבע,Kivunim (3),Chugim (3),Kivunim
-כל בו אללוף,2,כל בו אללוף,Aluf Kulbo (1); Kol bo allof (1),🛍️Groceries (2),
+כל בו אללוף,2,כל בו אללוף,Aluf Kulbo (1); Kol bo allof (1),🛍️Groceries (2),Aluf Kulbo; Kol bo allof
 כל בו זול בנימין,1,כל בו זול בנימין,Kolbo Zol Binyamin (1),🛍️Groceries (1),Kolbo Zol Binyamin
-כל בו כרמי יוסף ב ב,1,כל בו כרמי יוסף ב/ ב-טל שחר,Grocery Tal Shahar (1),Opher food (1),Grocery Tal Shahar
+כל בו כרמי יוסף ב ב טל שחר,1,כל בו כרמי יוסף ב/ ב-טל שחר,Grocery Tal Shahar (1),Opher food (1),Grocery Tal Shahar
 כלבו יראון,2,כלבו יראון,Kol bo Yiron (2),Summer 2025 (2),Kol bo Yiron
 כלל ביטוח ופינ,1,כלל ביטוח ופינ,Klal car insurance (1),Hyundai insurance 15000 April (1),Klal car insurance
 כלל ביטוח חובה,3,כלל ביטוח חובה,Klal car insurance (3),Hyundai insurance 15000 April (1); Mikael teenager 20000 (1); Mazda insurance 5800 Dec (1),Klal car insurance
-כלל רכב דירה עסק הוראת קבע,9,כלל רכב/דירה/עסק | הוראת קבע,Klal insurance (7); Klal car insurance (2),Insurance! (7); Mazda insurance 5800 Dec (2),
+כלל רכב דירה עסק הוראת קבע,9,כלל רכב/דירה/עסק | הוראת קבע,Klal insurance (7); Klal car insurance (2),Insurance! (7); Mazda insurance 5800 Dec (2),Klal insurance; Klal car insurance
 כללית מרכז הילד באר שבע,3,כללית מרכז הילד באר שבע,Clalit (3),Medical (3),Clalit
-כללית משלימה באר שבע,2,כללית משלימה באר שבע,Clalit Mashlima (1); Clalit (1),Medical (2),
+כללית משלימה באר שבע,2,כללית משלימה באר שבע,Clalit Mashlima (1); Clalit (1),Medical (2),Clalit Mashlima; Clalit
 כללית רפואה משלימה באר ש,1,כללית רפואה משלימה באר ש,Clalit (1),Medical (1),Clalit
 כנאפה איסטנבול,1,כנאפה איסטנבול,Knafe Istanbul (1),Going out and restaurants (1),Knafe Istanbul
 כנאפה בר,1,כנאפה בר,Knafe Bar Jerusalem (1),Opher food (1),Knafe Bar Jerusalem
 כנאפה הבילויים,1,כנאפה הבילויים,Knafe gedera (1),Going out and restaurants (1),Knafe gedera
 כנען סנטר בעמ,1,כנען סנטר בעמ,Knan Center (1),House and stuff (1),Knan Center
-כפיות בעמ,37,כפיות בעמ,Campus Food (36); Beauty Center (1),Opher food (35); Clothing (1); 🛍️Groceries (1),
+כפיות בעמ,37,כפיות בעמ,Campus Food (36); Beauty Center (1),Opher food (35); Clothing (1); 🛍️Groceries (1),Campus Food; Beauty Center
 כפיר רכבת קלה אינטרנט,1,כפיר רכבת קלה אינטרנט,Kfir Light Rail (1),Unexplained expenses (1),Kfir Light Rail
 כרטיסי אשראי י,1,כרטיסי אשראי-י,Credit card (1),Unexplained expenses (1),Credit card
 כרמית אזובל,1,כרמית אזובל,Isshin Aikido (1),Aikido (1),Isshin Aikido
 כרמל סלמן,1,כרמל סלמן,Carmel Salmon (1),Birthdays (1),Carmel Salmon
 ל בעמ ב דוכן אוכל נ,1,ל בעמ. ב-דוכן אוכל נ,Hotzot Hayotser Food Jerusalem (1),Summer 2024 8000 (1),Hotzot Hayotser Food Jerusalem
-לאומי ויזה,44,לאומי ויזה,Transfer : Opher X5898 (22); Transfer : Liya X7195 (22),,
+לאומי ויזה,44,לאומי ויזה,Transfer : Opher X5898 (22); Transfer : Liya X7195 (22),,Transfer : Opher X5898; Transfer : Liya X7195
 לאומי למשכנת י,23,לאומי למשכנת-י,Transfer : Mortgage (23),🏘️Rent/Mortgage (23),Transfer : Mortgage
 לב הנהלה,1,לב הנהלה,Lev Hanahala (1),Going out and restaurants (1),Lev Hanahala
 לג נדה דיזינגוף,1,לג'נדה דיזינגוף,Legenda Dizengoff (1),Going out and restaurants (1),Legenda Dizengoff
-לגנדה באר שבע,2,לגנדה באר שבע,Lagenda (1); Legende (1),Danielle (1); Going out and restaurants (1),
+לגנדה באר שבע,2,לגנדה באר שבע,Lagenda (1); Legende (1),Danielle (1); Going out and restaurants (1),Lagenda; Legende
 לה פרינה,2,לה פרינה,La Farina (2),Going out and restaurants (1); Bulgaria July 2025 (1),La Farina
 להב באר שבע,4,להב באר שבע,Machsenei Lahav (4),🛍️Groceries (4),Machsenei Lahav
 לוינסון יזמותhdl,1,לוינסון יזמותHDL,Dafna Levinson (1),Clothing (1),Dafna Levinson
@@ -497,10 +497,10 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 לחם בורקין בעמ,1,לחם בורקין בעמ,Borkin Bread (1),🛍️Groceries (1),Borkin Bread
 לחם ושות,1,לחם ושות,Beit Halehem (1),🛍️Groceries (1),Beit Halehem
 לחם חם,1,לחם חם,Warm Bread (1),Opher food (1),Warm Bread
-לחם חמד,4,לחם חמד,Lehem Hemed (3); Bookit attractions (1),🛍️Groceries (3); Going out and restaurants (1),
+לחם חמד,4,לחם חמד,Lehem Hemed (3); Bookit attractions (1),🛍️Groceries (3); Going out and restaurants (1),Lehem Hemed; Bookit attractions
 לי אופיס בעמ,1,לי אופיס בעמ,Lee Office (1),House and stuff (1),Lee Office
 לי ספר בעמ צמרת,9,לי ספר בעמ-צמרת,Leesefer (9),House and stuff (8); Dganya books 600 June (1),Leesefer
-ליברה עסקות ביטוח,14,ליברה עסקות ביטוח,Libra Insurance (13); Library (1),Insurance! (13); Going out and restaurants (1),
+ליברה עסקות ביטוח,14,ליברה עסקות ביטוח,Libra Insurance (13); Library (1),Insurance! (13); Going out and restaurants (1),Libra Insurance; Library
 ליידי קומפורט ב יחפים,1,ליידי קומפורט/ ב-יחפים,Barefoot lady comfort (1),Clothing (1),Barefoot lady comfort
 ללין ביג באר שבע,1,ללין - ביג באר שבע,Laline (1),Gifts (1),Laline
 למטייל באר שבע פלזה,6,למטייל באר שבע פלזה,Lametayel (6),Clothing (2); Bulgaria July 2025 (2); House and stuff (2),Lametayel
@@ -510,20 +510,20 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 לנדוור ראש פינה,1,לנדוור ראש פינה,Landwer Rosh Pina (1),Summer 2025 (1),Landwer Rosh Pina
 לפטיס בש גרנד,1,לפטיס בש גרנד,Lefties (1),Clothing (1),Lefties
 מ בעמ ב טוטסי מ,2,מ בעמ. ב-טוטסי מ,Tootsi Yodfat (2),House and stuff (1); 🛍️Groceries (1),Tootsi Yodfat
-מ גולדה בעמ ב י,40,מ גולדה בעמ. ב-י,Golda (27); Golda Ice cream (13),Going out and restaurants (36); 🛍️Groceries (3); Bat Mitzvah 17000 (1),
+מ גולדה בעמ ב י,40,מ גולדה בעמ. ב-י,Golda (27); Golda Ice cream (13),Going out and restaurants (36); 🛍️Groceries (3); Bat Mitzvah 17000 (1),Golda; Golda Ice cream
 מ תחבורה רב פס הוראת קבע,3,מ.תחבורה רב- פס | הוראת קבע,Rav pas (3),Transportation (3),Rav pas
-מאפיות תחנות קמח גבעת ע,4,מאפיות תחנות קמח- גבעת ע,Tahanet Hakemach Givat Ada (3); Flour mill bakery (1),🛍️Groceries (4),
+מאפיות תחנות קמח גבעת ע,4,מאפיות תחנות קמח- גבעת ע,Tahanet Hakemach Givat Ada (3); Flour mill bakery (1),🛍️Groceries (4),Tahanet Hakemach Givat Ada; Flour mill bakery
 מאפיית אלח לאל,4,מאפיית אלח'לאל,Al Halal Bakery Magar (4),Vacation 2024 4000 (2); Summer 2024 8000 (2),Al Halal Bakery Magar
-מאפיית גילת קריית הממשלה,4,מאפיית גילת קריית הממשלה,Gilat Bakery (2); Coffee (1); Maafiya (1),Opher food (3); 🛍️Groceries (1),
+מאפיית גילת קריית הממשלה,4,מאפיית גילת קריית הממשלה,Gilat Bakery (2); Coffee (1); Maafiya (1),Opher food (3); 🛍️Groceries (1),Gilat Bakery; Coffee; Maafiya
 מאפיית הראשונים רמות,1,מאפיית הראשונים רמות,MAafiya harishonim (1),🛍️Groceries (1),MAafiya harishonim
 מאפיית מריאן,1,מאפיית מריאן,Marayan Bakery (1),Going out and restaurants (1),Marayan Bakery
-מאפית אורן משי באר שבע,15,מאפית אורן משי באר שבע,Oren Meshi Bakery (13); Train food (2),🛍️Groceries (12); Going out and restaurants (2); Summer 2025 (1),
+מאפית אורן משי באר שבע,15,מאפית אורן משי באר שבע,Oren Meshi Bakery (13); Train food (2),🛍️Groceries (12); Going out and restaurants (2); Summer 2025 (1),Oren Meshi Bakery; Train food
 מאפית לחמים חשמונאים,1,מאפית לחמים חשמונאים,Maafiyat Halehem Tel Aviv (1),Going out and restaurants (1),Maafiyat Halehem Tel Aviv
 מאפיתת אורן משי באר שבע,32,מאפיתת אורן משי באר שבע,Oren Meshi Bakery (32),🛍️Groceries (30); Opher food (1); Bat Mitzvah 17000 (1),Oren Meshi Bakery
 מבואות באר שבע yellow ב פז,4,מבואות באר שבע/YELLOW ב-פז,Yellow (4),Gas (4),Yellow
 מבחני תיאוריה אנקורי,1,מבחני תיאוריה אנקורי,Theory test (1),Mikael teenager 20000 (1),Theory test
 מגדל דוד מוזיאון לתולדות,1,מגדל דוד מוזיאון לתולדות,City of David Jerusalem (1),Summer 2024 8000 (1),City of David Jerusalem
-מגה בעיר קניון אביה בש,2,מגה בעיר קניון אביה בש,Carrefour (1); Mega (1),🛍️Groceries (2),
+מגה בעיר קניון אביה בש,2,מגה בעיר קניון אביה בש,Carrefour (1); Mega (1),🛍️Groceries (2),Carrefour; Mega
 מגה ספורט באר שבע,1,מגה ספורט באר שבע,Mega Sport (1),Clothing (1),Mega Sport
 מגה פט בעמ,17,מגה פט בעמ,Megapet (17),Pets (17),Megapet
 מגנוליה,3,מגנוליה,Magnolia (3),Clothing (2); Birthdays (1),Magnolia
@@ -536,27 +536,27 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 מוצי דיזינגוף,1,מוצי' דיזינגוף,Mochi Dizengoff (1),Going out and restaurants (1),Mochi Dizengoff
 מוצרי נעילה לוקר,1,מוצרי נעילה (לוקר),Shoeing Equipment (1),Clothing (1),Shoeing Equipment
 מורן גיל קייקרי,1,מורן גיל קייקרי,Moran Gil Cakery (1),Going out and restaurants (1),Moran Gil Cakery
-מושב יודפת אחזקות בעמ,3,מושב יודפת אחזקות בעמ,Bulbs yodfat (2); Yodfat (1),House and stuff (2); Gifts (1),
-מזל שוקר,3,מזל שוקר,Mazal Shuker (1); Shean Shirakava (1); Yonit Friedman (1),Loans and transfers (2); Mikael (1),
+מושב יודפת אחזקות בעמ,3,מושב יודפת אחזקות בעמ,Bulbs yodfat (2); Yodfat (1),House and stuff (2); Gifts (1),Bulbs yodfat; Yodfat
+מזל שוקר,3,מזל שוקר,Mazal Shuker (1); Shean Shirakava (1); Yonit Friedman (1),Loans and transfers (2); Mikael (1),Mazal Shuker; Shean Shirakava; Yonit Friedman
 מזנון בריכה,1,מזנון בריכה,Pool Food (1),Yaara (1),Pool Food
 מזנון לונה פארק,1,מזנון לונה פארק,Luna Park (1),Going out and restaurants (1),Luna Park
 מזנון מהיר יגנה,1,מזנון מהיר יגנה,Fast food yinge (1),Summer 2024 8000 (1),Fast food yinge
 מזנון נני,1,מזנון נני,Nani's coffee (1),Going out and restaurants (1),Nani's coffee
 מזנוני מידבריום,1,מזנוני מידבריום,Midbarium (1),Going out and restaurants (1),Midbarium
-מחסני השוק אינטרנט,9,מחסני השוק אינטרנט,Machsenei Hashuk (7); Mahhsaney Hashuk (2),🛍️Groceries (9),
-מחסני השוק האורגים ח,37,מחסני השוק האורגים ח,Machsenei Hashuk (28); Mahhsaney Hashuk (9),🛍️Groceries (35); Loans and transfers (1); Bat Mitzvah 17000 (1),
+מחסני השוק אינטרנט,9,מחסני השוק אינטרנט,Machsenei Hashuk (7); Mahhsaney Hashuk (2),🛍️Groceries (9),Machsenei Hashuk; Mahhsaney Hashuk
+מחסני השוק האורגים ח,37,מחסני השוק האורגים ח,Machsenei Hashuk (28); Mahhsaney Hashuk (9),🛍️Groceries (35); Loans and transfers (1); Bat Mitzvah 17000 (1),Machsenei Hashuk; Mahhsaney Hashuk
 מחסני השוק החייל,1,מחסני השוק החייל,Mahhsaney Hashuk (1),🛍️Groceries (1),Mahhsaney Hashuk
 מטה המשפחות להחזרת החטופ,1,מטה המשפחות להחזרת החטופ,Protests (1),Gifts (1),Protests
 מי שבע בע מ,1,"מי שבע בע""מ",Mei Sheva (1),Water (1),Mei Sheva
 מי שבע בעמ,6,מי שבע בעמ,Mei Sheva (6),Water (6),Mei Sheva
-מיה קאליר מירב,2,מיה קאליר מירב,Hamatsesah (1); Maya Meirav (1),Gifts (1); Summer 2024 8000 (1),
+מיה קאליר מירב,2,מיה קאליר מירב,Hamatsesah (1); Maya Meirav (1),Gifts (1); Summer 2024 8000 (1),Hamatsesah; Maya Meirav
 מיין נודלס בעמ,1,מיין נודלס בעמ,Mayan Noodles Jerusalem (1),Summer 2024 8000 (1),Mayan Noodles Jerusalem
 מיני מרקט השלום,1,מיני מרקט השלום,Mini market (1),🛍️Groceries (1),Mini market
 מיני שני בזל בעמ,9,מיני שני - בזל בעמ,Mini Shani (9),🛍️Groceries (9),Mini Shani
 מינימרקט נאור,3,מינימרקט נאור,minimarket Naor (3),🛍️Groceries (3),minimarket Naor
 מינימרקט עזרא שירן,3,מינימרקט עזרא שירן,Minimarket Ezra Shiran (3),🛍️Groceries (2); Birthdays (1),Minimarket Ezra Shiran
 מינימרקט שרה,1,מינימרקט שרה,Robert Carwash (1),Auto Maintenance (1),Robert Carwash
-מינמרקט נאור,5,מינמרקט נאור,minimarket Naor (4); Campus Food (1),🛍️Groceries (3); Aikido (1); Opher food (1),
+מינמרקט נאור,5,מינמרקט נאור,minimarket Naor (4); Campus Food (1),🛍️Groceries (3); Aikido (1); Opher food (1),minimarket Naor; Campus Food
 מירית הפומן רייף,1,מירית הפומן רייף,Mitir Hoffman Lawyer (1),Investment income and expenses (1),Mitir Hoffman Lawyer
 מירית סימונס אופטיקה קרני,1,מירית סימונס אופטיקה קרני,Optica Karni (1),Contacts Liya 4300 Apr (1),Optica Karni
 מכבי טבעי באר שבע,3,מכבי טבעי באר שבע,Maccabi teva (3),Medical (3),Maccabi teva
@@ -572,31 +572,31 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 ממתקי אלי זול בעמ,1,ממתקי אלי זול בעמ,Elizol (1),🛍️Groceries (1),Elizol
 ממתקי יאסר מדאח מעליא,1,ממתקי יאסר מדאח מעליא,Yassar Madah Sweets (1),Going out and restaurants (1),Yassar Madah Sweets
 מס ההכנסה הו י,1,מס ההכנסה-הו-י,Tax refund (1),Aikido (1),Tax refund
-מס הכנסה,7,מס הכנסה,Income tax (3); Bank leumi (2); Taxes (1),Unplanned extra expense (3); Bank Interest & Fees (2); Ready to Assign (1),
-מס הכנסה עצמ י,8,מס הכנסה עצמ-י,Income tax (7); Taxes (1),Pilates (5); Unplanned extra expense (2); Investment income and expenses (1),
+מס הכנסה,7,מס הכנסה,Income tax (3); Bank leumi (2); Taxes (1),Unplanned extra expense (3); Bank Interest & Fees (2); Ready to Assign (1),Income tax; Bank leumi; Taxes; Tax refund
+מס הכנסה עצמ י,8,מס הכנסה עצמ-י,Income tax (7); Taxes (1),Pilates (5); Unplanned extra expense (2); Investment income and expenses (1),Income tax; Taxes
 מסיבבה,1,מסיבבה,Mesibaba (1),Bat Mitzvah 17000 (1),Mesibaba
-מסלול מורחב,25,מסלול מורחב,Bank leumi (23); Rav pas (1); Airport Parking (1),Bank Interest & Fees (23); Transportation (2),
+מסלול מורחב,25,מסלול מורחב,Bank leumi (23); Rav pas (1); Airport Parking (1),Bank Interest & Fees (23); Transportation (2),Bank leumi; Rav pas; Airport Parking
 מסעדת אבו כריסטו,1,מסעדת אבו כריסטו,Abu Cristo Acco (1),Birthdays (1),Abu Cristo Acco
 מסעדת בלו ליין,1,מסעדת בלו ליין,Blue Line Restaurant Rajar (1),Summer 2025 (1),Blue Line Restaurant Rajar
 מעדניית לוי,1,מעדניית לוי,Levi bakery Jerusalem (1),Summer 2024 8000 (1),Levi bakery Jerusalem
-מפייבוקס שלי י,5,מפייבוקס שלי-י,Paybox (2); Dog walking (1); Maya (1),Danielle (2); Unexplained expenses (1); Gifts (1),
+מפייבוקס שלי י,5,מפייבוקס שלי-י,Paybox (2); Dog walking (1); Maya (1),Danielle (2); Unexplained expenses (1); Gifts (1),Paybox; Dog walking; Maya; Abigail
 מקדולנדס נמל תל אבי,1,מקדולנדס נמל תל אבי,McDonald's (1),Going out and restaurants (1),McDonald's
 מקדונלדס עין יה,1,מקדונלדס עין יה,McDonald's (1),Going out and restaurants (1),McDonald's
 מקס איט פיננ י,3,מקס איט פיננ-י,Transfer : Opher x9922 (3),,Transfer : Opher x9922
-מקס אמות באר שבע,7,מקס אמות באר שבע,Max Amot (6); Max Stoke (1),House and stuff (6); Birthdays (1),
+מקס אמות באר שבע,7,מקס אמות באר שבע,Max Amot (6); Max Stoke (1),House and stuff (6); Birthdays (1),Max Amot; Max Stoke
 מקס כרמיאל בעמ,1,מקס כרמיאל בעמ,Max Carmiel (1),House and stuff (1),Max Carmiel
 מקס שווארמה מרכז ביג נטע,1,מקס שווארמה מרכז ביג נטע,Shwarma (1),Going out and restaurants (1),Shwarma
-מקסים מירוזני,3,מקסים מירוזני,Parkour (2); Maxim Parkour (1),Chugim (2); Summer 2025 (1),
+מקסים מירוזני,3,מקסים מירוזני,Parkour (2); Maxim Parkour (1),Chugim (2); Summer 2025 (1),Parkour; Maxim Parkour
 מרום כלי נגינה דיסקים,1,מרום כלי נגינה דיסקים,Marom Musical Instruments (1),House and stuff (1),Marom Musical Instruments
-מרחבים טל חניונים,4,מרחבים טל חניונים,Airport Parking (3); Bank leumi (1),Transportation (2); Greece 2025 (1); Bank Interest & Fees (1),
+מרחבים טל חניונים,4,מרחבים טל חניונים,Airport Parking (3); Bank leumi (1),Transportation (2); Greece 2025 (1); Bank Interest & Fees (1),Airport Parking; Bank leumi
 מרכז ארצי לבחינות ולהערכה,1,מרכז ארצי לבחינות ולהערכה,National center for testing (1),Chugim (1),National center for testing
 מרכז ביג בשgolf אco,1,מרכז ביג בשGOLF אCO,Golf (1),Clothing (1),Golf
-מרכז הלבשה,12,מרכז הלבשה,Merkaz Hahalbasha (9); Subject (2); Present (1),Clothing (9); University (2); Gifts (1),
-מרכז הנגב922 משיכה עם קוד י,1,מרכז הנגב922 משיכה עם קוד י נמשך באמצעות קוד במכשיר לאומי סניף,Transfer : Cash (1),,Transfer : Cash
-מרכז הספורט והנופש,3,מרכז הספורט והנופש,Sports Center (2); Merkaz Hasport (1),Summer 2025 (3),
+מרכז הלבשה,12,מרכז הלבשה,Merkaz Hahalbasha (9); Subject (2); Present (1),Clothing (9); University (2); Gifts (1),Merkaz Hahalbasha; Subject; Present
+מרכז הנגב922 משיכה עם קוד י נמשך באמצעות קוד במכשיר,1,מרכז הנגב922 משיכה עם קוד י נמשך באמצעות קוד במכשיר לאומי סניף,Transfer : Cash (1),,Transfer : Cash
+מרכז הספורט והנופש,3,מרכז הספורט והנופש,Sports Center (2); Merkaz Hasport (1),Summer 2025 (3),Sports Center; Merkaz Hasport
 מרכז הספורט והנופש בג,1,מרכז הספורט והנופש בג,Merkaz Hasport (1),Summer 2024 8000 (1),Merkaz Hasport
 מרכז סוזן דלל,1,מרכז סוזן דלל,Suzan Dalal (1),Going out and restaurants (1),Suzan Dalal
-מרכז עסקים נגב607 במכשיר לאומי סניף,1,מרכז עסקים נגב607 במכשיר לאומי סניף7195- משיכת מטח נמשך מכרטיס המסתיים ב,Euro (1),Greece 2025 (1),Euro
+מרכז עסקים נגב607 במכשיר לאומי סניף משיכת מטח נמשך מכרטיס,1,מרכז עסקים נגב607 במכשיר לאומי סניף7195- משיכת מטח נמשך מכרטיס המסתיים ב,Euro (1),Greece 2025 (1),Euro
 מרכז רכב יא,6,מרכז רכב יא,Musach Yaav (6),Auto Maintenance (6),Musach Yaav
 מרכז רכב יאב,1,מרכז רכב יאב,Musach Yaav (1),Auto Maintenance (1),Musach Yaav
 מרעי אלקרנאוי,1,מרעי אלקרנאוי,Isshin Aikido (1),Aikido (1),Isshin Aikido
@@ -604,7 +604,7 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 משלוחה הזמנת אוכל אונליין,1,משלוחה הזמנת אוכל אונליין,Burger Saloon (1),Summer 2024 8000 (1),Burger Saloon
 משק פיין גבעת עדה,7,משק פיין גבעת עדה,Meshek Fine Givat Ada (7),🛍️Groceries (7),Meshek Fine Givat Ada
 משקאות בעמ נ ב ח,1,משקאות בעמ.נ. ב-ח,Mishkaot (1),Mikael (1),Mishkaot
-משרד האוצר אגף המכס ומעמ,2,משרד האוצר אגף המכס ומעמ,Import tax (1); Taxes (1),Clothing (1); House and stuff (1),
+משרד האוצר אגף המכס ומעמ,2,משרד האוצר אגף המכס ומעמ,Import tax (1); Taxes (1),Clothing (1); House and stuff (1),Import tax; Taxes
 משרד התחבורה אגרה למבחן נ,1,משרד התחבורה אגרה למבחן נ,Misrad Hatahbura (1),Mikael teenager 20000 (1),Misrad Hatahbura
 משרד התחבורה רשיונות רכ,1,משרד התחבורה - רשיונות רכ,Misrad Hatahbura (1),Mazda registration 1500 Dec (1),Misrad Hatahbura
 משרד תחבורה רשיון נהיגה,1,משרד תחבורה רשיון נהיגה,Misrad Hatahbura (1),Mikael teenager 20000 (1),Misrad Hatahbura
@@ -615,28 +615,28 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 נאייקס ישראל מכונות אוטומ,1,נאייקס ישראל מכונות אוטומ,Food machine (1),🛍️Groceries (1),Food machine
 נדב סניפליסקי,1,נדב סניפליסקי,Danielle (1),Danielle (1),Danielle
 נוטלה שוקולד אקספריינס בא,1,נוטלה שוקולד אקספריינס בא,Nutella (1),Going out and restaurants (1),Nutella
-נולה דיזינגוף בעמ,2,נולה דיזינגוף בעמ,Nula Dizengoff (1); Tiv Taam (1),Going out and restaurants (1); 🛍️Groceries (1),
+נולה דיזינגוף בעמ,2,נולה דיזינגוף בעמ,Nula Dizengoff (1); Tiv Taam (1),Going out and restaurants (1); 🛍️Groceries (1),Nula Dizengoff; Tiv Taam
 ניבי פארם,1,ניבי פארם,Nivi Pharm (1),Medical (1),Nivi Pharm
 ניגא מוצרי איכות בעמ,2,ניגא מוצרי איכות בעמ,Nyga Service (2),Unplanned extra expense (2),Nyga Service
-ניצת הדובדבן באר שבע,8,ניצת הדובדבן באר שבע,Nitzat Haduvdevan (7); Nizat Haduvdevan (1),🛍️Groceries (8),
+ניצת הדובדבן באר שבע,8,ניצת הדובדבן באר שבע,Nitzat Haduvdevan (7); Nizat Haduvdevan (1),🛍️Groceries (8),Nitzat Haduvdevan; Nizat Haduvdevan
 ניצת הדובדבן ביג באר שבע,17,ניצת הדובדבן ביג באר שבע,Nitzat Haduvdevan (17),🛍️Groceries (16); Bat Mitzvah 17000 (1),Nitzat Haduvdevan
 נעמן,2,נעמן,Naaman (2),House and stuff (2),Naaman
-סאלח דבאח ובניו בעמ,60,סאלח דבאח ובניו בעמ,Dabbah (47); Dabah (13),🛍️Groceries (58); Mikael (1); Gifts (1),
+סאלח דבאח ובניו בעמ,60,סאלח דבאח ובניו בעמ,Dabbah (47); Dabah (13),🛍️Groceries (58); Mikael (1); Gifts (1),Dabbah; Dabah
 סאקוני באר שבע,2,סאקוני-באר שבע,Saucony (2),Clothing (1); House and stuff (1),Saucony
 סבטלנה סושקביץ,1,סבטלנה סושקביץ,Svetlana Sushkovitz (1),Pilates (1),Svetlana Sushkovitz
-סביח טשרניחובסקי,2,סביח טשרניחובסקי,Sabih Tshernichovsky Tel Aviv (1); Elo Deals Mizrahi (1),Going out and restaurants (1); House and stuff (1),
+סביח טשרניחובסקי,2,סביח טשרניחובסקי,Sabih Tshernichovsky Tel Aviv (1); Elo Deals Mizrahi (1),Going out and restaurants (1); House and stuff (1),Sabih Tshernichovsky Tel Aviv; Elo Deals Mizrahi
 סולת קוסקוס בעתיקה בעמ,1,סולת קוסקוס בעתיקה בעמ,Solet (1),Going out and restaurants (1),Solet
 סולתם רדד באר שבע צמרת,1,סולתם רדד - באר שבע-צמרת,Soltam (1),House and stuff (1),Soltam
 סולתם רדד צמרת,1,סולתם רדד-צמרת,Soltam (1),House and stuff (1),Soltam
 סונול בן גוריון,1,סונול בן גוריון,Sonol (1),Gas (1),Sonol
 סונול מפגש עדה,1,סונול מפגש עדה,Sonol (1),Gas (1),Sonol
 סונול עירון,1,סונול עירון,Sonol (1),Gas (1),Sonol
-סופט קוקיז,2,סופט קוקיז,Soft cookies Jerualem (1); Puzzle outlet Jerusalem (1),Summer 2024 8000 (2),
+סופט קוקיז,2,סופט קוקיז,Soft cookies Jerualem (1); Puzzle outlet Jerusalem (1),Summer 2024 8000 (2),Soft cookies Jerualem; Puzzle outlet Jerusalem
 סופטיט בעמ,3,סופטיט בעמ,Softit Cell phones (3),Unplanned extra expense (2); Phone Opher (1),Softit Cell phones
 סופיה פוגל,4,סופיה פוגל,Isshin Aikido (4),Aikido (4),Isshin Aikido
 סופר אלונית אלון דבירה,3,סופר אלונית -אלון דבירה,Gas Food (3),🛍️Groceries (3),Gas Food
 סופר אלונית דרך חברון בש,1,סופר אלונית דרך חברון בש,Gas Food (1),🛍️Groceries (1),Gas Food
-סופר אלונית חוצה ישראל מג,4,סופר אלונית חוצה ישראל מג,Gas Food (3); Alonit (1),🛍️Groceries (3); Vacation 2024 4000 (1),
+סופר אלונית חוצה ישראל מג,4,סופר אלונית חוצה ישראל מג,Gas Food (3); Alonit (1),🛍️Groceries (3); Vacation 2024 4000 (1),Gas Food; Alonit
 סופר גשר הזיו,1,סופר גשר הזיו,Super Haziv (1),🛍️Groceries (1),Super Haziv
 סופר לאון,1,סופר לאון,Super leon (1),🛍️Groceries (1),Super leon
 סופר מזרע,1,סופר מזרע,Super mezra (1),🛍️Groceries (1),Super mezra
@@ -655,44 +655,44 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 סופר קופיקס,3,סופר קופיקס,Super kofix (3),🛍️Groceries (3),Super kofix
 סופר שרונה,1,סופר שרונה,Super Sarona Tel Aviv (1),Going out and restaurants (1),Super Sarona Tel Aviv
 סחוט באר שבע,1,סחוט באר שבע,Sachut (1),Going out and restaurants (1),Sachut
-סטודיו לבישול,4,סטודיו לבישול,Studio Lebishul (3); Cooking studio (1),House and stuff (2); Birthdays (1); Danielle (1),
-סטופר,2,סטופר,Aroma (1); Stopper Locks (1),Going out and restaurants (1); Unplanned extra expense (1),
+סטודיו לבישול,4,סטודיו לבישול,Studio Lebishul (3); Cooking studio (1),House and stuff (2); Birthdays (1); Danielle (1),Studio Lebishul; Cooking studio
+סטופר,2,סטופר,Aroma (1); Stopper Locks (1),Going out and restaurants (1); Unplanned extra expense (1),Aroma; Stopper Locks
 סטימצקי בית בש,2,סטימצקי בית בש,Steimatzky (2),House and stuff (1); Gifts (1),Steimatzky
-סטימצקי דיוטי פרי ספרים,2,סטימצקי-דיוטי פרי ספרים,Duty free (1); Duty free books (1),Bulgaria July 2025 (2),
+סטימצקי דיוטי פרי ספרים,2,סטימצקי-דיוטי פרי ספרים,Duty free (1); Duty free books (1),Bulgaria July 2025 (2),Duty free; Duty free books
 סי קפה נען מזרח,1,סי קפה נען מזרח,Si Cafe (1),🛍️Groceries (1),Si Cafe
 סי קפה נען מער,1,סי קפה נען מער,Si Cafe (1),🛍️Groceries (1),Si Cafe
 סיטי מרקט נחל חבר באר שבע,1,סיטי מרקט נחל חבר באר שבע,Market (1),🛍️Groceries (1),Market
 סיטיגו בעמ צמרת,1,סיטיגו בעמ-צמרת,Citigo bikes (1),House and stuff (1),Citigo bikes
-סילוק פיגור,2,סילוק פיגור,Transfer : Unplanned Opher (1); Loan Pilates (1),Pilates (1),
+סילוק פיגור,2,סילוק פיגור,Transfer : Unplanned Opher (1); Loan Pilates (1),Pilates (1),Transfer : Unplanned Opher; Loan Pilates
 סיפור של טעמים דוכן גבי,1,סיפור של טעמים - דוכן גבי,Sipur shel taamaim (1),🛍️Groceries (1),Sipur shel taamaim
 סיפורו של שניצל,1,סיפורו של שניצל,Sipuro shel shnitzel (1),Opher food (1),Sipuro shel shnitzel
-סלאח דבאח ובניו מגדל ט,3,סלאח דבאח ובניו - מגדל ט,Dabah Magdala (2); Dabah (1),Summer 2025 (1); Vacation 2024 4000 (1); Summer 2024 8000 (1),
-סעוד הראל כללית הוראת קבע,5,סעוד הראל -כללית | הוראת קבע,Clalit (3); Harel insurance (2),Medical (5),
+סלאח דבאח ובניו מגדל ט,3,סלאח דבאח ובניו - מגדל ט,Dabah Magdala (2); Dabah (1),Summer 2025 (1); Vacation 2024 4000 (1); Summer 2024 8000 (1),Dabah Magdala; Dabah
+סעוד הראל כללית הוראת קבע,5,סעוד הראל -כללית | הוראת קבע,Clalit (3); Harel insurance (2),Medical (5),Clalit; Harel insurance
 ספידוג הבלוק,1,ספידוג הבלוק,Speedog (1),Pets (1),Speedog
 ספידוג הנגרים,5,ספידוג הנגרים,Speedog (5),Pets (5),Speedog
 ספידוג רמי לוי,3,ספידוג רמי לוי,Speedog (3),Pets (3),Speedog
 ספירולינה פול לייף בע מ,1,"ספירולינה פול לייף בע""מ",Spirulina Full Life (1),🛍️Groceries (1),Spirulina Full Life
 ספסל גינת דובנו,1,ספסל גינת דובנו,Coffe shop Tel Aviv (1),Going out and restaurants (1),Coffe shop Tel Aviv
 ספרינט מוטורוס בעמ הדס,1,ספרינט מוטורוס בעמ - הדס,Gas (1),Gas (1),Gas
-ספרינט מוטורוס בעמ שע,2,ספרינט מוטורוס בעמ - שע,Gas Food (1); Sprint Motors Gas (1),🛍️Groceries (1); Gas (1),
-סקארה ביג בש החדש,2,סקארה ביג בש החדש,Sakura (1); Sakara (1),Going out and restaurants (1); Clothing (1),
+ספרינט מוטורוס בעמ שע,2,ספרינט מוטורוס בעמ - שע,Gas Food (1); Sprint Motors Gas (1),🛍️Groceries (1); Gas (1),Gas Food; Sprint Motors Gas
+סקארה ביג בש החדש,2,סקארה ביג בש החדש,Sakura (1); Sakara (1),Going out and restaurants (1); Clothing (1),Sakura; Sakara
 עברית חנות ספרים,2,עברית חנות ספרים,E-vrit (2),House and stuff (2),E-vrit
 עדו קאליר,2,עדו קאליר,Hamatsesah (2),Gifts (2),Hamatsesah
 עומר רביד,1,עומר רביד,Danielle (1),Danielle (1),Danielle
-עופר דונחין,20,עופר דונחין,Transfer : Pilates Leumi (16); Transfer : Investments (4),Pilates (16); Investment income and expenses (4),
+עופר דונחין,20,עופר דונחין,Transfer : Pilates Leumi (16); Transfer : Investments (4),Pilates (16); Investment income and expenses (4),Transfer : Pilates Leumi; Transfer : Investments
 עזריאלי תא73 ב יפן,1,עזריאלי תא73 ב-יפן,Japan 73 Tel Aviv (1),Going out and restaurants (1),Japan 73 Tel Aviv
-עיצוב שיער ישראל,15,עיצוב שיער ישראל,Haircut (8); Hair styling israel (4); Israel et Lola (2),Clothing (15),
-עיריית באר שבע,4,עיריית באר שבע,Beer Sheva City (2); Mekf A (1); Iriyat Beer Sheva (1),Unplanned extra expense (2); Mekif A 2000 July (1); Insurance! (1),
+עיצוב שיער ישראל,15,עיצוב שיער ישראל,Haircut (8); Hair styling israel (4); Israel et Lola (2),Clothing (15),Haircut; Hair styling israel; Israel et Lola; Hair Emil
+עיריית באר שבע,4,עיריית באר שבע,Beer Sheva City (2); Mekf A (1); Iriyat Beer Sheva (1),Unplanned extra expense (2); Mekif A 2000 July (1); Insurance! (1),Beer Sheva City; Mekf A; Iriyat Beer Sheva
 עירית באר שבע וטרינריה,1,עירית באר שבע - וטרינריה,Beer Sheva Vet (1),Pets (1),Beer Sheva Vet
 על הנהר,2,על הנהר,Al Hanahar (2),Summer 2025 (2),Al Hanahar
 עמותת ארץעיר,6,עמותת ארץעיר,Eretz Ir (6),Chugim (6),Eretz Ir
 עמותת דרך הרגליים,1,עמותת דרך הרגליים,Amutat Derekh Haraglayim (1),Chugim (1),Amutat Derekh Haraglayim
 עמותת חוגי סיירות,1,עמותת חוגי סיירות,Chug Sayarut (1),Chugim (1),Chug Sayarut
 עמותת חוגי סיירות של הקקל,5,עמותת חוגי סיירות של הקקל,Chug Sayarut (5),Chugim (5),Chug Sayarut
-עמותת מטפסי תל אבי,8,עמותת מטפסי תל אבי,Climbing wall food (4); Climbing wall (4),Chugim (3); Going out and restaurants (2); 🛍️Groceries (2),
+עמותת מטפסי תל אבי,8,עמותת מטפסי תל אבי,Climbing wall food (4); Climbing wall (4),Chugim (3); Going out and restaurants (2); 🛍️Groceries (2),Climbing wall food; Climbing wall
 עמותת מטפסי תל אביב,1,עמותת מטפסי תל אביב,Climbing wall (1),Chugim (1),Climbing wall
 עמק שרה yellow ב פז,1,עמק שרה/YELLOW ב-פז,Yellow (1),Gas (1),Yellow
-עמר ב אלגו,5,עמר( ב-אלגו,Elgo watering (3); Algo Hashkaya (2),House and stuff (5),
+עמר ב אלגו,5,עמר( ב-אלגו,Elgo watering (3); Algo Hashkaya (2),House and stuff (5),Elgo watering; Algo Hashkaya
 ערוץ יש עמל,1,51 ערוץ יש.עמל,Bank leumi (1),Bank Interest & Fees (1),Bank leumi
 ערן גבריאלי,1,ערן גבריאלי,Isshin Aikido (1),Aikido (1),Isshin Aikido
 פאזלנד באינטרנט,1,פאזלנד באינטרנט,Puzzleland (1),House and stuff (1),Puzzleland
@@ -704,13 +704,13 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 פוקס נמל תל אבי,1,פוקס נמל תל אבי,Fox (1),Clothing (1),Fox
 פורדאדוג סטור,2,פורדאדוג סטור,Fordadog store (2),Pets (2),Fordadog store
 פז yellow אצטדיון באר שבע,1,פז YELLOW אצטדיון באר שבע,Yellow (1),🛍️Groceries (1),Yellow
-פז yellow ב כרמי באר שבע,10,פז/ YELLOW ב-כרמי באר שבע,Yellow (9); Gas (1),Gas (10),
+פז yellow ב כרמי באר שבע,10,פז/ YELLOW ב-כרמי באר שבע,Yellow (9); Gas (1),Gas (10),Yellow; Gas
 פז יקנעם החדשה,1,פז יקנעם החדשה,Paz (1),Vacation 2024 4000 (1),Paz
 פז מצפה רמון,2,פז מצפה רמון,Paz Mitzpe Ramon (2),Danielle (1); Summer 2024 8000 (1),Paz Mitzpe Ramon
 פטרה,1,פטרה,Petra Ashdod (1),Going out and restaurants (1),Petra Ashdod
 פינוקים בפיתה,1,פינוקים בפיתה,Pinukim BePita (1),Opher food (1),Pinukim BePita
 פינקי,1,פינקי,Pinki (1),🛍️Groceries (1),Pinki
-פינת אוכל,2,פינת אוכל,Campus Food (1); Pinat Ochel (1),Opher food (1); Going out and restaurants (1),
+פינת אוכל,2,פינת אוכל,Campus Food (1); Pinat Ochel (1),Opher food (1); Going out and restaurants (1),Campus Food; Pinat Ochel
 פינת האופה רמות,6,פינת האופה רמות,Pinat Haofe (6),Going out and restaurants (6),Pinat Haofe
 פינת הקפה,3,פינת הקפה,Pinat Hakafe (3),🛍️Groceries (2); House and stuff (1),Pinat Hakafe
 פיצה אלמה,13,פיצה אלמה,Pizza Alma (13),Going out and restaurants (13),Pizza Alma
@@ -736,24 +736,24 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 פרחי אדווה,2,פרחי אדווה,Adva Flowers (2),Gifts (1); House and stuff (1),Adva Flowers
 פרי הארץ,1,פרי הארץ,Pri Haaretz (1),🛍️Groceries (1),Pri Haaretz
 פרי טיוי הוראת קבע,4,פרי טיוי | הוראת קבע,Free TV (4),Software Subscriptions (4),Free TV
-פרעון הלוואה,47,פרעון הלוואה,"Loan Pilates (24); Transfer : Loan Leumi 45,000 06_2022 (23)",Pilates (24); Investment income and expenses (23),
+פרעון הלוואה,47,פרעון הלוואה,"Loan Pilates (24); Transfer : Loan Leumi 45,000 06_2022 (23)",Pilates (24); Investment income and expenses (23),"Loan Pilates; Transfer : Loan Leumi 45,000 06_2022"
 צ ופצ יק קפה בעמ,4,צ'ופצ'יק קפה בעמ,Chupchik Coffee (4),Going out and restaurants (4),Chupchik Coffee
 צומת האלהyellow ב פז,1,צומת האלהYELLOW ב-פז,Yellow (1),Gas (1),Yellow
-צומת ספרים באר שבע,11,צומת ספרים באר שבע,Tsomet Sfarim (7); Tzomet Sfarim (4),House and stuff (10); Birthdays (1),
+צומת ספרים באר שבע,11,צומת ספרים באר שבע,Tsomet Sfarim (7); Tzomet Sfarim (4),House and stuff (10); Birthdays (1),Tsomet Sfarim; Tzomet Sfarim
 צומת ספרים בוקנט,1,צומת ספרים בוקנט,Tzomet Sfarim (1),Gifts (1),Tzomet Sfarim
 צומת ספרים מדרחוב ירושלים,1,צומת ספרים מדרחוב ירושלים,Tzomet Sfarim Jerusalem (1),House and stuff (1),Tzomet Sfarim Jerusalem
 ציילדרנס פלייס ביג באר ש,3,ציילדרנס פלייס ביג באר ש,Children Place (3),Clothing (3),Children Place
 צמחjapanika,1,צמחJAPANIKA,Japanika (1),Summer 2025 (1),Japanika
-צמחyellow ב פז,2,צמחYELLOW - ב-פז,Gas Food (1); Gas (1),Summer 2025 (2),
+צמחyellow ב פז,2,צמחYELLOW - ב-פז,Gas Food (1); Gas (1),Summer 2025 (2),Gas Food; Gas
 צמיגי רפי,1,צמיגי רפי,Zmigim Rafi (1),Auto Maintenance (1),Zmigim Rafi
-צמרת בית הפחם הנגב בעמ,8,צמרת-בית הפחם הנגב בעמ,Beit Hapaham (7); Vegetable Sheli (1),🛍️Groceries (7); House and stuff (1),
+צמרת בית הפחם הנגב בעמ,8,צמרת-בית הפחם הנגב בעמ,Beit Hapaham (7); Vegetable Sheli (1),🛍️Groceries (7); House and stuff (1),Beit Hapaham; Vegetable Sheli
 צרכניית יודפת בעמ,2,צרכניית יודפת בעמ,Yodfat Grocery (2),🛍️Groceries (2),Yodfat Grocery
 קבוצת קמפאי משלוחים,1,קבוצת קמפאי משלוחים,Kampai (1),Going out and restaurants (1),Kampai
 קוגול רפי באר שבע בעמ,1,קוגול רפי באר שבע בעמ,Zmigim Rafi (1),Auto Maintenance (1),Zmigim Rafi
 קולומביה,3,קולומביה,Columbia (3),Bulgaria July 2025 (3),Columbia
 קולורטו,1,קולורטו,Coloretto (1),Going out and restaurants (1),Coloretto
 קונדיטורית מרטין בעמ,1,קונדיטורית מרטין בעמ,Martin (1),Going out and restaurants (1),Martin
-קופר ופאקו שדרות יהודית,3,קופר ופאקו שדרות יהודית,Cooper and Pako Tel Aviv (2); Kooper and Pako Tel Aviv (1),Going out and restaurants (3),
+קופר ופאקו שדרות יהודית,3,קופר ופאקו שדרות יהודית,Cooper and Pako Tel Aviv (2); Kooper and Pako Tel Aviv (1),Going out and restaurants (3),Cooper and Pako Tel Aviv; Kooper and Pako Tel Aviv
 קופת תל אבי,2,קופת תל אבי,Kupat Tel Aviv (2),Summer 2024 8000 (2),Kupat Tel Aviv
 קוקיס אשדודו,1,קוקיס אשדודו,Cookies Ashdod (1),Opher food (1),Cookies Ashdod
 קיבוץ גלויותyellow ב פז,1,קיבוץ גלויותYELLOW ב-פז,Paz (1),Gas (1),Paz
@@ -761,8 +761,8 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 קיר טיפוסperformancerock,1,קיר טיפוסPERFORMANCEROCK,Kir Tipus (1),Chugim (1),Kir Tipus
 קל גב סחר בעמ,1,קל גב סחר בעמ,Kal gav (1),House and stuff (1),Kal gav
 קלופ שופ,9,קלופ שופ,Klop shop (9),🛍️Groceries (6); Birthdays (2); Bat Mitzvah 17000 (1),Klop shop
-קמח הארץ,4,קמח הארץ,Flour of the earth (3); Kemach Haaretz (1),🛍️Groceries (4),
-קמח הארץ נתיב אשכול בעמ,4,קמח הארץ - נתיב אשכול בעמ,Flour of the earth (3); Kemach Haaretz (1),🛍️Groceries (4),
+קמח הארץ,4,קמח הארץ,Flour of the earth (3); Kemach Haaretz (1),🛍️Groceries (4),Flour of the earth; Kemach Haaretz
+קמח הארץ נתיב אשכול בעמ,4,קמח הארץ - נתיב אשכול בעמ,Flour of the earth (3); Kemach Haaretz (1),🛍️Groceries (4),Flour of the earth; Kemach Haaretz
 קמפאי בעמ,1,קמפאי בעמ,Kampai (1),Birthdays (1),Kampai
 קמפאי טוגו,5,קמפאי טוגו,Kampai (5),Going out and restaurants (5),Kampai
 קניון אביהcarrefour,1,קניון אביהCARREFOUR,Carrefour (1),🛍️Groceries (1),Carrefour
@@ -772,7 +772,7 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 קפאסה,1,קפאסה,Kepasa (1),Going out and restaurants (1),Kepasa
 קפה גורמה י ב מ,1,2014 קפה גורמה.י. ב-מ,Cafe Gourmet Jerusalem (1),Summer 2024 8000 (1),Cafe Gourmet Jerusalem
 קפה גרג סניף באקה אל גרבי,1,קפה גרג סניף באקה אל גרבי,Greg (1),Going out and restaurants (1),Greg
-קפה טורקי,2,קפה טורקי,Turkish coffee Jerusalem (1); Be Fresh Midrahov Jerusalem (1),Summer 2024 8000 (2),
+קפה טורקי,2,קפה טורקי,Turkish coffee Jerusalem (1); Be Fresh Midrahov Jerusalem (1),Summer 2024 8000 (2),Turkish coffee Jerusalem; Be Fresh Midrahov Jerusalem
 קפה לנדוור,4,קפה לנדוור,Landwer (4),Birthdays (2); Going out and restaurants (2),Landwer
 קפה נטו רכבת סבידור,1,קפה נטו רכבת סבידור,Cafe Neto (1),Going out and restaurants (1),Cafe Neto
 קפה סוזאנה,1,קפה סוזאנה,Cafe Suzanna (1),Going out and restaurants (1),Cafe Suzanna
@@ -788,43 +788,43 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 קפית,1,קפית,Capit Jerusalem (1),Opher food (1),Capit Jerusalem
 קצבת ילדים י,19,קצבת ילדים-י,Bituach Leumi Children (19),Ready to Assign (19),Bituach Leumi Children
 קקאו טבעי,5,קקאו טבעי,Cacao Natural (5),🛍️Groceries (5),Cacao Natural
-קרביץ ישראל,27,קרביץ ישראל,Kravitz (26); Campus Food (1),House and stuff (22); Opher food (3); 🛍️Groceries (1),
+קרביץ ישראל,27,קרביץ ישראל,Kravitz (26); Campus Food (1),House and stuff (22); Opher food (3); 🛍️Groceries (1),Kravitz; Campus Food
 קרדינל אלי טראב בעמ,1,קרדינל אלי טראב בעמ,Cardinal (1),🛍️Groceries (1),Cardinal
 קרוב משפחה דר דונחין,1,קרוב משפחה (דר) דונחין,Yoel Donchin (1),Bat Mitzvah 17000 (1),Yoel Donchin
 קרוקס,2,קרוקס,Crocs (2),Clothing (2),Crocs
-קרית הממשלה yellow ב פז,4,קרית הממשלה/YELLOW ב-פז,Yellow (3); Paz (1),Gas (4),
-קרן גוריון,2,קרן גוריון,Summer camp Keren Gurion (1); Keren Gurion (1),Summer 2024 8000 (2),
+קרית הממשלה yellow ב פז,4,קרית הממשלה/YELLOW ב-פז,Yellow (3); Paz (1),Gas (4),Yellow; Paz
+קרן גוריון,2,קרן גוריון,Summer camp Keren Gurion (1); Keren Gurion (1),Summer 2024 8000 (2),Summer camp Keren Gurion; Keren Gurion
 קרן מכבי הוראת קבע,6,קרן מכבי | הוראת קבע,Maccabi (6),Medical (6),Maccabi
 קרנית וסלינג,1,קרנית וסלינג,Karnit Wasling (1),Investment income and expenses (1),Karnit Wasling
 קרנף בר בש,11,קרנף בר בש,Campus Food (11),Opher food (11),Campus Food
 קשר עין בש,1,קשר עין - בש,Kesher Ein (1),Medical (1),Kesher Ein
 קשת טעמים באר שבע,1,קשת טעמים באר שבע,Keshet Teamim (1),🛍️Groceries (1),Keshet Teamim
-ר בית הפנקייק בעמ ח ב,1,ר בית הפנקייק בעמ.ח. ב-א,Beit Hapankeik Em Hadereh (1),Going out and restaurants (1),Beit Hapankeik Em Hadereh
+ר בית הפנקייק בעמ ח ב א,1,ר בית הפנקייק בעמ.ח. ב-א,Beit Hapankeik Em Hadereh (1),Going out and restaurants (1),Beit Hapankeik Em Hadereh
 ראש חשמל באר שבע בעמ,1,ראש חשמל באר שבע בעמ,Rosh Hashmal (1),House and stuff (1),Rosh Hashmal
-רבית זכות,7,רבית זכות,Interest (5); Tax refund (1); Bank leumi (1),Ready to Assign (6); Investment income and expenses (1),
+רבית זכות,7,רבית זכות,Interest (5); Tax refund (1); Bank leumi (1),Ready to Assign (6); Investment income and expenses (1),Interest; Tax refund; Bank leumi
 רויז בורגר בעמ,1,רויז בורגר בעמ,Roys Burger (1),Going out and restaurants (1),Roys Burger
 רולדין ביג באר שבע,1,רולדין ביג באר שבע,Roladin (1),Going out and restaurants (1),Roladin
 רולדין גדרה,1,רולדין גדרה,Roladin (1),Going out and restaurants (1),Roladin
-רון חליבה אלוף הפיצוחים,2,רון חליבה( אלוף הפיצוחים,Aluf Hapizuhim (1); Corner Store (1),🛍️Groceries (2),
+רון חליבה אלוף הפיצוחים,2,רון חליבה( אלוף הפיצוחים,Aluf Hapizuhim (1); Corner Store (1),🛍️Groceries (2),Aluf Hapizuhim; Corner Store
 רוני קרול,1,רוני קרול,Danielle (1),Danielle (1),Danielle
 רותם דעי,1,רותם דעי,Bake sale (1),Pocket money (1),Bake sale
-רי בורגר העתיקה,2,רי בורגר העתיקה,Smilanksy Festival (1); Reburger (1),Going out and restaurants (2),
-ריבית חובה,6,ריבית חובה,Interest (3); Bank leumi (2); Interest pament (1),Bank Interest & Fees (6),
+רי בורגר העתיקה,2,רי בורגר העתיקה,Smilanksy Festival (1); Reburger (1),Going out and restaurants (2),Smilanksy Festival; Reburger
+ריבית חובה,6,ריבית חובה,Interest (3); Bank leumi (2); Interest pament (1),Bank Interest & Fees (6),Interest; Bank leumi; Interest pament
 רינת כרסנטי,2,רינת כרסנטי,Isshin Aikido (2),Aikido (2),Isshin Aikido
-רכבת ישראל באר שבע צפון,4,רכבת ישראל-באר שבע צפון,train (3); Rav pas (1),Transportation (3); Birthdays (1),
+רכבת ישראל באר שבע צפון,4,רכבת ישראל-באר שבע צפון,train (3); Rav pas (1),Transportation (3); Birthdays (1),train; Rav pas
 רכבת ישראל בנימינה,1,רכבת ישראל-בנימינה,train (1),Transportation (1),train
 רכבת ישראל נמל תעופה בן,2,רכבת ישראל- נמל תעופה בן,train (2),Bulgaria July 2025 (2),train
-רמי לוי באר שבע,8,רמי לוי - באר שבע,Rami Levi (4); Rami Levy (4),🛍️Groceries (7); Bat Mitzvah 17000 (1),
-רמי קאליר,3,רמי קאליר,Rami Kallir (2); Hava Kallir (1),Loans and transfers (3),
+רמי לוי באר שבע,8,רמי לוי - באר שבע,Rami Levi (4); Rami Levy (4),🛍️Groceries (7); Bat Mitzvah 17000 (1),Rami Levi; Rami Levy
+רמי קאליר,3,רמי קאליר,Rami Kallir (2); Hava Kallir (1),Loans and transfers (3),Rami Kallir; Hava Kallir
 רשות הדואר דרכון עד הבית,1,רשות הדואר דרכון עד הבית,Postal Service (1),House and stuff (1),Postal Service
-רשות הדואר רכישת מוצר דאר,3,רשות הדואר-רכישת מוצר דאר,Postal Service (2); Post office (1),House and stuff (3),
+רשות הדואר רכישת מוצר דאר,3,רשות הדואר-רכישת מוצר דאר,Postal Service (2); Post office (1),House and stuff (3),Postal Service; Post office
 רשות הטבע והגנים אכזי,1,רשות הטבע והגנים אכזי,Matmon Reshut Hateva (1),Birthdays (1),Matmon Reshut Hateva
 רשות הטבע והגנים בארות,1,רשות הטבע והגנים - בארות,Matmon Reshut Hateva (1),Summer 2024 8000 (1),Matmon Reshut Hateva
 רשות הטבע והגנים בניאס,1,רשות הטבע והגנים בניאס,Reshut hateva stores (1),Summer 2025 (1),Reshut hateva stores
 רשות הטבע והגנים סוסיתא,1,רשות הטבע והגנים -סוסיתא,Sosita (1),Summer 2025 (1),Sosita
 רשתות תאורה באר שבע,1,רשתות תאורה באר שבע,Lighting Neetwork (1),House and stuff (1),Lighting Neetwork
 רשתות תאורה חאן ראש פינה,1,רשתות תאורה חאן ראש פינה,Light Network Rosh Pina (1),House and stuff (1),Light Network Rosh Pina
-שבילים באר שבע,4,שבילים באר שבע,Shvilim Beer sheva (3); Shvilim outlet (1),Bulgaria July 2025 (3); Clothing (1),
+שבילים באר שבע,4,שבילים באר שבע,Shvilim Beer sheva (3); Shvilim outlet (1),Bulgaria July 2025 (3); Clothing (1),Shvilim Beer sheva; Shvilim outlet
 שבילים עודפים בילו,1,שבילים עודפים בילו,Shvilim outlet (1),Clothing (1),Shvilim outlet
 שואבה yellow ב פז,1,שואבה/YELLOW ב-פז,Yellow (1),Gas (1),Yellow
 שווארמה רסקו,1,שווארמה רסקו,Shawarma Rasko (1),Going out and restaurants (1),Shawarma Rasko
@@ -840,8 +840,8 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 שחר קצב,6,שחר קצב,Isshin Aikido (6),Aikido (6),Isshin Aikido
 שטיפת הדקל,1,שטיפת הדקל,Car wash Dekel (1),Auto Maintenance (1),Car wash Dekel
 שטפן בייקרי אוסטרי,1,שטפן בייקרי אוסטרי,Austrian Bakery Tel Aviv (1),Going out and restaurants (1),Austrian Bakery Tel Aviv
-שיאון שיראקאוובה,3,שיאון שיראקאוובה,Mazal Shuker (1); Shean Shirakava (1); Yonit Friedman (1),Loans and transfers (2); Mikael (1),
-שייח בקטר,2,שייח בקטר,Smilanksy Festival (1); Reburger (1),Going out and restaurants (2),
+שיאון שיראקאוובה,3,שיאון שיראקאוובה,Mazal Shuker (1); Shean Shirakava (1); Yonit Friedman (1),Loans and transfers (2); Mikael (1),Mazal Shuker; Shean Shirakava; Yonit Friedman
+שייח בקטר,2,שייח בקטר,Smilanksy Festival (1); Reburger (1),Going out and restaurants (2),Smilanksy Festival; Reburger
 שייק בקטר,1,שייק בקטר,Shake Bakatar (1),Going out and restaurants (1),Shake Bakatar
 שייק שאק,1,שייק שאק,Shake Shack Tel Aviv (1),Going out and restaurants (1),Shake Shack Tel Aviv
 שירה יהב גרנ,11,שירה יהב גרנ,Shira Yahav (11),Chugim parents (11),Shira Yahav
@@ -852,10 +852,10 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 שף דיפו,1,שף דיפו,Chef Depot (1),House and stuff (1),Chef Depot
 שפרה פרנס,3,שפרה פרנס,Isshin Aikido (3),Aikido (3),Isshin Aikido
 שקם דיוטי,1,שקם דיוטי,Duty free Shekem (1),Bulgaria July 2025 (1),Duty free Shekem
-שרותי בריאות כללית הו ק הוראת,6,"שרותי בריאות כללית הו""ק | הוראת קבע",Clalit (6),Medical (6),Clalit
+שרותי בריאות כללית הו ק הוראת קבע,6,"שרותי בריאות כללית הו""ק | הוראת קבע",Clalit (6),Medical (6),Clalit
 תומר אליהו,7,תומר אליהו,Isshin Aikido (7),Aikido (7),Isshin Aikido
-תחבורה פנגו מוביט ב מ,35,תחבורה - פנגו מוביט. ב-מ,Pango moovit (34); Pango (1),Transportation (35),
-תחבורה רב פס ב מ,193,תחבורה- רב-פס. ב-מ,Rav pas (189); Bank leumi (1); Ravkav (1),Transportation (181); Bulgaria July 2025 (6); Summer 2024 8000 (4),
+תחבורה פנגו מוביט ב מ,35,תחבורה - פנגו מוביט. ב-מ,Pango moovit (34); Pango (1),Transportation (35),Pango moovit; Pango
+תחבורה רב פס ב מ,193,תחבורה- רב-פס. ב-מ,Rav pas (189); Bank leumi (1); Ravkav (1),Transportation (181); Bulgaria July 2025 (6); Summer 2024 8000 (4),Rav pas; Bank leumi; Ravkav; Food machine; train
 תחנת דלק עין שמר,1,תחנת דלק עין שמר,Delek (1),Gas (1),Delek
 תחנת פטרול,2,תחנת פטרול,Petrol (2),Gas (2),Petrol
 תיאטרון באר י,1,תיאטרון באר-י,Beer Sheva Theater (1),Summer 2024 8000 (1),Beer Sheva Theater
@@ -863,12 +863,12 @@ yooletta,1,YOOLETTA,Yooletta (1),Gifts (1),Yooletta
 תיכון עירוני מקיף ג ב ש,1,"תיכון עירוני מקיף ג' ב""ש",Mekif A (1),Mekif A 2000 July (1),Mekif A
 תיכון עירוני מקיף ג בש,1,תיכון עירוני מקיף ג' בש,Mekif C (1),Mekif C 2000 July (1),Mekif C
 תכשיטי ישראל,1,תכשיטי ישראל,Israel Jewlery Grand Mall (1),Clothing (1),Israel Jewlery Grand Mall
-תרבות ופנאי ב כיוונים,5,תרבות ופנאי? ב-כיוונים,Kivunim (3); Mishkan Omanuyot (1); Beer Sheva Theater (1),Chugim (3); Theater subscription 800 July (1); Going out and restaurants (1),
+תרבות ופנאי ב כיוונים,5,תרבות ופנאי? ב-כיוונים,Kivunim (3); Mishkan Omanuyot (1); Beer Sheva Theater (1),Chugim (3); Theater subscription 800 July (1); Going out and restaurants (1),Kivunim; Mishkan Omanuyot; Beer Sheva Theater
 תשלום david martin adv,1,תשלום DAVID MARTIN ADV,David Marten Lawyer (1),Investment income and expenses (1),David Marten Lawyer
-תשלום gongxu ji,4,תשלום GONGXU JI,Subject (2); Merkaz Hahalbasha (1); Present (1),University (2); Clothing (1); Gifts (1),
+תשלום gongxu ji,4,תשלום GONGXU JI,Subject (2); Merkaz Hahalbasha (1); Present (1),University (2); Clothing (1); Gifts (1),Subject; Merkaz Hahalbasha; Present
 תשלום xinrui zhao,3,תשלום XINRUI ZHAO,Subject (3),University (3),Subject
 תשלום xulong hou,1,תשלום XULONG HOU,Subject (1),University (1),Subject
 תשלום yi jiang,1,תשלום YI JIANG,Subject (1),University (1),Subject
 תשלום yipeng gou,3,תשלום YIPENG GOU,Subject (3),University (3),Subject
-תשלום yu zeng,4,תשלום YU ZENG,Subject (2); Merkaz Hahalbasha (1); Present (1),University (2); Clothing (1); Gifts (1),
+תשלום yu zeng,4,תשלום YU ZENG,Subject (2); Merkaz Hahalbasha (1); Present (1),University (2); Clothing (1); Gifts (1),Subject; Merkaz Hahalbasha; Present
 תשלום yuchen wang,3,תשלום YUCHEN WANG,Subject (3),University (3),Subject
