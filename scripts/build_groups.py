@@ -57,7 +57,7 @@ def main() -> None:
     )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    grouped.to_csv(args.out, index=False)
+    grouped.to_csv(args.out, index=False, encoding="utf-8-sig")
     print(f"Wrote {args.out} ({len(grouped)} rows)")
 
 

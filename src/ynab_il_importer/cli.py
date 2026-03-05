@@ -304,18 +304,17 @@ if typer is not None:
 
     @app.command("match-pairs")
     def match_pairs(
-        bank_paths: list[Path] = typer.Option(None, "--bank"),
-        card_paths: list[Path] = typer.Option(None, "--card"),
+        source_paths: list[Path] = typer.Option(None, "--source"),
         ynab_path: Path = typer.Option(..., "--ynab"),
         out_path: Path = typer.Option(..., "--out"),
     ) -> None:
-        banks = bank_paths or []
-        cards = card_paths or []
-        if not banks and not cards:
-            raise ValueError("Provide at least one --bank or --card input.")
+        sources = source_paths or []
+        if not sources:
+            raise ValueError("Provide at least one --source input.")
 
-        bank_df = _load_many_csvs(banks, "bank")
-        card_df = _load_many_csvs(cards, "card")
+        source_df = _load_many_csvs(sources, "source")
+        if "source" not in source_df.columns:
+            raise ValueError("source inputs must include a 'source' column.")
         ynab_df = pd.read_csv(ynab_path)
         if "account_name" not in ynab_df.columns:
             raise ValueError(f"ynab file missing account_name column: {ynab_path}")
@@ -325,7 +324,7 @@ if typer is not None:
         if (ynab_df["account_name"] == "").any():
             raise ValueError("ynab file has empty account_name rows.")
 
-        pairs_df = pair_match_pairs(bank_df, card_df, ynab_df)
+        pairs_df = pair_match_pairs(source_df, ynab_df)
         _ensure_parent(out_path)
         pairs_df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(pairs_df)} rows to {out_path}")
@@ -393,8 +392,7 @@ def _fallback_main() -> None:
     parse_bankin_parser.add_argument("--out", dest="out_path", required=True)
 
     match_pairs_parser = subparsers.add_parser("match-pairs")
-    match_pairs_parser.add_argument("--bank", action="append", default=[])
-    match_pairs_parser.add_argument("--card", action="append", default=[])
+    match_pairs_parser.add_argument("--source", action="append", default=[])
     match_pairs_parser.add_argument("--ynab", required=True)
     match_pairs_parser.add_argument("--out", required=True)
 
@@ -441,10 +439,11 @@ def _fallback_main() -> None:
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
     elif args.command == "match-pairs":
-        if not args.bank and not args.card:
-            raise ValueError("Provide at least one --bank or --card input.")
-        bank_df = _load_many_csvs([Path(p) for p in args.bank], "bank")
-        card_df = _load_many_csvs([Path(p) for p in args.card], "card")
+        if not args.source:
+            raise ValueError("Provide at least one --source input.")
+        source_df = _load_many_csvs([Path(p) for p in args.source], "source")
+        if "source" not in source_df.columns:
+            raise ValueError("source inputs must include a 'source' column.")
         ynab_df = pd.read_csv(Path(args.ynab))
         if "account_name" not in ynab_df.columns:
             raise ValueError(f"ynab file missing account_name column: {args.ynab}")
@@ -453,7 +452,7 @@ def _fallback_main() -> None:
         )
         if (ynab_df["account_name"] == "").any():
             raise ValueError("ynab file has empty account_name rows.")
-        pairs_df = pair_match_pairs(bank_df, card_df, ynab_df)
+        pairs_df = pair_match_pairs(source_df, ynab_df)
         out_path = Path(args.out)
         _ensure_parent(out_path)
         pairs_df.to_csv(out_path, index=False, encoding="utf-8-sig")

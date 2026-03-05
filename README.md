@@ -46,10 +46,10 @@ Default output name:
 
 ```bash
 pixi run python scripts/bootstrap_pairs.py \
-  --bank data/derived/bank_normalized.csv \
-  --bank data/derived/bank_normalized_other.csv \
-  --card data/derived/card_normalized.csv \
-  --card data/derived/card_normalized_other.csv \
+  --source data/derived/bank_normalized.csv \
+  --source data/derived/bank_normalized_other.csv \
+  --source data/derived/card_normalized.csv \
+  --source data/derived/card_normalized_other.csv \
   --ynab data/derived/ynab_normalized.csv \
   --out outputs/matched_pairs.csv
 ```

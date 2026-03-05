@@ -20,9 +20,32 @@ def _pick_raw_text(df: pd.DataFrame, candidates: list[str]) -> pd.Series:
     return pd.Series([""] * len(df), index=df.index, dtype="string")
 
 
-def _prepare_source(
-    df: pd.DataFrame, raw_candidates: list[str], source_type: str
-) -> pd.DataFrame:
+BANK_RAW_CANDIDATES = ["description_clean", "merchant_raw", "description_raw"]
+CARD_RAW_CANDIDATES = ["description_clean", "description_raw", "merchant_raw"]
+DEFAULT_RAW_CANDIDATES = ["description_clean", "merchant_raw", "description_raw", "raw_text"]
+
+
+def _pick_raw_text_by_source(
+    df: pd.DataFrame, source_series: pd.Series
+) -> pd.Series:
+    result = pd.Series([""] * len(df), index=df.index, dtype="string")
+
+    def _fill(mask: pd.Series, candidates: list[str]) -> None:
+        if not mask.any():
+            return
+        result.loc[mask] = _pick_raw_text(df.loc[mask], candidates)
+
+    normalized_source = source_series.astype("string").fillna("").str.strip().str.lower()
+    _fill(normalized_source == "bank", BANK_RAW_CANDIDATES)
+    _fill(normalized_source == "card", CARD_RAW_CANDIDATES)
+
+    remaining = result == ""
+    if remaining.any():
+        result.loc[remaining] = _pick_raw_text(df.loc[remaining], DEFAULT_RAW_CANDIDATES)
+    return result
+
+
+def _prepare_source(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(
             columns=[
@@ -41,6 +64,10 @@ def _prepare_source(
             ]
         )
 
+    source_type = (
+        _series_or_default(df, "source").astype("string").fillna("").str.strip().str.lower()
+    )
+    source_type = source_type.where(source_type != "", "source")
     account_name = (
         _series_or_default(df, "account_name").astype("string").fillna("").str.strip()
     )
@@ -61,7 +88,7 @@ def _prepare_source(
         inflow_ils = amount.where(amount > 0, 0.0).round(2)
     prepared = pd.DataFrame(
         {
-            "source_type": str(source_type).strip(),
+            "source_type": source_type,
             "source_file": _series_or_default(df, "source_file")
             .astype("string")
             .fillna("")
@@ -73,7 +100,7 @@ def _prepare_source(
             ).dt.date,
             "outflow_ils": outflow_ils,
             "inflow_ils": inflow_ils,
-            "raw_text": _pick_raw_text(df, raw_candidates),
+            "raw_text": _pick_raw_text_by_source(df, source_type),
             "fingerprint": _series_or_default(df, "fingerprint")
             .astype("string")
             .fillna("")
@@ -194,30 +221,11 @@ def _join_pairs(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
     ]
 
 
-def match_pairs(
-    bank_df: pd.DataFrame, card_df: pd.DataFrame, ynab_df: pd.DataFrame
-) -> pd.DataFrame:
+def match_pairs(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
     ynab_prepared = _prepare_ynab(ynab_df)
     ynab_prepared.head()
 
-    bank_pairs = _join_pairs(
-        _prepare_source(
-            bank_df,
-            ["description_clean", "merchant_raw", "description_raw"],
-            "bank",
-        ),
-        ynab_prepared,
-    )
-    card_pairs = _join_pairs(
-        _prepare_source(
-            card_df,
-            ["description_clean", "description_raw", "merchant_raw"],
-            "card",
-        ),
-        ynab_prepared,
-    )
-
-    pairs = pd.concat([bank_pairs, card_pairs], ignore_index=True)
+    pairs = _join_pairs(_prepare_source(source_df), ynab_prepared)
     if pairs.empty:
         return pd.DataFrame(
             columns=[

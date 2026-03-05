@@ -203,6 +203,7 @@ def apply_fingerprints(
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     write_header = not log_path.exists()
-    log_df.to_csv(log_path, index=False, mode="a", header=write_header)
+    encoding = "utf-8-sig" if write_header else "utf-8"
+    log_df.to_csv(log_path, index=False, mode="a", header=write_header, encoding=encoding)
 
     return out
