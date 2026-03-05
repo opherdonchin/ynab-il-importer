@@ -17,8 +17,8 @@ downstream mapping, dedupe, and review.
 - `description_raw`: raw memo/description text from source
 - `description_clean`: deterministic cleaned description used for mapping
 - `description_clean_norm`: `normalize_text(description_clean)`
-- `fingerprint`: `fingerprint_v0(description_clean_norm)`
-- `fingerprint_hash`: `fingerprint_hash_v1(txn_kind, description_clean_norm)`
+- `fingerprint`: `fingerprint_v0(canonical_text)` where `canonical_text` is the
+  normalized description after applying `mappings/fingerprint_map.csv`
 - `secondary_date`: posting/charge date when available
 
 ## Card-specific notes

@@ -9,16 +9,8 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ynab_il_importer.cli import _run_build_payee_map
-from ynab_il_importer.fingerprint import fingerprint_hash_v1
+from ynab_il_importer.fingerprint import fingerprint_v0
 from ynab_il_importer.rules import PAYEE_MAP_COLUMNS
-
-
-def test_fingerprint_hash_v1_is_stable() -> None:
-    value = fingerprint_hash_v1("expense", "coffee shop")
-    assert value == "610547d2f1e0"
-    assert value == fingerprint_hash_v1("expense", "coffee shop")
-    assert value != fingerprint_hash_v1("transfer", "coffee shop")
-    assert len(value) == 12
 
 
 def test_build_payee_map_outputs_have_bounded_examples_and_no_nan_hints(tmp_path: Path) -> None:
@@ -33,6 +25,7 @@ def test_build_payee_map_outputs_have_bounded_examples_and_no_nan_hints(tmp_path
                 "inflow_ils": 0,
                 "description_clean_norm": "local cafe",
                 "merchant_raw": "M" * 140,
+                "fingerprint": fingerprint_v0("local cafe"),
             },
             {
                 "txn_kind": "expense",
@@ -43,6 +36,7 @@ def test_build_payee_map_outputs_have_bounded_examples_and_no_nan_hints(tmp_path
                 "inflow_ils": 0,
                 "description_clean_norm": "local cafe",
                 "merchant_raw": "Second merchant example",
+                "fingerprint": fingerprint_v0("local cafe"),
             },
             {
                 "txn_kind": "transfer",
@@ -53,6 +47,7 @@ def test_build_payee_map_outputs_have_bounded_examples_and_no_nan_hints(tmp_path
                 "inflow_ils": 0,
                 "description_clean_norm": "bit transfer",
                 "merchant_raw": "BIT",
+                "fingerprint": fingerprint_v0("bit transfer"),
             },
         ]
     )
@@ -68,7 +63,7 @@ def test_build_payee_map_outputs_have_bounded_examples_and_no_nan_hints(tmp_path
             "inflow_ils",
             "raw_text",
             "raw_norm",
-            "fingerprint_v0",
+            "fingerprint",
             "ynab_payee_raw",
             "ynab_category_raw",
         ]
@@ -87,24 +82,18 @@ def test_build_payee_map_outputs_have_bounded_examples_and_no_nan_hints(tmp_path
 
     expected_columns = [
         "txn_kind",
-        "fingerprint_hash",
+        "fingerprint",
         "description_clean_norm",
         "count_in_period",
-        "example_1",
-        "example_2",
+        "examples",
         "suggested_payee_distribution",
         "suggested_category_distribution",
         "existing_rules_hit_count",
         "status",
     ]
     assert candidates.columns.tolist() == expected_columns
-    assert "fingerprint_hash" in preview.columns
+    assert "fingerprint" in preview.columns
     assert candidates["suggested_payee_distribution"].isna().sum() == 0
     assert candidates["suggested_category_distribution"].isna().sum() == 0
-    assert candidates["example_1"].isna().sum() == 0
-    assert candidates["example_2"].isna().sum() == 0
-    assert all(len(value) <= 100 for value in candidates["example_1"].tolist())
-    assert all(len(value) <= 100 for value in candidates["example_2"].tolist())
-
-    transfer_row = candidates[candidates["txn_kind"] == "transfer"].iloc[0]
-    assert transfer_row["example_2"] == ""
+    assert candidates["examples"].isna().sum() == 0
+    assert all(len(value) <= 205 for value in candidates["examples"].tolist())

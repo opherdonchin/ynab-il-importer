@@ -4,9 +4,7 @@ import re
 
 import pandas as pd
 from ynab_il_importer.account_map import apply_account_name_map
-from ynab_il_importer.fingerprint import fingerprint_hash_v1
-from ynab_il_importer.fingerprint import fingerprint_v0
-from ynab_il_importer.normalize import normalize_text
+from ynab_il_importer.fingerprint import apply_fingerprints
 
 
 HEADER_MARKER = "תאריך עסקה"
@@ -118,17 +116,10 @@ def read_card(path: str | Path) -> pd.DataFrame:
     notes = _get_column(raw, "הערות", "").astype("string").fillna("").str.strip()
     description = merchant.where(notes == "", merchant + " | " + notes).str.strip(" |")
     description_clean = description.where(description != "", merchant).astype("string").fillna("").str.strip()
-    description_clean_norm = description_clean.map(normalize_text)
-    fingerprint = description_clean_norm.map(fingerprint_v0)
     amount = amount.round(2)
     outflow_ils = amount.where(amount < 0, 0.0).abs().round(2)
     inflow_ils = amount.where(amount > 0, 0.0).round(2)
     txn_kind = _infer_txn_kind(inflow_ils, outflow_ils)
-
-    fingerprint_hash = [
-        fingerprint_hash_v1(kind, description_norm)
-        for kind, description_norm in zip(txn_kind.tolist(), description_clean_norm.tolist())
-    ]
 
     account_col = _pick_card_account_column(raw)
     if account_col is not None:
@@ -151,9 +142,8 @@ def read_card(path: str | Path) -> pd.DataFrame:
             "merchant_raw": merchant,
             "description_raw": description,
             "description_clean": description_clean,
-            "description_clean_norm": description_clean_norm,
-            "fingerprint": fingerprint,
-            "fingerprint_hash": pd.Series(fingerprint_hash, index=raw.index, dtype="string"),
+            "description_clean_norm": "",
+            "fingerprint": "",
             "outflow_ils": outflow_ils,
             "inflow_ils": inflow_ils,
             "currency": _normalize_currency(_get_column(raw, "מטבע חיוב", "")),
@@ -169,6 +159,7 @@ def read_card(path: str | Path) -> pd.DataFrame:
         | (result["inflow_ils"] != 0)
     ]
     result = apply_account_name_map(result, source="card")
+    result = apply_fingerprints(result)
 
     return result[
         [
@@ -183,7 +174,6 @@ def read_card(path: str | Path) -> pd.DataFrame:
             "description_clean",
             "description_clean_norm",
             "fingerprint",
-            "fingerprint_hash",
             "outflow_ils",
             "inflow_ils",
             "currency",

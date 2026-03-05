@@ -67,6 +67,25 @@ Expected outputs:
 - `outputs/matched_pairs.csv`
 - `outputs/fingerprint_groups.csv`
 
+## Fingerprint Mapping
+
+Optional fingerprint canonicalization rules live in:
+
+- `mappings/fingerprint_map.csv`
+
+Columns:
+
+- `rule_id`
+- `is_active`
+- `priority`
+- `pattern` (literal substrings, `|` allowed for OR)
+- `canonical_text`
+- `notes`
+
+Fingerprinting appends a log to:
+
+- `outputs/fingerprint_log.csv`
+
 ## Account Name Mapping
 
 Account identity now comes from source files:

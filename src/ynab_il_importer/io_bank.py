@@ -7,6 +7,7 @@ import pandas as pd
 from lxml import html
 
 from ynab_il_importer.account_map import apply_account_name_map
+from ynab_il_importer.fingerprint import apply_fingerprints
 
 _BANK_REQUIRED_HEADERS = {"תאריך", "תיאור", "בחובה", "בזכות"}
 _BANK_ACCOUNT_HEADERS = {
@@ -244,6 +245,9 @@ def read_bank(path: str | Path, account_name: str = "") -> pd.DataFrame:
             "description_raw": _get_column(raw, "תיאור", "")
             .astype("string")
             .fillna(""),
+            "description_clean": _get_column(raw, "תיאור", "")
+            .astype("string")
+            .fillna(""),
             "ref": _get_column(raw, "אסמכתא", "").astype("string").fillna(""),
             "outflow_ils": outflow,
             "inflow_ils": inflow,
@@ -259,6 +263,7 @@ def read_bank(path: str | Path, account_name: str = "") -> pd.DataFrame:
     ]
 
     result = apply_account_name_map(result, source="bank")
+    result = apply_fingerprints(result)
 
     return result[
         [
@@ -267,7 +272,10 @@ def read_bank(path: str | Path, account_name: str = "") -> pd.DataFrame:
             "source_account",
             "date",
             "secondary_date",
+            "description_clean",
             "description_raw",
+            "description_clean_norm",
+            "fingerprint",
             "ref",
             "outflow_ils",
             "inflow_ils",

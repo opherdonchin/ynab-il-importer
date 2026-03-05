@@ -26,44 +26,42 @@ Machine learning is not part of v1.
 
 Every normalized transaction has a stable:
 
-    fingerprint_hash  (v1)
+    fingerprint
 
 This fingerprint is the primary key used for mapping inference.
-
-The fingerprint algorithm is frozen for Milestone 1.
-If improvements are needed later, a versioned fingerprint (v2) will be added
-without breaking v1 mappings.
+Fingerprints are derived from normalized text and optionally canonicalized via
+`mappings/fingerprint_map.csv`.
 
 ---
 
 ## 2. Mapping Model
 
-Mapping is defined by:
+Mapping is defined by rules, primarily keyed by:
 
-    fingerprint_hash → (payee, category) options
+    fingerprint → (payee, category)
 
 `payee_map.csv` is the source of truth.
 
 Grain:
 
-    One row = one (fingerprint → payee, category) candidate.
+    One row = one rule that can emit a payee+category suggestion.
 
 Columns:
 
-- fingerprint_hash
+- rule_id
+- is_active
+- priority
+- txn_kind
+- fingerprint
+- description_clean_norm
+- account_name
+- source
+- direction
+- currency
+- amount_bucket
 - payee_canonical
-- category
-- is_default (blank or TRUE)
-- count (bootstrap hint)
-- active (blank/TRUE means active; FALSE means ignore)
-- note (free text)
-
-Rules:
-
-- Multiple rows per fingerprint allowed.
-- At most one default per fingerprint.
-- category must be non-empty for upload.
-- payee and category are coupled in the mapping table.
+- category_target
+- notes
 
 Mapping affects future inference only.
 Past resolved transactions are never rewritten.
@@ -97,7 +95,6 @@ User review determines final selections.
 ## 4. Workflow Phases
 
 ### Phase 0 — Freeze Conventions
-- Fingerprint v1 frozen.
 - Amount sign convention fixed.
 - Date semantics fixed.
 
@@ -169,7 +166,7 @@ Not in scope for now:
 - Automatic learning of mapping rules.
 - Retrofitting historical transactions in YNAB.
 - Complex rule precedence systems.
-- Fingerprint algorithm redesign.
+- Large-scale fingerprint algorithm redesign beyond the canonicalization map.
 
 Focus: deterministic mapping + clean workflow.
 

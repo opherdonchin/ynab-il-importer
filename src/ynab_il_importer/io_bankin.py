@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 from ynab_il_importer.account_map import apply_account_name_map
+from ynab_il_importer.fingerprint import apply_fingerprints
 
 
 _PURCHASE_DATE_RE = re.compile(r"\b(\d{2})/(\d{2})/(\d{2})\b")
@@ -211,4 +212,6 @@ def read_bankin_dat(path: str | Path) -> pd.DataFrame:
             "amount_bucket",
         ],
     )
-    return apply_account_name_map(result, source="bank")
+    result = apply_account_name_map(result, source="bank")
+    result = apply_fingerprints(result)
+    return result

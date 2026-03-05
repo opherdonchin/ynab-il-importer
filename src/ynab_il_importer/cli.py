@@ -7,6 +7,9 @@ from ynab_il_importer.io_bankin import read_bankin_dat
 from ynab_il_importer.io_card import read_card
 from ynab_il_importer.io_ynab import read_ynab_register
 from ynab_il_importer.pairing import match_pairs as pair_match_pairs
+from ynab_il_importer.rules import apply_payee_map_rules
+from ynab_il_importer.rules import load_payee_map
+from ynab_il_importer.rules import prepare_transactions_for_rules
 
 try:
     import typer
@@ -51,8 +54,8 @@ def _load_many_csvs(paths: list[Path], label: str) -> pd.DataFrame:
 
 
 def _build_groups_df(pairs: pd.DataFrame) -> pd.DataFrame:
-    if "fingerprint_v0" not in pairs.columns:
-        raise ValueError("Input pairs file must include fingerprint_v0 column")
+    if "fingerprint" not in pairs.columns:
+        raise ValueError("Input pairs file must include fingerprint column")
 
     def _most_common_text(series: pd.Series) -> str:
         clean = series.astype("string").fillna("").str.strip()
@@ -69,22 +72,27 @@ def _build_groups_df(pairs: pd.DataFrame) -> pd.DataFrame:
         top = clean.value_counts().head(limit)
         return "; ".join(f"{name} ({count})" for name, count in top.items())
 
-    group_keys = ["fingerprint_v0"]
-    if "account_name" in pairs.columns:
-        group_keys = ["account_name", "fingerprint_v0"]
-
     grouped = (
-        pairs.groupby(group_keys, dropna=False)
+        pairs.groupby(["fingerprint"], dropna=False)
         .agg(
-            count=("fingerprint_v0", "size"),
+            count=("fingerprint", "size"),
             example_raw_text=("raw_text", _most_common_text),
             top_ynab_payees=("ynab_payee_raw", _top_counts),
             top_ynab_categories=("ynab_category_raw", _top_counts),
+            canonical_payee=("ynab_payee_raw", _unique_values),
         )
         .reset_index()
     )
-    grouped["canonical_payee"] = ""
     return grouped
+
+
+def _unique_values(series: pd.Series) -> str:
+    clean = series.astype("string").fillna("").str.strip()
+    clean = clean[clean != ""]
+    if clean.empty:
+        return ""
+    ordered = clean.value_counts().index.tolist()
+    return "; ".join(str(value) for value in ordered)
 
 
 def _resolve_account_column(df: pd.DataFrame) -> pd.Series:
@@ -333,6 +341,19 @@ if typer is not None:
         grouped.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(grouped)} rows to {out_path}")
 
+    @app.command("build-payee-map")
+    def build_payee_map(
+        parsed_paths: list[Path] = typer.Option(None, "--parsed"),
+        matched_pairs_paths: list[Path] = typer.Option(None, "--matched-pairs"),
+        out_dir: Path = typer.Option(..., "--out-dir"),
+        map_path: Path = typer.Option(Path("mappings/payee_map.csv"), "--map-path"),
+    ) -> None:
+        parsed = parsed_paths or []
+        matched = matched_pairs_paths or []
+        if not parsed:
+            raise ValueError("Provide at least one --parsed input.")
+        _run_build_payee_map(parsed, matched, out_dir, map_path)
+
     @app.command("list-accounts")
     def list_accounts(
         in_path: Path = typer.Option(..., "--in"),
@@ -380,6 +401,14 @@ def _fallback_main() -> None:
     build_groups_parser = subparsers.add_parser("build-groups")
     build_groups_parser.add_argument("--pairs", required=True)
     build_groups_parser.add_argument("--out", required=True)
+
+    build_payee_map_parser = subparsers.add_parser("build-payee-map")
+    build_payee_map_parser.add_argument("--parsed", action="append", required=True)
+    build_payee_map_parser.add_argument("--matched-pairs", action="append", default=[])
+    build_payee_map_parser.add_argument("--out-dir", required=True)
+    build_payee_map_parser.add_argument(
+        "--map-path", default=str(Path("mappings/payee_map.csv"))
+    )
 
     list_accounts_parser = subparsers.add_parser("list-accounts")
     list_accounts_parser.add_argument("--in", dest="in_path", required=True)
@@ -436,6 +465,10 @@ def _fallback_main() -> None:
         _ensure_parent(out_path)
         grouped.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(grouped)} rows to {out_path}")
+    elif args.command == "build-payee-map":
+        parsed = [Path(p) for p in args.parsed]
+        matched = [Path(p) for p in args.matched_pairs]
+        _run_build_payee_map(parsed, matched, Path(args.out_dir), Path(args.map_path))
     elif args.command == "list-accounts":
         df = pd.read_csv(Path(args.in_path))
         accounts = _resolve_account_column(df).astype("string").fillna("").str.strip()

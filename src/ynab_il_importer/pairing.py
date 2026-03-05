@@ -1,6 +1,5 @@
 import pandas as pd
 
-from ynab_il_importer.fingerprint import fingerprint_v0
 from ynab_il_importer.normalize import normalize_text
 
 
@@ -35,6 +34,7 @@ def _prepare_source(
                 "outflow_ils",
                 "inflow_ils",
                 "raw_text",
+                "fingerprint",
                 "account_key",
                 "date_key",
                 "amount_key",
@@ -74,8 +74,14 @@ def _prepare_source(
             "outflow_ils": outflow_ils,
             "inflow_ils": inflow_ils,
             "raw_text": _pick_raw_text(df, raw_candidates),
+            "fingerprint": _series_or_default(df, "fingerprint")
+            .astype("string")
+            .fillna("")
+            .str.strip(),
         }
     )
+    if (prepared["fingerprint"] == "").any():
+        raise ValueError("Source data missing fingerprint values; run fingerprinting first.")
     prepared["account_key"] = prepared["account_name"]
     prepared["date_key"] = prepared["date"]
     prepared["amount_key"] = (prepared["inflow_ils"] - prepared["outflow_ils"]).round(2)
@@ -148,6 +154,7 @@ def _join_pairs(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
                 "outflow_ils",
                 "inflow_ils",
                 "raw_text",
+                "fingerprint",
                 "ynab_file",
                 "ynab_account",
                 "ynab_outflow_ils",
@@ -173,6 +180,7 @@ def _join_pairs(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
             "outflow_ils",
             "inflow_ils",
             "raw_text",
+            "fingerprint",
             "ynab_file",
             "ynab_account",
             "ynab_outflow_ils",
@@ -222,7 +230,7 @@ def match_pairs(
                 "inflow_ils",
                 "raw_text",
                 "raw_norm",
-                "fingerprint_v0",
+                "fingerprint",
                 "ynab_file",
                 "ynab_account",
                 "ynab_outflow_ils",
@@ -234,7 +242,6 @@ def match_pairs(
         )
 
     pairs["raw_norm"] = pairs["raw_text"].map(normalize_text)
-    pairs["fingerprint_v0"] = pairs["raw_text"].map(fingerprint_v0)
 
     key_counts = (
         pairs.groupby(["account_key", "date_key", "amount_key"], dropna=False)
@@ -258,7 +265,7 @@ def match_pairs(
             "inflow_ils",
             "raw_text",
             "raw_norm",
-            "fingerprint_v0",
+            "fingerprint",
             "ynab_file",
             "ynab_account",
             "ynab_outflow_ils",

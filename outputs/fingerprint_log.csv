@@ -1,0 +1,7 @@
+run_id,row_index,source,source_file,account_name,date,outflow_ils,inflow_ils,text_source_column,text_raw,text_normalized,matched_rule_id,matched_pattern,canonical_text,fingerprint
+2026-03-05T11:31:40.189684+02:00,0,card,,x1234,2026-02-01,123.45,0.0,description_clean,סופר פארם,סופר פארם,,,סופר פארם,סופר פארם
+2026-03-05T11:31:40.189684+02:00,1,card,,x5678,2026-02-03,89.9,0.0,description_clean,AMAZON MKTPLACE PMTS | ORDER 1234-5678,amazon mktplace pmts order,,,amazon mktplace pmts order,amazon mktplace pmts order
+2026-03-05T11:31:40.229482+02:00,0,card,,,2026-02-01,10.0,0.0,description_clean,MERCHANT A,merchant a,,,merchant a,merchant a
+2026-03-05T14:48:00.532390+02:00,0,card,,x1234,2026-02-01,123.45,0.0,description_clean,סופר פארם,סופר פארם,,,סופר פארם,סופר פארם
+2026-03-05T14:48:00.532390+02:00,1,card,,x5678,2026-02-03,89.9,0.0,description_clean,AMAZON MKTPLACE PMTS | ORDER 1234-5678,amazon mktplace pmts order,,,amazon mktplace pmts order,amazon mktplace pmts order
+2026-03-05T14:48:00.569256+02:00,0,card,,,2026-02-01,10.0,0.0,description_clean,MERCHANT A,merchant a,,,merchant a,merchant a
