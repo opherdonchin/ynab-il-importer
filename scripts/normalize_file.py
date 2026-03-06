@@ -30,10 +30,19 @@ def main() -> None:
         choices=sorted(FORMAT_READERS.keys()),
         required=True,
     )
+    parser.add_argument(
+        "--no-fingerprint-map",
+        dest="no_fingerprint_map",
+        action="store_true",
+        help="Skip fingerprint_map.csv when generating fingerprints.",
+    )
     args = parser.parse_args()
 
     reader = FORMAT_READERS[args.format_name]
-    df = reader(args.in_path)
+    if args.format_name == "ynab":
+        df = reader(args.in_path)
+    else:
+        df = reader(args.in_path, use_fingerprint_map=not args.no_fingerprint_map)
 
     out_path = args.out_path
     if out_path is None:

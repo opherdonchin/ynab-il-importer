@@ -101,7 +101,7 @@ def _infer_txn_kind(inflow_ils: pd.Series, outflow_ils: pd.Series) -> pd.Series:
     return kind
 
 
-def read_card(path: str | Path) -> pd.DataFrame:
+def read_card(path: str | Path, use_fingerprint_map: bool = True) -> pd.DataFrame:
     path = Path(path)
     sheet_name, header_row = _find_header(path)
     raw = _clean_columns(pd.read_excel(path, sheet_name=sheet_name, header=header_row))
@@ -159,7 +159,7 @@ def read_card(path: str | Path) -> pd.DataFrame:
         | (result["inflow_ils"] != 0)
     ]
     result = apply_account_name_map(result, source="card")
-    result = apply_fingerprints(result)
+    result = apply_fingerprints(result, use_fingerprint_map=use_fingerprint_map)
 
     return result[
         [

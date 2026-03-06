@@ -221,7 +221,9 @@ def _read_bank_table(path: Path) -> pd.DataFrame:
     raise ValueError(f"Could not parse bank file as HTML or Excel: {path}")
 
 
-def read_bank(path: str | Path, account_name: str = "") -> pd.DataFrame:
+def read_bank(
+    path: str | Path, account_name: str = "", use_fingerprint_map: bool = True
+) -> pd.DataFrame:
     raw = _read_bank_table(Path(path))
 
     outflow = _parse_amount(_get_column(raw, "בחובה", 0.0))
@@ -263,7 +265,7 @@ def read_bank(path: str | Path, account_name: str = "") -> pd.DataFrame:
     ]
 
     result = apply_account_name_map(result, source="bank")
-    result = apply_fingerprints(result)
+    result = apply_fingerprints(result, use_fingerprint_map=use_fingerprint_map)
 
     return result[
         [

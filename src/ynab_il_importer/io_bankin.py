@@ -142,7 +142,7 @@ def _infer_txn_kind(base_kind: str, inflow_ils: float, outflow_ils: float) -> st
     return "income" if inflow > 0 else "expense"
 
 
-def read_bankin_dat(path: str | Path) -> pd.DataFrame:
+def read_bankin_dat(path: str | Path, use_fingerprint_map: bool = True) -> pd.DataFrame:
     source_path = Path(path)
     decoded_lines = [line.decode("cp862", errors="replace").strip() for line in source_path.read_bytes().splitlines()]
     decoded_lines = [line for line in decoded_lines if line]
@@ -213,5 +213,5 @@ def read_bankin_dat(path: str | Path) -> pd.DataFrame:
         ],
     )
     result = apply_account_name_map(result, source="bank")
-    result = apply_fingerprints(result)
+    result = apply_fingerprints(result, use_fingerprint_map=use_fingerprint_map)
     return result

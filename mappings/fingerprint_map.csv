@@ -1,36 +1,68 @@
 rule_id,is_active,priority,pattern,canonical_text,notes
-paybox,TRUE,0,paybox,paybox,Consolidate PayBox variants
-auto_20260306_01,TRUE,0,סופר פארם|סופרפארם,סופרפארם,Consolidate Super-Pharm variants
-auto_20260306_02,TRUE,0,דור אלון,דור אלון,Consolidate Dor Alon variants
-auto_20260306_03,TRUE,0,שופרסל,שופרסל,Consolidate Shufersal variants
-auto_20260306_04,TRUE,0,טיב טעם,טיב טעם,Consolidate Tiv Taam variants
-auto_20260306_05,TRUE,0,מחסני השוק,מחסני השוק,Consolidate Machsanei HaShuk variants
-auto_20260306_06,TRUE,0,רשות הטבע והגנים,רשות הטבע והגנים,Consolidate Nature and Parks Authority variants
-auto_20260306_07,TRUE,0,צומת ספרים,צומת ספרים,Consolidate Tzomet Sfarim variants
-auto_20260306_08,TRUE,0,רכבת ישראל,רכבת ישראל,Consolidate Israel Railways variants
-auto_20260306_09,TRUE,0,ארומה,ארומה,Consolidate Aroma variants
-auto_20260306_10,TRUE,0,אילנס,אילנס,Consolidate Ilans variants
-auto_20260306_11,TRUE,0,קפה עלית,קפה עלית,Consolidate Elite Coffee variants
-auto_20260306_12,TRUE,0,לנדוור,לנדוור,Consolidate Landwer variants
-auto_20260306_13,TRUE,0,דלק,דלק,Consolidate Delek / fuel station variants
-auto_20260306_14,TRUE,0,פז,פז,Consolidate Paz variants
-auto_20260306_15,TRUE,0,סונול,סונול,Consolidate Sonol variants
-auto_20260306_16,TRUE,0,ניצת הדובדבן,ניצת הדובדבן,Consolidate Nitzat HaDuvdevan variants
-auto_20260306_17,TRUE,0,זול פעמי,זול פעמי,Consolidate Zol Paami variants
-auto_20260306_18,TRUE,0,הראל ביטוח,הראל ביטוח,Consolidate Harel Insurance variants
-auto_20260306_19,TRUE,0,כלל ביטוח,כלל ביטוח,Consolidate Clal Insurance variants
-auto_20260306_20,TRUE,0,מס הכנסה,מס הכנסה,Consolidate Income Tax variants
-auto_20260306_21,TRUE,0,משרד התחבורה,משרד התחבורה,Consolidate Ministry of Transport variants
-auto_20260306_22,TRUE,0,המוסד לביטוח לאומי,המוסד לביטוח לאומי,Consolidate National Insurance Institute variants
-auto_20260306_23,TRUE,0,מי שבע,מי שבע,Consolidate Mei Sheva variants
-auto_20260306_24,TRUE,0,מרכז הספורט והנופש,מרכז הספורט והנופש,Consolidate Sport & Recreation Center variants
-auto_20260306_25,TRUE,0,סולתם רדד,סולתם רדד,Consolidate Soltam Radad variants
-auto_20260306_26,TRUE,0,סי קפה,סי קפה,Consolidate Si Cafe variants
-auto_20260306_27,TRUE,0,ספרינט מוטורוס,ספרינט מוטורוס,Consolidate Sprint Motoros variants
-auto_20260306_28,TRUE,0,בתי קולנוע,בתי קולנוע,Consolidate Cinema variants
-auto_20260306_29,TRUE,0,בליקר בייקרי,בליקר בייקרי,Consolidate Blekir Bakery variants
-auto_20260306_30,TRUE,0,בית יציב,בית יציב,Consolidate Beit Yatziv variants
-auto_20260306_31,TRUE,0,אלונית,אלונית,Consolidate Alonit variants
-auto_20260306_32,TRUE,0,duty free,duty free,Consolidate Duty Free variants
-Cello,TRUE,0,cello,Cello,"Cello park "
-Subject transfers,TRUE,0,experiment,experiment,Subject payments by bank transfer
+paybox,True,0,paybox,paybox,Consolidate PayBox transfers
+סופרפארם,True,0,סופר פארם|סופרפארם,סופרפארם,Consolidate Super-Pharm variants
+דור_אלון,True,0,דור אלון,דור אלון,Consolidate Dor Alon variants
+שופרסל,True,0,שופרסל,שופרסל,Consolidate Shufersal variants
+טיב_טעם,True,0,טיב טעם,טיב טעם,Consolidate Tiv Taam variants
+מחסני_השוק,True,0,מחסני השוק,מחסני השוק,Consolidate Machsanei HaShuk variants
+רשות_הטבע_והגנים,True,0,רשות הטבע והגנים,רשות הטבע והגנים,Consolidate Nature and Parks Authority variants
+צומת_ספרים,True,0,צומת ספרים,צומת ספרים,Consolidate Tzomet Sfarim variants
+רכבת_ישראל,True,0,רכבת ישראל,רכבת ישראל,Consolidate Israel Railways variants
+ארומה,True,0,ארומה,ארומה,Consolidate Aroma variants
+אילנס,True,0,אילנס,אילנס,Consolidate Ilans variants
+קפה_עלית,True,0,קפה עלית,קפה עלית,Consolidate Elite Coffee variants
+לנדוור,True,0,לנדוור,לנדוור,Consolidate Landwer variants
+דלק,True,0,דלק,דלק,Consolidate Delek / fuel station variants
+פז,True,0,פז,פז,Consolidate Paz variants
+סונול,True,0,סונול,סונול,Consolidate Sonol variants
+ניצת_הדובדבן,True,0,ניצת הדובדבן,ניצת הדובדבן,Consolidate Nitzat HaDuvdevan variants
+זול_פעמי,True,0,זול פעמי,זול פעמי,Consolidate Zol Paami variants
+הראל_ביטוח,True,0,הראל ביטוח,הראל ביטוח,Consolidate Harel Insurance variants
+כלל_ביטוח,True,0,כלל ביטוח,כלל ביטוח,Consolidate Clal Insurance variants
+מס_הכנסה,True,0,מס הכנסה,מס הכנסה,Consolidate Income Tax variants
+משרד_התחבורה,True,0,משרד התחבורה,משרד התחבורה,Consolidate Ministry of Transport variants
+המוסד_לביטוח_לאומי,True,0,המוסד לביטוח לאומי,המוסד לביטוח לאומי,Consolidate National Insurance Institute variants
+מי_שבע,True,0,מי שבע,מי שבע,Consolidate Mei Sheva variants
+מרכז_הספורט_והנופש,True,0,מרכז הספורט והנופש,מרכז הספורט והנופש,Consolidate Sport & Recreation Center variants
+סולתם_רדד,True,0,סולתם רדד,סולתם רדד,Consolidate Soltam Radad variants
+סי_קפה,True,0,סי קפה,סי קפה,Consolidate Si Cafe variants
+ספרינט_מוטורוס,True,0,ספרינט מוטורוס,ספרינט מוטורוס,Consolidate Sprint Motoros variants
+בתי_קולנוע,True,0,בתי קולנוע,בתי קולנוע,Consolidate Cinema variants
+בליקר_בייקרי,True,0,בליקר בייקרי,בליקר בייקרי,Consolidate Blekir Bakery variants
+בית_יציב,True,0,בית יציב,בית יציב,Consolidate Beit Yatziv variants
+אלונית,True,0,אלונית,אלונית,Consolidate Alonit variants
+duty_free,True,0,duty free|duty-free|dutyfree|דיוטי פרי,duty free,Consolidate Duty Free variants
+cello,True,0,cello,Cello,Cello park 
+experiment,False,0,experiment,experiment,Disabled: keep recipient names for transfers
+yellow,True,5,yellow,yellow,Split YELLOW from Paz
+מנטה,True,5,מנטה,מנטה,Split Menta from Delek
+ksp,True,0,ksp,ksp,Consolidate KSP variants
+japanika,True,0,japanika|גפניקה,japanika,Consolidate Japanika variants
+קמפאי,True,0,קמפאי,קמפאי,Consolidate Kampai variants
+כללית,True,0,כללית,כללית,Consolidate Clalit variants
+ספידוג,True,0,ספידוג,ספידוג,Consolidate Speedog variants
+אייבורי,True,0,ivory|אייבורי,אייבורי,Consolidate Ivory variants
+hot,True,0,hot mobile,hot,Consolidate HOT Mobile
+hot_2,True,0,next tv by hot,hot,Consolidate HOT Next TV
+למטייל,True,0,למטייל,למטייל,Consolidate Lametayel variants
+לחייל_ולטייל,True,0,לחייל ולטייל,לחייל ולטייל,Consolidate Lahayal V'Lateyal variants
+אליטל,True,0,אליטל,אליטל,Consolidate Alital variants
+חוגי_סיירות,True,0,חוגי סיירות,חוגי סיירות,Consolidate Chug Sayarut variants
+מלך_הממתקים,True,0,מלך הממתקים,מלך הממתקים,Consolidate Melech Hamamtakim variants
+rexail,True,0,rexail,rexail,Consolidate Rexail variants
+רולדין,True,0,רולדין,רולדין,Consolidate Roladin variants
+ורדינון,True,0,ורדינון,ורדינון,Consolidate Vardinon variants
+אייקון,True,0,אייקון,אייקון,Consolidate Icon variants
+באג,True,0,באג ביג,באג,Consolidate BUG variants (Big)
+באג_2,True,0,באג מולטיסיסטם,באג,Consolidate BUG variants (Multisystem)
+פוקס,True,0,פוקס ביג,פוקס,Consolidate Fox variants (Big)
+פוקס_2,True,0,פוקס הום,פוקס,Consolidate Fox Home variants
+פוקס_3,True,0,פוקס נמל,פוקס,Consolidate Fox variants (Port)
+כביש,True,0,כביש 6,כביש,Consolidate Kvish 6 variants
+שייק_בקטר,True,0,שייק בקטר,שייק בקטר,Consolidate Shake Bakatar variants
+שייק_בקטר_2,True,0,שייח בקטר,שייק בקטר,Consolidate Shake Bakatar variants (typo)
+שייק_בקטר_3,True,0,שמואל חגג שייק בקטר,שייק בקטר,Consolidate Shake Bakatar variants (name prefix)
+bit,True,0,bit,bit,Consolidate Bit transfers
+decathlon,True,0,decathlon|דקטלון,decathlon,Consolidate Decathlon variants (Hebrew/English)
+open_spot,True,0,open spot|אופן ספוט,open spot,Consolidate Open/Offen Spot variants (Hebrew/English)
+puzzle_outlet,True,0,puzzle outlet|סופט קוקיז,puzzle outlet,Consolidate Puzzle Outlet / Soft Cookies variants (Hebrew/English)

@@ -1,284 +1,69 @@
-# ynab-il-importer — Execution Plan (to first end-to-end run)
+# ynab-il-importer — Execution Plan (current)
 
 ## Goal (Milestone 1)
 
-Produce a repeatable end-to-end pipeline that:
-
-1) Ingests **bank + credit card** exports
-2) Normalizes to a single transaction schema
-3) De-duplicates against YNAB (API) for a chosen date range
-4) Uses `payee_map.csv` to assign payee+category
-5) Emits a **reviewable proposed_transactions table**
-6) After review, uploads only new transactions to YNAB
-7) Generates `payee_map` updates from review decisions
+Deliver a repeatable end-to-end pipeline that:
+1) Ingests bank + card exports
+2) Normalizes into a single schema
+3) Dedupe against YNAB for a chosen date range
+4) Applies `payee_map.csv` to infer payee + category
+5) Emits a reviewable `outputs/proposed_transactions.csv`
+6) Generates `outputs/map_updates.csv` after review
+7) Uploads only new transactions (idempotent)
 
 Success criteria:
-- For a typical recent month, ≥90% of new transactions are **unique** or easily resolved in review
-- Upload is **idempotent** (safe to re-run without duplicating)
-- `payee_map.csv` evolves cleanly over time (minimal duplication, stable fingerprints)
-
-
----
-
-## Core artifacts (v1)
-
-### 1) `mappings/payee_map.csv` (source of truth)
-
-Grain: **one row = one rule that can emit a payee+category suggestion**.
-
-Required columns:
-- `rule_id`
-- `is_active`   (blank/TRUE means active; FALSE means ignore)
-- `priority`
-- `txn_kind`
-- `fingerprint`
-- `description_clean_norm`
-- `account_name`
-- `source`
-- `direction`
-- `currency`
-- `amount_bucket`
-- `payee_canonical`
-- `category_target` (may be blank)
-- `notes`
-
-Rules:
-- Multiple rows per fingerprint are allowed.
-- Higher priority wins; ties are resolved by rule specificity (more filled key fields).
-- Blank key fields are wildcards.
-
-Delimiter policy:
-- Canonical payees/categories must not contain `;` (reserved delimiter for list columns elsewhere).
-
-
-### 2) `outputs/proposed_transactions.csv` (review sheet)
-
-Grain: **one row per candidate transaction to upload** (after removing already-present YNAB txns).
-
-Required columns:
-- `transaction_id` (stable per parsed txn; used for overrides and logging)
-- `date`
-- `outflow_ils`
-- `inflow_ils`
-- `memo` (original description)
-- `fingerprint`
-- `payee_options`     (semicolon-delimited)
-- `category_options`  (semicolon-delimited)
-- `payee_selected`    (single value or blank)
-- `category_selected` (single value or blank)
-- `match_status` in {`none`, `unique`, `ambiguous`}
-- `update_map` (blank/TRUE) — if TRUE, generate a new/updated mapping row from selection
-- `note` (optional)
-
-Validation rule:
-- `category_selected` must be filled for upload. (Block upload otherwise.)
-
-
-### 3) `outputs/map_updates.csv` (generated from review)
-
-Grain: one row per unique `(fingerprint, payee_selected, category_selected)` to be added to map.
-
-Columns:
-- `fingerprint`
-- `payee_canonical`
-- `category_target`
-- `is_active` (TRUE)
-- `priority` (blank)
-- `note` (e.g., “from review YYYY-MM-DD”)
-
+- ≥90% of new transactions default to a single payee/category
+- Idempotent uploads (safe to re-run)
+- `payee_map.csv` evolves cleanly with minimal duplication
 
 ---
 
-## Phase 0 — Freeze assumptions (one-time)
+## Current State
 
-0.1 Fingerprint algorithm + canonicalization map
-- Fingerprints are derived from normalized text and optionally canonicalized via
-  `mappings/fingerprint_map.csv`.
-- Keep the algorithm deterministic and mapping-driven.
+Completed:
+- Unified fingerprint generation with optional `mappings/fingerprint_map.csv` canonicalization.
+- Single fingerprint column across all derived outputs; fingerprint log written to `outputs/fingerprint_log.csv`.
+- Normalizers for bank (Bankin/Leumi), card (MAX), and YNAB register exports.
+- Single `--source` matching flow with `scripts/bootstrap_pairs.py` + `scripts/build_groups.py`.
+- Fingerprint map and algorithm refinements (noise stripping, high-entropy removal, token cap).
+- UTF-8-SIG CSV outputs for Excel/Sheets compatibility.
+- Optional Splink clustering script for exploration: `scripts/splink_fingerprint_clusters.py`.
 
-0.2 Confirm amount/date conventions
-- Single authoritative date per source:
-  - bank: purchase date if available, else posting date
-  - card: transaction date
-- Amounts stored as explicit `outflow_ils` / `inflow_ils` across sources.
-
-Deliverable:
-- A short “schema + conventions” section in docs/SCHEMA.md (or inside this plan).
-
+In progress:
+- Iterating `mappings/fingerprint_map.csv` for better consolidation (including bit/paybox and cross-language variants).
+- Reviewing `outputs/fingerprint_groups.csv` to refine rules and reduce duplicate fingerprints per payee.
 
 ---
 
-## Phase 1 — Normalize credit card exports (highest leverage next engineering task)
+## Next Steps (Priority Order)
 
-Status (current):
-- Completed for one supported source: Excel export with `תאריך עסקה` header marker
-  (the format handled by `src/ynab_il_importer/io_card.py`).
-- Parser now emits normalized fields needed by mapping/dedupe bootstrap:
-  `source`, `account_name`, `date`, `secondary_date`, `outflow_ils`, `inflow_ils`, `currency`,
-  `txn_kind`, `merchant_raw`, `description_raw`, `description_clean`,
-  `description_clean_norm`, `fingerprint`.
-- Added a golden fixture test for this source:
-  `tests/test_io_card.py` with fixtures under `tests/fixtures/`.
+1) Curate fingerprint map
+- Review `outputs/fingerprint_groups.csv` and adjust `mappings/fingerprint_map.csv`.
+- Re-run normalize → match → group until consolidation is strong and stable.
 
-1.1 Next in this phase
-- Add at least one additional card source format (if needed for your accounts).
-- Keep all card sources on the same normalized schema above.
+2) Bootstrap payee map
+- Use matched pairs to generate initial `mappings/payee_map.csv`.
+- Curate payee/category selections; remove duplicates and fix names.
 
-1.2 Validation scope
-- Continue adding small golden fixtures per card source.
-- Verify sign convention remains aligned with bank parsing (outflows negative).
+3) Review tooling
+- Implement `validate-payee-map` (no `;` in payees/categories, required columns, duplicate detection).
+- Implement local review UI (Streamlit) to select payee/category and flag `update_map`.
 
-Deliverables:
-- Card parsing produces coherent grouping and stable fingerprints.
-- Unit tests / fixtures for at least one real export sample.
+4) Upload flow
+- Generate `outputs/map_updates.csv` from reviewed data.
+- Upload to YNAB with deterministic import IDs.
+- Verify idempotent re-run behavior.
 
+5) Optional exploration
+- Use Splink clustering (before/after fingerprint map changes) to suggest additional rules.
 
 ---
 
-## Phase 2 — Bootstrap initial payee_map from historical data
+## Deliverables to Watch
 
-2.1 Pull historical inputs
-- Bank exports: multiple months (enough to cover common merchants)
-- Card exports: multiple months
-- YNAB: download transactions for same date range via API
+- `outputs/matched_pairs.csv`
+- `outputs/fingerprint_groups.csv`
+- `mappings/payee_map.csv`
+- `outputs/proposed_transactions.csv`
+- `outputs/map_updates.csv`
 
-2.2 Match parsed transactions ↔ YNAB transactions (bootstrap matching)
-Goal: infer `(fingerprint → payee, category)` candidates from what already exists in YNAB.
-
-Approach (v1 pragmatic):
-- Match on (date, outflow_ils, inflow_ils) with a tolerance window if needed (±1 day optional)
-- Use memo similarity as a tie-break when multiple candidates exist
-- Keep conservative: prefer fewer false matches over aggressive linking
-
-2.3 Aggregate into candidate map rows
-For each fingerprint:
-- Count occurrences by `(payee, category)`
-- Emit rows sorted by count desc
-
-Deliverables:
-- `mappings/payee_map.csv` created (or `payee_map_bootstrap.csv` to be curated into payee_map.csv)
-- A report: how many fingerprints have 1 option vs many, and top ambiguous cases
-
-
----
-
-## Phase 3 — Mapping review (manual curation)
-
-3.1 User edits `mappings/payee_map.csv`
-Actions:
-- delete rows
-- fix canonical payee names
-- fix categories
-- adjust `priority` and `is_active` as needed
-
-3.2 Validation tooling
-- A command `validate-payee-map` that checks:
-  - no `;` in payees/categories
-  - required columns exist
-  - no duplicate identical rows (warn)
-
-Deliverables:
-- payee_map is curated and passes validation.
-
-
----
-
-## Phase 4 — Regular processing pipeline (end-to-end dry run)
-
-4.1 Download “new” bank/card transactions
-- Parse and normalize into unified schema
-
-4.2 Download YNAB transactions for relevant date range
-- Use API to pull all transactions in range (per account)
-- Build an index of existing items for dedupe
-
-4.3 Dedupe (remove already present)
-- Primary method (preferred): deterministic `import_id` if we implement it
-- Fallback method (v1): (date, outflow_ils, inflow_ils, memo fingerprint) heuristic
-
-4.4 Apply payee_map to remaining transactions
-For each txn:
-- Collect all active map rows by fingerprint
-- Build:
-  - `payee_options` = unique payees
-  - `category_options` = unique categories
-- Determine selected:
-  - if only one active row → prefill payee_selected + category_selected
-  - else leave blank (needs choice)
-
-Set `match_status`:
-- no rows → none
-- exactly one matching rule → unique
-- else → ambiguous
-
-4.5 Emit `outputs/proposed_transactions.csv`
-- Include `update_map` column (blank by default)
-
-Deliverable:
-- Full dry-run output that is reviewable and mostly unique.
-
-
----
-
-## Phase 5 — Transaction review UI (simple, high-quality, local)
-
-5.1 Implement a local review app (Streamlit recommended)
-Features:
-- Load `outputs/proposed_transactions.csv`
-- Dropdown for `payee_selected` (from payee_options)
-- Dropdown for `category_selected` (from category_options, AND/OR full category list)
-- Checkbox `update_map`
-- Save edits back to CSV
-
-5.2 Enforce category selection
-- Block “ready to upload” until all selected categories filled
-
-Deliverable:
-- Reviewed `proposed_transactions.csv` ready to upload.
-
-
----
-
-## Phase 6 — Update stage (map + upload)
-
-6.1 Generate `outputs/map_updates.csv`
-From reviewed transactions:
-- For rows with `update_map=TRUE`, create unique mapping triples:
-  `(fingerprint, payee_selected, category_selected)`
-- Append (or merge) into `mappings/payee_map.csv`
-  - default `is_active=TRUE`
-  - default `priority` blank
-
-6.2 Upload to YNAB (first real end-to-end run)
-- Convert reviewed txns into API payload
-- Upload only deduped “new” txns
-- Log results:
-  - uploaded count
-  - skipped count (already present)
-  - failures with reasons
-
-Deliverables:
-- Transactions appear in YNAB correctly categorized
-- Rerun is safe (idempotent)
-
-
----
-
-## Phase 7 — Iteration loop (steady state)
-
-Weekly/monthly cycle:
-1) parse new exports
-2) dedupe against YNAB
-3) apply map → propose
-4) review + mark update_map when needed
-5) append map updates
-6) upload
-
-Metrics to watch:
-- % unique
-- % ambiguous
-- % none
-- number of new fingerprints per period
-
-Stop condition for “stable enough”:
-- ambiguous + none consistently low and manageable

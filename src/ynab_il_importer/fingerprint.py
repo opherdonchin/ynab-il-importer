@@ -49,10 +49,22 @@ _DROP_TOKENS = {
     "עמלה",
     "הפקדה",
     "העברה",
+    "העברת",
+    "הורדת",
     "משיכה",
     "משיכת",
     "מטבע",
     "מטח",
+    "אשראי",
+    "כרטיס",
+    "כרטיסי",
+    "כרטיסים",
+    "מכשיר",
+    "סניף",
+    "קוד",
+    "מספר",
+    "למי",
+    "חדש",
     # Hebrew corporate suffixes
     "בע",
     "בעמ",
@@ -78,8 +90,13 @@ _DROP_TOKENS = {
     "reversal",
     "pmt",
     "pmts",
+    "online",
+    "web",
+    "app",
     # English corporate/web suffixes
     "www",
+    "http",
+    "https",
     "com",
     "co",
     "company",
@@ -128,9 +145,58 @@ _DROP_TOKENS = {
     "ie",
 }
 
+_LOCATION_TOKENS = {
+    # Hebrew common locations / mall terms
+    "באר",
+    "שבע",
+    "בש",
+    "תל",
+    "אביב",
+    "ביג",
+    "קניון",
+    "סנטר",
+    "פלזה",
+    "צפון",
+    "דרום",
+    "מזרח",
+    "מערב",
+    "נמל",
+    "תחנה",
+    "תחנת",
+    "תחנות",
+    # English common locations / mall terms
+    "tel",
+    "aviv",
+    "center",
+    "central",
+    "north",
+    "south",
+    "east",
+    "west",
+    "mall",
+    "plaza",
+    "station",
+    "port",
+}
+
+
+def _looks_like_high_entropy(token: str) -> bool:
+    if len(token) >= 24:
+        return True
+    digit_count = sum(ch.isdigit() for ch in token)
+    if digit_count == 0:
+        return False
+    alpha_count = sum(ch.isalpha() for ch in token)
+    if digit_count >= 3:
+        return True
+    if digit_count >= 2 and alpha_count >= 2:
+        return True
+    return False
+
 
 def _strip_noise_tokens(text: str) -> str:
     tokens = []
+    location_tokens = []
     for token in text.split():
         if not token:
             continue
@@ -138,16 +204,25 @@ def _strip_noise_tokens(text: str) -> str:
             continue
         if token in _DROP_TOKENS:
             continue
+        if _looks_like_high_entropy(token):
+            continue
+        if token in _LOCATION_TOKENS:
+            location_tokens.append(token)
+            continue
         tokens.append(token)
-    return " ".join(tokens)
+    if tokens:
+        return " ".join(tokens)
+    return " ".join(location_tokens)
 
 
 def fingerprint_v0(value: Any, token_limit: int = DEFAULT_TOKEN_LIMIT) -> str:
     text = normalize_text(value)
     text = _STANDALONE_NUMBER_RE.sub(" ", text)
-    text = _strip_noise_tokens(text)
-    text = _SPACE_RE.sub(" ", text).strip()
-    tokens = text.split()
+    stripped = _strip_noise_tokens(text)
+    if stripped.strip() == "":
+        stripped = text
+    stripped = _SPACE_RE.sub(" ", stripped).strip()
+    tokens = stripped.split()
     return " ".join(tokens[:token_limit])
 
 
@@ -250,6 +325,7 @@ def apply_fingerprints(
     df: pd.DataFrame,
     map_rules: pd.DataFrame | None = None,
     log_path: str | Path = Path("outputs/fingerprint_log.csv"),
+    use_fingerprint_map: bool = True,
 ) -> pd.DataFrame:
     if df is None or df.empty:
         return df.copy()
@@ -261,7 +337,9 @@ def apply_fingerprints(
     text_normalized = text_raw.map(normalize_text)
 
     rules = map_rules
-    if rules is None:
+    if not use_fingerprint_map:
+        rules = pd.DataFrame(columns=["rule_id", "priority", "pattern", "canonical_text", "notes"])
+    elif rules is None:
         rules = load_fingerprint_map(Path("mappings/fingerprint_map.csv"))
 
     matched_rule_id = pd.Series([""] * len(out), index=out.index, dtype="string")
