@@ -80,6 +80,12 @@ def fetch_transactions(
     return payload.get("data", {}).get("transactions", [])
 
 
+def fetch_categories(plan_id: str | None = None) -> list[dict[str, Any]]:
+    plan = plan_id or _get_budget_id()
+    payload = _ynab_get(f"/plans/{plan}/categories")
+    return payload.get("data", {}).get("category_groups", [])
+
+
 def transactions_to_dataframe(
     transactions: list[dict[str, Any]],
     accounts: list[dict[str, Any]] | None = None,
@@ -128,3 +134,26 @@ def transactions_to_dataframe(
             "memo",
         ]
     ]
+
+
+def categories_to_dataframe(
+    category_groups: list[dict[str, Any]],
+) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for group in category_groups or []:
+        group_name = group.get("name", "") or ""
+        group_id = group.get("id", "") or ""
+        for category in group.get("categories", []) or []:
+            if category.get("deleted"):
+                continue
+            rows.append(
+                {
+                    "category_group": group_name,
+                    "category_group_id": group_id,
+                    "category_name": category.get("name", "") or "",
+                    "category_id": category.get("id", "") or "",
+                    "hidden": bool(category.get("hidden", False)),
+                }
+            )
+    df = pd.DataFrame(rows)
+    return df

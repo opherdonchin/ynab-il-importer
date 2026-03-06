@@ -50,3 +50,15 @@ def save_reviewed_transactions(df: pd.DataFrame, path: str | Path) -> None:
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
     out.to_csv(tmp_path, index=False, encoding="utf-8-sig")
     tmp_path.replace(output_path)
+
+
+def load_category_list(path: str | Path) -> pd.DataFrame:
+    csv_path = Path(path)
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Missing categories file: {csv_path}")
+    df = pd.read_csv(csv_path, dtype="string").fillna("")
+    if "category_name" not in df.columns:
+        raise ValueError("Categories file must contain a category_name column.")
+    if "category_group" not in df.columns:
+        df["category_group"] = ""
+    return df[["category_group", "category_name"]].copy()

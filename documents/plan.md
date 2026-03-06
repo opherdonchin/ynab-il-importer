@@ -32,31 +32,44 @@ Completed:
 - Built fake workflow data + simulated matching to produce `outputs/fake_proposed_transactions.csv`.
 - Generated real `outputs/proposed_transactions.csv` after dedupe against YNAB API data.
 - Implemented Streamlit review UI with row-wise editing, grouped view, validation, and save-to-reviewed CSV.
+- Bootstrap workflow (large YNAB register export) established for initial mapping only.
+- Ongoing workflow uses YNAB API snapshots for dedupe and proposed transactions.
+- Added YNAB categories download script and category list support in the review UI.
+- Added review app workflow doc (`documents/review_app_workflow.md`).
+- Added amount-aware rules using `amount_bucket` parsing.
+- Curated payee map for gas stations, Ikea, Supersal, and transfer mappings.
 
 In progress:
 - Ongoing manual curation of `mappings/fingerprint_map.csv` and review of `outputs/fingerprint_groups.csv`.
 - Manual review and cleanup of `mappings/payee_map.csv` (payees/categories).
+- Review UI ergonomics (row stability and default confirmations) under live use.
 
 ---
 
 ## Next Steps (Priority Order)
 
-1) Curate payee map
+1) Process new sources (API workflow)
+- Normalize new bank/card files.
+- Download YNAB API snapshot for the date window.
+- Download YNAB categories for the review dropdowns.
+- Build `outputs/proposed_transactions.csv` from API snapshot.
+
+2) Curate payee map
 - Review `mappings/payee_map.csv` for duplicates, naming consistency, and categories.
 - Decide defaults where multiple payees are present per fingerprint.
 
-2) Review transactions
+3) Review transactions
 - Use Streamlit review UI to finalize `outputs/proposed_transactions_reviewed.csv`.
 - Ensure payee + category selected for all rows.
 
-3) Map updates
+4) Map updates
 - Generate `outputs/map_updates.csv` from reviewed data.
 
-4) Upload flow (later)
+5) Upload flow (later)
 - Upload to YNAB with deterministic import IDs.
 - Verify idempotent re-run behavior.
 
-5) Optional exploration
+6) Optional exploration
 - Use Splink clustering to suggest additional fingerprint rules.
 
 ---

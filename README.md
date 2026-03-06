@@ -8,8 +8,18 @@ Directory convention:
 
 - `documents/project_context.md` contains the file used as context for AI agents.
 - `documents/plan.md` contains the current plan of action.
+- `documents/review_app_workflow.md` documents the review app workflow.
 
-## Quickstart
+## Workflow Overview
+
+There are two distinct workflows:
+
+- **Bootstrap (one-time):** build initial fingerprint groups and payee map using a large YNAB register export.
+- **Process new sources (ongoing):** normalize new bank/card files and dedupe against YNAB via the API.
+
+The bootstrap workflow should only be run when seeding or rebuilding the mapping tables. Day-to-day processing should use the API workflow.
+
+## Quickstart — Bootstrap (one-time)
 
 1. Install environment:
 
@@ -42,7 +52,7 @@ pixi run python scripts/normalize_file.py \
 Default output name:
 - `data/derived/{raw_file_stem}_{format}_norm.csv`
 
-4. Build matched pairs:
+4. Build matched pairs (bootstrap only):
 
 ```bash
 pixi run python scripts/bootstrap_pairs.py \
@@ -54,7 +64,7 @@ pixi run python scripts/bootstrap_pairs.py \
   --out outputs/matched_pairs.csv
 ```
 
-5. Build fingerprint groups for human labeling:
+5. Build fingerprint groups for human labeling (bootstrap only):
 
 ```bash
 pixi run python scripts/build_groups.py \
@@ -66,6 +76,43 @@ Expected outputs:
 
 - `outputs/matched_pairs.csv`
 - `outputs/fingerprint_groups.csv`
+
+## Process New Sources (ongoing workflow)
+
+1. Normalize new bank/card source files (same as above).
+
+2. Download YNAB transactions via API for the relevant date range:
+
+```bash
+pixi run python scripts/download_ynab_api.py \
+  --since 2025-01-01 \
+  --until 2025-02-01 \
+  --out data/derived/ynab_api_norm.csv
+```
+
+Required configuration (any one of the following):
+
+- `YNAB_ACCESS_TOKEN` in environment or `.env`
+- `YNAB_BUDGET_ID` in environment, or `config/ynab.local.toml` with `budget_id`
+
+3. Download YNAB categories for the review UI:
+
+```bash
+pixi run python scripts/download_ynab_categories.py \
+  --out outputs/ynab_categories.csv
+```
+
+4. Build proposed transactions using the API snapshot:
+
+```bash
+pixi run python scripts/build_proposed_transactions.py \
+  --source data/derived/bank_normalized.csv \
+  --source data/derived/card_normalized.csv \
+  --ynab data/derived/ynab_api_norm.csv \
+  --map mappings/payee_map.csv \
+  --out outputs/proposed_transactions.csv \
+  --pairs-out outputs/real_matched_pairs.csv
+```
 
 ## Fingerprint Mapping
 

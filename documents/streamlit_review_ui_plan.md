@@ -43,6 +43,10 @@ Required columns:
 - `memo`, `merchant_raw`, `description_raw`, `description_clean`
 - `source`, `account_name`, `txn_kind`, `note`
 
+### Optional category reference (for dropdown)
+- `outputs/ynab_categories.csv` (or API snapshot)
+  - Columns: `category_group`, `category_name`
+
 ### Optional read‑only context
 - `outputs/fingerprint_groups.csv`
 - `outputs/matched_pairs.csv`  
@@ -124,9 +128,16 @@ Used only as hints later.
 
 ### Payee & Category
 - Dropdown from options (if available)
-- Manual override field
-- **Override wins if non‑empty**
-- Manual override allowed even if not in options
+- Payee manual override field allowed
+- Category manual override is **not** allowed (must be from YNAB category list)
+- **Override wins if non‑empty** (payee only)
+
+### Default confirmation (payee/category)
+- Preselect the most common option in payee/category options.
+- Add optional confirmation checkboxes:
+  - `Confirm payee default`
+  - `Confirm category default`
+- If the user edits payee/category manually, the choice is accepted even if confirm boxes are unchecked.
 
 ### Validation (Hard)
 A file is **not ready** unless BOTH:
@@ -157,6 +168,47 @@ A file is **not ready** unless BOTH:
 - Preserve extra columns on roundtrip
 - No hidden storage beyond CSV
 - Session state: current df, filters, page, view mode, unsaved changes
+
+---
+
+## Additional Workflow Requirements
+
+### Payee consolidation workflow (outside the UI)
+If two payees should be combined:
+1) Update `mappings/payee_map.csv` to replace the old payee with the canonical one.
+2) Rebuild `outputs/proposed_transactions.csv` so the options reflect the change.
+3) (Optional) Rename payee in YNAB if you want YNAB to match the canonical name.
+
+### Amount-aware payee rules (use `amount_bucket`)
+Use the existing `amount_bucket` column in `mappings/payee_map.csv` to express amount ranges
+as text. Proposed syntax:
+
+- `<N` or `<=N`
+- `>N` or `>=N`
+- `A-B` (inclusive range)
+
+Examples:
+- Yellow: `amount_bucket=">=150"` → `payee=Yellow`, `category=Gas`
+- Yellow: `amount_bucket="<150"` → `payee=Yellow`, `category=Groceries`
+- Ikea: `amount_bucket="<70"` → `payee=Ikea Food`, `category=Groceries`
+- Ikea: `amount_bucket=">=70"` → `payee=Ikea`, `category=House and stuff`
+
+Matching rules:
+- For outflows, compare against `outflow_ils`.
+- For inflows, compare against `inflow_ils`.
+- Blank `amount_bucket` = no constraint.
+
+### Category selection rules
+- Category selection must be from the full YNAB category list.
+- No free‑text categories.
+- If category groups are available from the API, show grouped dropdowns.
+
+---
+
+## UX Stability (Reruns)
+Streamlit reruns the script on every widget change. To prevent row expansion/page jumps:
+- Persist current page and expanded row in `st.session_state`.
+- Use `st.form` for row edits so changes apply on submit, not every keystroke.
 
 ---
 

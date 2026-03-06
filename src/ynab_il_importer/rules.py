@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+import re
 
 import pandas as pd
 
@@ -44,6 +46,12 @@ RULE_KEY_COLUMNS = [
 
 _TRUE_VALUES = {"1", "true", "t", "yes", "y"}
 _FALSE_VALUES = {"0", "false", "f", "no", "n"}
+_AMOUNT_BUCKET_RE = re.compile(
+    r"^(?P<op><=|>=|<|>)(?P<value>\d+(?:\.\d+)?)$"
+)
+_AMOUNT_RANGE_RE = re.compile(
+    r"^(?P<low>\d+(?:\.\d+)?)[\\s]*-[\\s]*(?P<high>\d+(?:\.\d+)?)$"
+)
 
 
 def _blank_to_none(value: Any) -> str | None:
@@ -166,16 +174,32 @@ def prepare_transactions_for_rules(df: pd.DataFrame) -> pd.DataFrame:
         out["direction"] = ""
 
     if "inflow_ils" in out.columns or "outflow_ils" in out.columns:
-        inflow = out["inflow_ils"] if "inflow_ils" in out.columns else 0.0
-        outflow = out["outflow_ils"] if "outflow_ils" in out.columns else 0.0
+        inflow = pd.to_numeric(
+            out["inflow_ils"] if "inflow_ils" in out.columns else 0.0, errors="coerce"
+        ).fillna(0.0)
+        outflow = pd.to_numeric(
+            out["outflow_ils"] if "outflow_ils" in out.columns else 0.0, errors="coerce"
+        ).fillna(0.0)
         flow_direction = pd.Series(
             [_compute_direction_from_flows(i, o) for i, o in zip(inflow, outflow)],
             index=out.index,
         )
         out["direction"] = out["direction"].where(out["direction"] != "", flow_direction)
     elif "amount_ils" in out.columns:
-        out["direction"] = out["direction"].where(out["direction"] != "", out["amount_ils"].map(_compute_direction))
+        out["direction"] = out["direction"].where(
+            out["direction"] != "", out["amount_ils"].map(_compute_direction)
+        )
+        inflow = pd.Series([0.0] * len(out), index=out.index)
+        outflow = pd.Series([0.0] * len(out), index=out.index)
+        amount_vals = pd.to_numeric(out["amount_ils"], errors="coerce").fillna(0.0)
+        inflow = inflow.where(amount_vals <= 0, amount_vals)
+        outflow = outflow.where(amount_vals >= 0, amount_vals.abs())
     out["direction"] = out["direction"].replace("", "zero")
+    out["amount_value"] = 0.0
+    if "inflow_ils" in out.columns or "outflow_ils" in out.columns:
+        out["amount_value"] = inflow.where(out["direction"] == "inflow", outflow)
+    elif "amount_ils" in out.columns:
+        out["amount_value"] = inflow.where(out["direction"] == "inflow", outflow)
 
     raw_for_norm = _pick_series(
         out,
@@ -211,10 +235,54 @@ def _rule_matches(rule: pd.Series, txn: pd.Series) -> bool:
         rule_value = _blank_to_none(rule[col])
         if rule_value is None:
             continue
+        if col == "amount_bucket":
+            bucket_match = _match_amount_bucket(rule_value, txn)
+            if bucket_match is None:
+                txn_value = _normalize_key_value(col, txn.get(col))
+                if txn_value != rule_value:
+                    return False
+            elif not bucket_match:
+                return False
+            continue
         txn_value = _normalize_key_value(col, txn.get(col))
         if txn_value != rule_value:
             return False
     return True
+
+
+def _parse_amount_bucket(rule_value: str) -> tuple[Callable[[float], bool], str] | None:
+    text = rule_value.strip().replace(" ", "")
+    if not text:
+        return None
+    match = _AMOUNT_BUCKET_RE.match(text)
+    if match:
+        op = match.group("op")
+        value = float(match.group("value"))
+        if op == "<":
+            return (lambda amt: amt < value), text
+        if op == "<=":
+            return (lambda amt: amt <= value), text
+        if op == ">":
+            return (lambda amt: amt > value), text
+        if op == ">=":
+            return (lambda amt: amt >= value), text
+    match = _AMOUNT_RANGE_RE.match(text)
+    if match:
+        low = float(match.group("low"))
+        high = float(match.group("high"))
+        if low > high:
+            low, high = high, low
+        return (lambda amt: low <= amt <= high), text
+    return None
+
+
+def _match_amount_bucket(rule_value: str, txn: pd.Series) -> bool | None:
+    parsed = _parse_amount_bucket(rule_value)
+    if parsed is None:
+        return None
+    predicate, _ = parsed
+    amount = pd.to_numeric(pd.Series([txn.get("amount_value")]), errors="coerce").fillna(0.0).iloc[0]
+    return bool(predicate(float(amount)))
 
 
 def _compute_specificity(rule: pd.Series) -> int:

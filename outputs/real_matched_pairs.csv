@@ -1,11 +1,11 @@
 ﻿source_type,source_file,source_account,account_name,date,outflow_ils,inflow_ils,raw_text,raw_norm,fingerprint,ynab_file,ynab_account,ynab_outflow_ils,ynab_inflow_ils,ynab_payee_raw,ynab_category_raw,ambiguous_key
-bank,,67833011333622,Bank Leumi,2024-01-01,25.0,0.0,מסלול מורחב,מסלול מורחב,מסלול מורחב,,Bank Leumi,25.0,0.0,Bank leumi,Bank Interest & Fees,True
 bank,,67833011333622,Bank Leumi,2024-01-01,25.0,0.0,מסלול מורחב,מסלול מורחב,מסלול מורחב,,Bank Leumi,25.0,0.0,Airport Parking,Transportation,True
+bank,,67833011333622,Bank Leumi,2024-01-01,25.0,0.0,מסלול מורחב,מסלול מורחב,מסלול מורחב,,Bank Leumi,25.0,0.0,Bank leumi,Bank Interest & Fees,True
 bank,,67833011333622,Bank Leumi,2024-01-02,0.0,16088.86,אונ' בן גורי-י,אונ בן גורי י,אונ בן גורי,,Bank Leumi,0.0,16088.86,Salary Opher,Inflow: Ready to Assign,False
 bank,,67833011333622,Bank Leumi,2024-01-02,0.0,250.0,תומר אליהו,תומר אליהו,תומר אליהו,,Bank Leumi,0.0,250.0,Isshin Aikido,Aikido,False
 bank,,67833011333622,Bank Leumi,2024-01-02,0.0,800.0,קרוב משפחה (דר) דונחין,קרוב משפחה דר דונחין,קרוב משפחה דר דונחין,,Bank Leumi,0.0,800.0,Yoel Donchin,Bat Mitzvah 17000,False
-bank,,67833011333622,Bank Leumi,2024-01-01,25.0,0.0,מרחבים טל חניונים,מרחבים טל חניונים,מרחבים טל חניונים,,Bank Leumi,25.0,0.0,Bank leumi,Bank Interest & Fees,True
 bank,,67833011333622,Bank Leumi,2024-01-01,25.0,0.0,מרחבים טל חניונים,מרחבים טל חניונים,מרחבים טל חניונים,,Bank Leumi,25.0,0.0,Airport Parking,Transportation,True
+bank,,67833011333622,Bank Leumi,2024-01-01,25.0,0.0,מרחבים טל חניונים,מרחבים טל חניונים,מרחבים טל חניונים,,Bank Leumi,25.0,0.0,Bank leumi,Bank Interest & Fees,True
 bank,,67833011333622,Bank Leumi,2024-01-01,20.0,0.0,חומוס פול פארק הסופרים,חומוס פול פארק הסופרים,חומוס פול פארק הסופרים,,Bank Leumi,20.0,0.0,Humus Park Hosfrim,Opher food,False
 bank,,67833011333622,Bank Leumi,2024-01-01,299.0,0.0,מסיבבה,מסיבבה,מסיבבה,,Bank Leumi,299.0,0.0,Mesibaba,Bat Mitzvah 17000,False
 bank,,67833011333622,Bank Leumi,2024-01-01,109.71,0.0,ניצת הדובדבן ביג באר שבע,ניצת הדובדבן ביג באר שבע,ניצת הדובדבן,,Bank Leumi,109.71,0.0,Nitzat Haduvdevan,Bat Mitzvah 17000,False
@@ -613,13 +613,13 @@ bank,,67833011333622,Bank Leumi,2024-05-03,600.0,0.0,הפקדות קופג-י,ה
 bank,,67833011333622,Bank Leumi,2024-05-03,6300.0,0.0,הפקדות קופג-י,הפקדות קופג י,הפקדות קופג,,Bank Leumi,6300.0,0.0,Transfer : Planned Liya,Uncategorized,False
 bank,,67833011333622,Bank Leumi,2024-05-03,455.0,0.0,דו יוגה,דו יוגה,דו יוגה,,Bank Leumi,455.0,0.0,Du Yoga,Chugim,False
 bank,,67833011333622,Bank Leumi,2024-05-03,247.53,0.0,שירי בעמ.א. ב-ש,שירי בעמ א ב ש,שירי,,Bank Leumi,247.53,0.0,Shiri,🛍️Groceries,False
-bank,,67833011333622,Bank Leumi,2024-05-03,120.0,0.0,צמרת-בית הפחם הנגב בעמ,צמרת בית הפחם הנגב בעמ,צמרת בית הפחם הנגב,,Bank Leumi,120.0,0.0,Beit Hapaham,🛍️Groceries,True
 bank,,67833011333622,Bank Leumi,2024-05-03,120.0,0.0,צמרת-בית הפחם הנגב בעמ,צמרת בית הפחם הנגב בעמ,צמרת בית הפחם הנגב,,Bank Leumi,120.0,0.0,Vegetable Sheli,🛍️Groceries,True
+bank,,67833011333622,Bank Leumi,2024-05-03,120.0,0.0,צמרת-בית הפחם הנגב בעמ,צמרת בית הפחם הנגב בעמ,צמרת בית הפחם הנגב,,Bank Leumi,120.0,0.0,Beit Hapaham,🛍️Groceries,True
 bank,,67833011333622,Bank Leumi,2024-05-03,540.0,0.0,דר לורה מעוז,דר לורה מעוז,דר לורה מעוז,,Bank Leumi,540.0,0.0,Laura Maoz Dentist,Medical,False
 bank,,67833011333622,Bank Leumi,2024-05-03,26.0,0.0,בית הבאגט כהן בעמ,בית הבאגט כהן בעמ,בית הבאגט כהן,,Bank Leumi,26.0,0.0,Beit Habaget,🛍️Groceries,False
 bank,,67833011333622,Bank Leumi,2024-05-03,11.8,0.0,בעיר7 ב-רשת,בעיר7 ב רשת,בעיר7 רשת,,Bank Leumi,11.8,0.0,Kvutzat Hahim,🛍️Groceries,False
-bank,,67833011333622,Bank Leumi,2024-05-03,120.0,0.0,הירקניה שלי,הירקניה שלי,הירקניה שלי,,Bank Leumi,120.0,0.0,Beit Hapaham,🛍️Groceries,True
 bank,,67833011333622,Bank Leumi,2024-05-03,120.0,0.0,הירקניה שלי,הירקניה שלי,הירקניה שלי,,Bank Leumi,120.0,0.0,Vegetable Sheli,🛍️Groceries,True
+bank,,67833011333622,Bank Leumi,2024-05-03,120.0,0.0,הירקניה שלי,הירקניה שלי,הירקניה שלי,,Bank Leumi,120.0,0.0,Beit Hapaham,🛍️Groceries,True
 bank,,67833011333622,Bank Leumi,2024-05-03,123.0,0.0,מ גולדה בעמ. ב-י,מ גולדה בעמ ב י,גולדה,,Bank Leumi,123.0,0.0,Golda Ice cream,Going out and restaurants,False
 bank,,67833011333622,Bank Leumi,2024-05-05,185.0,0.0,הירקניה שלי,הירקניה שלי,הירקניה שלי,,Bank Leumi,185.0,0.0,Vegetable Sheli,🛍️Groceries,False
 bank,,67833011333622,Bank Leumi,2024-05-05,15.0,0.0,ויטמין קפה,ויטמין קפה,ויטמין קפה,,Bank Leumi,15.0,0.0,Vitamin Cafe Jerusalem,Opher food,False
@@ -931,8 +931,8 @@ bank,,67833011333622,Bank Leumi,2024-07-09,243.84,0.0,הנשיאיםYELLOW / ב-
 bank,,67833011333622,Bank Leumi,2024-07-10,135.0,0.0,בנהפBIT ב-העברה,בנהפbit ב העברה,bit,,Bank Leumi,135.0,0.0,Lychee,🛍️Groceries,False
 bank,,67833011333622,Bank Leumi,2024-07-10,35.0,0.0,קרנף בר בש,קרנף בר בש,קרנף בר,,Bank Leumi,35.0,0.0,Campus Food,Opher food,False
 bank,,67833011333622,Bank Leumi,2024-07-10,150.0,0.0,BIT,bit,bit,,Bank Leumi,150.0,0.0,Efrat Taig,Danielle,False
-bank,,67833011333622,Bank Leumi,2024-07-11,50.0,0.0,BIT,bit,bit,,Bank Leumi,50.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2024-07-11,50.0,0.0,BIT,bit,bit,,Bank Leumi,50.0,0.0,Subject,University,True
+bank,,67833011333622,Bank Leumi,2024-07-11,50.0,0.0,BIT,bit,bit,,Bank Leumi,50.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2024-07-11,27.0,0.0,רון חליבה( אלוף הפיצוחים,רון חליבה אלוף הפיצוחים,רון חליבה אלוף הפיצוחים,,Bank Leumi,27.0,0.0,Corner Store,🛍️Groceries,False
 bank,,67833011333622,Bank Leumi,2024-07-11,10.0,0.0,בנהפBIT ב-העברה,בנהפbit ב העברה,bit,,Bank Leumi,10.0,0.0,Malabi,Ishai,False
 bank,,67833011333622,Bank Leumi,2024-07-11,25.0,0.0,קפה רגע,קפה רגע,קפה רגע,,Bank Leumi,25.0,0.0,Cafe Rega,Going out and restaurants,False
@@ -948,10 +948,10 @@ bank,,67833011333622,Bank Leumi,2024-07-12,67.9,0.0,אימפריית הממתק�
 bank,,67833011333622,Bank Leumi,2024-07-12,299.7,0.0,הודיס בעמ,הודיס בעמ,הודיס,,Bank Leumi,299.7,0.0,Hoodies,Clothing,False
 bank,,67833011333622,Bank Leumi,2024-07-13,46.9,0.0,אייס באר שבע,אייס באר שבע,אייס,,Bank Leumi,46.9,0.0,Ace,House and stuff,False
 bank,,67833011333622,Bank Leumi,2024-07-15,0.0,1700.0,תיאטרון באר-י,תיאטרון באר י,תיאטרון,,Bank Leumi,0.0,1700.0,Beer Sheva Theater,Summer 2024 8000,False
-bank,,67833011333622,Bank Leumi,2024-07-11,15.0,0.0,BIT,bit,bit,,Bank Leumi,15.0,0.0,Yam Guvrin,Ishai,True
 bank,,67833011333622,Bank Leumi,2024-07-11,15.0,0.0,BIT,bit,bit,,Bank Leumi,15.0,0.0,Yam Guvrin,Yaara,True
 bank,,67833011333622,Bank Leumi,2024-07-11,15.0,0.0,BIT,bit,bit,,Bank Leumi,15.0,0.0,Yam Guvrin,Ishai,True
 bank,,67833011333622,Bank Leumi,2024-07-11,15.0,0.0,BIT,bit,bit,,Bank Leumi,15.0,0.0,Yam Guvrin,Yaara,True
+bank,,67833011333622,Bank Leumi,2024-07-11,15.0,0.0,BIT,bit,bit,,Bank Leumi,15.0,0.0,Yam Guvrin,Ishai,True
 bank,,67833011333622,Bank Leumi,2024-07-11,20.0,0.0,BIT,bit,bit,,Bank Leumi,20.0,0.0,Park Hasofrim Market,Ishai,False
 bank,,67833011333622,Bank Leumi,2024-07-14,489.0,0.0,מכון נועם,מכון נועם,מכון נועם,,Bank Leumi,489.0,0.0,Mahon Noam,Chugim,False
 bank,,67833011333622,Bank Leumi,2024-07-14,90.58,0.0,קרביץ ישראל,קרביץ ישראל,קרביץ ישראל,,Bank Leumi,90.58,0.0,Kravitz,House and stuff,False
@@ -1142,10 +1142,10 @@ bank,,67833011333622,Bank Leumi,2024-08-14,220.0,0.0,עיצוב שיער ישר�
 bank,,67833011333622,Bank Leumi,2024-08-14,177.0,0.0,ICE CITY,ice city,ice city,,Bank Leumi,177.0,0.0,Ice City,Going out and restaurants,False
 bank,,67833011333622,Bank Leumi,2024-08-14,15.0,0.0,ICE CITY,ice city,ice city,,Bank Leumi,15.0,0.0,Ice City,Going out and restaurants,False
 bank,,67833011333622,Bank Leumi,2024-08-14,6.7,0.0,נאייקס ישראל מכונות אוטומ,נאייקס ישראל מכונות אוטומ,נאייקס ישראל מכונות אוטומ,,Bank Leumi,6.7,0.0,Food machine,🛍️Groceries,False
-bank,,67833011333622,Bank Leumi,2024-08-14,70.0,0.0,הליקרים של אבן רם בעמ,הליקרים של אבן רם בעמ,הליקרים של אבן רם,,Bank Leumi,70.0,0.0,Tarantino Jerusalem,Summer 2024 8000,True
 bank,,67833011333622,Bank Leumi,2024-08-14,70.0,0.0,הליקרים של אבן רם בעמ,הליקרים של אבן רם בעמ,הליקרים של אבן רם,,Bank Leumi,70.0,0.0,Lickers Jerusalem ,Summer 2024 8000,True
-bank,,67833011333622,Bank Leumi,2024-08-14,70.0,0.0,טרנטינו,טרנטינו,טרנטינו,,Bank Leumi,70.0,0.0,Tarantino Jerusalem,Summer 2024 8000,True
+bank,,67833011333622,Bank Leumi,2024-08-14,70.0,0.0,הליקרים של אבן רם בעמ,הליקרים של אבן רם בעמ,הליקרים של אבן רם,,Bank Leumi,70.0,0.0,Tarantino Jerusalem,Summer 2024 8000,True
 bank,,67833011333622,Bank Leumi,2024-08-14,70.0,0.0,טרנטינו,טרנטינו,טרנטינו,,Bank Leumi,70.0,0.0,Lickers Jerusalem ,Summer 2024 8000,True
+bank,,67833011333622,Bank Leumi,2024-08-14,70.0,0.0,טרנטינו,טרנטינו,טרנטינו,,Bank Leumi,70.0,0.0,Tarantino Jerusalem,Summer 2024 8000,True
 bank,,67833011333622,Bank Leumi,2024-08-14,45.0,0.0,בארים ומשקאות באירועים,בארים ומשקאות באירועים,בארים ומשקאות באירועים,,Bank Leumi,45.0,0.0,Hotzot Hayotser Food Jerusalem,Summer 2024 8000,False
 bank,,67833011333622,Bank Leumi,2024-08-14,35.0,0.0,ל בעמ. ב-דוכן אוכל נ,ל בעמ ב דוכן אוכל נ,דוכן אוכל,,Bank Leumi,35.0,0.0,Hotzot Hayotser Food Jerusalem,Summer 2024 8000,False
 bank,,67833011333622,Bank Leumi,2024-08-14,16.7,0.0,גוד פארם סינמה סיטי בש,גוד פארם סינמה סיטי בש,גוד פארם סינמה סיטי,,Bank Leumi,16.7,0.0,Goodpharm,🛍️Groceries,False
@@ -1165,17 +1165,17 @@ bank,,67833011333622,Bank Leumi,2024-08-15,26.0,0.0,מעדניית לוי,מעד
 bank,,67833011333622,Bank Leumi,2024-08-15,20.0,0.0,סופר לאון,סופר לאון,סופר לאון,,Bank Leumi,20.0,0.0,Super leon,🛍️Groceries,False
 bank,,67833011333622,Bank Leumi,2024-08-15,112.0,0.0,ירקות הגשר,ירקות הגשר,ירקות הגשר,,Bank Leumi,112.0,0.0,Yerakot Hagesher,Summer 2024 8000,False
 bank,,67833011333622,Bank Leumi,2024-08-15,84.0,0.0,BIT,bit,bit,,Bank Leumi,84.0,0.0,Music museum Jerusalem,Summer 2024 8000,False
-bank,,67833011333622,Bank Leumi,2024-08-15,35.0,0.0,בי פרש בן יהודה,בי פרש בן יהודה,בי פרש בן יהודה,,Bank Leumi,35.0,0.0,Turkish coffee Jerusalem,Summer 2024 8000,True
 bank,,67833011333622,Bank Leumi,2024-08-15,35.0,0.0,בי פרש בן יהודה,בי פרש בן יהודה,בי פרש בן יהודה,,Bank Leumi,35.0,0.0,Be Fresh Midrahov Jerusalem,Summer 2024 8000,True
+bank,,67833011333622,Bank Leumi,2024-08-15,35.0,0.0,בי פרש בן יהודה,בי פרש בן יהודה,בי פרש בן יהודה,,Bank Leumi,35.0,0.0,Turkish coffee Jerusalem,Summer 2024 8000,True
 bank,,67833011333622,Bank Leumi,2024-08-15,78.0,0.0,צומת ספרים מדרחוב ירושלים,צומת ספרים מדרחוב ירושלים,צומת ספרים,,Bank Leumi,78.0,0.0,Tzomet Sfarim Jerusalem,House and stuff,False
 bank,,67833011333622,Bank Leumi,2024-08-15,25.5,0.0,בית הבאגט כהן בעמ,בית הבאגט כהן בעמ,בית הבאגט כהן,,Bank Leumi,25.5,0.0,Beit Habaget,🛍️Groceries,False
 bank,,67833011333622,Bank Leumi,2024-08-15,8.0,0.0,טל פרץ(( 1N מרקט3I,טל פרץ 1n מרקט3i,טל פרץ 1n מרקט3i,,Bank Leumi,8.0,0.0,Makolet,Summer 2024 8000,False
-bank,,67833011333622,Bank Leumi,2024-08-15,30.0,0.0,PUZZLE OUTLET,puzzle outlet,puzzle outlet,,Bank Leumi,30.0,0.0,Puzzle outlet Jerusalem,Summer 2024 8000,True
 bank,,67833011333622,Bank Leumi,2024-08-15,30.0,0.0,PUZZLE OUTLET,puzzle outlet,puzzle outlet,,Bank Leumi,30.0,0.0,Soft cookies Jerualem,Summer 2024 8000,True
+bank,,67833011333622,Bank Leumi,2024-08-15,30.0,0.0,PUZZLE OUTLET,puzzle outlet,puzzle outlet,,Bank Leumi,30.0,0.0,Puzzle outlet Jerusalem,Summer 2024 8000,True
 bank,,67833011333622,Bank Leumi,2024-08-15,45.0,0.0,טרנטינו,טרנטינו,טרנטינו,,Bank Leumi,45.0,0.0,Tarantino Jerusalem,Summer 2024 8000,False
 bank,,67833011333622,Bank Leumi,2024-08-15,50.0,0.0,טרנטינו,טרנטינו,טרנטינו,,Bank Leumi,50.0,0.0,Tarantino Jerusalem,Summer 2024 8000,False
-bank,,67833011333622,Bank Leumi,2024-08-15,35.0,0.0,קפה טורקי,קפה טורקי,קפה טורקי,,Bank Leumi,35.0,0.0,Turkish coffee Jerusalem,Summer 2024 8000,True
 bank,,67833011333622,Bank Leumi,2024-08-15,35.0,0.0,קפה טורקי,קפה טורקי,קפה טורקי,,Bank Leumi,35.0,0.0,Be Fresh Midrahov Jerusalem,Summer 2024 8000,True
+bank,,67833011333622,Bank Leumi,2024-08-15,35.0,0.0,קפה טורקי,קפה טורקי,קפה טורקי,,Bank Leumi,35.0,0.0,Turkish coffee Jerusalem,Summer 2024 8000,True
 bank,,67833011333622,Bank Leumi,2024-08-15,81.0,0.0,HATCH,hatch,hatch,,Bank Leumi,81.0,0.0,Hatch Shuck Jerusalem,Vacation 2024 4000,False
 bank,,67833011333622,Bank Leumi,2024-08-15,14.9,0.0,סופר ממילא,סופר ממילא,סופר ממילא,,Bank Leumi,14.9,0.0,Super Mamila Jerusalem,Summer 2024 8000,False
 bank,,67833011333622,Bank Leumi,2024-08-15,32.0,0.0,דובשנית,דובשנית,דובשנית,,Bank Leumi,32.0,0.0,Duvshonit Jerusalem,Summer 2024 8000,False
@@ -1200,8 +1200,8 @@ bank,,67833011333622,Bank Leumi,2024-08-17,467.0,0.0,פונדק עין כרם,פ
 bank,,67833011333622,Bank Leumi,2024-08-20,0.0,583.0,קצבת ילדים-י,קצבת ילדים י,קצבת ילדים,,Bank Leumi,0.0,583.0,Bituach Leumi Children,Inflow: Ready to Assign,False
 bank,,67833011333622,Bank Leumi,2024-08-15,62.0,0.0,שוקולנד שלומי,שוקולנד שלומי,שוקולנד שלומי,,Bank Leumi,62.0,0.0,Shlomi Chocolate Jerusalem,Summer 2024 8000,False
 bank,,67833011333622,Bank Leumi,2024-08-15,120.0,0.0,BIT,bit,bit,,Bank Leumi,120.0,0.0,Juggling Jerusalem,Summer 2024 8000,False
-bank,,67833011333622,Bank Leumi,2024-08-15,30.0,0.0,סופט קוקיז,סופט קוקיז,puzzle outlet,,Bank Leumi,30.0,0.0,Puzzle outlet Jerusalem,Summer 2024 8000,True
 bank,,67833011333622,Bank Leumi,2024-08-15,30.0,0.0,סופט קוקיז,סופט קוקיז,puzzle outlet,,Bank Leumi,30.0,0.0,Soft cookies Jerualem,Summer 2024 8000,True
+bank,,67833011333622,Bank Leumi,2024-08-15,30.0,0.0,סופט קוקיז,סופט קוקיז,puzzle outlet,,Bank Leumi,30.0,0.0,Puzzle outlet Jerusalem,Summer 2024 8000,True
 bank,,67833011333622,Bank Leumi,2024-08-16,124.0,0.0,BIT,bit,bit,,Bank Leumi,124.0,0.0,Maya Meirav,Summer 2024 8000,False
 bank,,67833011333622,Bank Leumi,2024-08-18,1500.0,0.0,הכלב במושב-מקסימוס,הכלב במושב מקסימוס,הכלב במושב מקסימוס,,Bank Leumi,1500.0,0.0,Hakelev Bamoshav,Kelev Bamoshav 1500 August,False
 bank,,67833011333622,Bank Leumi,2024-08-18,188.9,0.0,קמח הארץ,קמח הארץ,קמח הארץ,,Bank Leumi,188.9,0.0,Flour of the earth,🛍️Groceries,False
@@ -1292,15 +1292,15 @@ bank,,67833011333622,Bank Leumi,2024-09-04,23.03,0.0,בית הבאגט כהן ב
 bank,,67833011333622,Bank Leumi,2024-09-05,377.0,0.0,הירקניה שלי,הירקניה שלי,הירקניה שלי,,Bank Leumi,377.0,0.0,Vegetable Sheli,🛍️Groceries,False
 bank,,67833011333622,Bank Leumi,2024-09-05,420.0,0.0,PAYBOX TEL AVIV IL,paybox tel aviv il,paybox,,Bank Leumi,420.0,0.0,Noga Homeopathy,Chugim parents,False
 bank,,67833011333622,Bank Leumi,2024-09-08,0.0,250.0,תומר אליהו,תומר אליהו,תומר אליהו,,Bank Leumi,0.0,250.0,Isshin Aikido,Aikido,False
-bank,,67833011333622,Bank Leumi,2024-09-08,0.0,1190.0,מזל שוקר,מזל שוקר,מזל שוקר,,Bank Leumi,0.0,1190.0,Yonit Friedman,Loans and transfers,True
 bank,,67833011333622,Bank Leumi,2024-09-08,0.0,1190.0,מזל שוקר,מזל שוקר,מזל שוקר,,Bank Leumi,0.0,1190.0,Shean Shirakava,Mikael,True
 bank,,67833011333622,Bank Leumi,2024-09-08,0.0,1190.0,מזל שוקר,מזל שוקר,מזל שוקר,,Bank Leumi,0.0,1190.0,Mazal Shuker,Loans and transfers,True
-bank,,67833011333622,Bank Leumi,2024-09-08,0.0,1190.0,שיאון שיראקאוובה,שיאון שיראקאוובה,שיאון שיראקאוובה,,Bank Leumi,0.0,1190.0,Yonit Friedman,Loans and transfers,True
+bank,,67833011333622,Bank Leumi,2024-09-08,0.0,1190.0,מזל שוקר,מזל שוקר,מזל שוקר,,Bank Leumi,0.0,1190.0,Yonit Friedman,Loans and transfers,True
 bank,,67833011333622,Bank Leumi,2024-09-08,0.0,1190.0,שיאון שיראקאוובה,שיאון שיראקאוובה,שיאון שיראקאוובה,,Bank Leumi,0.0,1190.0,Shean Shirakava,Mikael,True
 bank,,67833011333622,Bank Leumi,2024-09-08,0.0,1190.0,שיאון שיראקאוובה,שיאון שיראקאוובה,שיאון שיראקאוובה,,Bank Leumi,0.0,1190.0,Mazal Shuker,Loans and transfers,True
-bank,,67833011333622,Bank Leumi,2024-09-08,0.0,1190.0,יונית פרידמן,יונית פרידמן,יונית פרידמן,,Bank Leumi,0.0,1190.0,Yonit Friedman,Loans and transfers,True
+bank,,67833011333622,Bank Leumi,2024-09-08,0.0,1190.0,שיאון שיראקאוובה,שיאון שיראקאוובה,שיאון שיראקאוובה,,Bank Leumi,0.0,1190.0,Yonit Friedman,Loans and transfers,True
 bank,,67833011333622,Bank Leumi,2024-09-08,0.0,1190.0,יונית פרידמן,יונית פרידמן,יונית פרידמן,,Bank Leumi,0.0,1190.0,Shean Shirakava,Mikael,True
 bank,,67833011333622,Bank Leumi,2024-09-08,0.0,1190.0,יונית פרידמן,יונית פרידמן,יונית פרידמן,,Bank Leumi,0.0,1190.0,Mazal Shuker,Loans and transfers,True
+bank,,67833011333622,Bank Leumi,2024-09-08,0.0,1190.0,יונית פרידמן,יונית פרידמן,יונית פרידמן,,Bank Leumi,0.0,1190.0,Yonit Friedman,Loans and transfers,True
 bank,,67833011333622,Bank Leumi,2024-09-08,0.0,70.0,מפייבוקס שלי-י,מפייבוקס שלי י,מפייבוקס שלי,,Bank Leumi,0.0,70.0,Abigail,Danielle,False
 bank,,67833011333622,Bank Leumi,2024-09-06,355.37,0.0,בוטיק דגים בעמ,בוטיק דגים בעמ,בוטיק דגים,,Bank Leumi,355.37,0.0,Fish boutique,🛍️Groceries,False
 bank,,67833011333622,Bank Leumi,2024-09-06,430.22,0.0,דיל הר בוקר,דיל הר בוקר,שופרסל,,Bank Leumi,430.22,0.0,Supersal,🛍️Groceries,False
@@ -2106,10 +2106,10 @@ bank,,67833011333622,Bank Leumi,2025-03-11,10.0,0.0,בנהפBIT ב-העברה,ב
 bank,,67833011333622,Bank Leumi,2025-03-11,99.4,0.0,מקס אמות באר שבע,מקס אמות באר שבע,מקס אמות,,Bank Leumi,99.4,0.0,Max Amot,House and stuff,False
 bank,,67833011333622,Bank Leumi,2025-03-11,10.9,0.0,מקס אמות באר שבע,מקס אמות באר שבע,מקס אמות,,Bank Leumi,10.9,0.0,Max Amot,House and stuff,False
 bank,,67833011333622,Bank Leumi,2025-03-11,59.9,0.0,לחייל ולטייל-צמרת,לחייל ולטייל צמרת,לחייל ולטייל,,Bank Leumi,59.9,0.0,Lahayal velateyal,House and stuff,False
-bank,,67833011333622,Bank Leumi,2025-03-11,70.0,0.0,BIT,bit,bit,,Bank Leumi,70.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-03-11,70.0,0.0,BIT,bit,bit,,Bank Leumi,70.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2025-03-11,70.0,0.0,BIT,bit,bit,,Bank Leumi,70.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-03-11,70.0,0.0,BIT,bit,bit,,Bank Leumi,70.0,0.0,Subject payment,University,True
+bank,,67833011333622,Bank Leumi,2025-03-11,70.0,0.0,BIT,bit,bit,,Bank Leumi,70.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-03-11,71.0,0.0,הירוק,הירוק,הירוק,,Bank Leumi,71.0,0.0,Felafel Hayarok,Going out and restaurants,False
 bank,,67833011333622,Bank Leumi,2025-03-12,28.5,0.0,תחבורה- רב-פס. ב-מ,תחבורה רב פס ב מ,תחבורה רב פס,,Bank Leumi,28.5,0.0,Rav pas,Transportation,False
 bank,,67833011333622,Bank Leumi,2025-03-12,6.0,0.0,תחבורה- רב-פס. ב-מ,תחבורה רב פס ב מ,תחבורה רב פס,,Bank Leumi,6.0,0.0,Rav pas,Transportation,False
@@ -2448,25 +2448,25 @@ bank,,67833011333622,Bank Leumi,2025-05-20,149.9,0.0,טוגו,טוגו,טוגו,
 bank,,67833011333622,Bank Leumi,2025-05-20,210.0,0.0,אורבניקה גרנד קניון באר ש,אורבניקה גרנד קניון באר ש,אורבניקה גרנד,,Bank Leumi,210.0,0.0,Urbanica,Clothing,False
 bank,,67833011333622,Bank Leumi,2025-05-21,100.0,0.0,26 ב-ביאליק,26 ב ביאליק,ביאליק,,Bank Leumi,100.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2025-05-21,100.0,0.0,26 ב-ביאליק,26 ב ביאליק,ביאליק,,Bank Leumi,100.0,0.0,Bialik,Going out and restaurants,True
-bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
-bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject,University,True
+bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
+bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2025-05-21,20.0,0.0,BIT,bit,bit,,Bank Leumi,20.0,0.0,Subject payment,University,False
 bank,,67833011333622,Bank Leumi,2025-05-21,180.0,0.0,BIT,bit,bit,,Bank Leumi,180.0,0.0,Subject payment,University,False
-bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
-bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject,University,True
+bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
+bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2025-05-21,100.0,0.0,BIT,bit,bit,,Bank Leumi,100.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2025-05-21,100.0,0.0,BIT,bit,bit,,Bank Leumi,100.0,0.0,Bialik,Going out and restaurants,True
-bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
-bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject,University,True
+bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
+bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2025-05-21,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject payment,University,True
 bank,,67833011333622,Bank Leumi,2025-05-22,19.25,0.0,תחבורה- רב-פס. ב-מ,תחבורה רב פס ב מ,תחבורה רב פס,,Bank Leumi,19.25,0.0,Rav pas,Transportation,False
 bank,,67833011333622,Bank Leumi,2025-05-22,8.0,0.0,תחבורה- רב-פס. ב-מ,תחבורה רב פס ב מ,תחבורה רב פס,,Bank Leumi,8.0,0.0,Rav pas,Transportation,False
@@ -2837,14 +2837,14 @@ bank,,67833011333622,Bank Leumi,2025-08-07,70.0,0.0,תשלום YUCHEN WANG,תש�
 bank,,67833011333622,Bank Leumi,2025-08-07,70.0,0.0,תשלום XINRUI ZHAO,תשלום xinrui zhao,xinrui zhao,,Bank Leumi,70.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-08-07,70.0,0.0,תשלום XINRUI ZHAO,תשלום xinrui zhao,xinrui zhao,,Bank Leumi,70.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-08-07,70.0,0.0,תשלום XINRUI ZHAO,תשלום xinrui zhao,xinrui zhao,,Bank Leumi,70.0,0.0,Subject,University,True
-bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,תשלום YU ZENG,תשלום yu zeng,yu zeng,,Bank Leumi,200.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,תשלום YU ZENG,תשלום yu zeng,yu zeng,,Bank Leumi,200.0,0.0,Merkaz Hahalbasha,Clothing,True
 bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,תשלום YU ZENG,תשלום yu zeng,yu zeng,,Bank Leumi,200.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,תשלום YU ZENG,תשלום yu zeng,yu zeng,,Bank Leumi,200.0,0.0,Present,Gifts,True
-bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,תשלום GONGXU JI,תשלום gongxu ji,gongxu ji,,Bank Leumi,200.0,0.0,Subject,University,True
+bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,תשלום YU ZENG,תשלום yu zeng,yu zeng,,Bank Leumi,200.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,תשלום GONGXU JI,תשלום gongxu ji,gongxu ji,,Bank Leumi,200.0,0.0,Merkaz Hahalbasha,Clothing,True
 bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,תשלום GONGXU JI,תשלום gongxu ji,gongxu ji,,Bank Leumi,200.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,תשלום GONGXU JI,תשלום gongxu ji,gongxu ji,,Bank Leumi,200.0,0.0,Present,Gifts,True
+bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,תשלום GONGXU JI,תשלום gongxu ji,gongxu ji,,Bank Leumi,200.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-08-07,70.0,0.0,תשלום YIPENG GOU,תשלום yipeng gou,yipeng gou,,Bank Leumi,70.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-08-07,70.0,0.0,תשלום YIPENG GOU,תשלום yipeng gou,yipeng gou,,Bank Leumi,70.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-08-07,70.0,0.0,תשלום YIPENG GOU,תשלום yipeng gou,yipeng gou,,Bank Leumi,70.0,0.0,Subject,University,True
@@ -2855,14 +2855,14 @@ bank,,67833011333622,Bank Leumi,2025-08-06,35.8,0.0,מגה בעיר קניון �
 bank,,67833011333622,Bank Leumi,2025-08-06,57.7,0.0,כולל סטור בעמ,כולל סטור בעמ,כולל סטור,,Bank Leumi,57.7,0.0,Super kolel,🛍️Groceries,False
 bank,,67833011333622,Bank Leumi,2025-08-06,52.6,0.0,בעיר7 ב-רשת,בעיר7 ב רשת,בעיר7 רשת,,Bank Leumi,52.6,0.0,Kvutzat Hahim,🛍️Groceries,False
 bank,,67833011333622,Bank Leumi,2025-08-08,0.0,1225.65,גרואו פיימנט-י,גרואו פיימנט י,גרואו פיימנט,,Bank Leumi,0.0,1225.65,Grow,Aikido,False
-bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Merkaz Hahalbasha,Clothing,True
 bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Present,Gifts,True
-bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,מרכז הלבשה,מרכז הלבשה,מרכז הלבשה,,Bank Leumi,200.0,0.0,Subject,University,True
+bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,BIT,bit,bit,,Bank Leumi,200.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,מרכז הלבשה,מרכז הלבשה,מרכז הלבשה,,Bank Leumi,200.0,0.0,Merkaz Hahalbasha,Clothing,True
 bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,מרכז הלבשה,מרכז הלבשה,מרכז הלבשה,,Bank Leumi,200.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,מרכז הלבשה,מרכז הלבשה,מרכז הלבשה,,Bank Leumi,200.0,0.0,Present,Gifts,True
+bank,,67833011333622,Bank Leumi,2025-08-07,200.0,0.0,מרכז הלבשה,מרכז הלבשה,מרכז הלבשה,,Bank Leumi,200.0,0.0,Subject,University,True
 bank,,67833011333622,Bank Leumi,2025-08-07,127.72,0.0,פוקס ביג באר שבע,פוקס ביג באר שבע,פוקס,,Bank Leumi,127.72,0.0,Fox,Clothing,False
 bank,,67833011333622,Bank Leumi,2025-08-07,250.99,0.0,אצטדיון באר שבעYELLOW ב-פז,אצטדיון באר שבעyellow ב פז,yellow,,Bank Leumi,250.99,0.0,Paz,Gas,False
 bank,,67833011333622,Bank Leumi,2025-08-10,2777.33,0.0,לאומי למשכנת-י,לאומי למשכנת י,לאומי למשכנת,,Bank Leumi,2777.33,0.0,Transfer : Mortgage,🏘️Rent/Mortgage,False
@@ -2962,10 +2962,10 @@ bank,,67833011333622,Bank Leumi,2025-08-26,532.1,0.0,באר שבע חדש ביג
 bank,,67833011333622,Bank Leumi,2025-08-27,4.0,0.0,תחבורה- רב-פס. ב-מ,תחבורה רב פס ב מ,תחבורה רב פס,,Bank Leumi,4.0,0.0,Rav pas,Transportation,False
 bank,,67833011333622,Bank Leumi,2025-08-27,27.39,0.0,CELLO,cello,cello,,Bank Leumi,27.39,0.0,Cello park,Transportation,False
 bank,,67833011333622,Bank Leumi,2025-08-27,106.12,0.0,CELLO,cello,cello,,Bank Leumi,106.12,0.0,Cello park,Transportation,False
-bank,,67833011333622,Bank Leumi,2025-08-27,10.0,0.0,שייח בקטר,שייח בקטר,שייק בקטר,,Bank Leumi,10.0,0.0,Reburger,Going out and restaurants,True
 bank,,67833011333622,Bank Leumi,2025-08-27,10.0,0.0,שייח בקטר,שייח בקטר,שייק בקטר,,Bank Leumi,10.0,0.0,Smilanksy Festival,Going out and restaurants,True
-bank,,67833011333622,Bank Leumi,2025-08-27,10.0,0.0,רי בורגר העתיקה,רי בורגר העתיקה,רי בורגר העתיקה,,Bank Leumi,10.0,0.0,Reburger,Going out and restaurants,True
+bank,,67833011333622,Bank Leumi,2025-08-27,10.0,0.0,שייח בקטר,שייח בקטר,שייק בקטר,,Bank Leumi,10.0,0.0,Reburger,Going out and restaurants,True
 bank,,67833011333622,Bank Leumi,2025-08-27,10.0,0.0,רי בורגר העתיקה,רי בורגר העתיקה,רי בורגר העתיקה,,Bank Leumi,10.0,0.0,Smilanksy Festival,Going out and restaurants,True
+bank,,67833011333622,Bank Leumi,2025-08-27,10.0,0.0,רי בורגר העתיקה,רי בורגר העתיקה,רי בורגר העתיקה,,Bank Leumi,10.0,0.0,Reburger,Going out and restaurants,True
 bank,,67833011333622,Bank Leumi,2025-08-29,0.0,50.0,מרעי אלקרנאוי,מרעי אלקרנאוי,מרעי אלקרנאוי,,Bank Leumi,0.0,50.0,Isshin Aikido,Aikido,False
 bank,,67833011333622,Bank Leumi,2025-08-28,529.22,0.0,סאלח דבאח ובניו בעמ,סאלח דבאח ובניו בעמ,סאלח דבאח ובניו,,Bank Leumi,529.22,0.0,Dabbah,🛍️Groceries,False
 bank,,67833011333622,Bank Leumi,2025-08-29,63.43,0.0,טיב טעם רשתות באר שבע חד,טיב טעם רשתות באר שבע חד,טיב טעם,,Bank Leumi,63.43,0.0,Tiv Taam,🛍️Groceries,False
@@ -2977,11 +2977,11 @@ bank,,67833011333622,Bank Leumi,2025-09-01,25.0,0.0,מסלול מורחב,מסל
 bank,,67833011333622,Bank Leumi,2025-09-01,350.0,0.0,שירה יהב גרנ,שירה יהב גרנ,שירה יהב גרנ,,Bank Leumi,350.0,0.0,Shira Yahav,Chugim parents,False
 bank,,67833011333622,Bank Leumi,2025-09-02,0.0,21940.95,אונ' בן גורי-י,אונ בן גורי י,אונ בן גורי,,Bank Leumi,0.0,21940.95,BGU Salary,Inflow: Ready to Assign,False
 bank,,67833011333622,Bank Leumi,2025-08-31,12.0,0.0,אילנס רכבת באר שבע צפון,אילנס רכבת באר שבע צפון,אילנס,,Bank Leumi,12.0,0.0,Train food,Going out and restaurants,True
-bank,,67833011333622,Bank Leumi,2025-08-31,12.0,0.0,אילנס רכבת באר שבע צפון,אילנס רכבת באר שבע צפון,אילנס,,Bank Leumi,12.0,0.0,Train food,Going out and restaurants,True
 bank,,67833011333622,Bank Leumi,2025-08-31,12.0,0.0,אילנס רכבת באר שבע צפון,אילנס רכבת באר שבע צפון,אילנס,,Bank Leumi,12.0,0.0,Oren Meshi Bakery,🛍️Groceries,True
-bank,,67833011333622,Bank Leumi,2025-08-31,12.0,0.0,ATLAS,atlas,atlas,,Bank Leumi,12.0,0.0,Train food,Going out and restaurants,True
+bank,,67833011333622,Bank Leumi,2025-08-31,12.0,0.0,אילנס רכבת באר שבע צפון,אילנס רכבת באר שבע צפון,אילנס,,Bank Leumi,12.0,0.0,Train food,Going out and restaurants,True
 bank,,67833011333622,Bank Leumi,2025-08-31,12.0,0.0,ATLAS,atlas,atlas,,Bank Leumi,12.0,0.0,Train food,Going out and restaurants,True
 bank,,67833011333622,Bank Leumi,2025-08-31,12.0,0.0,ATLAS,atlas,atlas,,Bank Leumi,12.0,0.0,Oren Meshi Bakery,🛍️Groceries,True
+bank,,67833011333622,Bank Leumi,2025-08-31,12.0,0.0,ATLAS,atlas,atlas,,Bank Leumi,12.0,0.0,Train food,Going out and restaurants,True
 bank,,67833011333622,Bank Leumi,2025-08-31,100.0,0.0,מרכז הספורט והנופש,מרכז הספורט והנופש,מרכז הספורט והנופש,,Bank Leumi,100.0,0.0,Merkaz Hasport,Summer 2025,False
 bank,,67833011333622,Bank Leumi,2025-08-31,390.12,0.0,דלתא,דלתא,דלתא,,Bank Leumi,390.12,0.0,Delta,Clothing,False
 bank,,67833011333622,Bank Leumi,2025-08-31,100.68,0.0,שירי בעמ.א. ב-ש,שירי בעמ א ב ש,שירי,,Bank Leumi,100.68,0.0,Shiri,🛍️Groceries,False
@@ -2989,8 +2989,8 @@ bank,,67833011333622,Bank Leumi,2025-08-31,24.0,0.0,ATLAS,atlas,atlas,,Bank Leum
 bank,,67833011333622,Bank Leumi,2025-08-31,44.0,0.0,אילנס רכבת-תא ההגנה,אילנס רכבת תא ההגנה,אילנס,,Bank Leumi,44.0,0.0,Train food,Going out and restaurants,False
 bank,,67833011333622,Bank Leumi,2025-08-31,45.6,0.0,מאפית אורן משי באר שבע,מאפית אורן משי באר שבע,מאפית אורן משי,,Bank Leumi,45.6,0.0,Oren Meshi Bakery,🛍️Groceries,False
 bank,,67833011333622,Bank Leumi,2025-08-31,12.0,0.0,מאפית אורן משי באר שבע,מאפית אורן משי באר שבע,מאפית אורן משי,,Bank Leumi,12.0,0.0,Train food,Going out and restaurants,True
-bank,,67833011333622,Bank Leumi,2025-08-31,12.0,0.0,מאפית אורן משי באר שבע,מאפית אורן משי באר שבע,מאפית אורן משי,,Bank Leumi,12.0,0.0,Train food,Going out and restaurants,True
 bank,,67833011333622,Bank Leumi,2025-08-31,12.0,0.0,מאפית אורן משי באר שבע,מאפית אורן משי באר שבע,מאפית אורן משי,,Bank Leumi,12.0,0.0,Oren Meshi Bakery,🛍️Groceries,True
+bank,,67833011333622,Bank Leumi,2025-08-31,12.0,0.0,מאפית אורן משי באר שבע,מאפית אורן משי באר שבע,מאפית אורן משי,,Bank Leumi,12.0,0.0,Train food,Going out and restaurants,True
 bank,,67833011333622,Bank Leumi,2025-09-01,258.86,0.0,פז/ YELLOW ב-כרמי באר שבע,פז yellow ב כרמי באר שבע,yellow,,Bank Leumi,258.86,0.0,Yellow,Gas,False
 bank,,67833011333622,Bank Leumi,2025-09-01,282.0,0.0,בית חולים וטרינרי בעמ,בית חולים וטרינרי בעמ,בית חולים וטרינרי,,Bank Leumi,282.0,0.0,Bialik vet,Pets,False
 bank,,67833011333622,Bank Leumi,2025-09-03,600.0,0.0,הפקדות קופג-י,הפקדות קופג י,הפקדות קופג,,Bank Leumi,600.0,0.0,Transfer : Unplanned Opher,Uncategorized,False
@@ -3306,10 +3306,10 @@ bank,,67833011333622,Bank Leumi,2025-10-28,57.0,0.0,בית הפול - ביג,ב�
 bank,,67833011333622,Bank Leumi,2025-10-28,75.9,0.0,מינימרקט נאור,מינימרקט נאור,מינימרקט נאור,,Bank Leumi,75.9,0.0,minimarket Naor,🛍️Groceries,False
 bank,,67833011333622,Bank Leumi,2025-10-30,1050.0,0.0,שירה יהב גרנ,שירה יהב גרנ,שירה יהב גרנ,,Bank Leumi,1050.0,0.0,Shira Yahav,Chugim parents,False
 bank,,67833011333622,Bank Leumi,2025-10-29,4.0,0.0,תחבורה- רב-פס. ב-מ,תחבורה רב פס ב מ,תחבורה רב פס,,Bank Leumi,4.0,0.0,Rav pas,Transportation,False
-bank,,67833011333622,Bank Leumi,2025-10-29,12.0,0.0,ארומה אוניבסריסטת בן גורי,ארומה אוניבסריסטת בן גורי,ארומה,,Bank Leumi,12.0,0.0,Tulitul Bakery,Going out and restaurants,True
 bank,,67833011333622,Bank Leumi,2025-10-29,12.0,0.0,ארומה אוניבסריסטת בן גורי,ארומה אוניבסריסטת בן גורי,ארומה,,Bank Leumi,12.0,0.0,Aroma,Opher food,True
-bank,,67833011333622,Bank Leumi,2025-10-29,12.0,0.0,טוליטול בית מאפה וקפה,טוליטול בית מאפה וקפה,טוליטול בית מאפה וקפה,,Bank Leumi,12.0,0.0,Tulitul Bakery,Going out and restaurants,True
+bank,,67833011333622,Bank Leumi,2025-10-29,12.0,0.0,ארומה אוניבסריסטת בן גורי,ארומה אוניבסריסטת בן גורי,ארומה,,Bank Leumi,12.0,0.0,Tulitul Bakery,Going out and restaurants,True
 bank,,67833011333622,Bank Leumi,2025-10-29,12.0,0.0,טוליטול בית מאפה וקפה,טוליטול בית מאפה וקפה,טוליטול בית מאפה וקפה,,Bank Leumi,12.0,0.0,Aroma,Opher food,True
+bank,,67833011333622,Bank Leumi,2025-10-29,12.0,0.0,טוליטול בית מאפה וקפה,טוליטול בית מאפה וקפה,טוליטול בית מאפה וקפה,,Bank Leumi,12.0,0.0,Tulitul Bakery,Going out and restaurants,True
 bank,,67833011333622,Bank Leumi,2025-10-29,249.83,0.0,סאלח דבאח ובניו בעמ,סאלח דבאח ובניו בעמ,סאלח דבאח ובניו,,Bank Leumi,249.83,0.0,Dabbah,🛍️Groceries,False
 bank,,67833011333622,Bank Leumi,2025-11-02,0.0,21651.07,אונ' בן גורי-י,אונ בן גורי י,אונ בן גורי,,Bank Leumi,0.0,21651.07,BGU Salary,Inflow: Ready to Assign,False
 bank,,67833011333622,Bank Leumi,2025-11-02,0.0,2792.0,בטוח לאומי ח-י,בטוח לאומי ח י,בטוח לאומי,,Bank Leumi,0.0,2792.0,Bituach Leumi,Pilates,False
@@ -3453,89 +3453,6 @@ bank,,67833011333622,Bank Leumi,2025-12-03,10.0,0.0,טוליטול בית מאפ
 bank,,67833011333622,Bank Leumi,2025-12-03,23.0,0.0,ROASTERS,roasters,roasters,,Bank Leumi,23.0,0.0,Roasters,Going out and restaurants,False
 bank,,67833011333622,Bank Leumi,2025-12-04,14.0,0.0,BIT,bit,bit,,Bank Leumi,14.0,0.0,Bit ,Unexplained expenses,False
 bank,,67833011333622,Bank Leumi,2025-12-04,11.0,0.0,בית קמהYELLOW / ב-פז,בית קמהyellow ב פז,yellow,,Bank Leumi,11.0,0.0,Yellow,Gas,False
-card,,x9922,Opher x9922,2025-09-01,120.0,0.0,מרכז סוזן דלל,מרכז סוזן דלל,מרכז סוזן דלל,,Opher x9922,120.0,0.0,Suzan Dalal,Going out and restaurants,False
-card,,x9922,Opher x9922,2025-09-01,211.5,0.0,"גוסי שיווק והפצה בע""מ",גוסי שיווק והפצה בע מ,גוסי שיווק והפצה,,Opher x9922,211.5,0.0,Juicy,🛍️Groceries,False
-card,,x9922,Opher x9922,2025-09-01,350.0,0.0,הוראת אייקידו ותרבות יפן,הוראת אייקידו ותרבות יפן,אייקידו ותרבות יפן,,Opher x9922,350.0,0.0,Zeev Erlich,Aikido,False
-card,,x7195,Liya X7195,2025-09-01,99.0,0.0,"אייקון ב""ש - הו""ק | הוראת קבע",אייקון ב ש הו ק הוראת קבע,אייקון,,Liya X7195,99.0,0.0,Icon,Chugim parents,False
-card,,x7195,Liya X7195,2025-09-01,380.0,0.0,מקסים מירוזני,מקסים מירוזני,מקסים מירוזני,,Liya X7195,380.0,0.0,Parkour,Chugim,False
-card,,x9922,Opher x9922,2025-09-02,322.32,0.0,קרן מכבי | הוראת קבע,קרן מכבי הוראת קבע,קרן מכבי,,Opher x9922,322.32,0.0,Maccabi,Medical,False
-card,,x9922,Opher x9922,2025-09-03,513.0,0.0,קקאו טבעי,קקאו טבעי,קקאו טבעי,,Opher x9922,513.0,0.0,Cacao Natural,🛍️Groceries,False
-card,,x9922,Opher x9922,2025-09-03,245.9,0.0,טבע בריא,טבע בריא,טבע בריא,,Opher x9922,245.9,0.0,Teva Bari,🛍️Groceries,False
-card,,x9922,Opher x9922,2025-09-03,177.0,0.0,"KSP ב""ש",ksp ב ש,ksp,,Opher x9922,177.0,0.0,KSP,House and stuff,False
-card,,x9922,Opher x9922,2025-09-04,114.0,0.0,שף דיפו,שף דיפו,שף דיפו,,Opher x9922,114.0,0.0,Chef Depot,House and stuff,False
-card,,x7195,Liya X7195,2025-09-04,512.51,0.0,מחסני השוק אינטרנט,מחסני השוק אינטרנט,מחסני השוק,,Liya X7195,512.51,0.0,Machsenei Hashuk,🛍️Groceries,False
-card,,x7195,Liya X7195,2025-09-04,350.0,0.0,המכללה לחינוך גופני,המכללה לחינוך גופני,המכללה לחינוך גופני,,Liya X7195,350.0,0.0,Wingate College,Pilates,False
-card,,x9922,Opher x9922,2025-09-07,118.0,0.0,"אייקון ב""ש  - רגיל",אייקון ב ש רגיל,אייקון,,Opher x9922,118.0,0.0,Icon,Chugim parents,False
-card,,x7195,Liya X7195,2025-09-07,267.26,0.0,פז YELLOW אצטדיון באר שבע,פז yellow אצטדיון באר שבע,yellow,,Liya X7195,267.26,0.0,Yellow,🛍️Groceries,False
-card,,x9922,Opher x9922,2025-09-08,481.24,0.0,מחסני השוק אינטרנט,מחסני השוק אינטרנט,מחסני השוק,,Opher x9922,481.24,0.0,Machsenei Hashuk,🛍️Groceries,False
-card,,x7195,Liya X7195,2025-09-08,21.88,0.0,פרי טיוי | הוראת קבע,פרי טיוי הוראת קבע,פרי טיוי,,Liya X7195,21.88,0.0,Free TV,Software Subscriptions,False
-card,,x7195,Liya X7195,2025-09-08,200.0,0.0,בועז נחייסי,בועז נחייסי,בועז נחייסי,,Liya X7195,200.0,0.0,Boaz,Pilates,False
-card,,x9922,Opher x9922,2025-09-10,251.01,0.0,הראל-ביטוח בריאות | הוראת קבע,הראל ביטוח בריאות הוראת קבע,הראל ביטוח,,Opher x9922,251.01,0.0,Harel health insurance,Insurance!,False
-card,,x7195,Liya X7195,2025-09-11,176.85,0.0,REXAIL קניות אונליין-גמא,rexail קניות אונליין גמא,rexail,,Liya X7195,176.85,0.0,Rexail,🛍️Groceries,False
-card,,x5898,Opher X5898,2025-09-12,30.0,0.0,ליברה עסקות ביטוח,ליברה עסקות ביטוח,ליברה עסקות ביטוח,,Opher X5898,30.0,0.0,Library,Going out and restaurants,False
-card,,x9922,Opher x9922,2025-09-13,516.0,0.0,מוניקה קובץ סטודיו מצוירי,מוניקה קובץ סטודיו מצוירי,מוניקה קובץ סטודיו מצוירי,,Opher x9922,516.0,0.0,Monica Studio Ceramics,House and stuff,False
-card,,x7195,Liya X7195,2025-09-15,576.0,0.0,המוסד לביטוח לאומי - חשבו | הוראת קבע,המוסד לביטוח לאומי חשבו הוראת קבע,המוסד לביטוח לאומי,,Liya X7195,576.0,0.0,Bituach Leumi,Pilates,False
-card,,x7195,Liya X7195,2025-09-16,730.96,0.0,מחסני השוק אינטרנט,מחסני השוק אינטרנט,מחסני השוק,,Liya X7195,730.96,0.0,Machsenei Hashuk,🛍️Groceries,False
-card,,x7195,Liya X7195,2025-09-18,250.0,0.0,כיוונים- צהרונים/מעונות/ח | הוראת קבע,כיוונים צהרונים מעונות ח הוראת קבע,כיוונים צהרונים מעונות,,Liya X7195,250.0,0.0,Kivunim,Chugim,False
-card,,x9922,Opher x9922,2025-09-21,105.39,0.0,כביש 6 | הוראת קבע,כביש 6 הוראת קבע,כביש,,Opher x9922,105.39,0.0,Kvish 6,Transportation,False
-card,,x5898,Opher X5898,2025-09-21,6.5,0.0,"HOT MOBILE הו""ק | הוראת קבע",hot mobile הו ק הוראת קבע,hot,,Opher X5898,6.5,0.0,HOT,Internet,False
-card,,x5898,Opher X5898,2025-09-21,2.62,0.0,"HOT MOBILE הו""ק | הוראת קבע",hot mobile הו ק הוראת קבע,hot,,Opher X5898,2.62,0.0,HOT,Internet,False
-card,,x7195,Liya X7195,2025-09-21,143.04,0.0,סעוד הראל -כללית | הוראת קבע,סעוד הראל כללית הוראת קבע,כללית,,Liya X7195,143.04,0.0,Clalit,Medical,False
-card,,x7195,Liya X7195,2025-09-21,242.23,0.0,"שרותי בריאות כללית הו""ק | הוראת קבע",שרותי בריאות כללית הו ק הוראת קבע,כללית,,Liya X7195,242.23,0.0,Clalit,Medical,False
-card,,x7195,Liya X7195,2025-09-22,696.07,0.0,"מי שבע בע""מ",מי שבע בע מ,מי,,Liya X7195,696.07,0.0,Mei Sheva,Water,False
-card,,x9922,Opher x9922,2025-09-23,30.0,0.0,ליברה עסקות ביטוח,ליברה עסקות ביטוח,ליברה עסקות ביטוח,,Opher x9922,30.0,0.0,Libra Insurance,Insurance!,False
-card,,x7195,Liya X7195,2025-09-23,185.0,0.0,לב הנהלה,לב הנהלה,לב הנהלה,,Liya X7195,185.0,0.0,Lev Hanahala,Going out and restaurants,False
-card,,x9922,Opher x9922,2025-09-24,30.0,0.0,ליברה עסקות ביטוח,ליברה עסקות ביטוח,ליברה עסקות ביטוח,,Opher x9922,30.0,0.0,Libra Insurance,Insurance!,False
-card,,x5898,Opher X5898,2025-09-25,71.0,0.0,מ.תחבורה רב- פס | הוראת קבע,מ תחבורה רב פס הוראת קבע,תחבורה רב פס,,Opher X5898,71.0,0.0,Rav pas,Transportation,False
-card,,x5898,Opher X5898,2025-09-26,390.0,0.0,אדריאן דדון | הוראת קבע,אדריאן דדון הוראת קבע,אדריאן דדון,,Opher X5898,390.0,0.0,Adrian Sports Trainer,Chugim parents,False
-card,,x7195,Liya X7195,2025-09-27,1393.0,0.0,TICKETS NP הופעות וכרטיסי,tickets np הופעות וכרטיסי,tickets np הופעות וכרטיסי,,Liya X7195,1393.0,0.0,Tickets NP,Going out and restaurants,False
-card,,x7195,Liya X7195,2025-09-27,600.0,0.0,דביר מצנחי רחיפה,דביר מצנחי רחיפה,דביר מצנחי רחיפה,,Liya X7195,600.0,0.0,Dvir Parachutes,Birthdays,False
-card,,x9922,Opher x9922,2025-09-28,89.4,0.0,כלל רכב/דירה/עסק | הוראת קבע,כלל רכב דירה עסק הוראת קבע,כלל רכב דירה עסק,,Opher x9922,89.4,0.0,Klal insurance,Insurance!,False
-card,,x9922,Opher x9922,2025-09-28,142.86,0.0,כלל רכב/דירה/עסק | הוראת קבע,כלל רכב דירה עסק הוראת קבע,כלל רכב דירה עסק,,Opher x9922,142.86,0.0,Klal insurance,Insurance!,False
-card,,x7195,Liya X7195,2025-09-29,449.85,0.0,מחסני השוק אינטרנט,מחסני השוק אינטרנט,מחסני השוק,,Liya X7195,449.85,0.0,Machsenei Hashuk,🛍️Groceries,False
-card,,x7195,Liya X7195,2025-09-29,200.0,0.0,עמותת חוגי סיירות של הקקל,עמותת חוגי סיירות של הקקל,חוגי סיירות,,Liya X7195,200.0,0.0,Chug Sayarut,Chugim,False
-card,,x9922,Opher x9922,2025-10-01,350.0,0.0,הוראת אייקידו ותרבות יפן,הוראת אייקידו ותרבות יפן,אייקידו ותרבות יפן,,Opher x9922,350.0,0.0,Zeev Erlich,Aikido,False
-card,,x7195,Liya X7195,2025-10-01,380.0,0.0,מקסים מירוזני,מקסים מירוזני,מקסים מירוזני,,Liya X7195,380.0,0.0,Parkour,Chugim,False
-card,,x9922,Opher x9922,2025-10-02,169.0,0.0,"אייקון ב""ש - הו""ק | הוראת קבע",אייקון ב ש הו ק הוראת קבע,אייקון,,Opher x9922,169.0,0.0,Icon,Chugim parents,False
-card,,x7195,Liya X7195,2025-10-02,99.0,0.0,"אייקון ב""ש - הו""ק | הוראת קבע",אייקון ב ש הו ק הוראת קבע,אייקון,,Liya X7195,99.0,0.0,Icon,Chugim parents,False
-card,,x9922,Opher x9922,2025-10-03,63.01,0.0,CELLO,cello,cello,,Opher x9922,63.01,0.0,Cello park,Transportation,False
-card,,x9922,Opher x9922,2025-10-03,363.5,0.0,קרן מכבי | הוראת קבע,קרן מכבי הוראת קבע,קרן מכבי,,Opher x9922,363.5,0.0,Maccabi,Medical,False
-card,,x5898,Opher X5898,2025-10-03,30.0,0.0,ליברה עסקות ביטוח,ליברה עסקות ביטוח,ליברה עסקות ביטוח,,Opher X5898,30.0,0.0,Libra Insurance,Insurance!,False
-card,,x9922,Opher x9922,2025-10-04,30.0,0.0,ליברה עסקות ביטוח,ליברה עסקות ביטוח,ליברה עסקות ביטוח,,Opher x9922,30.0,0.0,Libra Insurance,Insurance!,False
-card,,x7195,Liya X7195,2025-10-04,400.0,0.0,דביר מצנחי רחיפה,דביר מצנחי רחיפה,דביר מצנחי רחיפה,,Liya X7195,400.0,0.0,Dvir Parachutes,Birthdays,False
-card,,x7195,Liya X7195,2025-10-05,89.9,0.0,אייס באר שבע,אייס באר שבע,אייס,,Liya X7195,89.9,0.0,Ace,Auto Maintenance,False
-card,,x9922,Opher x9922,2025-10-07,229.0,0.0,YOOLETTA,yooletta,yooletta,,Opher x9922,229.0,0.0,Yooletta ,Gifts,False
-card,,x9922,Opher x9922,2025-10-10,252.7,0.0,הראל-ביטוח בריאות | הוראת קבע,הראל ביטוח בריאות הוראת קבע,הראל ביטוח,,Opher x9922,252.7,0.0,Harel life insurance,Insurance!,False
-card,,x9922,Opher x9922,2025-10-12,509.0,0.0,קקאו טבעי,קקאו טבעי,קקאו טבעי,,Opher x9922,509.0,0.0,Cacao Natural,🛍️Groceries,False
-card,,x9922,Opher x9922,2025-10-12,303.45,0.0,"ספירולינה פול לייף בע""מ",ספירולינה פול לייף בע מ,ספירולינה פול לייף,,Opher x9922,303.45,0.0,Spirulina Full Life,🛍️Groceries,False
-card,,x7195,Liya X7195,2025-10-12,28.0,0.0,עברית חנות ספרים,עברית חנות ספרים,עברית חנות ספרים,,Liya X7195,28.0,0.0,E-vrit,House and stuff,False
-card,,x7195,Liya X7195,2025-10-15,576.0,0.0,המוסד לביטוח לאומי - חשבו | הוראת קבע,המוסד לביטוח לאומי חשבו הוראת קבע,המוסד לביטוח לאומי,,Liya X7195,576.0,0.0,Bituach Leumi,Pilates,False
-card,,x9922,Opher x9922,2025-10-16,175.73,0.0,NEXT TV BY HOT | הוראת קבע,next tv by hot הוראת קבע,hot,,Opher x9922,175.73,0.0,HOT,Internet,False
-card,,x5898,Opher X5898,2025-10-17,30.0,0.0,ליברה עסקות ביטוח,ליברה עסקות ביטוח,ליברה עסקות ביטוח,,Opher X5898,30.0,0.0,Libra Insurance,Insurance!,False
-card,,x9922,Opher x9922,2025-10-18,636.5,0.0,טבע בריא,טבע בריא,טבע בריא,,Opher x9922,636.5,0.0,Teva Bari,🛍️Groceries,False
-card,,x7195,Liya X7195,2025-10-18,100.0,0.0,צומת ספרים בוקנט,צומת ספרים בוקנט,צומת ספרים,,Liya X7195,100.0,0.0,Tzomet Sfarim,Gifts,False
-card,,x7195,Liya X7195,2025-10-19,350.0,0.0,אדריאן דדון | הוראת קבע,אדריאן דדון הוראת קבע,אדריאן דדון,,Liya X7195,350.0,0.0,Adrian Sports Trainer,Chugim,False
-card,,x7195,Liya X7195,2025-10-19,288.0,0.0,האיגוד הישראלי לשחמט,האיגוד הישראלי לשחמט,האיגוד הישראלי לשחמט,,Liya X7195,288.0,0.0,Chess,Chugim,False
-card,,x7195,Liya X7195,2025-10-19,1522.24,0.0,"חברת החשמל לישראל בע""מ | הוראת קבע",חברת החשמל לישראל בע מ הוראת קבע,חברת החשמל לישראל,,Liya X7195,1522.24,0.0,Electric bill,⚡Electric,False
-card,,x7195,Liya X7195,2025-10-19,18381.0,0.0,"גלית פלג אורתודונטיה בע""מ",גלית פלג אורתודונטיה בע מ,גלית פלג אורתודונטיה,,Liya X7195,18381.0,0.0,Galit Ortodent,Danielle Braces,False
-card,,x9922,Opher x9922,2025-10-20,565.09,0.0,מחסני השוק אינטרנט,מחסני השוק אינטרנט,מחסני השוק,,Opher x9922,565.09,0.0,Machsenei Hashuk,🛍️Groceries,False
-card,,x9922,Opher x9922,2025-10-21,308.88,0.0,כביש 6 | הוראת קבע,כביש 6 הוראת קבע,כביש,,Opher x9922,308.88,0.0,Kvish 6,Transportation,False
-card,,x5898,Opher X5898,2025-10-21,8.49,0.0,"HOT MOBILE הו""ק | הוראת קבע",hot mobile הו ק הוראת קבע,hot,,Opher X5898,8.49,0.0,HOT,Internet,False
-card,,x7195,Liya X7195,2025-10-21,10.0,0.0,מוצרי נעילה (לוקר),מוצרי נעילה לוקר,מוצרי נעילה לוקר,,Liya X7195,10.0,0.0,Shoeing Equipment,Clothing,False
-card,,x7195,Liya X7195,2025-10-22,142.21,0.0,סעוד הראל -כללית | הוראת קבע,סעוד הראל כללית הוראת קבע,כללית,,Liya X7195,142.21,0.0,Clalit,Medical,False
-card,,x7195,Liya X7195,2025-10-22,240.85,0.0,"שרותי בריאות כללית הו""ק | הוראת קבע",שרותי בריאות כללית הו ק הוראת קבע,כללית,,Liya X7195,240.85,0.0,Clalit,Medical,False
-card,,x9922,Opher x9922,2025-10-24,200.0,0.0,ארומה אפליקציה,ארומה אפליקציה,ארומה,,Opher x9922,200.0,0.0,Aroma,Opher food,False
-card,,x9922,Opher x9922,2025-10-25,14.0,0.0,"טוטסי מ.מ בע""מ",טוטסי מ מ בע מ,טוטסי,,Opher x9922,14.0,0.0,Tootsi Yodfat,🛍️Groceries,False
-card,,x9922,Opher x9922,2025-10-26,6.82,0.0,"כביש 6 חוצה צפון בע""מ | הוראת קבע",כביש 6 חוצה צפון בע מ הוראת קבע,כביש,,Opher x9922,6.82,0.0,Kvish 6,Transportation,False
-card,,x9922,Opher x9922,2025-10-27,20.02,0.0,CELLO | הוראת קבע,cello הוראת קבע,cello,,Opher x9922,20.02,0.0,Cello park,Transportation,False
-card,,x9922,Opher x9922,2025-10-29,142.87,0.0,כלל רכב/דירה/עסק | הוראת קבע,כלל רכב דירה עסק הוראת קבע,כלל רכב דירה עסק,,Opher x9922,142.87,0.0,Klal insurance,Insurance!,False
-card,,x9922,Opher x9922,2025-10-31,30.0,0.0,ליברה עסקות ביטוח,ליברה עסקות ביטוח,ליברה עסקות ביטוח,,Opher x9922,30.0,0.0,Libra Insurance,Insurance!,False
-card,,x9922,Opher x9922,2025-11-01,169.0,0.0,"אייקון ב""ש - הו""ק | הוראת קבע",אייקון ב ש הו ק הוראת קבע,אייקון,,Opher x9922,169.0,0.0,Icon,Chugim parents,False
-card,,x9922,Opher x9922,2025-11-01,350.0,0.0,הוראת אייקידו ותרבות יפן,הוראת אייקידו ותרבות יפן,אייקידו ותרבות יפן,,Opher x9922,350.0,0.0,Zeev Erlich,Aikido,False
-card,,x9922,Opher x9922,2025-11-02,6251.0,0.0,א זכאי איילה,א זכאי איילה,זכאי איילה,,Opher x9922,6251.0,0.0,Ayala tours,University,False
-card,,x9922,Opher x9922,2025-11-03,322.63,0.0,קרן מכבי | הוראת קבע,קרן מכבי הוראת קבע,קרן מכבי,,Opher x9922,322.63,0.0,Maccabi,Medical,False
-card,,x9922,Opher x9922,2025-11-05,57.84,0.0,DUTY FREE MARKET,duty free market,duty free,,Opher x9922,57.84,0.0,Duty free,Gifts,False
-card,,x9922,Opher x9922,2025-11-05,131.19,0.0,EL AL ISRAEL  AIRLINES,el al israel airlines,el al israel airlines,,Opher x9922,131.19,0.0,El al,University,False
 card,,x7195,Liya X7195,2025-06-01,2000.0,0.0,"בית יציב ב""ש בע""מ",בית יציב ב ש בע מ,בית יציב,,Liya X7195,2000.0,0.0,beit yatziv,Chugim,False
 card,,x7195,Liya X7195,2025-06-02,99.0,0.0,"אייקון ב""ש - הו""ק | הוראת קבע",אייקון ב ש הו ק הוראת קבע,אייקון,,Liya X7195,99.0,0.0,Icon,Chugim parents,False
 card,,x7195,Liya X7195,2025-06-03,50.0,0.0,PAYBOX                 TEL AVIV      IL | למי: מתנה לרינת לסוף שנה,paybox tel aviv il למי מתנה לרינת לסוף שנה,paybox,,Liya X7195,50.0,0.0,Mikael's teacher,Gifts,False
@@ -3640,3 +3557,86 @@ card,,x5898,Opher X5898,2025-08-26,30.0,0.0,ליברה עסקות ביטוח,ל�
 card,,x5898,Opher X5898,2025-08-26,390.0,0.0,אדריאן דדון | הוראת קבע,אדריאן דדון הוראת קבע,אדריאן דדון,,Opher X5898,390.0,0.0,Adrian Sports Trainer,Chugim parents,False
 card,,x9922,Opher x9922,2025-08-28,1.59,0.0,גולן טלקום | הוראת קבע,גולן טלקום הוראת קבע,גולן טלקום,,Opher x9922,1.59,0.0,Golan telecom,Internet,False
 card,,x9922,Opher x9922,2025-08-28,731.0,0.0,"KSP ב""ש | תשלום 1 מתוך 4",ksp ב ש תשלום 1 מתוך 4,ksp,,Opher x9922,731.0,0.0,KSP,Split,False
+card,,x9922,Opher x9922,2025-09-01,120.0,0.0,מרכז סוזן דלל,מרכז סוזן דלל,מרכז סוזן דלל,,Opher x9922,120.0,0.0,Suzan Dalal,Going out and restaurants,False
+card,,x9922,Opher x9922,2025-09-01,211.5,0.0,"גוסי שיווק והפצה בע""מ",גוסי שיווק והפצה בע מ,גוסי שיווק והפצה,,Opher x9922,211.5,0.0,Juicy,🛍️Groceries,False
+card,,x9922,Opher x9922,2025-09-01,350.0,0.0,הוראת אייקידו ותרבות יפן,הוראת אייקידו ותרבות יפן,אייקידו ותרבות יפן,,Opher x9922,350.0,0.0,Zeev Erlich,Aikido,False
+card,,x7195,Liya X7195,2025-09-01,99.0,0.0,"אייקון ב""ש - הו""ק | הוראת קבע",אייקון ב ש הו ק הוראת קבע,אייקון,,Liya X7195,99.0,0.0,Icon,Chugim parents,False
+card,,x7195,Liya X7195,2025-09-01,380.0,0.0,מקסים מירוזני,מקסים מירוזני,מקסים מירוזני,,Liya X7195,380.0,0.0,Parkour,Chugim,False
+card,,x9922,Opher x9922,2025-09-02,322.32,0.0,קרן מכבי | הוראת קבע,קרן מכבי הוראת קבע,קרן מכבי,,Opher x9922,322.32,0.0,Maccabi,Medical,False
+card,,x9922,Opher x9922,2025-09-03,513.0,0.0,קקאו טבעי,קקאו טבעי,קקאו טבעי,,Opher x9922,513.0,0.0,Cacao Natural,🛍️Groceries,False
+card,,x9922,Opher x9922,2025-09-03,245.9,0.0,טבע בריא,טבע בריא,טבע בריא,,Opher x9922,245.9,0.0,Teva Bari,🛍️Groceries,False
+card,,x9922,Opher x9922,2025-09-03,177.0,0.0,"KSP ב""ש",ksp ב ש,ksp,,Opher x9922,177.0,0.0,KSP,House and stuff,False
+card,,x9922,Opher x9922,2025-09-04,114.0,0.0,שף דיפו,שף דיפו,שף דיפו,,Opher x9922,114.0,0.0,Chef Depot,House and stuff,False
+card,,x7195,Liya X7195,2025-09-04,512.51,0.0,מחסני השוק אינטרנט,מחסני השוק אינטרנט,מחסני השוק,,Liya X7195,512.51,0.0,Machsenei Hashuk,🛍️Groceries,False
+card,,x7195,Liya X7195,2025-09-04,350.0,0.0,המכללה לחינוך גופני,המכללה לחינוך גופני,המכללה לחינוך גופני,,Liya X7195,350.0,0.0,Wingate College,Pilates,False
+card,,x9922,Opher x9922,2025-09-07,118.0,0.0,"אייקון ב""ש  - רגיל",אייקון ב ש רגיל,אייקון,,Opher x9922,118.0,0.0,Icon,Chugim parents,False
+card,,x7195,Liya X7195,2025-09-07,267.26,0.0,פז YELLOW אצטדיון באר שבע,פז yellow אצטדיון באר שבע,yellow,,Liya X7195,267.26,0.0,Yellow,🛍️Groceries,False
+card,,x9922,Opher x9922,2025-09-08,481.24,0.0,מחסני השוק אינטרנט,מחסני השוק אינטרנט,מחסני השוק,,Opher x9922,481.24,0.0,Machsenei Hashuk,🛍️Groceries,False
+card,,x7195,Liya X7195,2025-09-08,21.88,0.0,פרי טיוי | הוראת קבע,פרי טיוי הוראת קבע,פרי טיוי,,Liya X7195,21.88,0.0,Free TV,Software Subscriptions,False
+card,,x7195,Liya X7195,2025-09-08,200.0,0.0,בועז נחייסי,בועז נחייסי,בועז נחייסי,,Liya X7195,200.0,0.0,Boaz,Pilates,False
+card,,x9922,Opher x9922,2025-09-10,251.01,0.0,הראל-ביטוח בריאות | הוראת קבע,הראל ביטוח בריאות הוראת קבע,הראל ביטוח,,Opher x9922,251.01,0.0,Harel health insurance,Insurance!,False
+card,,x7195,Liya X7195,2025-09-11,176.85,0.0,REXAIL קניות אונליין-גמא,rexail קניות אונליין גמא,rexail,,Liya X7195,176.85,0.0,Rexail,🛍️Groceries,False
+card,,x5898,Opher X5898,2025-09-12,30.0,0.0,ליברה עסקות ביטוח,ליברה עסקות ביטוח,ליברה עסקות ביטוח,,Opher X5898,30.0,0.0,Library,Going out and restaurants,False
+card,,x9922,Opher x9922,2025-09-13,516.0,0.0,מוניקה קובץ סטודיו מצוירי,מוניקה קובץ סטודיו מצוירי,מוניקה קובץ סטודיו מצוירי,,Opher x9922,516.0,0.0,Monica Studio Ceramics,House and stuff,False
+card,,x7195,Liya X7195,2025-09-15,576.0,0.0,המוסד לביטוח לאומי - חשבו | הוראת קבע,המוסד לביטוח לאומי חשבו הוראת קבע,המוסד לביטוח לאומי,,Liya X7195,576.0,0.0,Bituach Leumi,Pilates,False
+card,,x7195,Liya X7195,2025-09-16,730.96,0.0,מחסני השוק אינטרנט,מחסני השוק אינטרנט,מחסני השוק,,Liya X7195,730.96,0.0,Machsenei Hashuk,🛍️Groceries,False
+card,,x7195,Liya X7195,2025-09-18,250.0,0.0,כיוונים- צהרונים/מעונות/ח | הוראת קבע,כיוונים צהרונים מעונות ח הוראת קבע,כיוונים צהרונים מעונות,,Liya X7195,250.0,0.0,Kivunim,Chugim,False
+card,,x9922,Opher x9922,2025-09-21,105.39,0.0,כביש 6 | הוראת קבע,כביש 6 הוראת קבע,כביש,,Opher x9922,105.39,0.0,Kvish 6,Transportation,False
+card,,x5898,Opher X5898,2025-09-21,6.5,0.0,"HOT MOBILE הו""ק | הוראת קבע",hot mobile הו ק הוראת קבע,hot,,Opher X5898,6.5,0.0,HOT,Internet,False
+card,,x5898,Opher X5898,2025-09-21,2.62,0.0,"HOT MOBILE הו""ק | הוראת קבע",hot mobile הו ק הוראת קבע,hot,,Opher X5898,2.62,0.0,HOT,Internet,False
+card,,x7195,Liya X7195,2025-09-21,143.04,0.0,סעוד הראל -כללית | הוראת קבע,סעוד הראל כללית הוראת קבע,כללית,,Liya X7195,143.04,0.0,Clalit,Medical,False
+card,,x7195,Liya X7195,2025-09-21,242.23,0.0,"שרותי בריאות כללית הו""ק | הוראת קבע",שרותי בריאות כללית הו ק הוראת קבע,כללית,,Liya X7195,242.23,0.0,Clalit,Medical,False
+card,,x7195,Liya X7195,2025-09-22,696.07,0.0,"מי שבע בע""מ",מי שבע בע מ,מי,,Liya X7195,696.07,0.0,Mei Sheva,Water,False
+card,,x9922,Opher x9922,2025-09-23,30.0,0.0,ליברה עסקות ביטוח,ליברה עסקות ביטוח,ליברה עסקות ביטוח,,Opher x9922,30.0,0.0,Libra Insurance,Insurance!,False
+card,,x7195,Liya X7195,2025-09-23,185.0,0.0,לב הנהלה,לב הנהלה,לב הנהלה,,Liya X7195,185.0,0.0,Lev Hanahala,Going out and restaurants,False
+card,,x9922,Opher x9922,2025-09-24,30.0,0.0,ליברה עסקות ביטוח,ליברה עסקות ביטוח,ליברה עסקות ביטוח,,Opher x9922,30.0,0.0,Libra Insurance,Insurance!,False
+card,,x5898,Opher X5898,2025-09-25,71.0,0.0,מ.תחבורה רב- פס | הוראת קבע,מ תחבורה רב פס הוראת קבע,תחבורה רב פס,,Opher X5898,71.0,0.0,Rav pas,Transportation,False
+card,,x5898,Opher X5898,2025-09-26,390.0,0.0,אדריאן דדון | הוראת קבע,אדריאן דדון הוראת קבע,אדריאן דדון,,Opher X5898,390.0,0.0,Adrian Sports Trainer,Chugim parents,False
+card,,x7195,Liya X7195,2025-09-27,1393.0,0.0,TICKETS NP הופעות וכרטיסי,tickets np הופעות וכרטיסי,tickets np הופעות וכרטיסי,,Liya X7195,1393.0,0.0,Tickets NP,Going out and restaurants,False
+card,,x7195,Liya X7195,2025-09-27,600.0,0.0,דביר מצנחי רחיפה,דביר מצנחי רחיפה,דביר מצנחי רחיפה,,Liya X7195,600.0,0.0,Dvir Parachutes,Birthdays,False
+card,,x9922,Opher x9922,2025-09-28,89.4,0.0,כלל רכב/דירה/עסק | הוראת קבע,כלל רכב דירה עסק הוראת קבע,כלל רכב דירה עסק,,Opher x9922,89.4,0.0,Klal insurance,Insurance!,False
+card,,x9922,Opher x9922,2025-09-28,142.86,0.0,כלל רכב/דירה/עסק | הוראת קבע,כלל רכב דירה עסק הוראת קבע,כלל רכב דירה עסק,,Opher x9922,142.86,0.0,Klal insurance,Insurance!,False
+card,,x7195,Liya X7195,2025-09-29,449.85,0.0,מחסני השוק אינטרנט,מחסני השוק אינטרנט,מחסני השוק,,Liya X7195,449.85,0.0,Machsenei Hashuk,🛍️Groceries,False
+card,,x7195,Liya X7195,2025-09-29,200.0,0.0,עמותת חוגי סיירות של הקקל,עמותת חוגי סיירות של הקקל,חוגי סיירות,,Liya X7195,200.0,0.0,Chug Sayarut,Chugim,False
+card,,x9922,Opher x9922,2025-10-01,350.0,0.0,הוראת אייקידו ותרבות יפן,הוראת אייקידו ותרבות יפן,אייקידו ותרבות יפן,,Opher x9922,350.0,0.0,Zeev Erlich,Aikido,False
+card,,x7195,Liya X7195,2025-10-01,380.0,0.0,מקסים מירוזני,מקסים מירוזני,מקסים מירוזני,,Liya X7195,380.0,0.0,Parkour,Chugim,False
+card,,x9922,Opher x9922,2025-10-02,169.0,0.0,"אייקון ב""ש - הו""ק | הוראת קבע",אייקון ב ש הו ק הוראת קבע,אייקון,,Opher x9922,169.0,0.0,Icon,Chugim parents,False
+card,,x7195,Liya X7195,2025-10-02,99.0,0.0,"אייקון ב""ש - הו""ק | הוראת קבע",אייקון ב ש הו ק הוראת קבע,אייקון,,Liya X7195,99.0,0.0,Icon,Chugim parents,False
+card,,x9922,Opher x9922,2025-10-03,63.01,0.0,CELLO,cello,cello,,Opher x9922,63.01,0.0,Cello park,Transportation,False
+card,,x9922,Opher x9922,2025-10-03,363.5,0.0,קרן מכבי | הוראת קבע,קרן מכבי הוראת קבע,קרן מכבי,,Opher x9922,363.5,0.0,Maccabi,Medical,False
+card,,x5898,Opher X5898,2025-10-03,30.0,0.0,ליברה עסקות ביטוח,ליברה עסקות ביטוח,ליברה עסקות ביטוח,,Opher X5898,30.0,0.0,Libra Insurance,Insurance!,False
+card,,x9922,Opher x9922,2025-10-04,30.0,0.0,ליברה עסקות ביטוח,ליברה עסקות ביטוח,ליברה עסקות ביטוח,,Opher x9922,30.0,0.0,Libra Insurance,Insurance!,False
+card,,x7195,Liya X7195,2025-10-04,400.0,0.0,דביר מצנחי רחיפה,דביר מצנחי רחיפה,דביר מצנחי רחיפה,,Liya X7195,400.0,0.0,Dvir Parachutes,Birthdays,False
+card,,x7195,Liya X7195,2025-10-05,89.9,0.0,אייס באר שבע,אייס באר שבע,אייס,,Liya X7195,89.9,0.0,Ace,Auto Maintenance,False
+card,,x9922,Opher x9922,2025-10-07,229.0,0.0,YOOLETTA,yooletta,yooletta,,Opher x9922,229.0,0.0,Yooletta ,Gifts,False
+card,,x9922,Opher x9922,2025-10-10,252.7,0.0,הראל-ביטוח בריאות | הוראת קבע,הראל ביטוח בריאות הוראת קבע,הראל ביטוח,,Opher x9922,252.7,0.0,Harel life insurance,Insurance!,False
+card,,x9922,Opher x9922,2025-10-12,509.0,0.0,קקאו טבעי,קקאו טבעי,קקאו טבעי,,Opher x9922,509.0,0.0,Cacao Natural,🛍️Groceries,False
+card,,x9922,Opher x9922,2025-10-12,303.45,0.0,"ספירולינה פול לייף בע""מ",ספירולינה פול לייף בע מ,ספירולינה פול לייף,,Opher x9922,303.45,0.0,Spirulina Full Life,🛍️Groceries,False
+card,,x7195,Liya X7195,2025-10-12,28.0,0.0,עברית חנות ספרים,עברית חנות ספרים,עברית חנות ספרים,,Liya X7195,28.0,0.0,E-vrit,House and stuff,False
+card,,x7195,Liya X7195,2025-10-15,576.0,0.0,המוסד לביטוח לאומי - חשבו | הוראת קבע,המוסד לביטוח לאומי חשבו הוראת קבע,המוסד לביטוח לאומי,,Liya X7195,576.0,0.0,Bituach Leumi,Pilates,False
+card,,x9922,Opher x9922,2025-10-16,175.73,0.0,NEXT TV BY HOT | הוראת קבע,next tv by hot הוראת קבע,hot,,Opher x9922,175.73,0.0,HOT,Internet,False
+card,,x5898,Opher X5898,2025-10-17,30.0,0.0,ליברה עסקות ביטוח,ליברה עסקות ביטוח,ליברה עסקות ביטוח,,Opher X5898,30.0,0.0,Libra Insurance,Insurance!,False
+card,,x9922,Opher x9922,2025-10-18,636.5,0.0,טבע בריא,טבע בריא,טבע בריא,,Opher x9922,636.5,0.0,Teva Bari,🛍️Groceries,False
+card,,x7195,Liya X7195,2025-10-18,100.0,0.0,צומת ספרים בוקנט,צומת ספרים בוקנט,צומת ספרים,,Liya X7195,100.0,0.0,Tzomet Sfarim,Gifts,False
+card,,x7195,Liya X7195,2025-10-19,350.0,0.0,אדריאן דדון | הוראת קבע,אדריאן דדון הוראת קבע,אדריאן דדון,,Liya X7195,350.0,0.0,Adrian Sports Trainer,Chugim,False
+card,,x7195,Liya X7195,2025-10-19,288.0,0.0,האיגוד הישראלי לשחמט,האיגוד הישראלי לשחמט,האיגוד הישראלי לשחמט,,Liya X7195,288.0,0.0,Chess,Chugim,False
+card,,x7195,Liya X7195,2025-10-19,1522.24,0.0,"חברת החשמל לישראל בע""מ | הוראת קבע",חברת החשמל לישראל בע מ הוראת קבע,חברת החשמל לישראל,,Liya X7195,1522.24,0.0,Electric bill,⚡Electric,False
+card,,x7195,Liya X7195,2025-10-19,18381.0,0.0,"גלית פלג אורתודונטיה בע""מ",גלית פלג אורתודונטיה בע מ,גלית פלג אורתודונטיה,,Liya X7195,18381.0,0.0,Galit Ortodent,Danielle Braces,False
+card,,x9922,Opher x9922,2025-10-20,565.09,0.0,מחסני השוק אינטרנט,מחסני השוק אינטרנט,מחסני השוק,,Opher x9922,565.09,0.0,Machsenei Hashuk,🛍️Groceries,False
+card,,x9922,Opher x9922,2025-10-21,308.88,0.0,כביש 6 | הוראת קבע,כביש 6 הוראת קבע,כביש,,Opher x9922,308.88,0.0,Kvish 6,Transportation,False
+card,,x5898,Opher X5898,2025-10-21,8.49,0.0,"HOT MOBILE הו""ק | הוראת קבע",hot mobile הו ק הוראת קבע,hot,,Opher X5898,8.49,0.0,HOT,Internet,False
+card,,x7195,Liya X7195,2025-10-21,10.0,0.0,מוצרי נעילה (לוקר),מוצרי נעילה לוקר,מוצרי נעילה לוקר,,Liya X7195,10.0,0.0,Shoeing Equipment,Clothing,False
+card,,x7195,Liya X7195,2025-10-22,142.21,0.0,סעוד הראל -כללית | הוראת קבע,סעוד הראל כללית הוראת קבע,כללית,,Liya X7195,142.21,0.0,Clalit,Medical,False
+card,,x7195,Liya X7195,2025-10-22,240.85,0.0,"שרותי בריאות כללית הו""ק | הוראת קבע",שרותי בריאות כללית הו ק הוראת קבע,כללית,,Liya X7195,240.85,0.0,Clalit,Medical,False
+card,,x9922,Opher x9922,2025-10-24,200.0,0.0,ארומה אפליקציה,ארומה אפליקציה,ארומה,,Opher x9922,200.0,0.0,Aroma,Opher food,False
+card,,x9922,Opher x9922,2025-10-25,14.0,0.0,"טוטסי מ.מ בע""מ",טוטסי מ מ בע מ,טוטסי,,Opher x9922,14.0,0.0,Tootsi Yodfat,🛍️Groceries,False
+card,,x9922,Opher x9922,2025-10-26,6.82,0.0,"כביש 6 חוצה צפון בע""מ | הוראת קבע",כביש 6 חוצה צפון בע מ הוראת קבע,כביש,,Opher x9922,6.82,0.0,Kvish 6,Transportation,False
+card,,x9922,Opher x9922,2025-10-27,20.02,0.0,CELLO | הוראת קבע,cello הוראת קבע,cello,,Opher x9922,20.02,0.0,Cello park,Transportation,False
+card,,x9922,Opher x9922,2025-10-29,142.87,0.0,כלל רכב/דירה/עסק | הוראת קבע,כלל רכב דירה עסק הוראת קבע,כלל רכב דירה עסק,,Opher x9922,142.87,0.0,Klal insurance,Insurance!,False
+card,,x9922,Opher x9922,2025-10-31,30.0,0.0,ליברה עסקות ביטוח,ליברה עסקות ביטוח,ליברה עסקות ביטוח,,Opher x9922,30.0,0.0,Libra Insurance,Insurance!,False
+card,,x9922,Opher x9922,2025-11-01,169.0,0.0,"אייקון ב""ש - הו""ק | הוראת קבע",אייקון ב ש הו ק הוראת קבע,אייקון,,Opher x9922,169.0,0.0,Icon,Chugim parents,False
+card,,x9922,Opher x9922,2025-11-01,350.0,0.0,הוראת אייקידו ותרבות יפן,הוראת אייקידו ותרבות יפן,אייקידו ותרבות יפן,,Opher x9922,350.0,0.0,Zeev Erlich,Aikido,False
+card,,x9922,Opher x9922,2025-11-02,6251.0,0.0,א זכאי איילה,א זכאי איילה,זכאי איילה,,Opher x9922,6251.0,0.0,Ayala tours,University,False
+card,,x9922,Opher x9922,2025-11-03,322.63,0.0,קרן מכבי | הוראת קבע,קרן מכבי הוראת קבע,קרן מכבי,,Opher x9922,322.63,0.0,Maccabi,Medical,False
+card,,x9922,Opher x9922,2025-11-05,57.84,0.0,DUTY FREE MARKET,duty free market,duty free,,Opher x9922,57.84,0.0,Duty free,Gifts,False
+card,,x9922,Opher x9922,2025-11-05,131.19,0.0,EL AL ISRAEL  AIRLINES,el al israel airlines,el al israel airlines,,Opher x9922,131.19,0.0,El al,University,False
