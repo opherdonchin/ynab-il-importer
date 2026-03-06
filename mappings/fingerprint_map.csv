@@ -66,4 +66,6 @@ bit,True,0,bit,bit,Consolidate Bit transfers
 decathlon,True,0,decathlon|דקטלון,decathlon,Consolidate Decathlon variants (Hebrew/English)
 open_spot,True,0,open spot|אופן ספוט,open spot,Consolidate Open/Offen Spot variants (Hebrew/English)
 puzzle_outlet,True,0,puzzle outlet|סופט קוקיז,puzzle outlet,Consolidate Puzzle Outlet / Soft Cookies variants (Hebrew/English)
-subject_payment,True,-10,תשלום,subject,Map generic payment (תשלום) to Subject
+subject_payment,False,-10,תשלום,subject,Handled in fingerprint_v0: map תשלום only when sole token
+מאפית_אורן_משי,True,0,מאפית אורן משי|מאפיתת אורן משי,מאפית אורן משי,Consolidate Oren Meshi bakery variants
+דיל_הר_בוקר,True,0,דיל הר בוקר,שופרסל,Consolidate Shufersal Deal (Har Boker) to Shufersal

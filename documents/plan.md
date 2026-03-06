@@ -26,35 +26,36 @@ Completed:
 - Normalizers for bank (Bankin/Leumi), card (MAX), and YNAB register exports.
 - Single `--source` matching flow with `scripts/bootstrap_pairs.py` + `scripts/build_groups.py`.
 - Fingerprint map and algorithm refinements (noise stripping, high-entropy removal, token cap).
-- UTF-8-SIG CSV outputs for Excel/Sheets compatibility.
-- Optional Splink clustering script for exploration: `scripts/splink_fingerprint_clusters.py`.
+- Narrowed `תשלום` handling: map to Subject only when it is the sole meaningful token.
+- Bootstrapped `mappings/payee_map.csv` from matched pairs and validated it.
+- Added read-only YNAB API download flow and generated `data/derived/ynab_api_norm.csv`.
+- Built fake workflow data + simulated matching to produce `outputs/fake_proposed_transactions.csv`.
+- Generated real `outputs/proposed_transactions.csv` after dedupe against YNAB API data.
 
-In progress:\n- Added subject_payment rule to map generic תשלום to Subject.\n- Iterating `mappings/fingerprint_map.csv` for better consolidation (including bit/paybox and cross-language variants).
-- Reviewing `outputs/fingerprint_groups.csv` to refine rules and reduce duplicate fingerprints per payee.
+In progress:
+- Ongoing manual curation of `mappings/fingerprint_map.csv` and review of `outputs/fingerprint_groups.csv`.
+- Manual review and cleanup of `mappings/payee_map.csv` (payees/categories).
 
 ---
 
 ## Next Steps (Priority Order)
 
-1) Curate fingerprint map
-- Review `outputs/fingerprint_groups.csv` and adjust `mappings/fingerprint_map.csv`.
-- Re-run normalize → match → group until consolidation is strong and stable.
+1) Curate payee map
+- Review `mappings/payee_map.csv` for duplicates, naming consistency, and categories.
+- Decide defaults where multiple payees are present per fingerprint.
 
-2) Bootstrap payee map
-- Use matched pairs to generate initial `mappings/payee_map.csv`.
-- Curate payee/category selections; remove duplicates and fix names.
-
-3) Review tooling
-- Implement `validate-payee-map` (no `;` in payees/categories, required columns, duplicate detection).
+2) Review tooling
 - Implement local review UI (Streamlit) to select payee/category and flag `update_map`.
 
-4) Upload flow
+3) Map updates
 - Generate `outputs/map_updates.csv` from reviewed data.
+
+4) Upload flow (later)
 - Upload to YNAB with deterministic import IDs.
 - Verify idempotent re-run behavior.
 
 5) Optional exploration
-- Use Splink clustering (before/after fingerprint map changes) to suggest additional rules.
+- Use Splink clustering to suggest additional fingerprint rules.
 
 ---
 
@@ -65,5 +66,3 @@ In progress:\n- Added subject_payment rule to map generic תשלום to Subject.
 - `mappings/payee_map.csv`
 - `outputs/proposed_transactions.csv`
 - `outputs/map_updates.csv`
-
-

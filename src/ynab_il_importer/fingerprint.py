@@ -220,6 +220,9 @@ def fingerprint_v0(value: Any, token_limit: int = DEFAULT_TOKEN_LIMIT) -> str:
     text = _STANDALONE_NUMBER_RE.sub(" ", text)
     stripped = _strip_noise_tokens(text)
     if stripped.strip() == "":
+        tokens_all = text.split()
+        if "תשלום" in tokens_all:
+            return "subject"
         stripped = text
     stripped = _SPACE_RE.sub(" ", stripped).strip()
     tokens = stripped.split()
