@@ -19,6 +19,7 @@ pyyaml = ">=6.0"
 ipykernel = ">=7.2.0,<8"
 jupyter = ">=1.1.1,<2"
 splink = ">=4.0.15,<5"
+streamlit = ">=1.33"
 
 [pypi-dependencies]
 ynab-il-importer = { path = ".", editable = true }

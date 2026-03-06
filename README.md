@@ -151,3 +151,20 @@ Safe editing guidelines for `mappings/payee_map.csv`:
 - Use blanks in optional key columns for wildcard behavior.
 - Increase `priority` to force a rule to win over a more specific lower-priority rule.
 - Leave `category_target` blank when only payee is known.
+
+## Review UI (Streamlit)
+
+The review UI edits `outputs/proposed_transactions.csv` and writes a reviewed copy.
+
+Run:
+
+```bash
+pixi run streamlit run src/ynab_il_importer/review/app.py
+```
+
+Default behavior:
+- Loads `outputs/proposed_transactions.csv` if it exists.
+- Saves to `outputs/proposed_transactions_reviewed.csv` (configurable in the UI).
+
+Hard rule for readiness:
+- Both `payee_selected` and `category_selected` must be filled.
