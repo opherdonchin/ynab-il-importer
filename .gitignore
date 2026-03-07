@@ -183,3 +183,4 @@ cython_debug/
 .cursorindexingignore
 
 data/
+outputs/fingerprint_log.csv
