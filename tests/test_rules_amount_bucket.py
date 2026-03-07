@@ -1,6 +1,6 @@
 import pandas as pd
 
-from ynab_il_importer.rules import apply_payee_map_rules, normalize_payee_map_rules
+import ynab_il_importer.rules as rules_mod
 
 
 def test_amount_bucket_rules() -> None:
@@ -26,7 +26,7 @@ def test_amount_bucket_rules() -> None:
             },
         ]
     )
-    rules = normalize_payee_map_rules(rules)
+    rules = rules_mod.normalize_payee_map_rules(rules)
 
     tx = pd.DataFrame(
         [
@@ -44,6 +44,6 @@ def test_amount_bucket_rules() -> None:
             },
         ]
     )
-    out = apply_payee_map_rules(tx, rules)
+    out = rules_mod.apply_payee_map_rules(tx, rules)
     assert out.loc[0, "payee_canonical_suggested"] == "Yellow"
     assert out.loc[1, "payee_canonical_suggested"] == "Gas Food"

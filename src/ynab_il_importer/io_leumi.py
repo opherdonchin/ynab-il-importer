@@ -4,8 +4,8 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from ynab_il_importer.account_map import apply_account_name_map
-from ynab_il_importer.fingerprint import apply_fingerprints
+import ynab_il_importer.account_map as account_map
+import ynab_il_importer.fingerprint as fingerprint
 
 
 _PURCHASE_DATE_RE = re.compile(r"\b(\d{2})/(\d{2})/(\d{2})\b")
@@ -142,7 +142,37 @@ def _infer_txn_kind(base_kind: str, inflow_ils: float, outflow_ils: float) -> st
     return "income" if inflow > 0 else "expense"
 
 
-def read_bankin_dat(path: str | Path, use_fingerprint_map: bool = True) -> pd.DataFrame:
+def is_proper_format(path: str | Path) -> bool:
+    source_path = Path(path)
+    suffix = source_path.suffix.lower()
+    if suffix and suffix not in {".dat", ".txt"}:
+        return False
+    try:
+        for raw_line in source_path.read_bytes().splitlines():
+            if not raw_line:
+                continue
+            decoded = raw_line.decode("cp862", errors="replace").strip()
+            if not decoded:
+                continue
+            fields = next(csv.reader([decoded], delimiter=",", quotechar='"'))
+            if len(fields) < 5:
+                continue
+            date_code = str(fields[1]).strip()
+            if not re.fullmatch(r"\d{6}", date_code):
+                continue
+            _parse_amount(fields[3])
+            return True
+    except Exception:
+        return False
+    return False
+
+
+def read_raw(
+    path: str | Path,
+    *,
+    use_fingerprint_map: bool = True,
+    account_map_path: str | Path | None = None,
+) -> pd.DataFrame:
     source_path = Path(path)
     decoded_lines = [line.decode("cp862", errors="replace").strip() for line in source_path.read_bytes().splitlines()]
     decoded_lines = [line for line in decoded_lines if line]
@@ -212,6 +242,11 @@ def read_bankin_dat(path: str | Path, use_fingerprint_map: bool = True) -> pd.Da
             "amount_bucket",
         ],
     )
-    result = apply_account_name_map(result, source="bank")
-    result = apply_fingerprints(result, use_fingerprint_map=use_fingerprint_map)
+    if account_map_path is None:
+        result = account_map.apply_account_name_map(result, source="bank")
+    else:
+        result = account_map.apply_account_name_map(
+            result, source="bank", account_map_path=account_map_path
+        )
+    result = fingerprint.apply_fingerprints(result, use_fingerprint_map=use_fingerprint_map)
     return result

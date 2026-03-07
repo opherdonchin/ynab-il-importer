@@ -12,7 +12,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Py <3.11 fallback
     import tomli as tomllib  # type: ignore
 
-from ynab_il_importer.io_ynab import _infer_txn_kind
+import ynab_il_importer.io_ynab as ynab
 
 
 BASE_URL = "https://api.ynab.com/v1"
@@ -116,7 +116,7 @@ def transactions_to_dataframe(
     if df.empty:
         return df
     df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
-    df["txn_kind"] = _infer_txn_kind(
+    df["txn_kind"] = ynab._infer_txn_kind(
         df["inflow_ils"], df["outflow_ils"], df["payee_raw"], df["category_raw"]
     )
     return df[

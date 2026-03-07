@@ -8,7 +8,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ynab_il_importer.io_bankin import extract_merchant
+import ynab_il_importer.io_leumi as leumi
 
 
 @pytest.mark.parametrize(
@@ -77,12 +77,12 @@ from ynab_il_importer.io_bankin import extract_merchant
     ],
 )
 def test_extract_merchant(description_raw: str, expected_kind: str, expected_merchant: str) -> None:
-    merchant_raw, txn_kind = extract_merchant(description_raw)
+    merchant_raw, txn_kind = leumi.extract_merchant(description_raw)
     assert txn_kind == expected_kind
     assert merchant_raw == expected_merchant
 
 
 def test_extract_merchant_empty_falls_back_to_unknown() -> None:
-    merchant_raw, txn_kind = extract_merchant("   ")
+    merchant_raw, txn_kind = leumi.extract_merchant("   ")
     assert txn_kind == "other"
     assert merchant_raw == "UNKNOWN"

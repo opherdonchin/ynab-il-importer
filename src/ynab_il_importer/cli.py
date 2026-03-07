@@ -2,14 +2,12 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
-from ynab_il_importer.io_bank import read_bank
-from ynab_il_importer.io_bankin import read_bankin_dat
-from ynab_il_importer.io_card import read_card
-from ynab_il_importer.io_ynab import read_ynab_register
-from ynab_il_importer.pairing import match_pairs as pair_match_pairs
-from ynab_il_importer.rules import apply_payee_map_rules
-from ynab_il_importer.rules import load_payee_map
-from ynab_il_importer.rules import prepare_transactions_for_rules
+import ynab_il_importer.io_leumi as leumi
+import ynab_il_importer.io_leumi_xls as leumi_xls
+import ynab_il_importer.io_max as maxio
+import ynab_il_importer.io_ynab as ynab
+import ynab_il_importer.pairing as pairing
+import ynab_il_importer.rules as rules
 
 try:
     import typer
@@ -168,7 +166,7 @@ def _build_hint_distributions(matched_pairs: pd.DataFrame) -> pd.DataFrame:
             ]
         )
 
-    prepared = prepare_transactions_for_rules(matched_pairs)
+    prepared = rules.prepare_transactions_for_rules(matched_pairs)
     prepared["ynab_payee_raw"] = (
         matched_pairs["ynab_payee_raw"].astype("string").fillna("").str.strip()
         if "ynab_payee_raw" in matched_pairs.columns
@@ -201,9 +199,9 @@ def _run_build_payee_map(
     if parsed_raw.empty:
         raise ValueError("No rows found in --parsed inputs.")
 
-    parsed_prepared = prepare_transactions_for_rules(parsed_raw)
-    rules = load_payee_map(map_path)
-    applied = apply_payee_map_rules(parsed_prepared, rules)
+    parsed_prepared = rules.prepare_transactions_for_rules(parsed_raw)
+    rules_df = rules.load_payee_map(map_path)
+    applied = rules.apply_payee_map_rules(parsed_prepared, rules_df)
     preview = parsed_prepared.join(applied)
 
     matched_pairs = _load_csv_paths(matched_pairs_paths, "matched-pairs")
@@ -263,10 +261,9 @@ if typer is not None:
     @app.command("parse-bank")
     def parse_bank(
         in_path: Path = typer.Option(..., "--in"),
-        account_name: str = typer.Option(..., "--account-name"),
         out_path: Path = typer.Option(..., "--out"),
     ) -> None:
-        df = read_bank(in_path, account_name=account_name)
+        df = leumi_xls.read_raw(in_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
@@ -276,7 +273,7 @@ if typer is not None:
         in_path: Path = typer.Option(..., "--in"),
         out_path: Path = typer.Option(..., "--out"),
     ) -> None:
-        df = read_card(in_path)
+        df = maxio.read_raw(in_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
@@ -287,7 +284,7 @@ if typer is not None:
         account_name: str = typer.Option("", "--account-name"),
         out_path: Path = typer.Option(..., "--out"),
     ) -> None:
-        df = _fill_and_validate_ynab_account(read_ynab_register(in_path), account_name)
+        df = _fill_and_validate_ynab_account(ynab.read_raw(in_path), account_name)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
@@ -297,7 +294,7 @@ if typer is not None:
         in_path: Path = typer.Option(..., "--in"),
         out_path: Path = typer.Option(..., "--out"),
     ) -> None:
-        df = read_bankin_dat(in_path)
+        df = leumi.read_raw(in_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
@@ -324,7 +321,7 @@ if typer is not None:
         if (ynab_df["account_name"] == "").any():
             raise ValueError("ynab file has empty account_name rows.")
 
-        pairs_df = pair_match_pairs(source_df, ynab_df)
+        pairs_df = pairing.match_pairs(source_df, ynab_df)
         _ensure_parent(out_path)
         pairs_df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(pairs_df)} rows to {out_path}")
@@ -375,7 +372,6 @@ def _fallback_main() -> None:
 
     parse_bank_parser = subparsers.add_parser("parse-bank")
     parse_bank_parser.add_argument("--in", dest="in_path", required=True)
-    parse_bank_parser.add_argument("--account-name", dest="account_name", required=True)
     parse_bank_parser.add_argument("--out", dest="out_path", required=True)
 
     parse_card_parser = subparsers.add_parser("parse-card")
@@ -413,27 +409,25 @@ def _fallback_main() -> None:
 
     args = parser.parse_args()
     if args.command == "parse-bank":
-        df = read_bank(args.in_path, account_name=args.account_name)
+        df = leumi_xls.read_raw(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
     elif args.command == "parse-card":
-        df = read_card(args.in_path)
+        df = maxio.read_raw(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
     elif args.command == "parse-ynab":
-        df = _fill_and_validate_ynab_account(
-            read_ynab_register(args.in_path), args.account_name
-        )
+        df = _fill_and_validate_ynab_account(ynab.read_raw(args.in_path), args.account_name)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
     elif args.command == "parse-bankin":
-        df = read_bankin_dat(args.in_path)
+        df = leumi.read_raw(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
@@ -452,7 +446,7 @@ def _fallback_main() -> None:
         )
         if (ynab_df["account_name"] == "").any():
             raise ValueError("ynab file has empty account_name rows.")
-        pairs_df = pair_match_pairs(source_df, ynab_df)
+        pairs_df = pairing.match_pairs(source_df, ynab_df)
         out_path = Path(args.out)
         _ensure_parent(out_path)
         pairs_df.to_csv(out_path, index=False, encoding="utf-8-sig")

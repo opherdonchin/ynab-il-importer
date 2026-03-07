@@ -3,8 +3,8 @@ from typing import Any
 import re
 
 import pandas as pd
-from ynab_il_importer.account_map import apply_account_name_map
-from ynab_il_importer.fingerprint import apply_fingerprints
+import ynab_il_importer.account_map as account_map
+import ynab_il_importer.fingerprint as fingerprint
 
 
 HEADER_MARKER = "תאריך עסקה"
@@ -101,7 +101,31 @@ def _infer_txn_kind(inflow_ils: pd.Series, outflow_ils: pd.Series) -> pd.Series:
     return kind
 
 
-def read_card(path: str | Path, use_fingerprint_map: bool = True) -> pd.DataFrame:
+def is_proper_format(path: str | Path) -> bool:
+    source_path = Path(path)
+    suffix = source_path.suffix.lower()
+    if suffix and suffix not in {".xls", ".xlsx"}:
+        return False
+    try:
+        sheets = pd.read_excel(source_path, sheet_name=None, header=None, dtype=str, nrows=20)
+    except Exception:
+        return False
+    for sheet_df in sheets.values():
+        has_marker = sheet_df.apply(
+            lambda row: row.astype("string").fillna("").str.strip().eq(HEADER_MARKER).any(),
+            axis=1,
+        )
+        if has_marker.any():
+            return True
+    return False
+
+
+def read_raw(
+    path: str | Path,
+    *,
+    use_fingerprint_map: bool = True,
+    account_map_path: str | Path | None = None,
+) -> pd.DataFrame:
     path = Path(path)
     sheet_name, header_row = _find_header(path)
     raw = _clean_columns(pd.read_excel(path, sheet_name=sheet_name, header=header_row))
@@ -158,8 +182,13 @@ def read_card(path: str | Path, use_fingerprint_map: bool = True) -> pd.DataFram
         | (result["outflow_ils"] != 0)
         | (result["inflow_ils"] != 0)
     ]
-    result = apply_account_name_map(result, source="card")
-    result = apply_fingerprints(result, use_fingerprint_map=use_fingerprint_map)
+    if account_map_path is None:
+        result = account_map.apply_account_name_map(result, source="card")
+    else:
+        result = account_map.apply_account_name_map(
+            result, source="card", account_map_path=account_map_path
+        )
+    result = fingerprint.apply_fingerprints(result, use_fingerprint_map=use_fingerprint_map)
 
     return result[
         [

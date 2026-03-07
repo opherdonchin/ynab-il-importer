@@ -37,20 +37,28 @@ pixi install
 
 ```bash
 pixi run python scripts/normalize_file.py \
-  --format leumi \
-  --in data/raw/Bankin.dat
+  --leumi data/raw/Bankin.dat
 
 pixi run python scripts/normalize_file.py \
-  --format max \
-  --in data/raw/card.xlsx
+  --leumi-xls data/raw/bank.xls
 
 pixi run python scripts/normalize_file.py \
-  --format ynab \
-  --in data/raw/ynab_register.csv
+  --max data/raw/card.xlsx
+
+pixi run python scripts/normalize_file.py \
+  --ynab data/raw/ynab_register.csv
 ```
 
 Default output name:
 - `data/derived/{raw_file_stem}_{format}_norm.csv`
+
+Directory mode (autodetects format; skips unknown files with a warning):
+
+```bash
+pixi run python scripts/normalize_file.py \
+  --dir data/raw \
+  --out-dir data/derived
+```
 
 4. Build matched pairs (bootstrap only):
 
@@ -179,7 +187,7 @@ Build review outputs:
 
 ```bash
 pixi run ynab-il build-payee-map \
-  --parsed data/derived/bankin_fuller_parsed.csv \
+  --parsed data/derived/leumi_fuller_parsed.csv \
   --matched-pairs outputs/matched_pairs.csv \
   --out-dir outputs/payee_map
 ```

@@ -6,8 +6,8 @@ from io import StringIO
 import pandas as pd
 from lxml import html
 
-from ynab_il_importer.account_map import apply_account_name_map
-from ynab_il_importer.fingerprint import apply_fingerprints
+import ynab_il_importer.account_map as account_map
+import ynab_il_importer.fingerprint as fingerprint
 
 _BANK_REQUIRED_HEADERS = {"תאריך", "תיאור", "בחובה", "בזכות"}
 _BANK_ACCOUNT_HEADERS = {
@@ -221,8 +221,33 @@ def _read_bank_table(path: Path) -> pd.DataFrame:
     raise ValueError(f"Could not parse bank file as HTML or Excel: {path}")
 
 
-def read_bank(
-    path: str | Path, account_name: str = "", use_fingerprint_map: bool = True
+def is_proper_format(path: str | Path) -> bool:
+    source_path = Path(path)
+    suffix = source_path.suffix.lower()
+    if suffix and suffix not in {".xls", ".xlsx", ".html", ".htm"}:
+        return False
+    try:
+        tables = pd.read_html(source_path)
+        selected = _select_bank_table(tables)
+        if selected is not None and _BANK_REQUIRED_HEADERS.issubset(set(selected.columns)):
+            return True
+    except Exception:
+        pass
+    for engine in ("xlrd", "openpyxl"):
+        try:
+            sample = pd.read_excel(source_path, header=None, nrows=20, engine=engine)
+            if _looks_like_transaction_table(sample):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def read_raw(
+    path: str | Path,
+    *,
+    use_fingerprint_map: bool = True,
+    account_map_path: str | Path | None = None,
 ) -> pd.DataFrame:
     raw = _read_bank_table(Path(path))
 
@@ -230,8 +255,6 @@ def read_bank(
     inflow = _parse_amount(_get_column(raw, "בזכות", 0.0))
 
     source_account = _extract_account_name(raw)
-    if str(account_name).strip():
-        source_account = pd.Series([str(account_name).strip()] * len(raw), index=raw.index)
 
     result = pd.DataFrame(
         {
@@ -264,8 +287,13 @@ def read_bank(
         | (result["inflow_ils"] != 0)
     ]
 
-    result = apply_account_name_map(result, source="bank")
-    result = apply_fingerprints(result, use_fingerprint_map=use_fingerprint_map)
+    if account_map_path is None:
+        result = account_map.apply_account_name_map(result, source="bank")
+    else:
+        result = account_map.apply_account_name_map(
+            result, source="bank", account_map_path=account_map_path
+        )
+    result = fingerprint.apply_fingerprints(result, use_fingerprint_map=use_fingerprint_map)
 
     return result[
         [

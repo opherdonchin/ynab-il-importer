@@ -9,7 +9,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ynab_il_importer.io_card import read_card
+import ynab_il_importer.io_max as maxio
 
 
 def _load_fixture_rows(input_csv: Path) -> pd.DataFrame:
@@ -40,10 +40,10 @@ def test_read_card_emits_normalized_schema_from_fixture(monkeypatch: pytest.Monk
             f"Unexpected read_excel invocation: path={path}, sheet_name={sheet_name}, header={header}, dtype={dtype}"
         )
 
-    monkeypatch.setattr("ynab_il_importer.io_card.pd.read_excel", _fake_read_excel)
+    monkeypatch.setattr("ynab_il_importer.io_max.pd.read_excel", _fake_read_excel)
 
     with pytest.warns(UserWarning):
-        actual = read_card("tests/fixtures/card/max_sample_input.xlsx")
+        actual = maxio.read_raw("tests/fixtures/card/max_sample_input.xlsx")
     expected = pd.read_csv(expected_csv)
 
     actual_cmp = actual[expected.columns].copy()
@@ -88,8 +88,8 @@ def test_read_card_drops_pure_empty_noise_rows(monkeypatch: pytest.MonkeyPatch) 
             f"Unexpected read_excel invocation: path={path}, sheet_name={sheet_name}, header={header}, dtype={dtype}"
         )
 
-    monkeypatch.setattr("ynab_il_importer.io_card.pd.read_excel", _fake_read_excel)
-    actual = read_card("tests/fixtures/card/noise_case.xlsx")
+    monkeypatch.setattr("ynab_il_importer.io_max.pd.read_excel", _fake_read_excel)
+    actual = maxio.read_raw("tests/fixtures/card/noise_case.xlsx")
 
     assert len(actual) == 1
     assert actual.iloc[0]["currency"] == "ILS"

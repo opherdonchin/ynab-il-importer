@@ -1,6 +1,6 @@
 import pandas as pd
 
-from ynab_il_importer.normalize import normalize_text
+import ynab_il_importer.normalize as normalize
 
 
 def _series_or_default(
@@ -249,7 +249,7 @@ def match_pairs(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
             ]
         )
 
-    pairs["raw_norm"] = pairs["raw_text"].map(normalize_text)
+    pairs["raw_norm"] = pairs["raw_text"].map(normalize.normalize_text)
 
     key_counts = (
         pairs.groupby(["account_key", "date_key", "amount_key"], dropna=False)

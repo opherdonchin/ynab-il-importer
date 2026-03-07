@@ -5,7 +5,7 @@ from typing import Iterable
 
 import pandas as pd
 
-from ynab_il_importer.review_app.validation import normalize_update_map
+import ynab_il_importer.review_app.validation as validation
 
 
 REQUIRED_COLUMNS = [
@@ -35,7 +35,7 @@ def load_proposed_transactions(path: str | Path) -> pd.DataFrame:
     if missing:
         raise ValueError(f"proposed_transactions missing columns: {missing}")
 
-    df["update_map"] = normalize_update_map(df["update_map"])
+    df["update_map"] = validation.normalize_update_map(df["update_map"])
     return df
 
 

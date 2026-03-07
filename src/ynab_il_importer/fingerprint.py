@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 
-from ynab_il_importer.normalize import normalize_text
+import ynab_il_importer.normalize as normalize
 
 
 DEFAULT_TOKEN_LIMIT = 10
@@ -216,7 +216,7 @@ def _strip_noise_tokens(text: str) -> str:
 
 
 def fingerprint_v0(value: Any, token_limit: int = DEFAULT_TOKEN_LIMIT) -> str:
-    text = normalize_text(value)
+    text = normalize.normalize_text(value)
     text = _STANDALONE_NUMBER_RE.sub(" ", text)
     stripped = _strip_noise_tokens(text)
     if stripped.strip() == "":
@@ -292,8 +292,8 @@ def load_fingerprint_map(path: str | Path) -> pd.DataFrame:
                 {
                     "rule_id": row["rule_id"],
                     "priority": int(row["priority"]),
-                    "pattern": normalize_text(pattern),
-                    "canonical_text": normalize_text(row["canonical_text"]),
+                    "pattern": normalize.normalize_text(pattern),
+                    "canonical_text": normalize.normalize_text(row["canonical_text"]),
                     "notes": row["notes"],
                 }
             )
@@ -337,7 +337,7 @@ def apply_fingerprints(
     text_raw, text_source = _pick_text_source(
         out, ["description_clean", "merchant_raw", "description_raw", "raw_text"]
     )
-    text_normalized = text_raw.map(normalize_text)
+    text_normalized = text_raw.map(normalize.normalize_text)
 
     rules = map_rules
     if not use_fingerprint_map:

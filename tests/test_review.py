@@ -1,19 +1,19 @@
 import pandas as pd
 
-from ynab_il_importer.review_app.io import load_proposed_transactions, save_reviewed_transactions
-from ynab_il_importer.review_app.model import parse_option_string, resolve_selected_value
-from ynab_il_importer.review_app.validation import validate_row
+import ynab_il_importer.review_app.io as review_io
+import ynab_il_importer.review_app.model as review_model
+import ynab_il_importer.review_app.validation as review_validation
 
 
 def test_parse_option_string() -> None:
-    assert parse_option_string("") == []
-    assert parse_option_string("a") == ["a"]
-    assert parse_option_string("a; b; a;") == ["a", "b"]
+    assert review_model.parse_option_string("") == []
+    assert review_model.parse_option_string("a") == ["a"]
+    assert review_model.parse_option_string("a; b; a;") == ["a", "b"]
 
 
 def test_resolve_selected_value() -> None:
-    assert resolve_selected_value("a", "") == "a"
-    assert resolve_selected_value("a", "override") == "override"
+    assert review_model.resolve_selected_value("a", "") == "a"
+    assert review_model.resolve_selected_value("a", "override") == "override"
 
 
 def test_validate_row_errors_and_warnings() -> None:
@@ -26,7 +26,7 @@ def test_validate_row_errors_and_warnings() -> None:
             "category_options": "C",
         }
     )
-    errors, warnings = validate_row(row)
+    errors, warnings = review_validation.validate_row(row)
     assert "missing payee" in errors
     assert "missing category" in errors
     assert "update_map set while payee/category missing" in warnings
@@ -49,10 +49,10 @@ def test_load_save_roundtrip(tmp_path) -> None:
     src = tmp_path / "proposed.csv"
     df.to_csv(src, index=False, encoding="utf-8-sig")
 
-    loaded = load_proposed_transactions(src)
+    loaded = review_io.load_proposed_transactions(src)
     assert loaded["update_map"].tolist() == [True, False]
 
     out = tmp_path / "reviewed.csv"
-    save_reviewed_transactions(loaded, out)
+    review_io.save_reviewed_transactions(loaded, out)
     saved = pd.read_csv(out, dtype="string").fillna("")
     assert saved["update_map"].tolist() == ["TRUE", ""]

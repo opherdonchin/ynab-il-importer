@@ -6,17 +6,9 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from ynab_il_importer.review_app.io import (
-    load_category_list,
-    load_proposed_transactions,
-    save_reviewed_transactions,
-)
-from ynab_il_importer.review_app.model import (
-    apply_to_same_fingerprint,
-    parse_option_string,
-    resolve_selected_value,
-)
-from ynab_il_importer.review_app.validation import inconsistent_fingerprints, validate_row
+import ynab_il_importer.review_app.io as review_io
+import ynab_il_importer.review_app.model as review_model
+import ynab_il_importer.review_app.validation as review_validation
 
 
 DEFAULT_SOURCE = Path("outputs/proposed_transactions.csv")
@@ -31,7 +23,7 @@ def _series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
 
 
 def _load_df(path: Path) -> None:
-    df = load_proposed_transactions(path)
+    df = review_io.load_proposed_transactions(path)
     st.session_state["df"] = df
     st.session_state["df_original"] = df.copy()
     st.session_state["source_path"] = str(path)
@@ -39,7 +31,7 @@ def _load_df(path: Path) -> None:
 
 def _load_categories(path: Path) -> None:
     try:
-        df = load_category_list(path)
+        df = review_io.load_category_list(path)
     except (FileNotFoundError, ValueError) as exc:
         st.session_state["category_list"] = []
         st.session_state["category_group_map"] = {}
@@ -207,8 +199,8 @@ def _render_row_controls(
 ) -> None:
     row = df.loc[idx]
     fingerprint = str(row.get("fingerprint", "") or "")
-    payee_options = parse_option_string(row.get("payee_options", ""))
-    category_options = parse_option_string(row.get("category_options", ""))
+    payee_options = review_model.parse_option_string(row.get("payee_options", ""))
+    category_options = review_model.parse_option_string(row.get("category_options", ""))
 
     payee_selected = str(row.get("payee_selected", "") or "").strip()
     category_selected = str(row.get("category_selected", "") or "").strip()
@@ -310,13 +302,13 @@ def _render_row_controls(
         df.at[idx, "payee_selected"] = final_payee
         df.at[idx, "category_selected"] = final_category
         df.at[idx, "update_map"] = bool(update_val)
-        errors, warnings = validate_row(df.loc[idx])
+        errors, warnings = review_validation.validate_row(df.loc[idx])
         if errors:
             st.error("Errors: " + ", ".join(errors))
         if warnings:
             st.warning("Warnings: " + ", ".join(warnings))
         if apply_all and show_apply:
-            apply_to_same_fingerprint(
+            review_model.apply_to_same_fingerprint(
                 df,
                 row.get("fingerprint", ""),
                 payee=final_payee,
@@ -390,7 +382,7 @@ def main() -> None:
                 _load_df(Path(source_path))
         with col2:
             if st.button("Save"):
-                save_reviewed_transactions(df, save_path)
+                review_io.save_reviewed_transactions(df, save_path)
                 st.success(f"Saved to {save_path}")
         if st.button("Reload categories"):
             _load_categories(Path(category_path))
@@ -416,7 +408,7 @@ def main() -> None:
 
     counts = _summary_counts(df)
     modified = _modified_count(df, original)
-    inconsistent = inconsistent_fingerprints(df)
+    inconsistent = review_validation.inconsistent_fingerprints(df)
 
     if category_error:
         st.warning(f"Category list not loaded: {category_error}")
@@ -532,10 +524,10 @@ def main() -> None:
                 payee_options: list[str] = []
                 category_options: list[str] = []
                 for _, row in group.iterrows():
-                    for opt in parse_option_string(row.get("payee_options", "")):
+                    for opt in review_model.parse_option_string(row.get("payee_options", "")):
                         if opt not in payee_options:
                             payee_options.append(opt)
-                    for opt in parse_option_string(row.get("category_options", "")):
+                    for opt in review_model.parse_option_string(row.get("category_options", "")):
                         if opt not in category_options:
                             category_options.append(opt)
 
@@ -549,7 +541,9 @@ def main() -> None:
                 )
                 group_update = st.checkbox("Set update_map for group", key=f"group_update_{fp}")
                 if st.button("Apply to all in group", key=f"group_apply_{fp}"):
-                    apply_to_same_fingerprint(df, fp, group_payee, group_category, group_update)
+                    review_model.apply_to_same_fingerprint(
+                        df, fp, group_payee, group_category, group_update
+                    )
                     st.success("Applied group values.")
 
                 st.markdown("**Rows**")

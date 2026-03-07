@@ -8,9 +8,9 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ynab_il_importer.cli import _run_build_payee_map
-from ynab_il_importer.fingerprint import fingerprint_v0
-from ynab_il_importer.rules import PAYEE_MAP_COLUMNS
+import ynab_il_importer.cli as cli
+import ynab_il_importer.fingerprint as fingerprint
+import ynab_il_importer.rules as rules
 
 
 def test_build_payee_map_outputs_have_bounded_examples_and_no_nan_hints(tmp_path: Path) -> None:
@@ -25,7 +25,7 @@ def test_build_payee_map_outputs_have_bounded_examples_and_no_nan_hints(tmp_path
                 "inflow_ils": 0,
                 "description_clean_norm": "local cafe",
                 "merchant_raw": "M" * 140,
-                "fingerprint": fingerprint_v0("local cafe"),
+                "fingerprint": fingerprint.fingerprint_v0("local cafe"),
             },
             {
                 "txn_kind": "expense",
@@ -36,7 +36,7 @@ def test_build_payee_map_outputs_have_bounded_examples_and_no_nan_hints(tmp_path
                 "inflow_ils": 0,
                 "description_clean_norm": "local cafe",
                 "merchant_raw": "Second merchant example",
-                "fingerprint": fingerprint_v0("local cafe"),
+                "fingerprint": fingerprint.fingerprint_v0("local cafe"),
             },
             {
                 "txn_kind": "transfer",
@@ -47,7 +47,7 @@ def test_build_payee_map_outputs_have_bounded_examples_and_no_nan_hints(tmp_path
                 "inflow_ils": 0,
                 "description_clean_norm": "bit transfer",
                 "merchant_raw": "BIT",
-                "fingerprint": fingerprint_v0("bit transfer"),
+                "fingerprint": fingerprint.fingerprint_v0("bit transfer"),
             },
         ]
     )
@@ -70,10 +70,10 @@ def test_build_payee_map_outputs_have_bounded_examples_and_no_nan_hints(tmp_path
     ).to_csv(matched_pairs_path, index=False)
 
     map_path = tmp_path / "payee_map.csv"
-    pd.DataFrame(columns=PAYEE_MAP_COLUMNS).to_csv(map_path, index=False)
+    pd.DataFrame(columns=rules.PAYEE_MAP_COLUMNS).to_csv(map_path, index=False)
 
     out_dir = tmp_path / "out"
-    candidates, preview = _run_build_payee_map(
+    candidates, preview = cli._run_build_payee_map(
         parsed_paths=[parsed_path],
         matched_pairs_paths=[matched_pairs_path],
         out_dir=out_dir,

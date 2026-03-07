@@ -9,12 +9,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ynab_il_importer.export import write_dataframe
-from ynab_il_importer.ynab_api import (
-    fetch_accounts,
-    fetch_transactions,
-    transactions_to_dataframe,
-)
+import ynab_il_importer.export as export
+import ynab_il_importer.ynab_api as ynab_api
 
 
 def _filter_by_date(df: pd.DataFrame, since: str | None, until: str | None) -> pd.DataFrame:
@@ -42,12 +38,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    accounts = fetch_accounts()
-    txns = fetch_transactions(since_date=args.since_date or None)
-    df = transactions_to_dataframe(txns, accounts)
+    accounts = ynab_api.fetch_accounts()
+    txns = ynab_api.fetch_transactions(since_date=args.since_date or None)
+    df = ynab_api.transactions_to_dataframe(txns, accounts)
     df = _filter_by_date(df, args.since_date or None, args.until_date or None)
 
-    write_dataframe(df, args.out_path)
+    export.write_dataframe(df, args.out_path)
     print(f"Wrote {args.out_path} ({len(df)} rows)")
 
 

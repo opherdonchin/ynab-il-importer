@@ -9,8 +9,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ynab_il_importer.export import write_dataframe
-from ynab_il_importer.io_ynab import _infer_txn_kind
+import ynab_il_importer.export as export
+import ynab_il_importer.io_ynab as ynab
 
 
 def _load_csvs(paths: list[Path]) -> pd.DataFrame:
@@ -67,8 +67,8 @@ def main() -> None:
 
     bank_path = out_dir / "fake_bank_norm.csv"
     card_path = out_dir / "fake_card_norm.csv"
-    write_dataframe(fake_bank, bank_path)
-    write_dataframe(fake_card, card_path)
+    export.write_dataframe(fake_bank, bank_path)
+    export.write_dataframe(fake_card, card_path)
 
     # Build fake YNAB data: use matched YNAB rows for dupes + extra random YNAB rows
     dupe_ynab = pairs_df.merge(source_dupes[key_cols], on=key_cols, how="inner")
@@ -106,7 +106,7 @@ def main() -> None:
     ].copy()
 
     fake_ynab = pd.concat([ynab_rows, extra_ynab], ignore_index=True)
-    fake_ynab["txn_kind"] = _infer_txn_kind(
+    fake_ynab["txn_kind"] = ynab._infer_txn_kind(
         fake_ynab["inflow_ils"],
         fake_ynab["outflow_ils"],
         fake_ynab["payee_raw"],
@@ -114,7 +114,7 @@ def main() -> None:
     )
 
     ynab_path = out_dir / "fake_ynab_norm.csv"
-    write_dataframe(fake_ynab, ynab_path)
+    export.write_dataframe(fake_ynab, ynab_path)
 
     print(f"Wrote {bank_path} ({len(fake_bank)} rows)")
     print(f"Wrote {card_path} ({len(fake_card)} rows)")

@@ -11,10 +11,10 @@ if str(SRC) not in sys.path:
 
 def test_import_package_and_fingerprint() -> None:
     import ynab_il_importer as pkg
-    from ynab_il_importer.fingerprint import fingerprint_v0
+    import ynab_il_importer.fingerprint as fingerprint
 
     assert pkg.__version__
-    fp = fingerprint_v0("SUPERSAL 1234567 Tel Aviv 23")
+    fp = fingerprint.fingerprint_v0("SUPERSAL 1234567 Tel Aviv 23")
     assert isinstance(fp, str)
     assert "1234567" not in fp
 
@@ -22,9 +22,9 @@ def test_import_package_and_fingerprint() -> None:
 def test_cli_help_runs() -> None:
     cli_testing = pytest.importorskip("typer.testing")
     cli_runner = cli_testing.CliRunner()
-    from ynab_il_importer.cli import app
+    import ynab_il_importer.cli as cli
 
-    result = cli_runner.invoke(app, ["--help"])
+    result = cli_runner.invoke(cli.app, ["--help"])
     assert result.exit_code == 0
     assert "parse-bank" in result.output
     assert "build-payee-map" in result.output

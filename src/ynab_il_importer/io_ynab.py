@@ -46,7 +46,39 @@ def _infer_txn_kind(
     return kind
 
 
-def read_ynab_register(path: str | Path) -> pd.DataFrame:
+def is_proper_format(path: str | Path) -> bool:
+    source_path = Path(path)
+    suffix = source_path.suffix.lower()
+    if suffix and suffix not in {".csv"}:
+        return False
+    try:
+        sample = pd.read_csv(source_path, nrows=1)
+    except Exception:
+        return False
+    if sample.empty:
+        return False
+    date_col = _find_column(sample, ["Date", "תאריך"])
+    outflow_col = _find_column(sample, ["Outflow", "הוצאה", "חיוב"])
+    inflow_col = _find_column(sample, ["Inflow", "הכנסה", "זיכוי"])
+    payee_col = _find_column(sample, ["Payee", "מוטב", "שם מוטב"])
+    category_col = _find_column(sample, ["Category", "קטגוריה", "Category Name"])
+    if date_col is None:
+        return False
+    if outflow_col is None and inflow_col is None:
+        return False
+    if payee_col is None and category_col is None:
+        return False
+    return True
+
+
+def read_raw(
+    path: str | Path,
+    *,
+    use_fingerprint_map: bool = True,
+    account_map_path: str | Path | None = None,
+) -> pd.DataFrame:
+    _ = use_fingerprint_map
+    _ = account_map_path
     raw = pd.read_csv(Path(path))
     raw.columns = [str(col).strip() for col in raw.columns]
 

@@ -8,8 +8,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ynab_il_importer.fingerprint import apply_fingerprints
-from ynab_il_importer.fingerprint import load_fingerprint_map
+import ynab_il_importer.fingerprint as fingerprint
 
 
 def test_load_fingerprint_map_expands_and_sorts(tmp_path: Path) -> None:
@@ -25,7 +24,7 @@ def test_load_fingerprint_map_expands_and_sorts(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    rules = load_fingerprint_map(map_path)
+    rules = fingerprint.load_fingerprint_map(map_path)
     assert rules.iloc[0]["rule_id"] == "r2"
     assert set(rules["pattern"].tolist()) == {"foo", "bar", "baz"}
 
@@ -41,7 +40,7 @@ def test_apply_fingerprints_uses_map_and_logs(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    rules = load_fingerprint_map(map_path)
+    rules = fingerprint.load_fingerprint_map(map_path)
 
     df = pd.DataFrame(
         [
@@ -50,7 +49,7 @@ def test_apply_fingerprints_uses_map_and_logs(tmp_path: Path) -> None:
         ]
     )
     log_path = tmp_path / "fingerprint_log.csv"
-    out = apply_fingerprints(df, map_rules=rules, log_path=log_path)
+    out = fingerprint.apply_fingerprints(df, map_rules=rules, log_path=log_path)
 
     assert out.loc[0, "fingerprint"].startswith("super pharm")
     assert out.loc[1, "fingerprint"].startswith("other vendor")

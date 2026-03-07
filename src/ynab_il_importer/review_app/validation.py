@@ -4,7 +4,7 @@ from typing import Any
 
 import pandas as pd
 
-from ynab_il_importer.review_app.model import parse_option_string
+import ynab_il_importer.review_app.model as model
 
 
 TRUE_VALUES = {"1", "true", "t", "yes", "y"}
@@ -36,8 +36,8 @@ def validate_row(row: pd.Series) -> tuple[list[str], list[str]]:
     if update_map and (not payee or not category):
         warnings.append("update_map set while payee/category missing")
 
-    payee_options = parse_option_string(row.get("payee_options", ""))
-    category_options = parse_option_string(row.get("category_options", ""))
+    payee_options = model.parse_option_string(row.get("payee_options", ""))
+    category_options = model.parse_option_string(row.get("category_options", ""))
     if payee and payee_options and payee not in payee_options:
         warnings.append("payee not in options")
     if category and category_options and category not in category_options:

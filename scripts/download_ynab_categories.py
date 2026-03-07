@@ -9,8 +9,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ynab_il_importer.export import write_dataframe
-from ynab_il_importer.ynab_api import fetch_categories, categories_to_dataframe
+import ynab_il_importer.export as export
+import ynab_il_importer.ynab_api as ynab_api
 
 
 def main() -> None:
@@ -23,12 +23,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    groups = fetch_categories()
-    df = categories_to_dataframe(groups)
+    groups = ynab_api.fetch_categories()
+    df = ynab_api.categories_to_dataframe(groups)
     if df.empty:
         raise ValueError("No categories returned from YNAB API.")
 
-    write_dataframe(df, args.out_path)
+    export.write_dataframe(df, args.out_path)
     print(f"Wrote {args.out_path} ({len(df)} rows)")
 
 

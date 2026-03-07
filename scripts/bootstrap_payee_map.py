@@ -10,7 +10,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ynab_il_importer.rules import PAYEE_MAP_COLUMNS
+import ynab_il_importer.rules as rules
 
 
 def _slug(text: str, max_len: int = 40) -> str:
@@ -98,10 +98,10 @@ def main() -> None:
         )
 
     out = pd.DataFrame(rows)
-    for col in PAYEE_MAP_COLUMNS:
+    for col in rules.PAYEE_MAP_COLUMNS:
         if col not in out.columns:
             out[col] = ""
-    out = out[PAYEE_MAP_COLUMNS]
+    out = out[rules.PAYEE_MAP_COLUMNS]
     out.to_csv(args.out, index=False, encoding="utf-8-sig")
     print(f"Wrote {args.out} ({len(out)} rows)")
 

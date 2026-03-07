@@ -9,8 +9,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ynab_il_importer.export import write_dataframe
-from ynab_il_importer.pairing import match_pairs
+import ynab_il_importer.export as export
+import ynab_il_importer.pairing as pairing
 
 
 def main() -> None:
@@ -38,8 +38,8 @@ def main() -> None:
         raise ValueError("Source inputs must include a 'source' column.")
     ynab_df = _load_with_file(args.ynab, "ynab_file")
 
-    pairs_df = match_pairs(source_df, ynab_df)
-    write_dataframe(pairs_df, args.out)
+    pairs_df = pairing.match_pairs(source_df, ynab_df)
+    export.write_dataframe(pairs_df, args.out)
     print(f"Wrote {args.out} ({len(pairs_df)} rows)")
 
 

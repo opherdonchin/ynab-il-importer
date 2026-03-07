@@ -7,7 +7,7 @@ import re
 
 import pandas as pd
 
-from ynab_il_importer.normalize import normalize_text
+import ynab_il_importer.normalize as normalize
 
 # Decision:
 # - Ambiguity approach: a rule can return payee_canonical and optional category_target
@@ -72,7 +72,7 @@ def _normalize_key_value(column: str, value: Any) -> str | None:
     if column == "currency":
         return text.upper()
     if column == "description_clean_norm":
-        return normalize_text(text)
+        return normalize.normalize_text(text)
     return text
 
 
@@ -212,7 +212,7 @@ def prepare_transactions_for_rules(df: pd.DataFrame) -> pd.DataFrame:
             "raw_text",
         ],
     )
-    out["description_clean_norm"] = raw_for_norm.map(normalize_text)
+    out["description_clean_norm"] = raw_for_norm.map(normalize.normalize_text)
 
     if "fingerprint" not in out.columns:
         raise ValueError("Transactions are missing required fingerprint column")

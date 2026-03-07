@@ -7,8 +7,8 @@ This document describes the intended workflow for using the Streamlit review UI 
 ### A) Normalize new bank/card files
 
 ```bash
-pixi run python scripts/normalize_file.py --format leumi --in data/raw/Bankin.dat
-pixi run python scripts/normalize_file.py --format max --in data/raw/card.xlsx
+pixi run python scripts/normalize_file.py --leumi data/raw/Bankin.dat
+pixi run python scripts/normalize_file.py --max data/raw/card.xlsx
 ```
 
 ### B) Download YNAB transactions (API snapshot)

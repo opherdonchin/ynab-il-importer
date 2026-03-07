@@ -9,7 +9,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ynab_il_importer.rules import PAYEE_MAP_COLUMNS, load_payee_map
+import ynab_il_importer.rules as rules
 
 
 def main() -> None:
@@ -21,7 +21,7 @@ def main() -> None:
         raise FileNotFoundError(f"Missing payee map: {args.map_path}")
 
     raw = pd.read_csv(args.map_path, dtype="string").fillna("")
-    missing = [col for col in PAYEE_MAP_COLUMNS if col not in raw.columns]
+    missing = [col for col in rules.PAYEE_MAP_COLUMNS if col not in raw.columns]
     if missing:
         raise ValueError(f"payee_map missing columns: {missing}")
 
@@ -30,7 +30,7 @@ def main() -> None:
     if raw["category_target"].astype("string").str.contains(";", regex=False).any():
         raise ValueError("payee_map has ';' in category_target")
 
-    normalized = load_payee_map(args.map_path)
+    normalized = rules.load_payee_map(args.map_path)
     if (normalized["fingerprint"].astype("string").fillna("").str.strip() == "").any():
         print("Warning: payee_map contains empty fingerprint values.")
 

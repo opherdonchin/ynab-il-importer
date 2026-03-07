@@ -10,15 +10,9 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ynab_il_importer.export import write_dataframe
-from ynab_il_importer.pairing import match_pairs
-from ynab_il_importer.rules import (
-    RULE_KEY_COLUMNS,
-    _rule_matches,
-    apply_payee_map_rules,
-    load_payee_map,
-    prepare_transactions_for_rules,
-)
+import ynab_il_importer.export as export
+import ynab_il_importer.pairing as pairing
+import ynab_il_importer.rules as rules_mod
 
 
 def _load_csvs(paths: list[Path]) -> pd.DataFrame:
@@ -31,7 +25,7 @@ def _load_csvs(paths: list[Path]) -> pd.DataFrame:
 
 
 def _dedupe_sources(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    pairs = match_pairs(source_df, ynab_df)
+    pairs = pairing.match_pairs(source_df, ynab_df)
     if pairs.empty:
         return source_df.copy(), pairs
 
@@ -57,13 +51,17 @@ def _dedupe_sources(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> tuple[pd.
 
 
 def _build_options(transactions: pd.DataFrame, rules: pd.DataFrame) -> pd.DataFrame:
-    tx = prepare_transactions_for_rules(transactions)
+    tx = rules_mod.prepare_transactions_for_rules(transactions)
     active_rules = rules[rules["is_active"]]
     payee_options: list[str] = []
     category_options: list[str] = []
 
     for _, txn in tx.iterrows():
-        matched = [rule for _, rule in active_rules.iterrows() if _rule_matches(rule, txn)]
+        matched = [
+            rule
+            for _, rule in active_rules.iterrows()
+            if rules_mod._rule_matches(rule, txn)
+        ]
         payees = []
         categories = []
         for rule in matched:
@@ -80,7 +78,9 @@ def _build_options(transactions: pd.DataFrame, rules: pd.DataFrame) -> pd.DataFr
 
 
 def _rules_are_simple(rules: pd.DataFrame) -> bool:
-    non_fingerprint_cols = [col for col in RULE_KEY_COLUMNS if col != "fingerprint"]
+    non_fingerprint_cols = [
+        col for col in rules_mod.RULE_KEY_COLUMNS if col != "fingerprint"
+    ]
     has_other_keys = rules[non_fingerprint_cols].notna() & (rules[non_fingerprint_cols] != "")
     return not has_other_keys.any().any()
 
@@ -145,16 +145,16 @@ def main() -> None:
 
     deduped, pairs = _dedupe_sources(source_df, ynab_df)
     if args.pairs_out:
-        write_dataframe(pairs, args.pairs_out)
+        export.write_dataframe(pairs, args.pairs_out)
 
-    rules = load_payee_map(args.map_path)
+    rules = rules_mod.load_payee_map(args.map_path)
     out = deduped.copy()
     out["transaction_id"] = out.apply(_make_transaction_id, axis=1)
     out["memo"] = out.get("raw_text", out.get("description_raw", ""))
     if _rules_are_simple(rules):
         out = _fast_apply_rules(out, rules)
     else:
-        applied = apply_payee_map_rules(out, rules)
+        applied = rules_mod.apply_payee_map_rules(out, rules)
         options = _build_options(out, rules)
         out = out.join(options)
         out = out.join(applied)
@@ -183,7 +183,7 @@ def main() -> None:
         ]
     ]
 
-    write_dataframe(out, args.out_path)
+    export.write_dataframe(out, args.out_path)
     print(f"Wrote {args.out_path} ({len(out)} rows)")
 
 
