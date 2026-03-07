@@ -258,8 +258,8 @@ def _run_build_payee_map(
 if typer is not None:
     app = typer.Typer(help="YNAB IL Importer CLI")
 
-    @app.command("parse-bank")
-    def parse_bank(
+    @app.command("parse-leumi-xls")
+    def parse_leumi_xls(
         in_path: Path = typer.Option(..., "--in"),
         out_path: Path = typer.Option(..., "--out"),
     ) -> None:
@@ -268,8 +268,8 @@ if typer is not None:
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
 
-    @app.command("parse-card")
-    def parse_card(
+    @app.command("parse-max")
+    def parse_max(
         in_path: Path = typer.Option(..., "--in"),
         out_path: Path = typer.Option(..., "--out"),
     ) -> None:
@@ -289,8 +289,8 @@ if typer is not None:
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
 
-    @app.command("parse-bankin")
-    def parse_bankin(
+    @app.command("parse-leumi")
+    def parse_leumi(
         in_path: Path = typer.Option(..., "--in"),
         out_path: Path = typer.Option(..., "--out"),
     ) -> None:
@@ -370,22 +370,22 @@ def _fallback_main() -> None:
     parser = argparse.ArgumentParser(prog="ynab-il", description="YNAB IL Importer CLI")
     subparsers = parser.add_subparsers(dest="command")
 
-    parse_bank_parser = subparsers.add_parser("parse-bank")
-    parse_bank_parser.add_argument("--in", dest="in_path", required=True)
-    parse_bank_parser.add_argument("--out", dest="out_path", required=True)
+    parse_leumi_xls_parser = subparsers.add_parser("parse-leumi-xls")
+    parse_leumi_xls_parser.add_argument("--in", dest="in_path", required=True)
+    parse_leumi_xls_parser.add_argument("--out", dest="out_path", required=True)
 
-    parse_card_parser = subparsers.add_parser("parse-card")
-    parse_card_parser.add_argument("--in", dest="in_path", required=True)
-    parse_card_parser.add_argument("--out", dest="out_path", required=True)
+    parse_max_parser = subparsers.add_parser("parse-max")
+    parse_max_parser.add_argument("--in", dest="in_path", required=True)
+    parse_max_parser.add_argument("--out", dest="out_path", required=True)
 
     parse_ynab_parser = subparsers.add_parser("parse-ynab")
     parse_ynab_parser.add_argument("--in", dest="in_path", required=True)
     parse_ynab_parser.add_argument("--account-name", dest="account_name", default="")
     parse_ynab_parser.add_argument("--out", dest="out_path", required=True)
 
-    parse_bankin_parser = subparsers.add_parser("parse-bankin")
-    parse_bankin_parser.add_argument("--in", dest="in_path", required=True)
-    parse_bankin_parser.add_argument("--out", dest="out_path", required=True)
+    parse_leumi_parser = subparsers.add_parser("parse-leumi")
+    parse_leumi_parser.add_argument("--in", dest="in_path", required=True)
+    parse_leumi_parser.add_argument("--out", dest="out_path", required=True)
 
     match_pairs_parser = subparsers.add_parser("match-pairs")
     match_pairs_parser.add_argument("--source", action="append", default=[])
@@ -408,13 +408,13 @@ def _fallback_main() -> None:
     list_accounts_parser.add_argument("--in", dest="in_path", required=True)
 
     args = parser.parse_args()
-    if args.command == "parse-bank":
+    if args.command == "parse-leumi-xls":
         df = leumi_xls.read_raw(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
-    elif args.command == "parse-card":
+    elif args.command == "parse-max":
         df = maxio.read_raw(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
@@ -426,7 +426,7 @@ def _fallback_main() -> None:
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
         print(f"Wrote {len(df)} rows to {out_path}")
-    elif args.command == "parse-bankin":
+    elif args.command == "parse-leumi":
         df = leumi.read_raw(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)

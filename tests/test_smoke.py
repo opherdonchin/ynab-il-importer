@@ -26,5 +26,7 @@ def test_cli_help_runs() -> None:
 
     result = cli_runner.invoke(cli.app, ["--help"])
     assert result.exit_code == 0
-    assert "parse-bank" in result.output
+    assert "parse-leumi-xls" in result.output
+    assert "parse-leumi" in result.output
+    assert "parse-max" in result.output
     assert "build-payee-map" in result.output
