@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -212,6 +213,20 @@ def _modified_count(df: pd.DataFrame, original: pd.DataFrame) -> int:
     base["update_map"] = base["update_map"].astype(bool)
     current["update_map"] = current["update_map"].astype(bool)
     return int((current != base).any(axis=1).sum())
+
+
+def _modified_mask(df: pd.DataFrame, original: pd.DataFrame) -> pd.Series:
+    if original is None or original.empty:
+        return pd.Series([False] * len(df), index=df.index)
+    cols = ["payee_selected", "category_selected", "update_map"]
+    for col in cols:
+        if col not in df.columns or col not in original.columns:
+            return pd.Series([False] * len(df), index=df.index)
+    current = df[cols].copy()
+    base = original[cols].copy()
+    base["update_map"] = base["update_map"].astype(bool)
+    current["update_map"] = current["update_map"].astype(bool)
+    return (current != base).any(axis=1)
 
 
 def _apply_filters(df: pd.DataFrame, filters: dict[str, Any]) -> pd.DataFrame:
@@ -498,6 +513,7 @@ def main() -> None:
                     st.error(f"Failed to load saved: {exc}")
         if st.button("Save"):
             review_io.save_reviewed_transactions(df, save_path)
+            st.session_state["last_saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             st.success(f"Saved to {save_path}")
         if st.button("Reload categories"):
             _load_categories(Path(category_path))
@@ -523,7 +539,12 @@ def main() -> None:
 
     counts = _summary_counts(df)
     modified = _modified_count(df, original)
+    modified_mask = _modified_mask(df, original)
     inconsistent = review_validation.inconsistent_fingerprints(df)
+
+    last_saved_at = st.session_state.get("last_saved_at", "")
+    if last_saved_at:
+        st.caption(f"Last saved: {last_saved_at}")
 
     if category_error:
         st.warning(f"Category list not loaded: {category_error}")
@@ -598,6 +619,11 @@ def main() -> None:
             )
             expanded = st.session_state.get("expanded_row_id") == idx
             with st.expander(summary, expanded=expanded):
+                if modified_mask.loc[idx]:
+                    st.markdown(
+                        "<span style='color:#b45309;font-weight:600;'>Edited (not saved)</span>",
+                        unsafe_allow_html=True,
+                    )
                 st.write(
                     {
                         "date": row.get("date", ""),
@@ -672,6 +698,12 @@ def main() -> None:
             )
 
             with st.expander(header, expanded=False):
+                group_modified = int(modified_mask.loc[group.index].sum())
+                if group_modified:
+                    st.markdown(
+                        f"<span style='color:#b45309;font-weight:600;'>Edited rows in group: {group_modified}</span>",
+                        unsafe_allow_html=True,
+                    )
                 payee_options: list[str] = []
                 category_options: list[str] = []
                 for _, row in group.iterrows():
@@ -785,6 +817,11 @@ def main() -> None:
                         f"{memo_snip} | Payee: {payee_summary} | Cat: {category_summary}"
                     )
                     with st.expander(summary, expanded=False):
+                        if modified_mask.loc[idx]:
+                            st.markdown(
+                                "<span style='color:#b45309;font-weight:600;'>Edited (not saved)</span>",
+                                unsafe_allow_html=True,
+                            )
                         _render_row_controls(
                             df,
                             idx,
