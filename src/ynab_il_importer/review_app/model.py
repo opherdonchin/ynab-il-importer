@@ -35,6 +35,7 @@ def apply_to_same_fingerprint(
     payee: str | None = None,
     category: str | None = None,
     update_map: bool | None = None,
+    reviewed: bool | None = None,
 ) -> pd.DataFrame:
     mask = df["fingerprint"].astype("string").fillna("").str.strip() == str(fingerprint).strip()
     if payee is not None:
@@ -43,4 +44,6 @@ def apply_to_same_fingerprint(
         df.loc[mask, "category_selected"] = category
     if update_map is not None:
         df.loc[mask, "update_map"] = bool(update_map)
+    if reviewed is not None:
+        df.loc[mask, "reviewed"] = bool(reviewed)
     return df

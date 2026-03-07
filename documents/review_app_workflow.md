@@ -59,7 +59,8 @@ Notes:
 - Payee selection allows free-text overrides.
 - Defaults may be prefilled; confirm default checkboxes are optional.
 - Save defaults to `{input}_reviewed.csv` in the same folder as the input file.
-- Changes are in-memory until you click **Save**; edited rows are highlighted.
+- Changes are in-memory until you click **Save**.
+- Row status badges: **Unsaved** (changed since last save), **Changed vs original**, **Reviewed** (explicitly saved/confirmed).
 - You can pass `--in`, `--out`, and `--categories` to set initial paths.
 - Use `--resume` to reopen the last saved file:
 

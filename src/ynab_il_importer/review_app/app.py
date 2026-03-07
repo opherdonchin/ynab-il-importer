@@ -77,6 +77,11 @@ def _load_df(path: Path) -> None:
     st.session_state["source_path"] = str(path)
 
 
+def _load_base(path: Path) -> None:
+    base = review_io.load_proposed_transactions(path)
+    st.session_state["df_base"] = base
+
+
 def _load_categories(path: Path) -> None:
     try:
         df = review_io.load_category_list(path)
@@ -115,6 +120,9 @@ def _init_from_cli() -> None:
     st.session_state.setdefault("save_path", str(output_path))
     st.session_state.setdefault("category_path", str(args.categories_path))
 
+    if input_path.exists() and "df_base" not in st.session_state:
+        _load_base(input_path)
+
     resume_path = getattr(args, "resume", None)
     if resume_path:
         path = Path(resume_path)
@@ -130,6 +138,8 @@ def _ensure_loaded() -> None:
         return
     source_path = Path(st.session_state.get("source_path", str(DEFAULT_SOURCE)))
     if source_path.exists():
+        if "df_base" not in st.session_state:
+            _load_base(source_path)
         _load_df(source_path)
     categories_path = Path(st.session_state.get("category_path", str(DEFAULT_CATEGORIES)))
     if categories_path.exists():
@@ -175,6 +185,24 @@ def _format_option_summary(
     if remainder > 0:
         summary += f" (+{remainder})"
     return summary
+
+
+def _render_status_badges(*, unsaved: bool, changed: bool, reviewed: bool) -> None:
+    badges: list[str] = []
+    if unsaved:
+        badges.append(
+            "<span style='color:#b45309;font-weight:600;'>Unsaved</span>"
+        )
+    if changed:
+        badges.append(
+            "<span style='color:#2563eb;font-weight:600;'>Changed vs original</span>"
+        )
+    if reviewed:
+        badges.append(
+            "<span style='color:#15803d;font-weight:600;'>Reviewed</span>"
+        )
+    if badges:
+        st.markdown(" ".join(badges), unsafe_allow_html=True)
 
 
 def _most_common_value(series: pd.Series) -> str:
@@ -227,6 +255,18 @@ def _modified_mask(df: pd.DataFrame, original: pd.DataFrame) -> pd.Series:
     base["update_map"] = base["update_map"].astype(bool)
     current["update_map"] = current["update_map"].astype(bool)
     return (current != base).any(axis=1)
+
+
+def _changed_mask(df: pd.DataFrame, base: pd.DataFrame) -> pd.Series:
+    if base is None or base.empty:
+        return pd.Series([False] * len(df), index=df.index)
+    cols = ["payee_selected", "category_selected"]
+    for col in cols:
+        if col not in df.columns or col not in base.columns:
+            return pd.Series([False] * len(df), index=df.index)
+    current = df[cols].copy()
+    baseline = base[cols].copy()
+    return (current != baseline).any(axis=1)
 
 
 def _apply_filters(df: pd.DataFrame, filters: dict[str, Any]) -> pd.DataFrame:
@@ -423,6 +463,7 @@ def _render_row_controls(
         df.at[idx, "payee_selected"] = final_payee
         df.at[idx, "category_selected"] = final_category
         df.at[idx, "update_map"] = bool(update_val)
+        df.at[idx, "reviewed"] = True
         errors, warnings = review_validation.validate_row(df.loc[idx])
         if errors:
             st.error("Errors: " + ", ".join(errors))
@@ -435,6 +476,7 @@ def _render_row_controls(
                 payee=final_payee,
                 category=final_category,
                 update_map=update_val,
+                reviewed=True,
             )
             st.success("Applied to all rows with this fingerprint.")
 
@@ -483,6 +525,7 @@ def main() -> None:
 
     df: pd.DataFrame = st.session_state["df"]
     original: pd.DataFrame = st.session_state.get("df_original")
+    base: pd.DataFrame = st.session_state.get("df_base")
     category_list: list[str] = st.session_state.get("category_list", [])
     category_group_map: dict[str, str] = st.session_state.get("category_group_map", {})
     category_error = st.session_state.get("category_error", "")
@@ -514,6 +557,7 @@ def main() -> None:
         if st.button("Save"):
             review_io.save_reviewed_transactions(df, save_path)
             st.session_state["last_saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            st.session_state["df_original"] = df.copy()
             st.success(f"Saved to {save_path}")
         if st.button("Reload categories"):
             _load_categories(Path(category_path))
@@ -539,7 +583,11 @@ def main() -> None:
 
     counts = _summary_counts(df)
     modified = _modified_count(df, original)
-    modified_mask = _modified_mask(df, original)
+    unsaved_mask = _modified_mask(df, original)
+    changed_mask = _changed_mask(df, base)
+    reviewed_mask = df.get("reviewed", pd.Series([False] * len(df), index=df.index)).astype(
+        bool
+    )
     inconsistent = review_validation.inconsistent_fingerprints(df)
 
     last_saved_at = st.session_state.get("last_saved_at", "")
@@ -551,13 +599,17 @@ def main() -> None:
     elif not category_list:
         st.warning("Category list is empty; category dropdowns will be limited.")
 
+    changed_count = int(changed_mask.sum())
+    reviewed_count = int(reviewed_mask.sum())
     st.markdown(
         f"**Total:** {counts['total']} | "
         f"**Missing payee:** {counts['missing_payee']} | "
         f"**Missing category:** {counts['missing_category']} | "
         f"**Unresolved:** {counts['unresolved']} | "
         f"**update_map:** {counts['update_map']} | "
-        f"**Modified:** {modified}"
+        f"**Changed vs original:** {changed_count} | "
+        f"**Reviewed:** {reviewed_count} | "
+        f"**Unsaved:** {modified}"
     )
     if counts["missing_payee"] == 0 and counts["missing_category"] == 0:
         st.success("Ready for upload: payee and category are filled for all rows.")
@@ -619,11 +671,11 @@ def main() -> None:
             )
             expanded = st.session_state.get("expanded_row_id") == idx
             with st.expander(summary, expanded=expanded):
-                if modified_mask.loc[idx]:
-                    st.markdown(
-                        "<span style='color:#b45309;font-weight:600;'>Edited (not saved)</span>",
-                        unsafe_allow_html=True,
-                    )
+                _render_status_badges(
+                    unsaved=bool(unsaved_mask.loc[idx]),
+                    changed=bool(changed_mask.loc[idx]),
+                    reviewed=bool(reviewed_mask.loc[idx]),
+                )
                 st.write(
                     {
                         "date": row.get("date", ""),
@@ -698,10 +750,24 @@ def main() -> None:
             )
 
             with st.expander(header, expanded=False):
-                group_modified = int(modified_mask.loc[group.index].sum())
-                if group_modified:
+                group_unsaved = int(unsaved_mask.loc[group.index].sum())
+                group_changed = int(changed_mask.loc[group.index].sum())
+                group_reviewed = int(reviewed_mask.loc[group.index].sum())
+                if group_unsaved or group_changed or group_reviewed:
                     st.markdown(
-                        f"<span style='color:#b45309;font-weight:600;'>Edited rows in group: {group_modified}</span>",
+                        " ".join(
+                            [
+                                f"<span style='color:#b45309;font-weight:600;'>Unsaved: {group_unsaved}</span>"
+                                if group_unsaved
+                                else "",
+                                f"<span style='color:#2563eb;font-weight:600;'>Changed: {group_changed}</span>"
+                                if group_changed
+                                else "",
+                                f"<span style='color:#15803d;font-weight:600;'>Reviewed: {group_reviewed}</span>"
+                                if group_reviewed
+                                else "",
+                            ]
+                        ).strip(),
                         unsafe_allow_html=True,
                     )
                 payee_options: list[str] = []
@@ -777,6 +843,7 @@ def main() -> None:
                         payee=payee_to_apply,
                         category=category_to_apply,
                         update_map=group_update,
+                        reviewed=True,
                     )
                     st.success("Applied group values.")
 
@@ -817,11 +884,11 @@ def main() -> None:
                         f"{memo_snip} | Payee: {payee_summary} | Cat: {category_summary}"
                     )
                     with st.expander(summary, expanded=False):
-                        if modified_mask.loc[idx]:
-                            st.markdown(
-                                "<span style='color:#b45309;font-weight:600;'>Edited (not saved)</span>",
-                                unsafe_allow_html=True,
-                            )
+                        _render_status_badges(
+                            unsaved=bool(unsaved_mask.loc[idx]),
+                            changed=bool(changed_mask.loc[idx]),
+                            reviewed=bool(reviewed_mask.loc[idx]),
+                        )
                         _render_row_controls(
                             df,
                             idx,

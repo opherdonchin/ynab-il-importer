@@ -36,6 +36,10 @@ def load_proposed_transactions(path: str | Path) -> pd.DataFrame:
         raise ValueError(f"proposed_transactions missing columns: {missing}")
 
     df["update_map"] = validation.normalize_update_map(df["update_map"])
+    if "reviewed" not in df.columns:
+        df["reviewed"] = False
+    else:
+        df["reviewed"] = validation.normalize_update_map(df["reviewed"])
     return df
 
 
@@ -46,6 +50,8 @@ def save_reviewed_transactions(df: pd.DataFrame, path: str | Path) -> None:
     out = df.copy()
     if "update_map" in out.columns:
         out["update_map"] = out["update_map"].map(lambda v: "TRUE" if bool(v) else "")
+    if "reviewed" in out.columns:
+        out["reviewed"] = out["reviewed"].map(lambda v: "TRUE" if bool(v) else "")
 
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
     out.to_csv(tmp_path, index=False, encoding="utf-8-sig")
