@@ -51,24 +51,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         const=str(DEFAULT_SAVE),
         help="Resume from a previously saved review CSV (optional path).",
     )
-    parser.add_argument(
-        "--app-help",
-        action="store_true",
-        help="Show app-specific CLI help and exit.",
-    )
     return parser
 
 
 def _parse_cli_args() -> argparse.Namespace:
     parser = _build_arg_parser()
-    args = parser.parse_known_args(sys.argv[1:])[0]
-    if getattr(args, "app_help", False):
-        help_text = parser.format_help()
-        print(help_text)
-        st.markdown("### Review App CLI Help")
-        st.code(help_text, language="text")
-        st.stop()
-    return args
+    return parser.parse_known_args(sys.argv[1:])[0]
 
 
 def _load_df(path: Path) -> None:

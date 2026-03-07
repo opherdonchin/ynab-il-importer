@@ -75,11 +75,11 @@ pixi run python scripts/review_app.py --resume outputs/proposed_transactions_rev
 Show app-specific help:
 
 ```bash
-pixi run python scripts/review_app.py --app-help
+pixi run python scripts/review_app.py --help
 ```
 
 Notes:
-- `streamlit run ... --help` shows Streamlit's own CLI help. Use `scripts/review_app.py --app-help` for app args.
+- `streamlit run ... --help` shows Streamlit's own CLI help. Use `scripts/review_app.py --help` for app args.
 
 ## 3) Combining Payees
 
