@@ -579,8 +579,8 @@ def main() -> None:
 
         st.markdown(
             f"**Rows to review:** {base_count}\n"
-            f"**Updated or confirmed:** {updated_confirmed_count}\n"
-            f"**Rows saved:** {saved_reviewed_count}"
+            f"**Updated:** {updated_confirmed_count}\n"
+            f"**Saved:** {saved_reviewed_count}"
         )
         if st.button("Reload categories"):
             _load_categories(Path(category_path))
