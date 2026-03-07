@@ -8,7 +8,14 @@ This document describes the intended workflow for using the Streamlit review UI 
 
 ```bash
 pixi run python scripts/normalize_file.py --leumi data/raw/Bankin.dat
+pixi run python scripts/normalize_file.py --leumi-xls data/raw/bank.xls
 pixi run python scripts/normalize_file.py --max data/raw/card.xlsx
+```
+
+Directory mode (auto-detects format; skips unknown files with a warning):
+
+```bash
+pixi run python scripts/normalize_file.py --dir data/raw --out-dir data/derived
 ```
 
 ### B) Download YNAB transactions (API snapshot)
@@ -27,8 +34,8 @@ pixi run python scripts/download_ynab_categories.py --out outputs/ynab_categorie
 
 ```bash
 pixi run python scripts/build_proposed_transactions.py \
-  --source data/derived/bank_normalized.csv \
-  --source data/derived/card_normalized.csv \
+  --source data/derived/Bankin_leumi_norm.csv \
+  --source data/derived/card_max_norm.csv \
   --ynab data/derived/ynab_api_norm.csv \
   --map mappings/payee_map.csv \
   --out outputs/proposed_transactions.csv \
