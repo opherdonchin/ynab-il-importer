@@ -25,7 +25,7 @@ def _series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
     return pd.Series([""] * len(df), index=df.index, dtype="string")
 
 
-def _parse_cli_args() -> argparse.Namespace:
+def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="YNAB proposed transactions review app")
     parser.add_argument(
         "--in",
@@ -51,7 +51,24 @@ def _parse_cli_args() -> argparse.Namespace:
         const=str(DEFAULT_SAVE),
         help="Resume from a previously saved review CSV (optional path).",
     )
-    return parser.parse_known_args(sys.argv[1:])[0]
+    parser.add_argument(
+        "--app-help",
+        action="store_true",
+        help="Show app-specific CLI help and exit.",
+    )
+    return parser
+
+
+def _parse_cli_args() -> argparse.Namespace:
+    parser = _build_arg_parser()
+    args = parser.parse_known_args(sys.argv[1:])[0]
+    if getattr(args, "app_help", False):
+        help_text = parser.format_help()
+        print(help_text)
+        st.markdown("### Review App CLI Help")
+        st.code(help_text, language="text")
+        st.stop()
+    return args
 
 
 def _load_df(path: Path) -> None:

@@ -75,8 +75,11 @@ pixi run streamlit run src/ynab_il_importer/review_app/app.py -- --resume output
 Show app-specific help (note the `--`):
 
 ```bash
-pixi run streamlit run src/ynab_il_importer/review_app/app.py -- --help
+pixi run streamlit run src/ynab_il_importer/review_app/app.py -- --app-help
 ```
+
+Notes:
+- `streamlit run ... --help` shows Streamlit's own CLI help. Use `-- --app-help` for app args.
 
 ## 3) Combining Payees
 
