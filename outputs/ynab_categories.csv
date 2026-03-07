@@ -1,0 +1,92 @@
+﻿category_group,category_group_id,category_name,category_id,hidden
+Flexible expenses,63e5d4d9-4497-4bfa-b459-4d7f88789300,Family expenses,47affdcb-0449-49bc-a913-e0ac3638efe2,False
+Flexible expenses,63e5d4d9-4497-4bfa-b459-4d7f88789300,🛍️Groceries,8ae58998-6432-459f-a078-e051dad1069e,False
+Flexible expenses,63e5d4d9-4497-4bfa-b459-4d7f88789300,House and stuff,8dc55e5e-cbca-4cd3-a46b-45498a489ca5,False
+Flexible expenses,63e5d4d9-4497-4bfa-b459-4d7f88789300,Pets,81431eec-04a7-41f5-8ed0-2033ae32b56b,False
+Flexible expenses,63e5d4d9-4497-4bfa-b459-4d7f88789300,Birthdays,82ef0c08-0749-4ecb-ab4c-f2459cad79fe,False
+Flexible expenses,63e5d4d9-4497-4bfa-b459-4d7f88789300,Clothing,87524514-01da-47e7-96bb-9f5bfefaaeec,False
+Flexible expenses,63e5d4d9-4497-4bfa-b459-4d7f88789300,Opher food,ed16a650-8b73-47a3-8308-90483df43193,False
+Flexible expenses,63e5d4d9-4497-4bfa-b459-4d7f88789300,Going out and restaurants,b14b681c-b3f5-49ed-91ba-b900dfc46611,False
+Flexible expenses,63e5d4d9-4497-4bfa-b459-4d7f88789300,Gas,67feec54-d464-4c36-a457-ae67c33be9a1,False
+Flexible expenses,63e5d4d9-4497-4bfa-b459-4d7f88789300,Pocket money,ce972a9e-2b3c-47d2-ba5e-29115eb2fe01,False
+Flexible expenses,63e5d4d9-4497-4bfa-b459-4d7f88789300,Transportation,80161e01-bde0-42f8-b0aa-aa73a9dd2eb0,False
+Variable expenses,3e861f05-99f7-4825-81a7-86288d94b4ea,Chugim parents,9e9c9ce5-22a2-4ff4-b547-7a6e52e139d2,False
+Variable expenses,3e861f05-99f7-4825-81a7-86288d94b4ea,Gifts,2b49f940-b2a6-4f03-948b-78e5b53708ae,False
+Variable expenses,3e861f05-99f7-4825-81a7-86288d94b4ea,Auto Maintenance,a948b5ea-eb6a-44e0-a4b6-e28cea90c378,False
+Variable expenses,3e861f05-99f7-4825-81a7-86288d94b4ea,Chugim,82ae36bc-ea9a-4f74-b947-f957b2802382,False
+Regular bills,1447365a-4034-4c19-aedb-80727e0391e5,Insurance!,2d4dbce3-7604-47e7-8adf-396c26262ece,False
+Regular bills,1447365a-4034-4c19-aedb-80727e0391e5,🏘️Rent/Mortgage,53bda1bd-a346-4c1f-9234-562383f274ff,False
+Regular bills,1447365a-4034-4c19-aedb-80727e0391e5,Arnona,89d4a491-345a-463d-8a2f-b53e46edc69b,True
+Regular bills,1447365a-4034-4c19-aedb-80727e0391e5,⚡Electric,25e5404f-f148-493d-b2cf-2371d5a0c868,False
+Regular bills,1447365a-4034-4c19-aedb-80727e0391e5,Water,72047867-6883-4f0e-adca-5ec1fdd113e3,False
+Regular bills,1447365a-4034-4c19-aedb-80727e0391e5,Medical,8628ca28-8049-4fc5-b5bc-86c42a9305d2,False
+Regular bills,1447365a-4034-4c19-aedb-80727e0391e5,Software Subscriptions,91d6119c-7888-4f91-a5ff-ce175ebcbb53,False
+Regular bills,1447365a-4034-4c19-aedb-80727e0391e5,Internet,91b2c6e0-b6d9-44e5-b976-6cffd367ce97,False
+Regular bills,1447365a-4034-4c19-aedb-80727e0391e5,Bank Interest & Fees,fa647f0a-4737-4ade-9f17-832f97706918,False
+Internal Master Category,78764807-d5d4-4f01-8955-a91cc1a91138,Inflow: Ready to Assign,8753bced-6fdb-4f03-af35-6d04153460fb,False
+Internal Master Category,78764807-d5d4-4f01-8955-a91cc1a91138,Deferred Income SubCategory,c5259aab-f4ca-4623-933c-4ab04a1d9bdd,False
+Internal Master Category,78764807-d5d4-4f01-8955-a91cc1a91138,Uncategorized,9c3b6c37-a45f-408d-b6c0-826bf43d3b78,False
+Miscellaneous,a79a8171-d60a-4c76-8356-75219e1bc4f4,Unaccounted cash,f79187be-8311-4d99-bc63-5424faff8469,False
+Miscellaneous,a79a8171-d60a-4c76-8356-75219e1bc4f4,Unexplained expenses,7055368c-ff67-41c5-83c1-a896a8d66d71,False
+Miscellaneous,a79a8171-d60a-4c76-8356-75219e1bc4f4,Unplanned extra expense,d2548352-ae50-4a0f-a375-1d60b31b1cfa,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Arnona 7800 Jan,95c0fc2c-ef37-4210-beb8-21d076a7ec8f,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,New Yorker 440  Jan,66aed424-e39d-4664-bf70-4afcf839e642,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Purim costumes 600 Jan,9e32244c-e6fe-4050-8a5c-cb5a9f852548,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Last pass 170 Feb,0a40299b-2876-4850-8ab3-612c32a04ad7,True
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Bitwarden 150 March,dd8b919a-2083-4ff3-8369-94a43b7d3535,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,YNAB 370 Mar,7bc0de1a-1c21-4bc8-b1d1-f7f925067373,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Duo lingo 400 April,e96d57a6-9dba-41b0-887d-6728182ce075,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Contacts Liya 4300 Apr,008b0648-60cc-443f-b2cc-e792606d8827,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Amazon prime 450 March,3f076848-8215-4ffe-b46e-8ab297a8f718,True
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,All trails 100 Apr,e4c58ef6-e244-42f1-a999-745831afecc7,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Hyundai insurance 15000 April,087c9179-fde8-434b-9291-abb7c0581b82,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Chess.com 160 May,53cb5db8-6ad0-4eee-95ba-43f9826c5e57,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,House insurance 700 May,398b82df-a4eb-4dea-9d71-5bde452ed285,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Hyundai registration 1500 May,b596884b-7041-4faf-8ee6-49146acaef5a,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Dganya books 600 June,345c9741-0526-4e96-90be-0cca052d29bb,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Haaretz 490 ILS July,2d02274f-994e-4fac-a04a-9b6c8906cf28,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Express VPN 350 June ,560638e3-c74c-43ef-b673-079f76a3faf4,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Mekif A 2000 July,0dbd06ba-2947-4159-b180-e75b9233136c,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Mekif C 2000 July,edebffb4-a708-4342-861b-7e4b8d5000f3,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Theater subscription 800 July,558e6df0-2386-44ed-aa5b-2e2492159ddf,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Waterpuur 400 August,faa02355-987f-4ed7-aacb-4b8b6b3b81a5,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Locker Danielle 160 August,333d8f8a-d52e-414e-ad40-e56e451960c2,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Locker Ishai 160 August,858526a3-3130-45c4-a6b3-0ff5fc09a7a2,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Locker Yaara 160 August,9209d9d8-d3d1-427b-9813-eed096689b6a,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Kelev Bamoshav 1500 August,bf8a83df-a92a-4c3a-9dde-78c3a9d963af,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Locker Mikael 160 Aug,b794c400-799e-4e1e-a6ee-dce983544ec8,True
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Matmon 400 October,f818c873-0b0d-45a1-ada3-132696827b34,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Dog insurance 780 Oct,fd5c7244-b04d-4344-8992-afa34402d63d,True
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Chess kids 180 Nov,b1aa57be-39b6-46f1-858f-1a899a3d03c3,True
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,School 2500 Dec,66426a24-d4eb-4949-97cd-d64667f685b2,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Mazda registration 1500 Dec,6cf8df38-ee64-4443-8c55-228ae616a26f,False
+Annual expenses,8fc633d9-2d40-4b2c-947d-6f4ff76ac542,Mazda insurance 5800 Dec,25830e1a-2ce1-4858-a684-0b5fbb99b23b,False
+Long term expenses,80864afc-f93e-48f8-9d29-03c57c7eba96,Vet,39597f76-d0da-4116-826c-9ee81d1a17bf,False
+Long term expenses,80864afc-f93e-48f8-9d29-03c57c7eba96,Phone Opher,a0e3491f-8096-4061-bed3-d140d25fde07,False
+Long term expenses,80864afc-f93e-48f8-9d29-03c57c7eba96,Phone Liya,4963afa9-69c1-4ab9-a750-f13f20615ff3,False
+Long term expenses,80864afc-f93e-48f8-9d29-03c57c7eba96,Fridge,5425f704-be84-4699-8a82-1813f452b942,False
+Long term expenses,80864afc-f93e-48f8-9d29-03c57c7eba96,Dryer,7bc784d2-6b24-4b96-bc3e-6faa10b7411f,False
+Long term expenses,80864afc-f93e-48f8-9d29-03c57c7eba96,Washer,6162d864-d9a1-4a86-85fa-2326781158ab,False
+Kids accounts,332a0b38-1cb4-435a-9b99-a996a403dd60,Mikael,d80605b9-1331-4b70-8b38-6295246a1a2c,False
+Kids accounts,332a0b38-1cb4-435a-9b99-a996a403dd60,Danielle,23ae8668-43ec-4b37-be3a-c2711e887510,False
+Kids accounts,332a0b38-1cb4-435a-9b99-a996a403dd60,Ishai,73effd69-b858-4c1b-8d41-b19f04117861,False
+Kids accounts,332a0b38-1cb4-435a-9b99-a996a403dd60,Yaara,0bf3f899-c225-4f46-adf5-9255471d83d4,False
+Off budget,e593bacb-7f6b-475e-b0dd-db03edcdfac4,Investment income and expenses,265d2814-78c6-4d41-b40f-10f3318abc0d,False
+Off budget,e593bacb-7f6b-475e-b0dd-db03edcdfac4,Loans and transfers,db220839-3c94-48ca-85ee-eb3854883603,False
+Off budget,e593bacb-7f6b-475e-b0dd-db03edcdfac4,University,c3177116-e43c-49c8-ad87-d25c9a3ca892,False
+Off budget,e593bacb-7f6b-475e-b0dd-db03edcdfac4,Aikido,ab20c045-4e6b-402a-a569-6cb84abd4e67,False
+Off budget,e593bacb-7f6b-475e-b0dd-db03edcdfac4,Pilates,f9e4b2f0-19f8-4cd9-bf6f-944b5f8f34f1,False
+Planned extra expense,cd07135e-9e49-4997-96d5-eca4edf68455,Danielle Braces,e80dd8cc-abf6-41e2-a6ab-a7520fb6005e,False
+Planned extra expense,cd07135e-9e49-4997-96d5-eca4edf68455,Future planned expenses,1dcbf1ea-91cb-4716-a059-bf8a4c7372eb,False
+Planned extra expense,cd07135e-9e49-4997-96d5-eca4edf68455,Summer 2025,e39151c7-7870-4917-94bc-603814dac04d,False
+Planned extra expense,cd07135e-9e49-4997-96d5-eca4edf68455,Bulgaria July 2025,01e346ca-edb0-4458-adc1-f2bb0d89d654,False
+Planned extra expense,cd07135e-9e49-4997-96d5-eca4edf68455,Greece 2025,1bca319a-148b-4e2b-b50f-a8e9e961d9e0,False
+Planned extra expense,cd07135e-9e49-4997-96d5-eca4edf68455,Car 2024 80000,24a768b8-f33f-42db-b0bc-a6c96c675544,False
+Planned extra expense,cd07135e-9e49-4997-96d5-eca4edf68455,Mikael teenager 20000,d2dc3b16-a25a-480d-b541-9f6b003734cd,False
+Planned extra expense,cd07135e-9e49-4997-96d5-eca4edf68455,Bat Mitzvah 17000,90db3cae-ebd9-45f2-a1cb-8669d59bf6e3,False
+Planned extra expense,cd07135e-9e49-4997-96d5-eca4edf68455,Summer 2024 8000,e76c8506-f841-46e7-8b94-0967f7167fc0,False
+Planned extra expense,cd07135e-9e49-4997-96d5-eca4edf68455,House 2024 4000,5e1999e7-d8ca-4ad3-995c-75a4a66e05c0,False
+Planned extra expense,cd07135e-9e49-4997-96d5-eca4edf68455,Vacation 2024 4000,5006d800-0de9-4ae7-ad28-fc4636c9adae,False
+Credit Card Payments,04483db2-db75-4898-9d2c-abdc98ad6a4b,Opher X5898,fb98f4c0-b940-429e-b216-f6051a636ac2,False
+Credit Card Payments,04483db2-db75-4898-9d2c-abdc98ad6a4b,Liya X7195,87d4ba1d-0c94-4b6d-bac5-4d0d761a1c07,False
+Credit Card Payments,04483db2-db75-4898-9d2c-abdc98ad6a4b,Opher x9922,0c4090e5-b03d-477b-aa73-5464991c1a46,False
