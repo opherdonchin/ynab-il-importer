@@ -5,7 +5,7 @@ from typing import Iterable
 
 import pandas as pd
 
-from ynab_il_importer.review.validation import normalize_update_map
+from ynab_il_importer.review_app.validation import normalize_update_map
 
 
 REQUIRED_COLUMNS = [

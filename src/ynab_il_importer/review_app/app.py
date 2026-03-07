@@ -6,17 +6,17 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from ynab_il_importer.review.io import (
+from ynab_il_importer.review_app.io import (
     load_category_list,
     load_proposed_transactions,
     save_reviewed_transactions,
 )
-from ynab_il_importer.review.model import (
+from ynab_il_importer.review_app.model import (
     apply_to_same_fingerprint,
     parse_option_string,
     resolve_selected_value,
 )
-from ynab_il_importer.review.validation import inconsistent_fingerprints, validate_row
+from ynab_il_importer.review_app.validation import inconsistent_fingerprints, validate_row
 
 
 DEFAULT_SOURCE = Path("outputs/proposed_transactions.csv")

@@ -241,10 +241,10 @@ Streamlit reruns the script on every widget change. To prevent row expansion/pag
 ## Implementation Structure
 
 Suggested files:
-- `src/ynab_il_importer/review/io.py`
-- `src/ynab_il_importer/review/model.py`
-- `src/ynab_il_importer/review/validation.py`
-- `src/ynab_il_importer/review/app.py`
+- `src/ynab_il_importer/review_app/io.py`
+- `src/ynab_il_importer/review_app/model.py`
+- `src/ynab_il_importer/review_app/validation.py`
+- `src/ynab_il_importer/review_app/app.py`
 
 Core functions:
 - `load_proposed_transactions(path)`

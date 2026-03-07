@@ -40,7 +40,7 @@ pixi run python scripts/build_proposed_transactions.py \
 Run the review UI:
 
 ```bash
-pixi run streamlit run src/ynab_il_importer/review/app.py
+pixi run streamlit run src/ynab_il_importer/review_app/app.py
 ```
 
 Notes:

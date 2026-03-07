@@ -206,7 +206,7 @@ The review UI edits `outputs/proposed_transactions.csv` and writes a reviewed co
 Run:
 
 ```bash
-pixi run streamlit run src/ynab_il_importer/review/app.py
+pixi run streamlit run src/ynab_il_importer/review_app/app.py
 ```
 
 Default behavior:

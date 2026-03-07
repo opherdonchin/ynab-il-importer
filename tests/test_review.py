@@ -1,8 +1,8 @@
 import pandas as pd
 
-from ynab_il_importer.review.io import load_proposed_transactions, save_reviewed_transactions
-from ynab_il_importer.review.model import parse_option_string, resolve_selected_value
-from ynab_il_importer.review.validation import validate_row
+from ynab_il_importer.review_app.io import load_proposed_transactions, save_reviewed_transactions
+from ynab_il_importer.review_app.model import parse_option_string, resolve_selected_value
+from ynab_il_importer.review_app.validation import validate_row
 
 
 def test_parse_option_string() -> None:

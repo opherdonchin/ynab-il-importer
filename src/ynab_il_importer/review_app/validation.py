@@ -4,7 +4,7 @@ from typing import Any
 
 import pandas as pd
 
-from ynab_il_importer.review.model import parse_option_string
+from ynab_il_importer.review_app.model import parse_option_string
 
 
 TRUE_VALUES = {"1", "true", "t", "yes", "y"}
