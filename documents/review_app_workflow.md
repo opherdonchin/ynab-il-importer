@@ -44,6 +44,7 @@ pixi run python scripts/build_proposed_transactions.py \
 Notes:
 - `--map` defaults to `mappings/payee_map.csv` if omitted.
 - You can use `--source-dir data/derived` instead of repeating `--source` flags.
+- `--source-dir` will skip CSVs that don't contain a usable `fingerprint` column.
 
 ## 2) Review in Streamlit
 

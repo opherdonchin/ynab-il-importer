@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import sys
+import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -17,11 +18,31 @@ import ynab_il_importer.rules as rules_mod
 
 def _load_csvs(paths: list[Path]) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
+    skipped: list[str] = []
     for path in paths:
         df = pd.read_csv(path)
-        if not df.empty:
-            frames.append(df)
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        if df.empty:
+            warnings.warn(f"Skipping {path} (no rows).", UserWarning)
+            continue
+        if "fingerprint" not in df.columns:
+            warnings.warn(f"Skipping {path} (missing fingerprint column).", UserWarning)
+            skipped.append(str(path))
+            continue
+        fp = df["fingerprint"].astype("string").fillna("").str.strip()
+        if (fp == "").all():
+            warnings.warn(f"Skipping {path} (all fingerprint values empty).", UserWarning)
+            skipped.append(str(path))
+            continue
+        frames.append(df)
+
+    if not frames:
+        detail = f" Skipped: {', '.join(skipped)}" if skipped else ""
+        raise ValueError(
+            "No usable source rows found. Ensure normalized source files with fingerprint."
+            + detail
+        )
+
+    return pd.concat(frames, ignore_index=True)
 
 
 def _expand_source_paths(files: list[Path], dirs: list[Path]) -> list[Path]:
@@ -165,8 +186,6 @@ def main() -> None:
         raise ValueError("Provide at least one --source or --source-dir input.")
 
     source_df = _load_csvs(source_paths)
-    if source_df.empty:
-        raise ValueError("No rows found in source inputs.")
     ynab_df = pd.read_csv(Path(args.ynab))
     if ynab_df.empty:
         raise ValueError("No rows found in YNAB input.")
