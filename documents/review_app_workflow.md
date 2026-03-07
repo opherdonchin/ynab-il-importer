@@ -51,7 +51,7 @@ Notes:
 Run the review UI:
 
 ```bash
-pixi run streamlit run src/ynab_il_importer/review_app/app.py
+pixi run python scripts/review_app.py
 ```
 
 Notes:
@@ -59,27 +59,27 @@ Notes:
 - Payee selection allows free-text overrides.
 - Defaults may be prefilled; confirm default checkboxes are optional.
 - Save writes `outputs/proposed_transactions_reviewed.csv` by default.
-- You can pass `--in`, `--out`, and `--categories` after `--` to set initial paths.
+- You can pass `--in`, `--out`, and `--categories` to set initial paths.
 - Use `--resume` to reopen the last saved file:
 
 ```bash
-pixi run streamlit run src/ynab_il_importer/review_app/app.py -- --resume
+pixi run python scripts/review_app.py --resume
 ```
 
 Or provide a specific saved file:
 
 ```bash
-pixi run streamlit run src/ynab_il_importer/review_app/app.py -- --resume outputs/proposed_transactions_reviewed.csv
+pixi run python scripts/review_app.py --resume outputs/proposed_transactions_reviewed.csv
 ```
 
-Show app-specific help (note the `--`):
+Show app-specific help:
 
 ```bash
-pixi run streamlit run src/ynab_il_importer/review_app/app.py -- --app-help
+pixi run python scripts/review_app.py --app-help
 ```
 
 Notes:
-- `streamlit run ... --help` shows Streamlit's own CLI help. Use `-- --app-help` for app args.
+- `streamlit run ... --help` shows Streamlit's own CLI help. Use `scripts/review_app.py --app-help` for app args.
 
 ## 3) Combining Payees
 
