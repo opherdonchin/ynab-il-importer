@@ -26,7 +26,25 @@ def _series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
 
 
 def _parse_cli_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(add_help=False)
+    parser = argparse.ArgumentParser(description="YNAB proposed transactions review app")
+    parser.add_argument(
+        "--in",
+        dest="input_path",
+        default=str(DEFAULT_SOURCE),
+        help="Initial proposed_transactions CSV to load.",
+    )
+    parser.add_argument(
+        "--out",
+        dest="output_path",
+        default=str(DEFAULT_SAVE),
+        help="Save path for reviewed CSV.",
+    )
+    parser.add_argument(
+        "--categories",
+        dest="categories_path",
+        default=str(DEFAULT_CATEGORIES),
+        help="YNAB categories CSV (for category dropdowns).",
+    )
     parser.add_argument(
         "--resume",
         nargs="?",
@@ -70,31 +88,31 @@ def _load_categories(path: Path) -> None:
     st.session_state["category_error"] = ""
 
 
+def _init_from_cli() -> None:
+    args = _parse_cli_args()
+    st.session_state.setdefault("source_path", str(args.input_path))
+    st.session_state.setdefault("save_path", str(args.output_path))
+    st.session_state.setdefault("category_path", str(args.categories_path))
+
+    resume_path = getattr(args, "resume", None)
+    if resume_path:
+        path = Path(resume_path)
+        if not path.exists():
+            st.error(f"Resume file not found: {path}")
+            st.stop()
+        _load_df(path)
+        st.session_state["save_path"] = str(path)
+
+
 def _ensure_loaded() -> None:
     if "df" in st.session_state:
         return
-    if DEFAULT_SOURCE.exists():
-        _load_df(DEFAULT_SOURCE)
-        st.session_state["save_path"] = str(DEFAULT_SAVE)
-    if DEFAULT_CATEGORIES.exists():
-        _load_categories(DEFAULT_CATEGORIES)
-
-
-def _resume_from_cli() -> None:
-    if "df" in st.session_state:
-        return
-    args = _parse_cli_args()
-    resume_path = getattr(args, "resume", None)
-    if not resume_path:
-        return
-    path = Path(resume_path)
-    if not path.exists():
-        st.error(f"Resume file not found: {path}")
-        st.stop()
-    _load_df(path)
-    st.session_state["save_path"] = str(path)
-    if "source_path" not in st.session_state:
-        st.session_state["source_path"] = str(DEFAULT_SOURCE)
+    source_path = Path(st.session_state.get("source_path", str(DEFAULT_SOURCE)))
+    if source_path.exists():
+        _load_df(source_path)
+    categories_path = Path(st.session_state.get("category_path", str(DEFAULT_CATEGORIES)))
+    if categories_path.exists():
+        _load_categories(categories_path)
 
 
 def _format_amount(row: pd.Series) -> str:
@@ -417,7 +435,7 @@ def main() -> None:
     st.set_page_config(page_title="YNAB Review", layout="wide")
     st.title("Proposed Transactions Review")
 
-    _resume_from_cli()
+    _init_from_cli()
     _ensure_loaded()
 
     if "df" not in st.session_state:

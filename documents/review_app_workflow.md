@@ -59,6 +59,7 @@ Notes:
 - Payee selection allows free-text overrides.
 - Defaults may be prefilled; confirm default checkboxes are optional.
 - Save writes `outputs/proposed_transactions_reviewed.csv` by default.
+- You can pass `--in`, `--out`, and `--categories` after `--` to set initial paths.
 - Use `--resume` to reopen the last saved file:
 
 ```bash
@@ -69,6 +70,12 @@ Or provide a specific saved file:
 
 ```bash
 pixi run streamlit run src/ynab_il_importer/review_app/app.py -- --resume outputs/proposed_transactions_reviewed.csv
+```
+
+Show app-specific help (note the `--`):
+
+```bash
+pixi run streamlit run src/ynab_il_importer/review_app/app.py -- --help
 ```
 
 ## 3) Combining Payees
