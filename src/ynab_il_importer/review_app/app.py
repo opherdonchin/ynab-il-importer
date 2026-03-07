@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import argparse
+import hashlib
+import sys
 from pathlib import Path
 from typing import Any, Callable
 
@@ -20,6 +23,17 @@ def _series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
     if col in df.columns:
         return df[col].astype("string").fillna("")
     return pd.Series([""] * len(df), index=df.index, dtype="string")
+
+
+def _parse_cli_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--resume",
+        nargs="?",
+        const=str(DEFAULT_SAVE),
+        help="Resume from a previously saved review CSV (optional path).",
+    )
+    return parser.parse_known_args(sys.argv[1:])[0]
 
 
 def _load_df(path: Path) -> None:
@@ -66,6 +80,23 @@ def _ensure_loaded() -> None:
         _load_categories(DEFAULT_CATEGORIES)
 
 
+def _resume_from_cli() -> None:
+    if "df" in st.session_state:
+        return
+    args = _parse_cli_args()
+    resume_path = getattr(args, "resume", None)
+    if not resume_path:
+        return
+    path = Path(resume_path)
+    if not path.exists():
+        st.error(f"Resume file not found: {path}")
+        st.stop()
+    _load_df(path)
+    st.session_state["save_path"] = str(path)
+    if "source_path" not in st.session_state:
+        st.session_state["source_path"] = str(DEFAULT_SOURCE)
+
+
 def _format_amount(row: pd.Series) -> str:
     outflow = pd.to_numeric(row.get("outflow_ils", 0.0), errors="coerce")
     inflow = pd.to_numeric(row.get("inflow_ils", 0.0), errors="coerce")
@@ -76,6 +107,10 @@ def _format_amount(row: pd.Series) -> str:
     if inflow > 0:
         return f"+{inflow:g}"
     return ""
+
+
+def _fp_key(fp: str) -> str:
+    return hashlib.sha1(fp.encode("utf-8")).hexdigest()[:8]
 
 
 def _pick_summary_text(row: pd.Series) -> str:
@@ -382,6 +417,7 @@ def main() -> None:
     st.set_page_config(page_title="YNAB Review", layout="wide")
     st.title("Proposed Transactions Review")
 
+    _resume_from_cli()
     _ensure_loaded()
 
     if "df" not in st.session_state:
@@ -411,12 +447,20 @@ def main() -> None:
         st.session_state["category_path"] = category_path
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("Reload"):
-                _load_df(Path(source_path))
+            if st.button("Reload original"):
+                try:
+                    _load_df(Path(source_path))
+                except (FileNotFoundError, ValueError) as exc:
+                    st.error(f"Failed to load original: {exc}")
         with col2:
-            if st.button("Save"):
-                review_io.save_reviewed_transactions(df, save_path)
-                st.success(f"Saved to {save_path}")
+            if st.button("Reload saved"):
+                try:
+                    _load_df(Path(save_path))
+                except (FileNotFoundError, ValueError) as exc:
+                    st.error(f"Failed to load saved: {exc}")
+        if st.button("Save"):
+            review_io.save_reviewed_transactions(df, save_path)
+            st.success(f"Saved to {save_path}")
         if st.button("Reload categories"):
             _load_categories(Path(category_path))
             category_list = st.session_state.get("category_list", [])
@@ -424,7 +468,7 @@ def main() -> None:
             category_error = st.session_state.get("category_error", "")
 
         st.header("View")
-        view_mode = st.radio("Mode", ["Row", "Grouped"], index=0, key="view_mode")
+        view_mode = st.radio("Mode", ["Grouped", "Row"], index=0, key="view_mode")
 
         st.header("Filters")
         statuses = sorted(df["match_status"].astype("string").fillna("").unique().tolist())
@@ -478,11 +522,10 @@ def main() -> None:
 
     filtered = _apply_filters(df, filters)
 
-    page_size = st.selectbox("Page size", [25, 50, 100], index=1, key="page_size")
-
     payee_defaults = _most_common_by_fingerprint(df, "payee_selected")
     category_defaults = _most_common_by_fingerprint(df, "category_selected")
     if view_mode == "Row":
+        page_size = st.selectbox("Page size", [25, 50, 100], index=1, key="page_size")
         indices = filtered.index.tolist()
         total_pages = max(1, (len(indices) + page_size - 1) // page_size)
         page_key = "row_page"
@@ -539,14 +582,20 @@ def main() -> None:
                 )
 
     else:
-        fingerprints: list[str] = []
-        seen: set[str] = set()
-        for fp in filtered["fingerprint"].astype("string").fillna("").tolist():
-            if fp in seen:
-                continue
-            fingerprints.append(fp)
-            seen.add(fp)
-        total_pages = max(1, (len(fingerprints) + page_size - 1) // page_size)
+        group_page_size = st.selectbox(
+            "Group page size", [10, 25, 50], index=0, key="group_page_size"
+        )
+        group_row_page_size = st.selectbox(
+            "Rows per group", [10, 25, 50], index=0, key="group_row_page_size"
+        )
+
+        filtered_fps = _series_or_default(filtered, "fingerprint")
+        filtered_fp_set = set(filtered_fps.tolist())
+        all_sizes = (
+            _series_or_default(df, "fingerprint").value_counts().sort_values(ascending=False)
+        )
+        fingerprints = [fp for fp in all_sizes.index.tolist() if fp in filtered_fp_set]
+        total_pages = max(1, (len(fingerprints) + group_page_size - 1) // group_page_size)
         page_key = "group_page"
         if page_key not in st.session_state:
             st.session_state[page_key] = 1
@@ -558,8 +607,8 @@ def main() -> None:
             step=1,
             key=page_key,
         )
-        start = (page - 1) * page_size
-        end = start + page_size
+        start = (page - 1) * group_page_size
+        end = start + group_page_size
         for fp in fingerprints[start:end]:
             group = df[df["fingerprint"].astype("string").fillna("") == fp]
             group_payee_options: list[str] = []
@@ -662,7 +711,23 @@ def main() -> None:
                     st.success("Applied group values.")
 
                 st.markdown("**Rows**")
-                for idx in group.index:
+                row_indices = group.index.tolist()
+                row_pages = max(1, (len(row_indices) + group_row_page_size - 1) // group_row_page_size)
+                fp_key = _fp_key(fp)
+                row_page_key = f"group_row_page_{fp_key}"
+                if row_page_key not in st.session_state:
+                    st.session_state[row_page_key] = 1
+                row_page = st.number_input(
+                    "Group page",
+                    min_value=1,
+                    max_value=row_pages,
+                    value=int(st.session_state[row_page_key]),
+                    step=1,
+                    key=row_page_key,
+                )
+                row_start = (row_page - 1) * group_row_page_size
+                row_end = row_start + group_row_page_size
+                for idx in row_indices[row_start:row_end]:
                     row = df.loc[idx]
                     summary_text = _pick_summary_text(row)
                     memo_snip = summary_text[:60] + ("…" if len(summary_text) > 60 else "")
