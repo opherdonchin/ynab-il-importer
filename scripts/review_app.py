@@ -17,13 +17,29 @@ def main() -> None:
     except SystemExit:
         return
 
-    if getattr(args, "app_help", False):
-        parser.print_help()
-        return
-
     app_path = ROOT / "src" / "ynab_il_importer" / "review_app" / "app.py"
-    cmd = [sys.executable, "-m", "streamlit", "run", str(app_path), "--"]
-    cmd.extend(sys.argv[1:])
+    input_path = Path(args.input_path)
+    output_path = (
+        Path(args.output_path)
+        if any(arg == "--out" or arg.startswith("--out=") for arg in sys.argv[1:])
+        else review_app._default_reviewed_path(input_path)
+    )
+    cmd = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(app_path),
+        "--",
+        "--in",
+        str(input_path),
+        "--out",
+        str(output_path),
+        "--categories",
+        str(args.categories_path),
+    ]
+    if args.resume:
+        cmd.extend(["--resume", str(args.resume)])
     subprocess.run(cmd, check=True)
 
 

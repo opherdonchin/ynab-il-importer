@@ -58,7 +58,7 @@ Notes:
 - Category selection is restricted to the full YNAB category list.
 - Payee selection allows free-text overrides.
 - Defaults may be prefilled; confirm default checkboxes are optional.
-- Save writes `outputs/proposed_transactions_reviewed.csv` by default.
+- Save defaults to `{input}_reviewed.csv` in the same folder as the input file.
 - You can pass `--in`, `--out`, and `--categories` to set initial paths.
 - Use `--resume` to reopen the last saved file:
 

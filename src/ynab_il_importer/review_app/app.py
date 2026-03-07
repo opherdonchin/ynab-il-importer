@@ -25,6 +25,16 @@ def _series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
     return pd.Series([""] * len(df), index=df.index, dtype="string")
 
 
+def _default_reviewed_path(input_path: Path) -> Path:
+    suffix = input_path.suffix or ".csv"
+    base = input_path.with_suffix("") if input_path.suffix else input_path
+    return Path(f"{base}_reviewed{suffix}")
+
+
+def _cli_has_flag(flag: str) -> bool:
+    return any(arg == flag or arg.startswith(f"{flag}=") for arg in sys.argv[1:])
+
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="YNAB proposed transactions review app")
     parser.add_argument(
@@ -37,7 +47,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--out",
         dest="output_path",
         default=str(DEFAULT_SAVE),
-        help="Save path for reviewed CSV.",
+        help="Save path for reviewed CSV. Defaults to <input>_reviewed.csv.",
     )
     parser.add_argument(
         "--categories",
@@ -95,8 +105,13 @@ def _load_categories(path: Path) -> None:
 
 def _init_from_cli() -> None:
     args = _parse_cli_args()
-    st.session_state.setdefault("source_path", str(args.input_path))
-    st.session_state.setdefault("save_path", str(args.output_path))
+    input_path = Path(args.input_path)
+    output_path = Path(args.output_path)
+    if not _cli_has_flag("--out"):
+        output_path = _default_reviewed_path(input_path)
+
+    st.session_state.setdefault("source_path", str(input_path))
+    st.session_state.setdefault("save_path", str(output_path))
     st.session_state.setdefault("category_path", str(args.categories_path))
 
     resume_path = getattr(args, "resume", None)
