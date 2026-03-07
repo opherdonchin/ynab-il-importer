@@ -37,10 +37,13 @@ pixi run python scripts/build_proposed_transactions.py \
   --source data/derived/Bankin_leumi_norm.csv \
   --source data/derived/card_max_norm.csv \
   --ynab data/derived/ynab_api_norm.csv \
-  --map mappings/payee_map.csv \
   --out outputs/proposed_transactions.csv \
   --pairs-out outputs/real_matched_pairs.csv
 ```
+
+Notes:
+- `--map` defaults to `mappings/payee_map.csv` if omitted.
+- You can use `--source-dir data/derived` instead of repeating `--source` flags.
 
 ## 2) Review in Streamlit
 

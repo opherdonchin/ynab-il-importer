@@ -24,6 +24,26 @@ def _load_csvs(paths: list[Path]) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
+def _expand_source_paths(files: list[Path], dirs: list[Path]) -> list[Path]:
+    paths: list[Path] = []
+    for file_path in files:
+        if not file_path.exists():
+            raise FileNotFoundError(f"Source file does not exist: {file_path}")
+        paths.append(file_path)
+
+    for dir_path in dirs:
+        if not dir_path.exists():
+            raise FileNotFoundError(f"Source directory does not exist: {dir_path}")
+        if not dir_path.is_dir():
+            raise ValueError(f"Source path is not a directory: {dir_path}")
+        csv_paths = sorted(dir_path.glob("*.csv"))
+        if not csv_paths:
+            raise ValueError(f"No CSV files found in source directory: {dir_path}")
+        paths.extend(csv_paths)
+
+    return paths
+
+
 def _dedupe_sources(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     pairs = pairing.match_pairs(source_df, ynab_df)
     if pairs.empty:
@@ -129,14 +149,22 @@ def _make_transaction_id(row: pd.Series) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build proposed_transactions.csv")
-    parser.add_argument("--source", action="append", required=True)
+    parser.add_argument("--source", action="append", default=[])
+    parser.add_argument("--source-dir", action="append", default=[])
     parser.add_argument("--ynab", required=True)
-    parser.add_argument("--map", dest="map_path", default="mappings/payee_map.csv")
+    parser.add_argument("--map", dest="map_path", default=Path("mappings/payee_map.csv"))
     parser.add_argument("--out", dest="out_path", default="outputs/proposed_transactions.csv")
     parser.add_argument("--pairs-out", dest="pairs_out", default="")
     args = parser.parse_args()
 
-    source_df = _load_csvs([Path(p) for p in args.source])
+    source_paths = _expand_source_paths(
+        [Path(p) for p in args.source],
+        [Path(p) for p in args.source_dir],
+    )
+    if not source_paths:
+        raise ValueError("Provide at least one --source or --source-dir input.")
+
+    source_df = _load_csvs(source_paths)
     if source_df.empty:
         raise ValueError("No rows found in source inputs.")
     ynab_df = pd.read_csv(Path(args.ynab))
