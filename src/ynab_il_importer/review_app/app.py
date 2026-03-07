@@ -530,6 +530,23 @@ def main() -> None:
     category_group_map: dict[str, str] = st.session_state.get("category_group_map", {})
     category_error = st.session_state.get("category_error", "")
 
+    counts = _summary_counts(df)
+    modified = _modified_count(df, original)
+    unsaved_mask = _modified_mask(df, original)
+    changed_mask = _changed_mask(df, base)
+    reviewed_mask = df.get("reviewed", pd.Series([False] * len(df), index=df.index)).astype(
+        bool
+    )
+    inconsistent = review_validation.inconsistent_fingerprints(df)
+
+    base_count = len(base) if isinstance(base, pd.DataFrame) and not base.empty else len(df)
+    updated_confirmed_count = int((changed_mask | reviewed_mask).sum())
+    saved_reviewed_count = 0
+    if isinstance(original, pd.DataFrame) and "reviewed" in original.columns:
+        saved_reviewed_count = int(
+            original["reviewed"].astype(bool).fillna(False).sum()
+        )
+
     with st.sidebar:
         st.header("Files")
         source_path = st.text_input("Source path", value=st.session_state.get("source_path", ""))
@@ -559,6 +576,12 @@ def main() -> None:
             st.session_state["last_saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             st.session_state["df_original"] = df.copy()
             st.success(f"Saved to {save_path}")
+
+        st.markdown(
+            f"**Rows to review:** {base_count}\n"
+            f"**Updated or confirmed:** {updated_confirmed_count}\n"
+            f"**Rows saved:** {saved_reviewed_count}"
+        )
         if st.button("Reload categories"):
             _load_categories(Path(category_path))
             category_list = st.session_state.get("category_list", [])
@@ -580,15 +603,6 @@ def main() -> None:
         memo_query = st.text_input("Memo/description contains")
         source_query = st.text_input("Source contains")
         account_query = st.text_input("Account contains")
-
-    counts = _summary_counts(df)
-    modified = _modified_count(df, original)
-    unsaved_mask = _modified_mask(df, original)
-    changed_mask = _changed_mask(df, base)
-    reviewed_mask = df.get("reviewed", pd.Series([False] * len(df), index=df.index)).astype(
-        bool
-    )
-    inconsistent = review_validation.inconsistent_fingerprints(df)
 
     last_saved_at = st.session_state.get("last_saved_at", "")
     if last_saved_at:
