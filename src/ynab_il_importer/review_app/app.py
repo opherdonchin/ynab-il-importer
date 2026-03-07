@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 import streamlit as st
@@ -76,6 +76,39 @@ def _format_amount(row: pd.Series) -> str:
     if inflow > 0:
         return f"+{inflow:g}"
     return ""
+
+
+def _pick_summary_text(row: pd.Series) -> str:
+    for col in ["description_clean", "merchant_raw", "description_raw", "memo", "fingerprint"]:
+        value = str(row.get(col, "") or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _format_option_summary(
+    options: list[str],
+    *,
+    formatter: Callable[[str], str] | None = None,
+    limit: int = 2,
+) -> str:
+    if not options:
+        return "—"
+    formatter = formatter or (lambda v: v)
+    shown = [formatter(opt) for opt in options[:limit]]
+    remainder = len(options) - len(shown)
+    summary = ", ".join(shown)
+    if remainder > 0:
+        summary += f" (+{remainder})"
+    return summary
+
+
+def _most_common_value(series: pd.Series) -> str:
+    clean = series.astype("string").fillna("").str.strip()
+    clean = clean[clean != ""]
+    if clean.empty:
+        return ""
+    return str(clean.value_counts().idxmax())
 
 
 def _summary_counts(df: pd.DataFrame) -> dict[str, int]:
@@ -467,11 +500,20 @@ def main() -> None:
         end = start + page_size
         for idx in indices[start:end]:
             row = df.loc[idx]
-            memo = str(row.get("memo", "") or "")
-            memo_snip = memo[:80] + ("…" if len(memo) > 80 else "")
+            summary_text = _pick_summary_text(row)
+            memo_snip = summary_text[:80] + ("…" if len(summary_text) > 80 else "")
+            payee_summary = _format_option_summary(
+                review_model.parse_option_string(row.get("payee_options", "")),
+                limit=2,
+            )
+            category_summary = _format_option_summary(
+                review_model.parse_option_string(row.get("category_options", "")),
+                formatter=lambda value: _format_category_label(value, category_group_map),
+                limit=2,
+            )
             summary = (
                 f"{row.get('date','')} | {_format_amount(row)} | "
-                f"{memo_snip} | {row.get('fingerprint','')} | {row.get('match_status','')}"
+                f"{memo_snip} | Payee: {payee_summary} | Cat: {category_summary}"
             )
             expanded = st.session_state.get("expanded_row_id") == idx
             with st.expander(summary, expanded=expanded):
@@ -479,7 +521,7 @@ def main() -> None:
                     {
                         "date": row.get("date", ""),
                         "amount": _format_amount(row),
-                        "memo": memo,
+                        "memo": str(row.get("memo", "") or ""),
                         "fingerprint": row.get("fingerprint", ""),
                         "match_status": row.get("match_status", ""),
                         "source": row.get("source", ""),
@@ -520,7 +562,29 @@ def main() -> None:
         end = start + page_size
         for fp in fingerprints[start:end]:
             group = df[df["fingerprint"].astype("string").fillna("") == fp]
-            with st.expander(f"{fp} ({len(group)})", expanded=False):
+            group_payee_options: list[str] = []
+            group_category_options: list[str] = []
+            for _, row in group.iterrows():
+                for opt in review_model.parse_option_string(row.get("payee_options", "")):
+                    if opt not in group_payee_options:
+                        group_payee_options.append(opt)
+                for opt in review_model.parse_option_string(row.get("category_options", "")):
+                    if opt not in group_category_options:
+                        group_category_options.append(opt)
+
+            group_payee_summary = _format_option_summary(group_payee_options, limit=3)
+            group_category_summary = _format_option_summary(
+                group_category_options,
+                formatter=lambda value: _format_category_label(value, category_group_map),
+                limit=3,
+            )
+            header_fp = fp if len(fp) <= 80 else fp[:77] + "…"
+            header = (
+                f"{header_fp} ({len(group)}) | "
+                f"Payee: {group_payee_summary} | Cat: {group_category_summary}"
+            )
+
+            with st.expander(header, expanded=False):
                 payee_options: list[str] = []
                 category_options: list[str] = []
                 for _, row in group.iterrows():
@@ -531,29 +595,91 @@ def main() -> None:
                         if opt not in category_options:
                             category_options.append(opt)
 
-                group_payee = st.text_input("Group payee override", key=f"group_payee_{fp}")
-                group_category_options = category_list or category_options
-                group_category = st.selectbox(
-                    "Group category",
-                    options=[""] + group_category_options,
-                    format_func=lambda value: _format_category_label(value, category_group_map),
-                    key=f"group_category_{fp}",
-                )
-                group_update = st.checkbox("Set update_map for group", key=f"group_update_{fp}")
-                if st.button("Apply to all in group", key=f"group_apply_{fp}"):
+                group_payee_default = _most_common_value(group["payee_selected"])
+                if not group_payee_default and payee_options:
+                    group_payee_default = payee_options[0]
+
+                group_category_default = _most_common_value(group["category_selected"])
+                if not group_category_default and category_options:
+                    group_category_default = category_options[0]
+
+                group_payee_choices = [""] + payee_options
+                if group_payee_default and group_payee_default not in group_payee_choices:
+                    group_payee_choices.insert(1, group_payee_default)
+
+                group_category_choices = [""] + (category_list or category_options)
+                if (
+                    group_category_default
+                    and group_category_default not in group_category_choices
+                ):
+                    group_category_choices.insert(1, group_category_default)
+
+                with st.form(key=f"group_form_{fp}"):
+                    group_payee_select = st.selectbox(
+                        "Group payee",
+                        options=group_payee_choices,
+                        index=group_payee_choices.index(group_payee_default)
+                        if group_payee_default in group_payee_choices
+                        else 0,
+                        key=f"group_payee_select_{fp}",
+                    )
+                    group_payee_override = st.text_input(
+                        "Group payee override",
+                        value="",
+                        key=f"group_payee_override_{fp}",
+                    )
+                    group_category_select = st.selectbox(
+                        "Group category",
+                        options=group_category_choices,
+                        index=group_category_choices.index(group_category_default)
+                        if group_category_default in group_category_choices
+                        else 0,
+                        format_func=lambda value: _format_category_label(
+                            value, category_group_map
+                        ),
+                        key=f"group_category_{fp}",
+                    )
+                    group_update = st.checkbox(
+                        "Set update_map for group", key=f"group_update_{fp}"
+                    )
+                    apply_group = st.form_submit_button(
+                        "Apply to all in group", use_container_width=True
+                    )
+
+                if apply_group:
+                    final_payee = group_payee_override.strip() or group_payee_select.strip()
+                    payee_to_apply = final_payee if final_payee else None
+                    category_to_apply = (
+                        group_category_select.strip() if group_category_select else None
+                    )
                     review_model.apply_to_same_fingerprint(
-                        df, fp, group_payee, group_category, group_update
+                        df,
+                        fp,
+                        payee=payee_to_apply,
+                        category=category_to_apply,
+                        update_map=group_update,
                     )
                     st.success("Applied group values.")
 
                 st.markdown("**Rows**")
                 for idx in group.index:
                     row = df.loc[idx]
-                    memo = str(row.get("memo", "") or "")
-                    memo_snip = memo[:60] + ("…" if len(memo) > 60 else "")
+                    summary_text = _pick_summary_text(row)
+                    memo_snip = summary_text[:60] + ("…" if len(summary_text) > 60 else "")
+                    payee_summary = _format_option_summary(
+                        review_model.parse_option_string(row.get("payee_options", "")),
+                        limit=2,
+                    )
+                    category_summary = _format_option_summary(
+                        review_model.parse_option_string(row.get("category_options", "")),
+                        formatter=lambda value: _format_category_label(
+                            value, category_group_map
+                        ),
+                        limit=2,
+                    )
                     summary = (
                         f"{row.get('date','')} | {_format_amount(row)} | "
-                        f"{memo_snip} | {row.get('match_status','')}"
+                        f"{memo_snip} | Payee: {payee_summary} | Cat: {category_summary}"
                     )
                     with st.expander(summary, expanded=False):
                         _render_row_controls(
