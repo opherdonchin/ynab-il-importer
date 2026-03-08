@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -12,6 +14,7 @@ import streamlit as st
 
 import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
+import ynab_il_importer.review_app.state as review_state
 import ynab_il_importer.review_app.validation as review_validation
 
 
@@ -21,10 +24,28 @@ DEFAULT_CATEGORIES = Path("outputs/ynab_categories.csv")
 DEFAULT_RESUME_SENTINEL = "__DEFAULT_RESUME__"
 
 
-def _series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
-    if col in df.columns:
-        return df[col].astype("string").fillna("")
-    return pd.Series([""] * len(df), index=df.index, dtype="string")
+EDITOR_STATE_PREFIXES = (
+    "payee_override_",
+    "payee_select_",
+    "category_select_",
+    "show_all_categories_",
+    "update_map_",
+    "group_payee_select_",
+    "group_payee_override_",
+    "group_category_",
+    "group_show_all_categories_",
+    "group_update_",
+    "group_row_page_",
+    "group_page",
+    "row_page",
+)
+EDITOR_STATE_KEYS = {
+    "expanded_row_id",
+    "expanded_group_fp",
+    "expanded_group_row_id",
+    "group_page",
+    "row_page",
+}
 
 
 def _default_reviewed_path(input_path: Path) -> Path:
@@ -71,11 +92,49 @@ def _parse_cli_args() -> argparse.Namespace:
     return parser.parse_known_args(sys.argv[1:])[0]
 
 
-def _load_df(path: Path) -> None:
+def _clear_editor_state() -> None:
+    keys_to_remove: list[str] = []
+    for key in st.session_state.keys():
+        if key in EDITOR_STATE_KEYS:
+            keys_to_remove.append(key)
+            continue
+        if any(key.startswith(prefix) for prefix in EDITOR_STATE_PREFIXES):
+            keys_to_remove.append(key)
+    for key in keys_to_remove:
+        del st.session_state[key]
+    st.session_state["editor_version"] = int(st.session_state.get("editor_version", 0)) + 1
+
+
+def _editor_key(base: str) -> str:
+    version = int(st.session_state.get("editor_version", 0))
+    return f"{base}__v{version}"
+
+
+def _ensure_widget_state(key: str, value: Any) -> None:
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+
+def _consume_notice(key: str) -> str:
+    if key not in st.session_state:
+        return ""
+    message = str(st.session_state[key] or "")
+    del st.session_state[key]
+    return message
+
+
+def _quit_app() -> None:
+    time.sleep(0.1)
+    os._exit(0)
+
+
+def _load_df(path: Path, *, set_source_path: bool = False) -> None:
     df = review_io.load_proposed_transactions(path)
     st.session_state["df"] = df
     st.session_state["df_original"] = df.copy()
-    st.session_state["source_path"] = str(path)
+    if set_source_path:
+        st.session_state["source_path"] = str(path)
+    _clear_editor_state()
 
 
 def _load_base(path: Path) -> None:
@@ -125,7 +184,7 @@ def _init_from_cli() -> None:
         _load_base(input_path)
 
     resume_path = getattr(args, "resume", None)
-    if resume_path is not None:
+    if resume_path is not None and "df" not in st.session_state:
         if resume_path == DEFAULT_RESUME_SENTINEL:
             path = output_path
         else:
@@ -133,21 +192,29 @@ def _init_from_cli() -> None:
         if not path.exists():
             st.error(f"Resume file not found: {path}")
             st.stop()
-        _load_df(path)
+        _load_df(path, set_source_path=False)
         st.session_state["save_path"] = str(path)
 
 
 def _ensure_loaded() -> None:
+    categories_path = Path(st.session_state.get("category_path", str(DEFAULT_CATEGORIES)))
+    loaded_category_path = st.session_state.get("category_path_loaded", "")
+    if categories_path.exists() and loaded_category_path != str(categories_path):
+        _load_categories(categories_path)
+        st.session_state["category_path_loaded"] = str(categories_path)
+    elif not categories_path.exists() and loaded_category_path != str(categories_path):
+        st.session_state["category_list"] = []
+        st.session_state["category_group_map"] = {}
+        st.session_state["category_error"] = f"Missing categories file: {categories_path}"
+        st.session_state["category_path_loaded"] = str(categories_path)
+
     if "df" in st.session_state:
         return
     source_path = Path(st.session_state.get("source_path", str(DEFAULT_SOURCE)))
     if source_path.exists():
         if "df_base" not in st.session_state:
             _load_base(source_path)
-        _load_df(source_path)
-    categories_path = Path(st.session_state.get("category_path", str(DEFAULT_CATEGORIES)))
-    if categories_path.exists():
-        _load_categories(categories_path)
+        _load_df(source_path, set_source_path=True)
 
 
 def _format_amount(row: pd.Series) -> str:
@@ -209,173 +276,42 @@ def _render_status_badges(*, unsaved: bool, changed: bool, reviewed: bool) -> No
         st.markdown(" ".join(badges), unsafe_allow_html=True)
 
 
-def _most_common_value(series: pd.Series) -> str:
-    clean = series.astype("string").fillna("").str.strip()
-    clean = clean[clean != ""]
-    if clean.empty:
-        return ""
-    return str(clean.value_counts().idxmax())
+def _merge_category_choices(*values: str) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in seen:
+            ordered.append(text)
+            seen.add(text)
+    return ordered
 
 
-def _summary_counts(df: pd.DataFrame) -> dict[str, int]:
-    payee_blank = _series_or_default(df, "payee_selected").str.strip() == ""
-    category_blank = _series_or_default(df, "category_selected").str.strip() == ""
-    unresolved = payee_blank | category_blank
-    update_map = df.get("update_map", pd.Series([False] * len(df), index=df.index)).astype(
-        bool
-    )
-    return {
-        "total": len(df),
-        "missing_payee": int(payee_blank.sum()),
-        "missing_category": int(category_blank.sum()),
-        "unresolved": int(unresolved.sum()),
-        "update_map": int(update_map.sum()),
-    }
+def _category_choice_list(
+    *,
+    category_options: list[str],
+    category_choices: list[str],
+    selected_value: str,
+    default_value: str,
+    show_all: bool,
+) -> list[str]:
+    ordered_options = category_options.copy()
+    if category_choices:
+        option_set = set(category_options)
+        ordered_options = [value for value in category_choices if value in option_set]
+        for value in category_options:
+            if value not in ordered_options:
+                ordered_options.append(value)
 
-
-def _modified_count(df: pd.DataFrame, original: pd.DataFrame) -> int:
-    if original is None or original.empty:
-        return 0
-    cols = ["payee_selected", "category_selected", "update_map"]
-    for col in cols:
-        if col not in df.columns:
-            return 0
-    current = df[cols].copy()
-    base = original[cols].copy()
-    base["update_map"] = base["update_map"].astype(bool)
-    current["update_map"] = current["update_map"].astype(bool)
-    return int((current != base).any(axis=1).sum())
-
-
-def _modified_mask(df: pd.DataFrame, original: pd.DataFrame) -> pd.Series:
-    if original is None or original.empty:
-        return pd.Series([False] * len(df), index=df.index)
-    cols = ["payee_selected", "category_selected", "update_map"]
-    for col in cols:
-        if col not in df.columns or col not in original.columns:
-            return pd.Series([False] * len(df), index=df.index)
-    current = df[cols].copy()
-    base = original[cols].copy()
-    base["update_map"] = base["update_map"].astype(bool)
-    current["update_map"] = current["update_map"].astype(bool)
-    return (current != base).any(axis=1)
-
-
-def _changed_mask(df: pd.DataFrame, base: pd.DataFrame) -> pd.Series:
-    if base is None or base.empty:
-        return pd.Series([False] * len(df), index=df.index)
-    cols = ["payee_selected", "category_selected"]
-    for col in cols:
-        if col not in df.columns or col not in base.columns:
-            return pd.Series([False] * len(df), index=df.index)
-    if "transaction_id" in df.columns and "transaction_id" in base.columns:
-        df_ids = df["transaction_id"].astype("string").fillna("")
-        base_ids = base["transaction_id"].astype("string").fillna("")
-        df_keys = df_ids + "|" + df_ids.groupby(df_ids).cumcount().astype("string")
-        base_keys = base_ids + "|" + base_ids.groupby(base_ids).cumcount().astype("string")
-        current = df.assign(_key=df_keys).set_index("_key")[cols].copy()
-        baseline = base.assign(_key=base_keys).set_index("_key")[cols].copy()
-        aligned = baseline.reindex(current.index)
-        changed = (current != aligned).any(axis=1)
-        return pd.Series(changed.to_numpy(), index=df.index)
-
-    current = df[cols].copy()
-    baseline = base[cols].reindex(df.index)
-    return (current != baseline).any(axis=1)
-
-
-def _saved_mask(original: pd.DataFrame, base: pd.DataFrame, current_index: pd.Index) -> pd.Series:
-    if original is None or original.empty:
-        return pd.Series([False] * len(current_index), index=current_index)
-
-    changed = _changed_mask(original, base).reindex(original.index, fill_value=False)
-    if "reviewed" in original.columns:
-        reviewed = original["reviewed"].astype(bool).fillna(False)
+    if show_all and category_choices:
+        options = [""] + category_choices.copy()
     else:
-        reviewed = pd.Series([False] * len(original), index=original.index)
+        options = [""] + ordered_options
 
-    saved = (changed | reviewed).reindex(current_index, fill_value=False)
-    return saved.astype(bool)
-
-
-def _apply_filters(df: pd.DataFrame, filters: dict[str, Any]) -> pd.DataFrame:
-    filtered = df.copy()
-
-    match_status = filters.get("match_status")
-    if match_status:
-        filtered = filtered[filtered["match_status"].isin(match_status)]
-
-    payee_blank = _series_or_default(filtered, "payee_selected").str.strip() == ""
-    category_blank = _series_or_default(filtered, "category_selected").str.strip() == ""
-    if filters.get("unresolved_only"):
-        filtered = filtered[payee_blank | category_blank]
-    if filters.get("missing_payee_only"):
-        filtered = filtered[payee_blank]
-    if filters.get("missing_category_only"):
-        filtered = filtered[category_blank]
-
-    fingerprint_query = str(filters.get("fingerprint_query", "") or "").strip().casefold()
-    if fingerprint_query:
-        filtered = filtered[
-            _series_or_default(filtered, "fingerprint")
-            .str.casefold()
-            .str.contains(fingerprint_query, regex=False)
-        ]
-
-    payee_query = str(filters.get("payee_query", "") or "").strip().casefold()
-    if payee_query:
-        payee_text = (
-            _series_or_default(filtered, "payee_selected")
-            + " "
-            + _series_or_default(filtered, "payee_options")
-        )
-        filtered = filtered[
-            payee_text.str.casefold().str.contains(payee_query, regex=False)
-        ]
-
-    memo_query = str(filters.get("memo_query", "") or "").strip().casefold()
-    if memo_query:
-        memo_text = (
-            _series_or_default(filtered, "memo")
-            + " "
-            + _series_or_default(filtered, "description_raw")
-            + " "
-            + _series_or_default(filtered, "description_clean")
-        )
-        filtered = filtered[
-            memo_text.str.casefold().str.contains(memo_query, regex=False)
-        ]
-
-    source_query = str(filters.get("source_query", "") or "").strip().casefold()
-    if source_query:
-        filtered = filtered[
-            _series_or_default(filtered, "source")
-            .str.casefold()
-            .str.contains(source_query, regex=False)
-        ]
-
-    account_query = str(filters.get("account_query", "") or "").strip().casefold()
-    if account_query:
-        filtered = filtered[
-            _series_or_default(filtered, "account_name")
-            .str.casefold()
-            .str.contains(account_query, regex=False)
-        ]
-
-    return filtered
-
-
-def _most_common_by_fingerprint(df: pd.DataFrame, column: str) -> dict[str, str]:
-    if "fingerprint" not in df.columns or column not in df.columns:
-        return {}
-    result: dict[str, str] = {}
-    for fp, grp in df.groupby("fingerprint"):
-        values = grp[column].astype("string").fillna("").str.strip()
-        values = values[values != ""]
-        if values.empty:
-            continue
-        result[fp] = values.value_counts().idxmax()
-    return result
+    for value in _merge_category_choices(selected_value, default_value):
+        if value not in options:
+            options.append(value)
+    return options
 
 
 def _render_row_controls(
@@ -405,8 +341,24 @@ def _render_row_controls(
         or (category_options[0] if category_options else "")
     )
 
-    with st.form(key=f"row_form_{idx}"):
-        payee_override_key = f"payee_override_{idx}"
+    show_all_categories_key = _editor_key(f"show_all_categories_{idx}")
+    show_all_categories_default = bool(
+        category_choices
+        and (
+            not category_options
+            or (category_selected and category_selected not in category_options)
+        )
+    )
+    _ensure_widget_state(show_all_categories_key, show_all_categories_default)
+    show_all_categories = st.checkbox(
+        "Show all categories",
+        value=bool(st.session_state.get(show_all_categories_key, show_all_categories_default)),
+        key=show_all_categories_key,
+    )
+
+    with st.form(key=_editor_key(f"row_form_{idx}")):
+        payee_override_key = _editor_key(f"payee_override_{idx}")
+        _ensure_widget_state(payee_override_key, "")
         payee_override = st.text_input(
             "Payee override",
             value=st.session_state.get(payee_override_key, ""),
@@ -421,20 +373,19 @@ def _render_row_controls(
         if payee_default and payee_default not in payee_choices:
             payee_choices = [payee_default] + payee_choices
 
-        category_full = [""] + category_choices
-        if category_selected and category_selected not in category_full:
-            category_full = [category_selected] + category_full
-        if category_default and category_default not in category_full:
-            category_full = [category_default] + category_full
-        for option in category_options:
-            if option and option not in category_full:
-                category_full.append(option)
-
-        payee_select_key = f"payee_select_{idx}"
-        category_select_key = f"category_select_{idx}"
-
         payee_current = payee_selected or payee_default
         category_current = category_selected or category_default
+        category_full = _category_choice_list(
+            category_options=category_options,
+            category_choices=category_choices,
+            selected_value=category_selected,
+            default_value=category_default,
+            show_all=bool(show_all_categories),
+        )
+        payee_select_key = _editor_key(f"payee_select_{idx}")
+        category_select_key = _editor_key(f"category_select_{idx}")
+        _ensure_widget_state(payee_select_key, payee_current)
+        _ensure_widget_state(category_select_key, category_current)
 
         payee_select = st.selectbox(
             "Payee option",
@@ -450,18 +401,27 @@ def _render_row_controls(
             key=category_select_key,
         )
 
-        update_key = f"update_map_{idx}"
+        update_key = _editor_key(f"update_map_{idx}")
+        _ensure_widget_state(update_key, bool(row.get("update_map", False)))
         update_val = st.checkbox(
             "Update map", value=bool(row.get("update_map", False)), key=update_key
         )
 
         submitted = st.form_submit_button("Save row", use_container_width=True)
-        apply_all = st.form_submit_button(
-            "Apply to all with this fingerprint", use_container_width=True
-        )
+        if show_apply:
+            apply_all = st.form_submit_button(
+                "Apply to all with this fingerprint", use_container_width=True
+            )
+        else:
+            apply_all = False
 
-    final_payee = review_model.resolve_selected_value(payee_select, payee_override)
-    final_category = review_model.resolve_selected_value(category_select, "")
+    payee_select_value = str(st.session_state.get(payee_select_key, payee_select) or "")
+    payee_override_value = str(st.session_state.get(payee_override_key, payee_override) or "")
+    category_select_value = str(st.session_state.get(category_select_key, category_select) or "")
+    update_value = bool(st.session_state.get(update_key, update_val))
+
+    final_payee = review_model.resolve_selected_value(payee_select_value, payee_override_value)
+    final_category = review_model.resolve_selected_value(category_select_value, "")
 
     if submitted or apply_all:
         if group_fingerprint:
@@ -469,10 +429,14 @@ def _render_row_controls(
             st.session_state["expanded_group_row_id"] = idx
         else:
             st.session_state["expanded_row_id"] = idx
-        df.at[idx, "payee_selected"] = final_payee
-        df.at[idx, "category_selected"] = final_category
-        df.at[idx, "update_map"] = bool(update_val)
-        df.at[idx, "reviewed"] = True
+        review_state.apply_row_edit(
+            df,
+            idx,
+            payee=final_payee,
+            category=final_category,
+            update_map=update_value,
+            reviewed=True,
+        )
         errors, warnings = review_validation.validate_row(df.loc[idx])
         if errors:
             st.error("Errors: " + ", ".join(errors))
@@ -487,7 +451,7 @@ def _render_row_controls(
                 row.get("fingerprint", ""),
                 payee=final_payee,
                 category=final_category,
-                update_map=update_val,
+                update_map=update_value,
                 reviewed=True,
                 eligible_mask=untouched_mask,
             )
@@ -502,7 +466,7 @@ def _format_category_label(value: str, group_map: dict[str, str]) -> str:
         return ""
     group = group_map.get(value, "")
     if group:
-        return f"{group} — {value}"
+        return f"{group} / {value}"
     return value
 
 
@@ -517,8 +481,9 @@ def main() -> None:
         st.info("Load a proposed_transactions.csv file to begin.")
         source_path = st.text_input("Source path", value=str(DEFAULT_SOURCE))
         if st.button("Load"):
-            _load_df(Path(source_path))
-            st.session_state["save_path"] = str(DEFAULT_SAVE)
+            _load_df(Path(source_path), set_source_path=True)
+            st.session_state["save_path"] = str(_default_reviewed_path(Path(source_path)))
+            st.rerun()
         return
 
     df: pd.DataFrame = st.session_state["df"]
@@ -528,22 +493,26 @@ def main() -> None:
     category_group_map: dict[str, str] = st.session_state.get("category_group_map", {})
     category_error = st.session_state.get("category_error", "")
 
-    counts = _summary_counts(df)
-    modified = _modified_count(df, original)
-    unsaved_mask = _modified_mask(df, original)
-    changed_mask = _changed_mask(df, base)
+    counts = review_state.summary_counts(df)
+    modified = review_state.modified_count(df, original)
+    unsaved_mask = review_state.modified_mask(df, original)
+    changed_mask = review_state.changed_mask(df, base)
     reviewed_mask = df.get("reviewed", pd.Series([False] * len(df), index=df.index)).astype(
         bool
     )
+    saved_mask = review_state.saved_mask(original, base, df.index)
     updated_mask = (changed_mask | reviewed_mask).astype(bool)
     inconsistent = review_validation.inconsistent_fingerprints(df)
 
     base_count = len(base) if isinstance(base, pd.DataFrame) and not base.empty else len(df)
     updated_confirmed_count = int(updated_mask.sum())
-    saved_reviewed_count = int(_saved_mask(original, base, df.index).sum())
+    saved_reviewed_count = int(saved_mask.sum())
 
     with st.sidebar:
         st.header("Files")
+        save_notice = _consume_notice("save_notice")
+        if save_notice:
+            st.success(save_notice)
         source_path = st.text_input("Source path", value=st.session_state.get("source_path", ""))
         save_path = st.text_input(
             "Save path", value=st.session_state.get("save_path", str(DEFAULT_SAVE))
@@ -557,39 +526,44 @@ def main() -> None:
         with col1:
             if st.button("Reload original"):
                 try:
-                    _load_df(Path(source_path))
+                    _load_df(Path(source_path), set_source_path=True)
+                    st.rerun()
                 except (FileNotFoundError, ValueError) as exc:
                     st.error(f"Failed to load original: {exc}")
         with col2:
             if st.button("Reload saved"):
                 try:
-                    _load_df(Path(save_path))
+                    _load_df(Path(save_path), set_source_path=False)
+                    st.rerun()
                 except (FileNotFoundError, ValueError) as exc:
                     st.error(f"Failed to load saved: {exc}")
-        if st.button("Save"):
+        save_action_col, save_button_col = st.columns([3, 2])
+        with save_action_col:
+            save_action = st.selectbox(
+                "Save action",
+                ["Save", "Save and quit", "Quit"],
+                index=0,
+                key="save_action",
+                label_visibility="collapsed",
+            )
+        with save_button_col:
+            save_pressed = st.button(save_action, use_container_width=True)
+        if save_pressed:
+            if save_action == "Quit":
+                _quit_app()
             review_io.save_reviewed_transactions(df, save_path)
             st.session_state["last_saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             st.session_state["df_original"] = df.copy()
-            original = st.session_state["df_original"]
-            reviewed_now = df.get(
-                "reviewed", pd.Series([False] * len(df), index=df.index)
-            ).astype(bool)
-            updated_confirmed_count = int(
-                (_changed_mask(df, base) | reviewed_now.fillna(False)).sum()
-            )
-            saved_reviewed_count = int(_saved_mask(original, base, df.index).sum())
-            st.success(f"Saved to {save_path}")
+            st.session_state["save_notice"] = f"Saved to {save_path}"
+            if save_action == "Save and quit":
+                _quit_app()
+            st.rerun()
 
         st.markdown(
             f"**Rows to review:** {base_count}\n"
             f"**Updated:** {updated_confirmed_count}\n"
             f"**Saved:** {saved_reviewed_count}"
         )
-        if st.button("Reload categories"):
-            _load_categories(Path(category_path))
-            category_list = st.session_state.get("category_list", [])
-            category_group_map = st.session_state.get("category_group_map", {})
-            category_error = st.session_state.get("category_error", "")
 
         st.header("View")
         view_mode = st.radio("Mode", ["Grouped", "Row"], index=0, key="view_mode")
@@ -648,15 +622,15 @@ def main() -> None:
         "account_query": account_query,
     }
 
-    filtered = _apply_filters(df, filters)
+    filtered = review_state.apply_filters(df, filters)
 
-    payee_defaults = _most_common_by_fingerprint(df, "payee_selected")
-    category_defaults = _most_common_by_fingerprint(df, "category_selected")
+    payee_defaults = review_state.most_common_by_fingerprint(df, "payee_selected")
+    category_defaults = review_state.most_common_by_fingerprint(df, "category_selected")
     if view_mode == "Row":
         page_size = st.selectbox("Page size", [25, 50, 100], index=1, key="page_size")
         indices = filtered.index.tolist()
         total_pages = max(1, (len(indices) + page_size - 1) // page_size)
-        page_key = "row_page"
+        page_key = _editor_key("row_page")
         if page_key not in st.session_state:
             st.session_state[page_key] = 1
         page = st.number_input(
@@ -684,6 +658,7 @@ def main() -> None:
             )
             summary = (
                 f"{row.get('date','')} | {_format_amount(row)} | "
+                f"{str(row.get('account_name', '') or '').strip()} | "
                 f"{memo_snip} | Payee: {payee_summary} | Cat: {category_summary}"
             )
             expanded = st.session_state.get("expanded_row_id") == idx
@@ -723,14 +698,16 @@ def main() -> None:
             "Rows per group", [10, 25, 50], index=0, key="group_row_page_size"
         )
 
-        filtered_fps = _series_or_default(filtered, "fingerprint")
+        filtered_fps = review_state.series_or_default(filtered, "fingerprint")
         filtered_fp_set = set(filtered_fps.tolist())
         all_sizes = (
-            _series_or_default(df, "fingerprint").value_counts().sort_values(ascending=False)
+            review_state.series_or_default(df, "fingerprint")
+            .value_counts()
+            .sort_values(ascending=False)
         )
         fingerprints = [fp for fp in all_sizes.index.tolist() if fp in filtered_fp_set]
         total_pages = max(1, (len(fingerprints) + group_page_size - 1) // group_page_size)
-        page_key = "group_page"
+        page_key = _editor_key("group_page")
         if page_key not in st.session_state:
             st.session_state[page_key] = 1
         page = st.number_input(
@@ -772,8 +749,8 @@ def main() -> None:
             ):
                 group_unsaved = int(unsaved_mask.loc[group.index].sum())
                 group_changed = int(changed_mask.loc[group.index].sum())
-                group_reviewed = int(reviewed_mask.loc[group.index].sum())
-                if group_unsaved or group_changed or group_reviewed:
+                group_saved = int(saved_mask.loc[group.index].sum())
+                if group_unsaved or group_changed or group_saved:
                     st.markdown(
                         " ".join(
                             [
@@ -783,8 +760,8 @@ def main() -> None:
                                 f"<span style='color:#2563eb;font-weight:600;'>Changed: {group_changed}</span>"
                                 if group_changed
                                 else "",
-                                f"<span style='color:#15803d;font-weight:600;'>Reviewed: {group_reviewed}</span>"
-                                if group_reviewed
+                                f"<span style='color:#15803d;font-weight:600;'>Saved: {group_saved}</span>"
+                                if group_saved
                                 else "",
                             ]
                         ).strip(),
@@ -800,11 +777,11 @@ def main() -> None:
                         if opt not in category_options:
                             category_options.append(opt)
 
-                group_payee_default = _most_common_value(group["payee_selected"])
+                group_payee_default = review_state.most_common_value(group["payee_selected"])
                 if not group_payee_default and payee_options:
                     group_payee_default = payee_options[0]
 
-                group_category_default = _most_common_value(group["category_selected"])
+                group_category_default = review_state.most_common_value(group["category_selected"])
                 if not group_category_default and category_options:
                     group_category_default = category_options[0]
 
@@ -819,20 +796,63 @@ def main() -> None:
                 ):
                     group_category_choices.insert(1, group_category_default)
 
-                with st.form(key=f"group_form_{fp}"):
-                    group_payee_select = st.selectbox(
-                        "Group payee",
-                        options=group_payee_choices,
-                        index=group_payee_choices.index(group_payee_default)
-                        if group_payee_default in group_payee_choices
-                        else 0,
-                        key=f"group_payee_select_{fp}",
+                group_payee_key = _editor_key(f"group_payee_select_{fp}")
+                group_payee_override_key = _editor_key(f"group_payee_override_{fp}")
+                group_category_key = _editor_key(f"group_category_{fp}")
+                group_show_all_categories_key = _editor_key(f"group_show_all_categories_{fp}")
+                group_update_key = _editor_key(f"group_update_{fp}")
+                _ensure_widget_state(group_payee_key, group_payee_default)
+                _ensure_widget_state(group_payee_override_key, "")
+                group_show_all_categories_default = bool(
+                    category_list
+                    and (
+                        not category_options
+                        or (
+                            group_category_default
+                            and group_category_default not in category_options
+                        )
                     )
-                    group_payee_override = st.text_input(
-                        "Group payee override",
-                        value="",
-                        key=f"group_payee_override_{fp}",
+                )
+                _ensure_widget_state(
+                    group_show_all_categories_key, group_show_all_categories_default
+                )
+                _ensure_widget_state(group_category_key, group_category_default)
+                _ensure_widget_state(group_update_key, False)
+
+                group_payee_select = st.selectbox(
+                    "Group payee",
+                    options=group_payee_choices,
+                    index=group_payee_choices.index(group_payee_default)
+                    if group_payee_default in group_payee_choices
+                    else 0,
+                    key=group_payee_key,
+                )
+                group_payee_override = st.text_input(
+                    "Group payee override",
+                    value=str(st.session_state.get(group_payee_override_key, "")),
+                    key=group_payee_override_key,
+                )
+
+                group_category_col, group_toggle_col = st.columns([5, 1])
+                with group_toggle_col:
+                    group_show_all_categories = st.checkbox(
+                        "Show all",
+                        value=bool(
+                            st.session_state.get(
+                                group_show_all_categories_key,
+                                group_show_all_categories_default,
+                            )
+                        ),
+                        key=group_show_all_categories_key,
                     )
+                group_category_choices = _category_choice_list(
+                    category_options=category_options,
+                    category_choices=category_list,
+                    selected_value=group_category_default,
+                    default_value=group_category_default,
+                    show_all=bool(group_show_all_categories),
+                )
+                with group_category_col:
                     group_category_select = st.selectbox(
                         "Group category",
                         options=group_category_choices,
@@ -842,33 +862,55 @@ def main() -> None:
                         format_func=lambda value: _format_category_label(
                             value, category_group_map
                         ),
-                        key=f"group_category_{fp}",
+                        key=group_category_key,
                     )
-                    group_update = st.checkbox(
-                        "Set update_map for group", key=f"group_update_{fp}"
-                    )
-                    apply_group = st.form_submit_button(
-                        "Apply to all in group", use_container_width=True
-                    )
+                group_update = st.checkbox(
+                    "Set update_map for group", key=group_update_key
+                )
+                apply_group = st.button(
+                    "Apply to all in group",
+                    use_container_width=True,
+                    key=_editor_key(f"group_apply_{fp}"),
+                )
 
                 if apply_group:
-                    final_payee = group_payee_override.strip() or group_payee_select.strip()
+                    group_payee_select_value = str(
+                        st.session_state.get(group_payee_key, group_payee_select) or ""
+                    )
+                    group_payee_override_value = str(
+                        st.session_state.get(group_payee_override_key, group_payee_override)
+                        or ""
+                    )
+                    group_category_select_value = str(
+                        st.session_state.get(group_category_key, group_category_select) or ""
+                    )
+                    group_update_value = bool(
+                        st.session_state.get(group_update_key, group_update)
+                    )
+                    final_payee = (
+                        group_payee_override_value.strip()
+                        or group_payee_select_value.strip()
+                    )
                     payee_to_apply = final_payee if final_payee else None
                     category_to_apply = (
-                        group_category_select.strip() if group_category_select else None
+                        group_category_select_value.strip()
+                        if group_category_select_value
+                        else None
                     )
+                    untouched_mask = ~updated_mask.astype(bool)
                     review_model.apply_to_same_fingerprint(
                         df,
                         fp,
                         payee=payee_to_apply,
                         category=category_to_apply,
-                        update_map=group_update,
+                        update_map=group_update_value,
                         reviewed=True,
+                        eligible_mask=untouched_mask,
                     )
                     st.session_state["expanded_group_fp"] = fp
                     st.session_state["expanded_group_row_id"] = None
                     st.session_state["df"] = df
-                    st.success("Applied group values.")
+                    st.success("Applied group values to untouched rows.")
                     # Recompute counters/badges from the updated dataframe in the same interaction.
                     st.rerun()
 
@@ -876,7 +918,7 @@ def main() -> None:
                 row_indices = group.index.tolist()
                 row_pages = max(1, (len(row_indices) + group_row_page_size - 1) // group_row_page_size)
                 fp_key = _fp_key(fp)
-                row_page_key = f"group_row_page_{fp_key}"
+                row_page_key = _editor_key(f"group_row_page_{fp_key}")
                 if row_page_key not in st.session_state:
                     st.session_state[row_page_key] = 1
                 row_page = st.number_input(
@@ -906,6 +948,7 @@ def main() -> None:
                     )
                     summary = (
                         f"{row.get('date','')} | {_format_amount(row)} | "
+                        f"{str(row.get('account_name', '') or '').strip()} | "
                         f"{memo_snip} | Payee: {payee_summary} | Cat: {category_summary}"
                     )
                     row_expanded = (

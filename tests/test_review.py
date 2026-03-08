@@ -2,6 +2,7 @@ import pandas as pd
 
 import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
+import ynab_il_importer.review_app.state as review_state
 import ynab_il_importer.review_app.validation as review_validation
 
 
@@ -56,3 +57,40 @@ def test_load_save_roundtrip(tmp_path) -> None:
     review_io.save_reviewed_transactions(loaded, out)
     saved = pd.read_csv(out, dtype="string").fillna("")
     assert saved["update_map"].tolist() == ["TRUE", ""]
+
+
+def test_transfer_payee_does_not_require_category() -> None:
+    row = pd.Series(
+        {
+            "payee_selected": "Transfer : Cash",
+            "category_selected": "",
+            "update_map": False,
+            "payee_options": "Transfer : Cash",
+            "category_options": "",
+        }
+    )
+
+    errors, warnings = review_validation.validate_row(row)
+
+    assert "missing category" not in errors
+    assert warnings == []
+
+
+def test_transfer_rows_are_not_unresolved_without_category() -> None:
+    df = pd.DataFrame(
+        {
+            "payee_selected": ["Transfer : Planned Liya", "Cafe"],
+            "category_selected": ["", ""],
+            "update_map": [False, False],
+            "match_status": ["ambiguous", "none"],
+        }
+    )
+
+    counts = review_state.summary_counts(df)
+    filtered = review_state.apply_filters(
+        df, {"match_status": ["ambiguous", "none"], "unresolved_only": True}
+    )
+
+    assert counts["missing_category"] == 1
+    assert counts["unresolved"] == 1
+    assert filtered["payee_selected"].tolist() == ["Cafe"]

@@ -22,10 +22,11 @@ def validate_row(row: pd.Series) -> tuple[list[str], list[str]]:
     payee = str(row.get("payee_selected", "") or "").strip()
     category = str(row.get("category_selected", "") or "").strip()
     update_map = bool(row.get("update_map", False))
+    category_required = not model.is_transfer_payee(payee)
 
     if not payee:
         errors.append("missing payee")
-    if not category:
+    if category_required and not category:
         errors.append("missing category")
 
     if ";" in payee:
@@ -33,7 +34,7 @@ def validate_row(row: pd.Series) -> tuple[list[str], list[str]]:
     if ";" in category:
         warnings.append("category contains ';'")
 
-    if update_map and (not payee or not category):
+    if update_map and (not payee or (category_required and not category)):
         warnings.append("update_map set while payee/category missing")
 
     payee_options = model.parse_option_string(row.get("payee_options", ""))

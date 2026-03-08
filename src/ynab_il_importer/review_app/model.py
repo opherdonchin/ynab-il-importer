@@ -29,6 +29,11 @@ def resolve_selected_value(selected_value: Any, override_value: Any) -> str:
     return "" if selected_value is None else str(selected_value).strip()
 
 
+def is_transfer_payee(value: Any) -> bool:
+    text = "" if value is None else str(value).strip()
+    return text.startswith("Transfer :")
+
+
 def apply_to_same_fingerprint(
     df: pd.DataFrame,
     fingerprint: str,
