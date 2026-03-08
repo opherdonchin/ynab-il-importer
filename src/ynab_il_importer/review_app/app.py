@@ -264,8 +264,17 @@ def _changed_mask(df: pd.DataFrame, base: pd.DataFrame) -> pd.Series:
     for col in cols:
         if col not in df.columns or col not in base.columns:
             return pd.Series([False] * len(df), index=df.index)
+    if "transaction_id" in df.columns and "transaction_id" in base.columns:
+        df_ids = df["transaction_id"].astype("string").fillna("")
+        base_ids = base["transaction_id"].astype("string").fillna("")
+        current = df.assign(_tid=df_ids).set_index("_tid")[cols].copy()
+        baseline = base.assign(_tid=base_ids).set_index("_tid")[cols].copy()
+        aligned = baseline.reindex(current.index)
+        changed = (current != aligned).any(axis=1)
+        return df_ids.map(changed).fillna(False).astype(bool)
+
     current = df[cols].copy()
-    baseline = base[cols].copy()
+    baseline = base[cols].reindex(df.index)
     return (current != baseline).any(axis=1)
 
 
