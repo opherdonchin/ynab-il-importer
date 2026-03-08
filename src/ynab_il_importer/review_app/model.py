@@ -36,8 +36,12 @@ def apply_to_same_fingerprint(
     category: str | None = None,
     update_map: bool | None = None,
     reviewed: bool | None = None,
+    eligible_mask: pd.Series | None = None,
 ) -> pd.DataFrame:
     mask = df["fingerprint"].astype("string").fillna("").str.strip() == str(fingerprint).strip()
+    if eligible_mask is not None:
+        eligible = eligible_mask.reindex(df.index, fill_value=False).astype(bool)
+        mask = mask & eligible
     if payee is not None:
         df.loc[mask, "payee_selected"] = payee
     if category is not None:

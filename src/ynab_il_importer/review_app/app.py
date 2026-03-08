@@ -387,6 +387,7 @@ def _render_row_controls(
     category_defaults: dict[str, str],
     show_apply: bool = True,
     group_fingerprint: str | None = None,
+    updated_mask: pd.Series | None = None,
 ) -> None:
     row = df.loc[idx]
     fingerprint = str(row.get("fingerprint", "") or "")
@@ -478,6 +479,9 @@ def _render_row_controls(
         if warnings:
             st.warning("Warnings: " + ", ".join(warnings))
         if apply_all and show_apply:
+            untouched_mask = None
+            if updated_mask is not None:
+                untouched_mask = ~updated_mask.astype(bool)
             review_model.apply_to_same_fingerprint(
                 df,
                 row.get("fingerprint", ""),
@@ -485,8 +489,9 @@ def _render_row_controls(
                 category=final_category,
                 update_map=update_val,
                 reviewed=True,
+                eligible_mask=untouched_mask,
             )
-            st.success("Applied to all rows with this fingerprint.")
+            st.success("Applied to untouched rows with this fingerprint.")
 
 
 def _format_category_label(value: str, group_map: dict[str, str]) -> str:
@@ -527,10 +532,11 @@ def main() -> None:
     reviewed_mask = df.get("reviewed", pd.Series([False] * len(df), index=df.index)).astype(
         bool
     )
+    updated_mask = (changed_mask | reviewed_mask).astype(bool)
     inconsistent = review_validation.inconsistent_fingerprints(df)
 
     base_count = len(base) if isinstance(base, pd.DataFrame) and not base.empty else len(df)
-    updated_confirmed_count = int((changed_mask | reviewed_mask).sum())
+    updated_confirmed_count = int(updated_mask.sum())
     saved_reviewed_count = int(_saved_mask(original, base, df.index).sum())
 
     with st.sidebar:
@@ -703,6 +709,7 @@ def main() -> None:
                     payee_defaults=payee_defaults,
                     category_defaults=category_defaults,
                     show_apply=True,
+                    updated_mask=updated_mask,
                 )
 
     else:
@@ -914,6 +921,7 @@ def main() -> None:
                             category_defaults=category_defaults,
                             show_apply=False,
                             group_fingerprint=fp,
+                            updated_mask=updated_mask,
                         )
 
 
