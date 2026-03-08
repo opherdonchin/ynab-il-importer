@@ -170,3 +170,195 @@ def test_prepare_upload_transactions_resolves_simplified_category_aliases() -> N
     )
 
     assert prepared["category_id"].tolist() == ["cat-groceries", "cat-rta"]
+
+
+def test_upload_preflight_reports_duplicate_and_match_risks() -> None:
+    prepared = pd.DataFrame(
+        {
+            "import_id": ["YNAB:-1000:2026-01-01:1", "YNAB:-1000:2026-01-01:1", "YNAB:-2000:2026-01-02:1"],
+            "account_id": ["acc-bank", "acc-bank", "acc-bank"],
+            "date": ["2026-01-01", "2026-01-01", "2026-01-02"],
+            "amount_milliunits": [-1000, -1000, -2000],
+            "upload_kind": ["regular", "regular", "transfer"],
+            "payee_id": ["", "", "payee-cash"],
+            "payee_name_upload": ["A", "B", ""],
+            "category_id": ["cat-groceries", "cat-groceries", ""],
+        }
+    )
+    existing = [
+        {
+            "id": "existing-1",
+            "account_id": "acc-bank",
+            "date": "2026-01-02",
+            "amount": -2000,
+            "import_id": "",
+            "matched_transaction_id": "",
+            "transfer_account_id": "",
+        }
+    ]
+
+    preflight = upload_prep.upload_preflight(prepared, existing)
+
+    assert preflight["payload_duplicate_import_keys"] == [("acc-bank", "YNAB:-1000:2026-01-01:1")]
+    assert preflight["existing_import_id_hits"] == []
+    assert preflight["potential_match_import_ids"] == ["YNAB:-2000:2026-01-02:1"]
+    assert preflight["transfer_payload_issue_ids"] == []
+
+
+def test_upload_preflight_allows_same_import_id_on_different_accounts() -> None:
+    prepared = pd.DataFrame(
+        {
+            "import_id": ["YNAB:-1000:2026-01-01:1", "YNAB:-1000:2026-01-01:1"],
+            "account_id": ["acc-bank", "acc-card"],
+            "date": ["2026-01-01", "2026-01-01"],
+            "amount_milliunits": [-1000, -1000],
+            "upload_kind": ["regular", "regular"],
+            "payee_id": ["", ""],
+            "payee_name_upload": ["A", "B"],
+            "category_id": ["cat-groceries", "cat-groceries"],
+        }
+    )
+
+    preflight = upload_prep.upload_preflight(prepared, [])
+
+    assert preflight["payload_duplicate_import_keys"] == []
+
+
+def test_summarize_upload_response_counts_matches_and_transfers() -> None:
+    response = {
+        "transaction_ids": ["t1", "t2", "t3"],
+        "duplicate_import_ids": ["dup-1"],
+        "transactions": [
+            {
+                "id": "t1",
+                "account_id": "acc-bank",
+                "date": "2026-01-01",
+                "amount": -1000,
+                "matched_transaction_id": "",
+                "transfer_account_id": "",
+            },
+            {
+                "id": "t2",
+                "account_id": "acc-bank",
+                "date": "2026-01-02",
+                "amount": -2000,
+                "matched_transaction_id": "manual-1",
+                "transfer_account_id": "",
+            },
+            {
+                "id": "t3",
+                "account_id": "acc-bank",
+                "date": "2026-01-03",
+                "amount": -3000,
+                "matched_transaction_id": "",
+                "transfer_account_id": "acc-cash",
+            },
+        ],
+    }
+
+    summary = upload_prep.summarize_upload_response(response)
+
+    assert summary == {
+        "saved": 3,
+        "duplicate_import_ids": 1,
+        "matched_existing": 1,
+        "transfer_saved": 1,
+    }
+
+
+def test_verify_upload_response_checks_transfer_and_category_fields() -> None:
+    prepared = pd.DataFrame(
+        {
+            "import_id": ["imp-regular", "imp-transfer"],
+            "account_id": ["acc-bank", "acc-bank"],
+            "date": ["2026-01-01", "2026-01-02"],
+            "amount_milliunits": [-1000, -2000],
+            "upload_kind": ["regular", "transfer"],
+            "category_id": ["cat-groceries", ""],
+            "transfer_target_account_id": ["", "acc-cash"],
+        }
+    )
+    response = {
+        "transaction_ids": ["t1", "t2"],
+        "transactions": [
+            {
+                "id": "t1",
+                "import_id": "imp-regular",
+                "account_id": "acc-bank",
+                "date": "2026-01-01",
+                "amount": -1000,
+                "category_id": "cat-groceries",
+                "transfer_account_id": "",
+            },
+            {
+                "id": "t2",
+                "import_id": "imp-transfer",
+                "account_id": "acc-bank",
+                "date": "2026-01-02",
+                "amount": -2000,
+                "category_id": "",
+                "transfer_account_id": "acc-cash",
+            },
+        ],
+    }
+
+    verification = upload_prep.verify_upload_response(prepared, response)
+
+    assert verification == {
+        "checked": 2,
+        "missing_saved_transactions": [],
+        "amount_mismatches": [],
+        "date_mismatches": [],
+        "account_mismatches": [],
+        "transfer_mismatches": [],
+        "category_mismatches": [],
+    }
+
+
+def test_verify_upload_response_allows_same_import_id_on_different_accounts() -> None:
+    prepared = pd.DataFrame(
+        {
+            "import_id": ["imp-shared", "imp-shared"],
+            "account_id": ["acc-bank", "acc-card"],
+            "date": ["2026-01-01", "2026-01-01"],
+            "amount_milliunits": [-1000, -1000],
+            "upload_kind": ["regular", "regular"],
+            "category_id": ["cat-groceries", "cat-groceries"],
+            "transfer_target_account_id": ["", ""],
+        }
+    )
+    response = {
+        "transaction_ids": ["t1", "t2"],
+        "transactions": [
+            {
+                "id": "t1",
+                "import_id": "imp-shared",
+                "account_id": "acc-bank",
+                "date": "2026-01-01",
+                "amount": -1000,
+                "category_id": "cat-groceries",
+                "transfer_account_id": "",
+            },
+            {
+                "id": "t2",
+                "import_id": "imp-shared",
+                "account_id": "acc-card",
+                "date": "2026-01-01",
+                "amount": -1000,
+                "category_id": "cat-groceries",
+                "transfer_account_id": "",
+            },
+        ],
+    }
+
+    verification = upload_prep.verify_upload_response(prepared, response)
+
+    assert verification == {
+        "checked": 2,
+        "missing_saved_transactions": [],
+        "amount_mismatches": [],
+        "date_mismatches": [],
+        "account_mismatches": [],
+        "transfer_mismatches": [],
+        "category_mismatches": [],
+    }

@@ -180,6 +180,7 @@ def prepare_upload_transactions(
     is_transfer = df["payee_selected"].map(review_model.is_transfer_payee)
 
     transfer_target_ids = df["transfer_target"].map(transfer_payees).astype("string").fillna("")
+    transfer_target_account_ids = df["transfer_target"].map(account_ids).astype("string").fillna("")
     missing_transfer_targets = sorted(
         df.loc[is_transfer & (transfer_target_ids == ""), "transfer_target"].unique().tolist()
     )
@@ -205,6 +206,8 @@ def prepare_upload_transactions(
     df.loc[is_transfer, "payee_id"] = transfer_target_ids.loc[is_transfer]
     df["payee_name_upload"] = df["payee_selected"].where(~is_transfer, "")
     df.loc[is_transfer, "category_id"] = ""
+    df["transfer_target_account_id"] = ""
+    df.loc[is_transfer, "transfer_target_account_id"] = transfer_target_account_ids.loc[is_transfer]
 
     df["amount_milliunits"] = df.apply(_amount_milliunits, axis=1)
     occurrence_order = (
@@ -245,6 +248,7 @@ def prepare_upload_transactions(
             "payee_name_upload",
             "payee_id",
             "transfer_target",
+            "transfer_target_account_id",
             "category_selected",
             "category_id",
             "cleared",
@@ -278,3 +282,220 @@ def upload_payload_records(prepared_df: pd.DataFrame) -> list[dict[str, Any]]:
             payload["category_id"] = category_id
         records.append(payload)
     return records
+
+
+def _transactions_frame(transactions: list[dict[str, Any]]) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for txn in transactions:
+        rows.append(
+            {
+                "id": _normalize_text(txn.get("id", "")),
+                "account_id": _normalize_text(txn.get("account_id", "")),
+                "date": _normalize_text(txn.get("date", "")),
+                "amount_milliunits": int(txn.get("amount", 0) or 0),
+                "import_id": _normalize_text(txn.get("import_id", "")),
+                "matched_transaction_id": _normalize_text(txn.get("matched_transaction_id", "")),
+                "transfer_account_id": _normalize_text(txn.get("transfer_account_id", "")),
+                "payee_name": _normalize_text(txn.get("payee_name", "")),
+                "category_name": _normalize_text(txn.get("category_name", "")),
+                "category_id": _normalize_text(txn.get("category_id", "")),
+            }
+        )
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    df["date_key"] = pd.to_datetime(df["date"], errors="coerce")
+    return df
+
+
+def _account_import_label(account_id: str, import_id: str) -> str:
+    return f"{_normalize_text(account_id)}::{_normalize_text(import_id)}"
+
+
+def upload_preflight(
+    prepared_df: pd.DataFrame,
+    existing_transactions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    prepared = prepared_df.copy()
+    prepared["import_id"] = _normalize_text_series(prepared["import_id"])
+    prepared["account_id"] = _normalize_text_series(prepared["account_id"])
+    prepared["upload_kind"] = _normalize_text_series(prepared["upload_kind"])
+    prepared["payee_id"] = _normalize_text_series(prepared["payee_id"])
+    prepared["payee_name_upload"] = _normalize_text_series(prepared["payee_name_upload"])
+    prepared["category_id"] = _normalize_text_series(prepared["category_id"])
+    prepared["date_key"] = pd.to_datetime(prepared["date"], errors="coerce")
+    prepared["amount_milliunits"] = (
+        pd.to_numeric(prepared["amount_milliunits"], errors="coerce").fillna(0).astype(int)
+    )
+
+    payload_duplicates = prepared.groupby(["account_id", "import_id"], dropna=False).size()
+    payload_duplicate_keys = [
+        (account_id, import_id)
+        for (account_id, import_id), count in payload_duplicates.items()
+        if import_id and count > 1
+    ]
+
+    existing_df = _transactions_frame(existing_transactions)
+    existing_import_id_hits: list[tuple[str, str]] = []
+    potential_match_import_ids: list[str] = []
+    if not existing_df.empty:
+        existing_with_import = existing_df[existing_df["import_id"] != ""].copy()
+        if not existing_with_import.empty:
+            existing_keys = {
+                (row["account_id"], row["import_id"])
+                for _, row in existing_with_import.iterrows()
+            }
+            existing_import_id_hits = sorted(
+                {
+                    (row["account_id"], row["import_id"])
+                    for _, row in prepared.iterrows()
+                    if row["import_id"] and (row["account_id"], row["import_id"]) in existing_keys
+                }
+            )
+
+        candidates = existing_df[existing_df["import_id"] == ""].copy()
+        if not candidates.empty:
+            merged = prepared.reset_index(drop=True).merge(
+                candidates,
+                on=["account_id", "amount_milliunits"],
+                suffixes=("_prepared", "_existing"),
+            )
+            if not merged.empty:
+                merged["date_gap_days"] = (
+                    merged["date_key_prepared"] - merged["date_key_existing"]
+                ).abs().dt.days
+                merged = merged[merged["date_gap_days"] <= 10]
+                if not merged.empty:
+                    potential_match_import_ids = sorted(
+                        set(merged["import_id_prepared"].tolist()) - set(existing_import_id_hits)
+                    )
+
+    is_transfer = prepared["upload_kind"] == "transfer"
+    transfer_payload_issue_mask = (
+        (is_transfer & (prepared["payee_id"] == ""))
+        | (is_transfer & (prepared["category_id"] != ""))
+        | (is_transfer & (prepared["payee_name_upload"] != ""))
+        | (~is_transfer & (prepared["payee_id"] != ""))
+    )
+    transfer_payload_issue_ids = sorted(
+        prepared.loc[transfer_payload_issue_mask, "import_id"].tolist()
+    )
+
+    return {
+        "prepared_count": len(prepared),
+        "transfer_count": int(is_transfer.sum()),
+        "payload_duplicate_import_keys": payload_duplicate_keys,
+        "existing_import_id_hits": existing_import_id_hits,
+        "potential_match_import_ids": potential_match_import_ids,
+        "transfer_payload_issue_ids": transfer_payload_issue_ids,
+    }
+
+
+def summarize_upload_response(response: dict[str, Any]) -> dict[str, int]:
+    transactions = response.get("transactions", []) or []
+    saved_ids = response.get("transaction_ids", []) or []
+    duplicate_ids = response.get("duplicate_import_ids", []) or []
+    tx_df = _transactions_frame(transactions)
+
+    matched_existing = 0
+    transfer_saved = 0
+    if not tx_df.empty:
+        matched_existing = int((tx_df["matched_transaction_id"] != "").sum())
+        transfer_saved = int((tx_df["transfer_account_id"] != "").sum())
+
+    return {
+        "saved": len(saved_ids),
+        "duplicate_import_ids": len(duplicate_ids),
+        "matched_existing": matched_existing,
+        "transfer_saved": transfer_saved,
+    }
+
+
+def verify_upload_response(
+    prepared_df: pd.DataFrame,
+    response: dict[str, Any],
+) -> dict[str, Any]:
+    prepared = prepared_df.copy()
+    prepared["import_id"] = _normalize_text_series(prepared["import_id"])
+    prepared["account_id"] = _normalize_text_series(prepared["account_id"])
+    prepared["category_id"] = _normalize_text_series(prepared["category_id"])
+    prepared["transfer_target_account_id"] = _normalize_text_series(
+        prepared["transfer_target_account_id"]
+    )
+    prepared["date"] = _normalize_text_series(prepared["date"])
+    prepared["amount_milliunits"] = (
+        pd.to_numeric(prepared["amount_milliunits"], errors="coerce").fillna(0).astype(int)
+    )
+    prepared["upload_kind"] = _normalize_text_series(prepared["upload_kind"])
+
+    response_df = _transactions_frame(response.get("transactions", []) or [])
+    if response_df.empty:
+        return {
+            "checked": 0,
+            "missing_saved_transactions": [],
+            "amount_mismatches": [],
+            "date_mismatches": [],
+            "account_mismatches": [],
+            "transfer_mismatches": [],
+            "category_mismatches": [],
+        }
+
+    response_df = response_df[response_df["import_id"] != ""].copy()
+    prepared_indexed = prepared.set_index(["account_id", "import_id"], drop=False)
+    response_indexed = response_df.set_index(["account_id", "import_id"], drop=False)
+
+    if prepared_indexed.index.has_duplicates:
+        prepared_indexed = prepared_indexed[~prepared_indexed.index.duplicated(keep="first")]
+    if response_indexed.index.has_duplicates:
+        response_indexed = response_indexed[~response_indexed.index.duplicated(keep="first")]
+
+    missing_saved = sorted(
+        set(response.get("transaction_ids", []) or [])
+        - set(response_df["id"].tolist())
+    )
+
+    shared_keys = sorted(set(prepared_indexed.index).intersection(set(response_indexed.index)))
+    amount_mismatches: list[str] = []
+    date_mismatches: list[str] = []
+    account_mismatches: list[str] = []
+    transfer_mismatches: list[str] = []
+    category_mismatches: list[str] = []
+
+    for account_id, import_id in shared_keys:
+        prepared_row = prepared_indexed.loc[(account_id, import_id)]
+        response_row = response_indexed.loc[(account_id, import_id)]
+        label = _account_import_label(account_id, import_id)
+
+        if int(prepared_row["amount_milliunits"]) != int(response_row["amount_milliunits"]):
+            amount_mismatches.append(label)
+        if str(prepared_row["date"]) != str(response_row["date"]):
+            date_mismatches.append(label)
+        if str(prepared_row["account_id"]) != str(response_row["account_id"]):
+            account_mismatches.append(label)
+
+        is_transfer = str(prepared_row["upload_kind"]) == "transfer"
+        response_transfer_account_id = str(response_row.get("transfer_account_id", "") or "")
+        if is_transfer:
+            if not response_transfer_account_id or (
+                str(prepared_row["transfer_target_account_id"])
+                and response_transfer_account_id != str(prepared_row["transfer_target_account_id"])
+            ):
+                transfer_mismatches.append(label)
+        else:
+            if response_transfer_account_id:
+                transfer_mismatches.append(label)
+
+        prepared_category_id = str(prepared_row.get("category_id", "") or "")
+        response_category_id = str(response_row.get("category_id", "") or "")
+        if not is_transfer and prepared_category_id and prepared_category_id != response_category_id:
+            category_mismatches.append(label)
+
+    return {
+        "checked": len(shared_keys),
+        "missing_saved_transactions": missing_saved,
+        "amount_mismatches": sorted(amount_mismatches),
+        "date_mismatches": sorted(date_mismatches),
+        "account_mismatches": sorted(account_mismatches),
+        "transfer_mismatches": sorted(transfer_mismatches),
+        "category_mismatches": sorted(category_mismatches),
+    }

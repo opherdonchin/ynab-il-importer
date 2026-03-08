@@ -86,6 +86,7 @@ def main() -> None:
     if reviewed.empty:
         raise ValueError("No rows remain after applying the selected upload filters.")
     categories = ynab_api.categories_to_dataframe(ynab_api.fetch_categories())
+    existing_transactions = ynab_api.fetch_transactions()
 
     prepared = upload_prep.prepare_upload_transactions(
         reviewed,
@@ -95,6 +96,7 @@ def main() -> None:
         approved=True,
     )
     payload = upload_prep.upload_payload_records(prepared)
+    preflight = upload_prep.upload_preflight(prepared, existing_transactions)
 
     export.write_dataframe(prepared, out_path)
     json_out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -105,15 +107,68 @@ def main() -> None:
 
     print(f"Wrote {out_path} ({len(prepared)} rows)")
     print(f"Wrote {json_out_path}")
+    print(
+        "Upload preflight: "
+        f"prepared={preflight['prepared_count']}, "
+        f"transfers={preflight['transfer_count']}, "
+        f"payload_duplicate_import_keys={len(preflight['payload_duplicate_import_keys'])}, "
+        f"existing_import_id_hits={len(preflight['existing_import_id_hits'])}, "
+        f"potential_match_candidates={len(preflight['potential_match_import_ids'])}, "
+        f"transfer_payload_issues={len(preflight['transfer_payload_issue_ids'])}"
+    )
+    if preflight["existing_import_id_hits"]:
+        print(
+            "Preflight note: some import_ids already exist in YNAB; "
+            "a rerun should treat those rows as duplicates."
+        )
+    if preflight["potential_match_import_ids"]:
+        print(
+            "Preflight note: some rows may match existing user-entered transactions "
+            "instead of creating brand-new imports."
+        )
+    if preflight["payload_duplicate_import_keys"]:
+        raise ValueError(
+            "Payload contains duplicate (account_id, import_id) keys: "
+            + ", ".join(
+                [f"{account_id}::{import_id}" for account_id, import_id in preflight["payload_duplicate_import_keys"]]
+            )
+        )
 
     if args.execute:
         response = ynab_api.create_transactions(payload)
-        duplicate_ids = response.get("duplicate_import_ids", [])
-        created_ids = response.get("transaction_ids", [])
+        summary = upload_prep.summarize_upload_response(response)
+        verification = upload_prep.verify_upload_response(prepared, response)
         print(
             "YNAB upload complete: "
-            f"created={len(created_ids)}, duplicate_import_ids={len(duplicate_ids)}"
+            f"saved={summary['saved']}, "
+            f"duplicate_import_ids={summary['duplicate_import_ids']}, "
+            f"matched_existing={summary['matched_existing']}, "
+            f"transfer_saved={summary['transfer_saved']}"
         )
+        if summary["matched_existing"]:
+            print(
+                "Upload note: some rows matched existing user-entered transactions "
+                "rather than creating new imported rows."
+            )
+        if summary["transfer_saved"] != preflight["transfer_count"]:
+            print(
+                "Upload warning: the number of saved transfer transactions does not "
+                "match the number of transfer rows in the payload."
+            )
+        print(
+            "Upload verification: "
+            f"checked={verification['checked']}, "
+            f"missing_saved_transactions={len(verification['missing_saved_transactions'])}, "
+            f"amount_mismatches={len(verification['amount_mismatches'])}, "
+            f"date_mismatches={len(verification['date_mismatches'])}, "
+            f"account_mismatches={len(verification['account_mismatches'])}, "
+            f"transfer_mismatches={len(verification['transfer_mismatches'])}, "
+            f"category_mismatches={len(verification['category_mismatches'])}"
+        )
+        if verification["transfer_mismatches"]:
+            print(
+                "Upload warning: some transfer rows did not come back as the expected transfer."
+            )
 
 
 if __name__ == "__main__":

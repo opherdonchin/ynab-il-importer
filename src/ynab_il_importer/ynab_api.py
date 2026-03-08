@@ -106,7 +106,16 @@ def create_transactions(
         return {"transaction_ids": [], "duplicate_import_ids": []}
     plan = plan_id or _get_budget_id()
     payload = _ynab_post(f"/plans/{plan}/transactions", {"transactions": transactions})
-    return payload.get("data", {}).get("bulk", {})
+    data = payload.get("data", {})
+    if "bulk" in data:
+        return data.get("bulk", {})
+    return {
+        "transaction_ids": data.get("transaction_ids", []),
+        "duplicate_import_ids": data.get("duplicate_import_ids", []),
+        "transactions": data.get("transactions", []),
+        "transaction": data.get("transaction", {}),
+        "server_knowledge": data.get("server_knowledge"),
+    }
 
 
 def transactions_to_dataframe(
