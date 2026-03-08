@@ -65,6 +65,47 @@ def _expand_source_paths(files: list[Path], dirs: list[Path]) -> list[Path]:
     return paths
 
 
+def _dedupe_source_overlaps(source_df: pd.DataFrame) -> pd.DataFrame:
+    if source_df.empty or "source" not in source_df.columns:
+        return source_df.reset_index(drop=True)
+
+    source_norm = source_df["source"].astype("string").fillna("").str.strip().str.lower()
+    if not (source_norm == "bank").any() or not (source_norm == "card").any():
+        return source_df.reset_index(drop=True)
+
+    work = source_df.copy()
+    work["_source_norm"] = source_norm
+    work["_date_key"] = pd.to_datetime(work["date"], errors="coerce").dt.date
+    work["_outflow_key"] = pd.to_numeric(work["outflow_ils"], errors="coerce").fillna(0.0).round(2)
+    work["_inflow_key"] = pd.to_numeric(work["inflow_ils"], errors="coerce").fillna(0.0).round(2)
+    work["_fingerprint_key"] = work["fingerprint"].astype("string").fillna("").str.strip()
+
+    key_cols = ["_date_key", "_outflow_key", "_inflow_key", "_fingerprint_key"]
+    valid = work["_date_key"].notna() & (work["_fingerprint_key"] != "")
+
+    bank = work.loc[(work["_source_norm"] == "bank") & valid, key_cols].copy()
+    bank["_dup_rank"] = bank.groupby(key_cols, dropna=False).cumcount()
+
+    card = work.loc[(work["_source_norm"] == "card") & valid, key_cols].copy()
+    card["_dup_rank"] = card.groupby(key_cols, dropna=False).cumcount()
+    card["_row_index"] = card.index
+
+    matched_cards = card.merge(
+        bank.assign(_matched=True),
+        on=key_cols + ["_dup_rank"],
+        how="left",
+    )
+    drop_index = matched_cards.loc[matched_cards["_matched"].eq(True), "_row_index"]
+    if drop_index.empty:
+        return source_df.reset_index(drop=True)
+
+    warnings.warn(
+        f"Dropping {len(drop_index)} bank/card overlap rows matched on date+amount+fingerprint.",
+        UserWarning,
+    )
+    return source_df.drop(index=drop_index.to_list()).reset_index(drop=True).copy()
+
+
 def _dedupe_sources(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     pairs = pairing.match_pairs(source_df, ynab_df)
     if pairs.empty:
@@ -87,7 +128,7 @@ def _dedupe_sources(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> tuple[pd.
 
     merged = source_clean.merge(keys, on=key_cols, how="left", indicator=True)
     is_dup = merged["_merge"] == "both"
-    deduped = source_df.loc[~is_dup].copy()
+    deduped = source_df.reset_index(drop=True).loc[~is_dup.to_numpy()].copy()
     return deduped, pairs
 
 
@@ -186,6 +227,7 @@ def main() -> None:
         raise ValueError("Provide at least one --source or --source-dir input.")
 
     source_df = _load_csvs(source_paths)
+    source_df = _dedupe_source_overlaps(source_df)
     ynab_df = pd.read_csv(Path(args.ynab))
     if ynab_df.empty:
         raise ValueError("No rows found in YNAB input.")
@@ -216,6 +258,8 @@ def main() -> None:
     out = out[
         [
             "transaction_id",
+            "source",
+            "account_name",
             "date",
             "outflow_ils",
             "inflow_ils",

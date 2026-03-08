@@ -63,6 +63,18 @@ def _ynab_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]
     return response.json()
 
 
+def _ynab_post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    url = f"{BASE_URL}{path}"
+    headers = {
+        "Authorization": f"Bearer {_get_token()}",
+        "Content-Type": "application/json",
+    }
+    response = requests.post(url, headers=headers, json=payload, timeout=30)
+    if response.status_code >= 400:
+        raise ValueError(f"YNAB API error {response.status_code}: {response.text}")
+    return response.json()
+
+
 def fetch_accounts(plan_id: str | None = None) -> list[dict[str, Any]]:
     plan = plan_id or _get_budget_id()
     payload = _ynab_get(f"/plans/{plan}/accounts")
@@ -84,6 +96,17 @@ def fetch_categories(plan_id: str | None = None) -> list[dict[str, Any]]:
     plan = plan_id or _get_budget_id()
     payload = _ynab_get(f"/plans/{plan}/categories")
     return payload.get("data", {}).get("category_groups", [])
+
+
+def create_transactions(
+    transactions: list[dict[str, Any]],
+    plan_id: str | None = None,
+) -> dict[str, Any]:
+    if not transactions:
+        return {"transaction_ids": [], "duplicate_import_ids": []}
+    plan = plan_id or _get_budget_id()
+    payload = _ynab_post(f"/plans/{plan}/transactions", {"transactions": transactions})
+    return payload.get("data", {}).get("bulk", {})
 
 
 def transactions_to_dataframe(
