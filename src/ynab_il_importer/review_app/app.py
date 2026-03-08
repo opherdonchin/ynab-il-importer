@@ -492,6 +492,7 @@ def _render_row_controls(
                 eligible_mask=untouched_mask,
             )
             st.success("Applied to untouched rows with this fingerprint.")
+        st.session_state["df"] = df
         # Recompute counters/badges from the updated dataframe in the same interaction.
         st.rerun()
 
@@ -866,6 +867,7 @@ def main() -> None:
                     )
                     st.session_state["expanded_group_fp"] = fp
                     st.session_state["expanded_group_row_id"] = None
+                    st.session_state["df"] = df
                     st.success("Applied group values.")
                     # Recompute counters/badges from the updated dataframe in the same interaction.
                     st.rerun()
