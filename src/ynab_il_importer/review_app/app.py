@@ -386,6 +386,7 @@ def _render_row_controls(
     payee_defaults: dict[str, str],
     category_defaults: dict[str, str],
     show_apply: bool = True,
+    group_fingerprint: str | None = None,
 ) -> None:
     row = df.loc[idx]
     fingerprint = str(row.get("fingerprint", "") or "")
@@ -448,20 +449,6 @@ def _render_row_controls(
             key=category_select_key,
         )
 
-        confirm_payee_key = f"confirm_payee_{idx}"
-        confirm_category_key = f"confirm_category_{idx}"
-
-        confirm_payee_default = st.checkbox(
-            "Confirm payee default",
-            value=bool(payee_selected and payee_selected == payee_default),
-            key=confirm_payee_key,
-        )
-        confirm_category_default = st.checkbox(
-            "Confirm category default",
-            value=bool(category_selected and category_selected == category_default),
-            key=confirm_category_key,
-        )
-
         update_key = f"update_map_{idx}"
         update_val = st.checkbox(
             "Update map", value=bool(row.get("update_map", False)), key=update_key
@@ -472,23 +459,15 @@ def _render_row_controls(
             "Apply to all with this fingerprint", use_container_width=True
         )
 
-    final_payee = _resolve_default_choice(
-        selected=payee_select,
-        override=payee_override,
-        existing=payee_selected,
-        default=payee_default,
-        confirmed=confirm_payee_default,
-    )
-    final_category = _resolve_default_choice(
-        selected=category_select,
-        override="",
-        existing=category_selected,
-        default=category_default,
-        confirmed=confirm_category_default,
-    )
+    final_payee = review_model.resolve_selected_value(payee_select, payee_override)
+    final_category = review_model.resolve_selected_value(category_select, "")
 
     if submitted or apply_all:
-        st.session_state["expanded_row_id"] = idx
+        if group_fingerprint:
+            st.session_state["expanded_group_fp"] = group_fingerprint
+            st.session_state["expanded_group_row_id"] = idx
+        else:
+            st.session_state["expanded_row_id"] = idx
         df.at[idx, "payee_selected"] = final_payee
         df.at[idx, "category_selected"] = final_category
         df.at[idx, "update_map"] = bool(update_val)
@@ -517,24 +496,6 @@ def _format_category_label(value: str, group_map: dict[str, str]) -> str:
     if group:
         return f"{group} — {value}"
     return value
-
-
-def _resolve_default_choice(
-    *,
-    selected: str,
-    override: str,
-    existing: str,
-    default: str,
-    confirmed: bool,
-) -> str:
-    _ = confirmed
-    if override:
-        return override.strip()
-    if selected:
-        return selected.strip()
-    if existing:
-        return existing.strip()
-    return default.strip()
 
 
 def main() -> None:
@@ -796,7 +757,9 @@ def main() -> None:
                 f"Payee: {group_payee_summary} | Cat: {group_category_summary}"
             )
 
-            with st.expander(header, expanded=False):
+            with st.expander(
+                header, expanded=(st.session_state.get("expanded_group_fp") == fp)
+            ):
                 group_unsaved = int(unsaved_mask.loc[group.index].sum())
                 group_changed = int(changed_mask.loc[group.index].sum())
                 group_reviewed = int(reviewed_mask.loc[group.index].sum())
@@ -892,6 +855,8 @@ def main() -> None:
                         update_map=group_update,
                         reviewed=True,
                     )
+                    st.session_state["expanded_group_fp"] = fp
+                    st.session_state["expanded_group_row_id"] = None
                     st.success("Applied group values.")
 
                 st.markdown("**Rows**")
@@ -930,7 +895,11 @@ def main() -> None:
                         f"{row.get('date','')} | {_format_amount(row)} | "
                         f"{memo_snip} | Payee: {payee_summary} | Cat: {category_summary}"
                     )
-                    with st.expander(summary, expanded=False):
+                    row_expanded = (
+                        st.session_state.get("expanded_group_fp") == fp
+                        and st.session_state.get("expanded_group_row_id") == idx
+                    )
+                    with st.expander(summary, expanded=row_expanded):
                         _render_status_badges(
                             unsaved=bool(unsaved_mask.loc[idx]),
                             changed=bool(changed_mask.loc[idx]),
@@ -944,6 +913,7 @@ def main() -> None:
                             payee_defaults=payee_defaults,
                             category_defaults=category_defaults,
                             show_apply=False,
+                            group_fingerprint=fp,
                         )
 
 

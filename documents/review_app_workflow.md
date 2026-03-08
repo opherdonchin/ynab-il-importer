@@ -57,7 +57,7 @@ pixi run python scripts/review_app.py
 Notes:
 - Category selection is restricted to the full YNAB category list.
 - Payee selection allows free-text overrides.
-- Defaults may be prefilled; confirm default checkboxes are optional.
+- Defaults may be prefilled. Clicking **Save row** uses the currently shown payee/category values.
 - Save defaults to `{input}_reviewed.csv` in the same folder as the input file.
 - Changes are in-memory until you click **Save**.
 - Row status badges: **Unsaved** (changed since last save), **Changed vs original**, **Reviewed** (explicitly saved/confirmed).
