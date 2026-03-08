@@ -62,7 +62,7 @@ Notes:
 - Changes are in-memory until you click **Save**.
 - Row status badges: **Unsaved** (changed since last save), **Changed vs original**, **Reviewed** (explicitly saved/confirmed).
 - You can pass `--in`, `--out`, and `--categories` to set initial paths.
-- Use `--resume` to reopen the last saved file:
+- Use `--resume` to reopen the default reviewed file for your `--in` path (`{input}_reviewed.csv`):
 
 ```bash
 pixi run python scripts/review_app.py --resume

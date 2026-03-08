@@ -18,6 +18,7 @@ import ynab_il_importer.review_app.validation as review_validation
 DEFAULT_SOURCE = Path("outputs/proposed_transactions.csv")
 DEFAULT_SAVE = Path("outputs/proposed_transactions_reviewed.csv")
 DEFAULT_CATEGORIES = Path("outputs/ynab_categories.csv")
+DEFAULT_RESUME_SENTINEL = "__DEFAULT_RESUME__"
 
 
 def _series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
@@ -59,7 +60,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--resume",
         nargs="?",
-        const=str(DEFAULT_SAVE),
+        const=DEFAULT_RESUME_SENTINEL,
         help="Resume from a previously saved review CSV (optional path).",
     )
     return parser
@@ -124,8 +125,11 @@ def _init_from_cli() -> None:
         _load_base(input_path)
 
     resume_path = getattr(args, "resume", None)
-    if resume_path:
-        path = Path(resume_path)
+    if resume_path is not None:
+        if resume_path == DEFAULT_RESUME_SENTINEL:
+            path = output_path
+        else:
+            path = Path(resume_path)
         if not path.exists():
             st.error(f"Resume file not found: {path}")
             st.stop()
@@ -278,6 +282,20 @@ def _changed_mask(df: pd.DataFrame, base: pd.DataFrame) -> pd.Series:
     current = df[cols].copy()
     baseline = base[cols].reindex(df.index)
     return (current != baseline).any(axis=1)
+
+
+def _saved_mask(original: pd.DataFrame, base: pd.DataFrame, current_index: pd.Index) -> pd.Series:
+    if original is None or original.empty:
+        return pd.Series([False] * len(current_index), index=current_index)
+
+    changed = _changed_mask(original, base).reindex(original.index, fill_value=False)
+    if "reviewed" in original.columns:
+        reviewed = original["reviewed"].astype(bool).fillna(False)
+    else:
+        reviewed = pd.Series([False] * len(original), index=original.index)
+
+    saved = (changed | reviewed).reindex(current_index, fill_value=False)
+    return saved.astype(bool)
 
 
 def _apply_filters(df: pd.DataFrame, filters: dict[str, Any]) -> pd.DataFrame:
@@ -552,11 +570,7 @@ def main() -> None:
 
     base_count = len(base) if isinstance(base, pd.DataFrame) and not base.empty else len(df)
     updated_confirmed_count = int((changed_mask | reviewed_mask).sum())
-    saved_reviewed_count = 0
-    if isinstance(original, pd.DataFrame) and "reviewed" in original.columns:
-        saved_reviewed_count = int(
-            original["reviewed"].astype(bool).fillna(False).sum()
-        )
+    saved_reviewed_count = int(_saved_mask(original, base, df.index).sum())
 
     with st.sidebar:
         st.header("Files")
@@ -586,6 +600,14 @@ def main() -> None:
             review_io.save_reviewed_transactions(df, save_path)
             st.session_state["last_saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             st.session_state["df_original"] = df.copy()
+            original = st.session_state["df_original"]
+            reviewed_now = df.get(
+                "reviewed", pd.Series([False] * len(df), index=df.index)
+            ).astype(bool)
+            updated_confirmed_count = int(
+                (_changed_mask(df, base) | reviewed_now.fillna(False)).sum()
+            )
+            saved_reviewed_count = int(_saved_mask(original, base, df.index).sum())
             st.success(f"Saved to {save_path}")
 
         st.markdown(
