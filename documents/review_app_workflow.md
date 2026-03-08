@@ -59,6 +59,7 @@ Notes:
 - Payee selection allows free-text overrides.
 - Defaults may be prefilled. Clicking **Save row** uses the currently shown payee/category values.
 - **Apply to all with this fingerprint** only updates rows that are still untouched (not already updated/reviewed).
+- Row/group submit actions force an immediate UI refresh so status colors and counters update right away.
 - Save defaults to `{input}_reviewed.csv` in the same folder as the input file.
 - Changes are in-memory until you click **Save**.
 - Row status badges: **Unsaved** (changed since last save), **Changed vs original**, **Reviewed** (explicitly saved/confirmed).

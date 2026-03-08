@@ -492,6 +492,8 @@ def _render_row_controls(
                 eligible_mask=untouched_mask,
             )
             st.success("Applied to untouched rows with this fingerprint.")
+        # Recompute counters/badges from the updated dataframe in the same interaction.
+        st.rerun()
 
 
 def _format_category_label(value: str, group_map: dict[str, str]) -> str:
@@ -865,6 +867,8 @@ def main() -> None:
                     st.session_state["expanded_group_fp"] = fp
                     st.session_state["expanded_group_row_id"] = None
                     st.success("Applied group values.")
+                    # Recompute counters/badges from the updated dataframe in the same interaction.
+                    st.rerun()
 
                 st.markdown("**Rows**")
                 row_indices = group.index.tolist()
