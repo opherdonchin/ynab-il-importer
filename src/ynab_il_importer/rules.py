@@ -47,7 +47,7 @@ RULE_KEY_COLUMNS = [
 _TRUE_VALUES = {"1", "true", "t", "yes", "y"}
 _FALSE_VALUES = {"0", "false", "f", "no", "n"}
 _AMOUNT_BUCKET_RE = re.compile(
-    r"^(?P<op><=|>=|<|>)(?P<value>\d+(?:\.\d+)?)$"
+    r"^(?P<op><=|>=|=|<|>)(?P<value>\d+(?:\.\d+)?)$"
 )
 _AMOUNT_RANGE_RE = re.compile(
     r"^(?P<low>\d+(?:\.\d+)?)[\\s]*-[\\s]*(?P<high>\d+(?:\.\d+)?)$"
@@ -262,6 +262,8 @@ def _parse_amount_bucket(rule_value: str) -> tuple[Callable[[float], bool], str]
             return (lambda amt: amt < value), text
         if op == "<=":
             return (lambda amt: amt <= value), text
+        if op == "=":
+            return (lambda amt: amt == value), text
         if op == ">":
             return (lambda amt: amt > value), text
         if op == ">=":

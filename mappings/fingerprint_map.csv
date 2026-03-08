@@ -1,4 +1,4 @@
-rule_id,is_active,priority,pattern,canonical_text,notes
+﻿rule_id,is_active,priority,pattern,canonical_text,notes
 paybox,True,0,paybox,paybox,Consolidate PayBox transfers
 סופרפארם,True,0,סופר פארם|סופרפארם,סופרפארם,Consolidate Super-Pharm variants
 דור_אלון,True,0,דור אלון,דור אלון,Consolidate Dor Alon variants
@@ -69,3 +69,6 @@ puzzle_outlet,True,0,puzzle outlet|סופט קוקיז,puzzle outlet,Consolidate
 subject_payment,False,-10,תשלום,subject,Handled in fingerprint_v0: map תשלום only when sole token
 מאפית_אורן_משי,True,0,מאפית אורן משי|מאפיתת אורן משי,מאפית אורן משי,Consolidate Oren Meshi bakery variants
 דיל_הר_בוקר,True,0,דיל הר בוקר,שופרסל,Consolidate Shufersal Deal (Har Boker) to Shufersal
+Adrian,True,0,אדריאן,Adrian Sports Trainer,Consolidate Adrian variants
+dmei_kartis,True,10,דמי כרטיס,דמי כרטיס,Keep full card-fee fingerprint
+iriyat_beer_sheva,True,10,עיריית באר שבע,עיריית באר שבע,Keep full Beer Sheva municipality fingerprint

@@ -210,9 +210,9 @@ yuchen_wang_222,True,0,,yuchen wang,,,,,,,Subject,University,bootstrap count=3
 אביהcarrefour_226,True,0,,אביהcarrefour,,,,,,,Carrefour,🛍️Groceries,bootstrap count=1
 אביזרים_לסלולרisim_227,True,0,,אביזרים לסלולרisim,,,,,,,ISim,Unplanned extra expense,bootstrap count=1
 אגד_מקומות_שמורים_228,True,0,,אגד מקומות שמורים,,,,,,,Egged,University,bootstrap count=2
-אדריאן_דדון_229,True,0,,אדריאן דדון,,,,,,,Adrian Sports Trainer,Chugim parents,bootstrap count=5
-אדריאן_דדון_230,True,0,,אדריאן דדון,,,,,,,Adrian Sports Trainer,Chugim,bootstrap count=1
-אדריאן_דדון_מאמן_כושר_ובר_231,True,0,,אדריאן דדון מאמן כושר ובר,,,,,,,Adrian Sports Trainer,Chugim parents,bootstrap count=1
+אדריאן_דדון_229,True,10,,אדריאן דדון,,,,,,>350,Adrian Sports Trainer,Chugim parents,Amount rule: >350
+אדריאן_דדון_230,True,10,,אדריאן דדון,,,,,,<=350,Adrian Sports Trainer,Chugim,Amount rule: <=350
+אדריאן_דדון_מאמן_כושר_ובר_231,True,10,,אדריאן דדון מאמן כושר ובר,,,,,,>350,Adrian Sports Trainer,Chugim parents,Amount rule: >350
 אהרו_סלתיק_אלקטרומכניקה_232,True,0,,אהרו סלתיק אלקטרומכניקה,,,,,,,Saltik Electromechanics,House and stuff,bootstrap count=1
 אהרו_סלתיק_אלקטרומכניקה_233,True,0,,אהרו סלתיק אלקטרומכניקה,,,,,,,Seltick Electromechanics,House and stuff,bootstrap count=1
 או_לה_לה_234,True,0,,או לה לה,,,,,,,Oh Lala,Opher food,bootstrap count=9
@@ -493,10 +493,9 @@ yuchen_wang_222,True,0,,yuchen wang,,,,,,,Subject,University,bootstrap count=3
 הפניקס_גמל_521,True,0,,הפניקס גמל,,,,,,,Transfer : Unplanned Opher,,bootstrap count=2
 הפק_מזומן_522,True,0,,הפק מזומן,,,,,,,Transfer : Cash,,bootstrap count=7
 הפקדה_523,True,0,,הפקדה,,,,,,,Mikael,Mikael,bootstrap count=1
-הפקדות_קופג_524,True,0,,הפקדות קופג,,,,,,,Transfer : Planned Liya,,bootstrap count=24
-הפקדות_קופג_525,True,0,,הפקדות קופג,,,,,,,Transfer : Unplanned Opher,,bootstrap count=24
-הפקדות_קופג_526,True,0,,הפקדות קופג,,,,,,,Excellence,Pilates,bootstrap count=23
-הפקדות_קופג_527,True,0,,הפקדות קופג,,,,,,,Subject,University,bootstrap count=1
+הפקדות_קופג_524,True,0,,הפקדות קופג,,,,,,=6300,Transfer : Planned Liya,,bootstrap count=24
+הפקדות_קופג_525,True,0,,הפקדות קופג,,,,,,=600,Transfer : Unplanned Opher,,bootstrap count=24
+הפקדות_קופג_526,True,0,,הפקדות קופג,,,,,,=1000,Excellence,Pilates,bootstrap count=23
 הצריף_531,True,0,,הצריף,,,,,,,Hatzrif,Going out and restaurants,bootstrap count=1
 הראל_ביטוח_532,True,0,,הראל ביטוח,,,,,,,Harel health insurance,Insurance!,bootstrap count=3
 הראל_ביטוח_533,True,0,,הראל ביטוח,,,,,,,Harel insurance,Aikido,bootstrap count=2
@@ -1131,3 +1130,4 @@ ikea_איקאה_120_food,True,0,,ikea איקאה,,,,,,<70,Ikea Food,Groceries,bo
 איקאה_ikea_280_food,True,0,,איקאה ikea,,,,,,<70,Ikea Food,Groceries,bootstrap count=1
 הפקדת_שיק_transfer,True,0,,הפקדת שיק,,,,inflow,,,Transfer : Cash,,manual: check deposit -> transfer to cash
 עופר_דונחין_transfer,True,0,,עופר דונחין,,,,,,,Transfer : Investments,,manual: self transfer -> investments
+אדריאן_דדון_מאמן_כושר_ובר_232,True,10,,אדריאן דדון מאמן כושר ובר,,,,,,<=350,Adrian Sports Trainer,Chugim,Amount rule: <=350

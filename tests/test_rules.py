@@ -123,3 +123,28 @@ def test_blank_category_target_stays_unassigned() -> None:
     assert out.loc[0, "match_status"] == "unique"
     assert out.loc[0, "payee_canonical_suggested"] == "Cafe"
     assert out.loc[0, "category_target_suggested"] == ""
+
+
+def test_exact_amount_bucket_matches_only_exact_value() -> None:
+    rules = _rules(
+        [
+            {
+                "rule_id": "exact",
+                "fingerprint": "transfer",
+                "amount_bucket": "=6300",
+                "payee_canonical": "Transfer : Planned Liya",
+            }
+        ]
+    )
+    tx = pd.DataFrame(
+        [
+            {"fingerprint": "transfer", "outflow_ils": 6300, "inflow_ils": 0},
+            {"fingerprint": "transfer", "outflow_ils": 6299.99, "inflow_ils": 0},
+        ]
+    )
+
+    out = rules_mod.apply_payee_map_rules(tx, rules)
+
+    assert out.loc[0, "match_status"] == "unique"
+    assert out.loc[0, "payee_canonical_suggested"] == "Transfer : Planned Liya"
+    assert out.loc[1, "match_status"] == "none"
