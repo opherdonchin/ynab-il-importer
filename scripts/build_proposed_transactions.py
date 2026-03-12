@@ -255,24 +255,32 @@ def main() -> None:
         )
     out["update_map"] = ""
 
-    out = out[
-        [
-            "transaction_id",
-            "source",
-            "account_name",
-            "date",
-            "outflow_ils",
-            "inflow_ils",
-            "memo",
-            "fingerprint",
-            "payee_options",
-            "category_options",
-            "payee_selected",
-            "category_selected",
-            "match_status",
-            "update_map",
-        ]
+    columns = [
+        "transaction_id",
+        "source",
+        "account_name",
+        "date",
+        "outflow_ils",
+        "inflow_ils",
+        "memo",
+        "fingerprint",
+        "payee_options",
+        "category_options",
+        "payee_selected",
+        "category_selected",
+        "match_status",
+        "update_map",
     ]
+    optional_columns = [
+        "source_account",
+        "secondary_date",
+        "ref",
+        "balance_ils",
+        "ynab_account_id",
+        "bank_txn_id",
+    ]
+    columns.extend([col for col in optional_columns if col in out.columns])
+    out = out[columns]
 
     export.write_dataframe(out, args.out_path)
     print(f"Wrote {args.out_path} ({len(out)} rows)")

@@ -4,9 +4,13 @@ from io import StringIO
 
 
 import pandas as pd
-from lxml import html
+try:
+    from lxml import html
+except ImportError:  # pragma: no cover - optional fallback dependency
+    html = None
 
 import ynab_il_importer.account_map as account_map
+import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.fingerprint as fingerprint
 
 _BANK_REQUIRED_HEADERS = {"תאריך", "תיאור", "בחובה", "בזכות"}
@@ -16,6 +20,12 @@ _BANK_ACCOUNT_HEADERS = {
     "חשבון",
     "חשבון בנק",
     "מספר חשבון בנק",
+}
+_BANK_BALANCE_HEADERS = {
+    "יתרה",
+    'יתרה בש"ח',
+    "יתרה בשח",
+    "יתרה בשקלים",
 }
 
 
@@ -47,9 +57,27 @@ def _parse_amount(series: pd.Series) -> pd.Series:
     return pd.to_numeric(text, errors="coerce").fillna(0.0)
 
 
+def _parse_optional_amount(series: pd.Series) -> pd.Series:
+    text = series.astype("string").fillna("")
+    text = text.str.replace(",", "", regex=False)
+    text = text.str.replace("₪", "", regex=False)
+    text = text.str.replace(r"[^\d.\-()]", "", regex=True)
+    text = text.str.replace(r"^\((.*)\)$", r"-\1", regex=True)
+    text = text.where(text.str.strip() != "", pd.NA)
+    return pd.to_numeric(text, errors="coerce")
+
+
 def _pick_account_column(df: pd.DataFrame) -> str | None:
     for name in _BANK_ACCOUNT_HEADERS:
         if name in df.columns:
+            return name
+    return None
+
+
+def _pick_balance_column(df: pd.DataFrame) -> str | None:
+    for col in df.columns:
+        name = str(col).strip()
+        if name in _BANK_BALANCE_HEADERS or "יתרה" in name:
             return name
     return None
 
@@ -124,6 +152,8 @@ def _select_bank_table(tables: list[pd.DataFrame]) -> pd.DataFrame | None:
 
 def _extract_bank_table_with_lxml(path: Path) -> pd.DataFrame | None:
     """Fallback extractor for HTML exports where pandas misses nested tables."""
+    if html is None:
+        return None
     try:
         doc = html.fromstring(path.read_bytes())
     except Exception:
@@ -253,6 +283,8 @@ def read_raw(
 
     outflow = _parse_amount(_get_column(raw, "בחובה", 0.0))
     inflow = _parse_amount(_get_column(raw, "בזכות", 0.0))
+    balance_col = _pick_balance_column(raw)
+    balance = _parse_optional_amount(_get_column(raw, balance_col, pd.NA))
 
     source_account = _extract_account_name(raw)
 
@@ -276,7 +308,23 @@ def read_raw(
             "ref": _get_column(raw, "אסמכתא", "").astype("string").fillna(""),
             "outflow_ils": outflow,
             "inflow_ils": inflow,
+            "balance_ils": balance,
+            "currency": "ILS",
+            "amount_bucket": "",
         }
+    )
+    result["bank_txn_id"] = result.apply(
+        lambda row: bank_identity.make_bank_txn_id(
+            source="bank",
+            source_account=row.get("source_account", ""),
+            date=row.get("date"),
+            secondary_date=row.get("secondary_date"),
+            outflow_ils=row.get("outflow_ils", 0.0),
+            inflow_ils=row.get("inflow_ils", 0.0),
+            ref=row.get("ref", ""),
+            description_raw=row.get("description_raw", ""),
+        ),
+        axis=1,
     )
 
     # Drop pure empty noise rows.
@@ -295,19 +343,24 @@ def read_raw(
         )
     result = fingerprint.apply_fingerprints(result, use_fingerprint_map=use_fingerprint_map)
 
-    return result[
-        [
-            "source",
-            "account_name",
-            "source_account",
-            "date",
-            "secondary_date",
-            "description_clean",
-            "description_raw",
-            "description_clean_norm",
-            "fingerprint",
-            "ref",
-            "outflow_ils",
-            "inflow_ils",
-        ]
+    columns = [
+        "source",
+        "account_name",
+        "source_account",
+        "date",
+        "secondary_date",
+        "description_clean",
+        "description_raw",
+        "description_clean_norm",
+        "fingerprint",
+        "ref",
+        "outflow_ils",
+        "inflow_ils",
+        "balance_ils",
+        "bank_txn_id",
+        "currency",
+        "amount_bucket",
     ]
+    if "ynab_account_id" in result.columns:
+        columns.append("ynab_account_id")
+    return result[columns]

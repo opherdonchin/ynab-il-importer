@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.upload_prep as upload_prep
 
 
@@ -91,6 +92,51 @@ def test_prepare_upload_transactions_generates_stable_occurrence_import_ids() ->
         "YNAB:-10000:2026-03-01:1",
         "YNAB:-10000:2026-03-01:2",
     ]
+
+
+def test_prepare_upload_transactions_uses_bank_txn_id_for_bank_rows() -> None:
+    bank_txn_id = bank_identity.make_bank_txn_id(
+        source="bank",
+        source_account="123456",
+        date="2026-03-01",
+        secondary_date="2026-03-02",
+        outflow_ils=10,
+        inflow_ils=0,
+        ref="0042",
+        description_raw="groceries",
+    )
+    reviewed = pd.DataFrame(
+        {
+            "transaction_id": ["t1", "t2"],
+            "source": ["bank", "card"],
+            "account_name": ["Bank Leumi", "Cash"],
+            "source_account": ["123456", ""],
+            "date": ["2026-03-01", "2026-03-01"],
+            "secondary_date": ["2026-03-02", ""],
+            "outflow_ils": ["10.00", "10.00"],
+            "inflow_ils": ["0", "0"],
+            "memo": ["groceries", "card memo"],
+            "ref": ["0042", ""],
+            "balance_ils": ["100.00", ""],
+            "ynab_account_id": ["acc-bank", ""],
+            "bank_txn_id": [bank_txn_id, ""],
+            "payee_selected": ["Shop", "Shop"],
+            "category_selected": ["Groceries", "Groceries"],
+        }
+    )
+
+    prepared = upload_prep.prepare_upload_transactions(
+        reviewed,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+
+    assert prepared.loc[0, "import_id"] == bank_txn_id
+    assert prepared.loc[1, "import_id"] == "YNAB:-10000:2026-03-01:1"
+    assert prepared.loc[0, "bank_txn_id"] == bank_txn_id
+    assert prepared.loc[0, "source_account"] == "123456"
+    assert prepared.loc[0, "secondary_date"] == "2026-03-02"
+    assert prepared.loc[0, "ref"] == "0042"
 
 
 def test_prepare_upload_transactions_requires_category_for_non_transfer() -> None:
@@ -264,6 +310,38 @@ def test_summarize_upload_response_counts_matches_and_transfers() -> None:
         "matched_existing": 1,
         "transfer_saved": 1,
     }
+
+
+def test_classify_upload_result_detects_idempotent_rerun() -> None:
+    outcome = upload_prep.classify_upload_result(
+        {
+            "saved": 0,
+            "duplicate_import_ids": 561,
+            "matched_existing": 0,
+            "transfer_saved": 0,
+        },
+        prepared_count=561,
+    )
+
+    assert outcome["idempotent_rerun"] is True
+    assert outcome["verification_needed"] is False
+    assert outcome["status"] == "idempotent rerun confirmed"
+
+
+def test_classify_upload_result_requires_verification_when_transactions_saved() -> None:
+    outcome = upload_prep.classify_upload_result(
+        {
+            "saved": 7,
+            "duplicate_import_ids": 0,
+            "matched_existing": 2,
+            "transfer_saved": 3,
+        },
+        prepared_count=10,
+    )
+
+    assert outcome["idempotent_rerun"] is False
+    assert outcome["verification_needed"] is True
+    assert outcome["status"] == "new transactions saved"
 
 
 def test_verify_upload_response_checks_transfer_and_category_fields() -> None:

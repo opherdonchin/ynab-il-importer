@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 
+import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.review_app.model as review_model
 
 
@@ -41,6 +42,13 @@ def _transfer_target(payee: str) -> str:
         return ""
     _, _, target = payee.partition(":")
     return target.strip()
+
+
+def _bank_import_id(row: pd.Series) -> str:
+    bank_txn_id = _normalize_text(row.get("bank_txn_id", ""))
+    if not bank_txn_id:
+        return ""
+    return bank_identity.validate_bank_txn_id(bank_txn_id)
 
 
 def _validate_columns(df: pd.DataFrame, required: list[str]) -> None:
@@ -210,6 +218,12 @@ def prepare_upload_transactions(
     df.loc[is_transfer, "transfer_target_account_id"] = transfer_target_account_ids.loc[is_transfer]
 
     df["amount_milliunits"] = df.apply(_amount_milliunits, axis=1)
+    df["bank_txn_id"] = (
+        df.get("bank_txn_id", pd.Series([""] * len(df), index=df.index))
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
     occurrence_order = (
         df.reset_index()
         .sort_values(["account_id", "date", "amount_milliunits", "transaction_id", "index"])
@@ -221,9 +235,8 @@ def prepare_upload_transactions(
         .add(1)
     )
     occurrence_order["import_id"] = occurrence_order.apply(
-        lambda row: (
-            f"YNAB:{int(row['amount_milliunits'])}:{row['date']}:{int(row['import_occurrence'])}"
-        ),
+        lambda row: _bank_import_id(row)
+        or f"YNAB:{int(row['amount_milliunits'])}:{row['date']}:{int(row['import_occurrence'])}",
         axis=1,
     )
     occurrence_map = occurrence_order.set_index("index")["import_id"]
@@ -234,29 +247,38 @@ def prepare_upload_transactions(
 
     df["upload_kind"] = "regular"
     df.loc[is_transfer, "upload_kind"] = "transfer"
-    return df[
-        [
-            "transaction_id",
-            "account_name",
-            "account_id",
-            "date",
-            "outflow_ils",
-            "inflow_ils",
-            "amount_milliunits",
-            "memo",
-            "payee_selected",
-            "payee_name_upload",
-            "payee_id",
-            "transfer_target",
-            "transfer_target_account_id",
-            "category_selected",
-            "category_id",
-            "cleared",
-            "approved",
-            "import_id",
-            "upload_kind",
-        ]
-    ].copy()
+    columns = [
+        "transaction_id",
+        "account_name",
+        "account_id",
+        "date",
+        "outflow_ils",
+        "inflow_ils",
+        "amount_milliunits",
+        "memo",
+        "payee_selected",
+        "payee_name_upload",
+        "payee_id",
+        "transfer_target",
+        "transfer_target_account_id",
+        "category_selected",
+        "category_id",
+        "cleared",
+        "approved",
+        "import_id",
+        "upload_kind",
+    ]
+    optional_columns = [
+        "source",
+        "source_account",
+        "secondary_date",
+        "ref",
+        "balance_ils",
+        "ynab_account_id",
+        "bank_txn_id",
+    ]
+    columns.extend([col for col in optional_columns if col in df.columns])
+    return df[columns].copy()
 
 
 def upload_payload_records(prepared_df: pd.DataFrame) -> list[dict[str, Any]]:
@@ -293,9 +315,13 @@ def _transactions_frame(transactions: list[dict[str, Any]]) -> pd.DataFrame:
                 "account_id": _normalize_text(txn.get("account_id", "")),
                 "date": _normalize_text(txn.get("date", "")),
                 "amount_milliunits": int(txn.get("amount", 0) or 0),
+                "memo": _normalize_text(txn.get("memo", "")),
+                "cleared": _normalize_text(txn.get("cleared", "")),
+                "approved": bool(txn.get("approved", False)),
                 "import_id": _normalize_text(txn.get("import_id", "")),
                 "matched_transaction_id": _normalize_text(txn.get("matched_transaction_id", "")),
                 "transfer_account_id": _normalize_text(txn.get("transfer_account_id", "")),
+                "deleted": bool(txn.get("deleted", False)),
                 "payee_name": _normalize_text(txn.get("payee_name", "")),
                 "category_name": _normalize_text(txn.get("category_name", "")),
                 "category_id": _normalize_text(txn.get("category_id", "")),
@@ -408,6 +434,35 @@ def summarize_upload_response(response: dict[str, Any]) -> dict[str, int]:
         "duplicate_import_ids": len(duplicate_ids),
         "matched_existing": matched_existing,
         "transfer_saved": transfer_saved,
+    }
+
+
+def classify_upload_result(summary: dict[str, int], *, prepared_count: int) -> dict[str, Any]:
+    saved = int(summary.get("saved", 0))
+    duplicate_import_ids = int(summary.get("duplicate_import_ids", 0))
+    matched_existing = int(summary.get("matched_existing", 0))
+    transfer_saved = int(summary.get("transfer_saved", 0))
+
+    idempotent_rerun = prepared_count > 0 and saved == 0 and duplicate_import_ids == prepared_count
+    verification_needed = saved > 0
+
+    if idempotent_rerun:
+        status = "idempotent rerun confirmed"
+    elif saved > 0:
+        status = "new transactions saved"
+    elif duplicate_import_ids > 0 or matched_existing > 0:
+        status = "no new transactions saved"
+    else:
+        status = "no transactions saved"
+
+    return {
+        "saved": saved,
+        "duplicate_import_ids": duplicate_import_ids,
+        "matched_existing": matched_existing,
+        "transfer_saved": transfer_saved,
+        "idempotent_rerun": idempotent_rerun,
+        "verification_needed": verification_needed,
+        "status": status,
     }
 
 

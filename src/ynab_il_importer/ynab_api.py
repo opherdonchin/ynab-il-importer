@@ -75,6 +75,18 @@ def _ynab_post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     return response.json()
 
 
+def _ynab_patch(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    url = f"{BASE_URL}{path}"
+    headers = {
+        "Authorization": f"Bearer {_get_token()}",
+        "Content-Type": "application/json",
+    }
+    response = requests.patch(url, headers=headers, json=payload, timeout=30)
+    if response.status_code >= 400:
+        raise ValueError(f"YNAB API error {response.status_code}: {response.text}")
+    return response.json()
+
+
 def fetch_accounts(plan_id: str | None = None) -> list[dict[str, Any]]:
     plan = plan_id or _get_budget_id()
     payload = _ynab_get(f"/plans/{plan}/accounts")
@@ -112,6 +124,24 @@ def create_transactions(
     return {
         "transaction_ids": data.get("transaction_ids", []),
         "duplicate_import_ids": data.get("duplicate_import_ids", []),
+        "transactions": data.get("transactions", []),
+        "transaction": data.get("transaction", {}),
+        "server_knowledge": data.get("server_knowledge"),
+    }
+
+
+def update_transactions(
+    transactions: list[dict[str, Any]],
+    plan_id: str | None = None,
+) -> dict[str, Any]:
+    if not transactions:
+        return {"transactions": [], "server_knowledge": None}
+    plan = plan_id or _get_budget_id()
+    payload = _ynab_patch(f"/plans/{plan}/transactions", {"transactions": transactions})
+    data = payload.get("data", {})
+    if "bulk" in data:
+        return data.get("bulk", {})
+    return {
         "transactions": data.get("transactions", []),
         "transaction": data.get("transaction", {}),
         "server_knowledge": data.get("server_knowledge"),

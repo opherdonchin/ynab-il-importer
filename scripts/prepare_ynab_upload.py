@@ -24,6 +24,20 @@ def _default_json_out(csv_out: Path) -> Path:
     return csv_out.with_suffix(".json")
 
 
+def _print_section(title: str, rows: list[tuple[str, object]]) -> None:
+    print(f"\n{title}")
+    for label, value in rows:
+        print(f"  {label:<28} {value}")
+
+
+def _print_messages(title: str, messages: list[str]) -> None:
+    if not messages:
+        return
+    print(f"\n{title}")
+    for message in messages:
+        print(f"  - {message}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Prepare reviewed transactions for YNAB upload")
     parser.add_argument("--in", dest="input_path", required=True, help="Reviewed transactions CSV.")
@@ -105,27 +119,35 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    print(f"Wrote {out_path} ({len(prepared)} rows)")
-    print(f"Wrote {json_out_path}")
-    print(
-        "Upload preflight: "
-        f"prepared={preflight['prepared_count']}, "
-        f"transfers={preflight['transfer_count']}, "
-        f"payload_duplicate_import_keys={len(preflight['payload_duplicate_import_keys'])}, "
-        f"existing_import_id_hits={len(preflight['existing_import_id_hits'])}, "
-        f"potential_match_candidates={len(preflight['potential_match_import_ids'])}, "
-        f"transfer_payload_issues={len(preflight['transfer_payload_issue_ids'])}"
+    _print_section(
+        "Artifacts",
+        [
+            ("prepared CSV", out_path),
+            ("payload JSON", json_out_path),
+            ("prepared rows", len(prepared)),
+        ],
     )
+    _print_section(
+        "Upload preflight",
+        [
+            ("prepared rows", preflight["prepared_count"]),
+            ("transfer rows", preflight["transfer_count"]),
+            ("duplicate payload keys", len(preflight["payload_duplicate_import_keys"])),
+            ("existing import_id hits", len(preflight["existing_import_id_hits"])),
+            ("possible manual matches", len(preflight["potential_match_import_ids"])),
+            ("transfer payload issues", len(preflight["transfer_payload_issue_ids"])),
+        ],
+    )
+    preflight_notes: list[str] = []
     if preflight["existing_import_id_hits"]:
-        print(
-            "Preflight note: some import_ids already exist in YNAB; "
-            "a rerun should treat those rows as duplicates."
+        preflight_notes.append(
+            "Some import_ids already exist in YNAB. A rerun should report those rows as duplicates."
         )
     if preflight["potential_match_import_ids"]:
-        print(
-            "Preflight note: some rows may match existing user-entered transactions "
-            "instead of creating brand-new imports."
+        preflight_notes.append(
+            "Some rows may match existing user-entered transactions instead of creating brand-new imports."
         )
+    _print_messages("Notes", preflight_notes)
     if preflight["payload_duplicate_import_keys"]:
         raise ValueError(
             "Payload contains duplicate (account_id, import_id) keys: "
@@ -137,37 +159,55 @@ def main() -> None:
     if args.execute:
         response = ynab_api.create_transactions(payload)
         summary = upload_prep.summarize_upload_response(response)
-        verification = upload_prep.verify_upload_response(prepared, response)
-        print(
-            "YNAB upload complete: "
-            f"saved={summary['saved']}, "
-            f"duplicate_import_ids={summary['duplicate_import_ids']}, "
-            f"matched_existing={summary['matched_existing']}, "
-            f"transfer_saved={summary['transfer_saved']}"
+        outcome = upload_prep.classify_upload_result(summary, prepared_count=len(prepared))
+        _print_section(
+            "Upload result",
+            [
+                ("newly saved", outcome["saved"]),
+                ("duplicate import_ids", outcome["duplicate_import_ids"]),
+                ("matched existing", outcome["matched_existing"]),
+                ("transfer rows returned", outcome["transfer_saved"]),
+                ("status", outcome["status"]),
+            ],
         )
-        if summary["matched_existing"]:
-            print(
-                "Upload note: some rows matched existing user-entered transactions "
-                "rather than creating new imported rows."
+
+        upload_notes: list[str] = []
+        if outcome["matched_existing"]:
+            upload_notes.append(
+                "Some rows matched existing user-entered transactions rather than creating new imports."
             )
-        if summary["transfer_saved"] != preflight["transfer_count"]:
-            print(
-                "Upload warning: the number of saved transfer transactions does not "
-                "match the number of transfer rows in the payload."
+        if outcome["idempotent_rerun"]:
+            upload_notes.append("All payload rows were already present in YNAB.")
+        _print_messages("Upload notes", upload_notes)
+
+        if outcome["verification_needed"]:
+            verification = upload_prep.verify_upload_response(prepared, response)
+            _print_section(
+                "Upload verification",
+                [
+                    ("checked", verification["checked"]),
+                    ("missing saved txns", len(verification["missing_saved_transactions"])),
+                    ("amount mismatches", len(verification["amount_mismatches"])),
+                    ("date mismatches", len(verification["date_mismatches"])),
+                    ("account mismatches", len(verification["account_mismatches"])),
+                    ("transfer mismatches", len(verification["transfer_mismatches"])),
+                    ("category mismatches", len(verification["category_mismatches"])),
+                ],
             )
-        print(
-            "Upload verification: "
-            f"checked={verification['checked']}, "
-            f"missing_saved_transactions={len(verification['missing_saved_transactions'])}, "
-            f"amount_mismatches={len(verification['amount_mismatches'])}, "
-            f"date_mismatches={len(verification['date_mismatches'])}, "
-            f"account_mismatches={len(verification['account_mismatches'])}, "
-            f"transfer_mismatches={len(verification['transfer_mismatches'])}, "
-            f"category_mismatches={len(verification['category_mismatches'])}"
-        )
-        if verification["transfer_mismatches"]:
-            print(
-                "Upload warning: some transfer rows did not come back as the expected transfer."
+            upload_warnings: list[str] = []
+            if verification["transfer_mismatches"]:
+                upload_warnings.append(
+                    "Some transfer rows did not come back as the expected transfer."
+                )
+            if verification["missing_saved_transactions"]:
+                upload_warnings.append(
+                    "Some saved transaction_ids were not present in the response transaction list."
+                )
+            _print_messages("Warnings", upload_warnings)
+        else:
+            _print_section(
+                "Upload verification",
+                [("status", "skipped"), ("reason", "no newly saved transactions returned by YNAB")],
             )
 
 

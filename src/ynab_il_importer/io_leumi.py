@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import ynab_il_importer.account_map as account_map
+import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.fingerprint as fingerprint
 
 
@@ -36,6 +37,15 @@ def _parse_amount(value: str) -> float:
     text = str(value).strip().replace(",", "")
     if not text:
         return 0.0
+    return float(text)
+
+
+def _parse_optional_amount(value: str, *, require_decimal: bool = False) -> float | None:
+    text = str(value).strip().replace(",", "")
+    if not text:
+        return None
+    if require_decimal and "." not in text:
+        return None
     return float(text)
 
 
@@ -198,6 +208,9 @@ def read_raw(
             purchase_date = posting_date
 
         txn_amount = _parse_amount(fields[3])
+        balance_ils = (
+            _parse_optional_amount(fields[4], require_decimal=True) if len(fields) >= 5 else None
+        )
         outflow_ils = abs(txn_amount) if txn_amount < 0 else 0.0
         inflow_ils = txn_amount if txn_amount > 0 else 0.0
         txn_kind = _infer_txn_kind(base_kind, inflow_ils, outflow_ils)
@@ -218,6 +231,17 @@ def read_raw(
                 "ref": ref,
                 "outflow_ils": round(outflow_ils, 2),
                 "inflow_ils": round(inflow_ils, 2),
+                "balance_ils": round(balance_ils, 2) if balance_ils is not None else None,
+                "bank_txn_id": bank_identity.make_bank_txn_id(
+                    source="bank",
+                    source_account=source_account,
+                    date=purchase_date,
+                    secondary_date=posting_date,
+                    outflow_ils=outflow_ils,
+                    inflow_ils=inflow_ils,
+                    ref=ref,
+                    description_raw=description_fixed,
+                ),
                 "currency": "ILS",
                 "amount_bucket": "",
             }
@@ -238,6 +262,8 @@ def read_raw(
             "ref",
             "outflow_ils",
             "inflow_ils",
+            "balance_ils",
+            "bank_txn_id",
             "currency",
             "amount_bucket",
         ],
