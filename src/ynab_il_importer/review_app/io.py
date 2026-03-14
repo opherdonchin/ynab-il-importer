@@ -5,6 +5,7 @@ from typing import Iterable
 
 import pandas as pd
 
+import ynab_il_importer.proposed_defaults as proposed_defaults
 import ynab_il_importer.review_app.validation as validation
 
 
@@ -40,7 +41,7 @@ def load_proposed_transactions(path: str | Path) -> pd.DataFrame:
         df["reviewed"] = False
     else:
         df["reviewed"] = validation.normalize_update_map(df["reviewed"])
-    return df
+    return proposed_defaults.apply_default_selections(df, only_unreviewed=True)
 
 
 def save_reviewed_transactions(df: pd.DataFrame, path: str | Path) -> None:

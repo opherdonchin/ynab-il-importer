@@ -128,38 +128,50 @@ def test_dedupe_sources_handles_non_range_index(monkeypatch: pytest.MonkeyPatch)
     assert deduped["memo"].tolist() == ["keep"]
 
 
-def test_apply_fingerprint_payee_fallback_defaults_unmatched_rows() -> None:
+def test_apply_default_selections_defaults_unmatched_rows() -> None:
     tx = pd.DataFrame(
         [
             {
                 "fingerprint": "local cafe",
                 "payee_options": "",
                 "payee_selected": "",
+                "category_options": "",
+                "category_selected": "",
                 "match_status": "none",
             }
         ]
     )
 
-    actual = build_proposed_transactions._apply_fingerprint_payee_fallback(tx)
+    actual = build_proposed_transactions.proposed_defaults.apply_default_selections(
+        tx, only_unreviewed=False
+    )
 
     assert actual.loc[0, "payee_selected"] == "local cafe"
     assert actual.loc[0, "payee_options"] == "local cafe"
+    assert actual.loc[0, "category_selected"] == "Uncategorized"
+    assert actual.loc[0, "category_options"] == "Uncategorized"
     assert actual.loc[0, "match_status"] == "none"
 
 
-def test_apply_fingerprint_payee_fallback_preserves_ambiguous_choices() -> None:
+def test_apply_default_selections_preserves_existing_choices() -> None:
     tx = pd.DataFrame(
         [
             {
                 "fingerprint": "local cafe",
                 "payee_options": "Cafe A; Cafe B",
                 "payee_selected": "",
+                "category_options": "Eating Out",
+                "category_selected": "",
                 "match_status": "ambiguous",
             }
         ]
     )
 
-    actual = build_proposed_transactions._apply_fingerprint_payee_fallback(tx)
+    actual = build_proposed_transactions.proposed_defaults.apply_default_selections(
+        tx, only_unreviewed=False
+    )
 
     assert actual.loc[0, "payee_selected"] == ""
     assert actual.loc[0, "payee_options"] == "Cafe A; Cafe B"
+    assert actual.loc[0, "category_selected"] == ""
+    assert actual.loc[0, "category_options"] == "Eating Out"

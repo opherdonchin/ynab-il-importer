@@ -13,6 +13,7 @@ if str(SRC) not in sys.path:
 
 import ynab_il_importer.export as export
 import ynab_il_importer.pairing as pairing
+import ynab_il_importer.proposed_defaults as proposed_defaults
 import ynab_il_importer.rules as rules_mod
 
 
@@ -196,21 +197,6 @@ def _fast_apply_rules(transactions: pd.DataFrame, rules: pd.DataFrame) -> pd.Dat
     return merged
 
 
-def _apply_fingerprint_payee_fallback(transactions: pd.DataFrame) -> pd.DataFrame:
-    out = transactions.copy()
-    payee_selected = out.get("payee_selected", pd.Series("", index=out.index)).astype("string").fillna("").str.strip()
-    payee_options = out.get("payee_options", pd.Series("", index=out.index)).astype("string").fillna("").str.strip()
-    fingerprint = out.get("fingerprint", pd.Series("", index=out.index)).astype("string").fillna("").str.strip()
-
-    fallback_mask = payee_selected.eq("") & payee_options.eq("") & fingerprint.ne("")
-    if not fallback_mask.any():
-        return out
-
-    out.loc[fallback_mask, "payee_selected"] = fingerprint.loc[fallback_mask]
-    out.loc[fallback_mask, "payee_options"] = fingerprint.loc[fallback_mask]
-    return out
-
-
 def _make_transaction_id(row: pd.Series) -> str:
     parts = [
         str(row.get("account_name", "")),
@@ -268,7 +254,7 @@ def main() -> None:
         out["category_selected"] = out["category_target_suggested"].where(
             out["match_status"] == "unique", ""
         )
-    out = _apply_fingerprint_payee_fallback(out)
+    out = proposed_defaults.apply_default_selections(out, only_unreviewed=False)
     out["update_map"] = ""
 
     columns = [

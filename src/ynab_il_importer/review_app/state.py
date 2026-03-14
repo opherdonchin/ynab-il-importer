@@ -31,6 +31,14 @@ def summary_counts(df: pd.DataFrame) -> dict[str, int]:
     }
 
 
+def accept_defaults_mask(df: pd.DataFrame) -> pd.Series:
+    payee = series_or_default(df, "payee_selected").str.strip()
+    category = series_or_default(df, "category_selected").str.strip()
+    transfer_payee = payee.map(model.is_transfer_payee)
+    reviewed = df.get("reviewed", pd.Series([False] * len(df), index=df.index)).astype(bool)
+    return (~reviewed) & payee.ne("") & (transfer_payee | category.ne(""))
+
+
 def modified_mask(df: pd.DataFrame, original: pd.DataFrame | None) -> pd.Series:
     if original is None or original.empty:
         return pd.Series([False] * len(df), index=df.index)

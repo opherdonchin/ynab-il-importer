@@ -52,6 +52,8 @@ def test_load_save_roundtrip(tmp_path) -> None:
 
     loaded = review_io.load_proposed_transactions(src)
     assert loaded["update_map"].tolist() == [True, False]
+    assert loaded.loc[1, "payee_selected"] == "fp2"
+    assert loaded.loc[1, "category_selected"] == "Uncategorized"
 
     out = tmp_path / "reviewed.csv"
     review_io.save_reviewed_transactions(loaded, out)
@@ -94,3 +96,17 @@ def test_transfer_rows_are_not_unresolved_without_category() -> None:
     assert counts["missing_category"] == 1
     assert counts["unresolved"] == 1
     assert filtered["payee_selected"].tolist() == ["Cafe"]
+
+
+def test_accept_defaults_mask_marks_ready_unreviewed_rows() -> None:
+    df = pd.DataFrame(
+        {
+            "payee_selected": ["Cafe", "", "Transfer : Cash"],
+            "category_selected": ["Uncategorized", "Uncategorized", ""],
+            "reviewed": [False, False, False],
+        }
+    )
+
+    mask = review_state.accept_defaults_mask(df)
+
+    assert mask.tolist() == [True, False, True]

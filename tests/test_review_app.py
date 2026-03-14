@@ -104,6 +104,10 @@ def _find_button_by_label(container, label: str):
     return next(widget for widget in container.button if widget.label == label)
 
 
+def _find_button_by_prefix(container, prefix: str):
+    return next(widget for widget in container.button if widget.label.startswith(prefix))
+
+
 def _sidebar_markdown_text(app: AppTest) -> str:
     return "\n".join(markdown.value for markdown in app.sidebar.markdown)
 
@@ -307,7 +311,7 @@ def test_sidebar_save_action_defaults_to_save(tmp_path: Path) -> None:
     app.run()
 
     assert app.sidebar.selectbox[0].value == "Save"
-    assert app.sidebar.button[2].label == "Save"
+    assert _find_button_by_label(app.sidebar, "Save").label == "Save"
 
 
 def test_categories_load_on_startup_when_resuming(tmp_path: Path) -> None:
@@ -391,3 +395,88 @@ def test_reload_original_clears_stale_widget_state(tmp_path: Path) -> None:
     app.run()
     group = app.expander[0]
     assert _find_selectbox(group, "category_select_0").value == "C"
+
+
+def test_unmatched_rows_load_with_default_payee_and_uncategorized(tmp_path: Path) -> None:
+    app, _, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[
+            {
+                "transaction_id": "t1",
+                "date": "2025-01-01",
+                "account_name": "Account 1",
+                "outflow_ils": "10",
+                "inflow_ils": "0",
+                "memo": "memo1",
+                "fingerprint": "fp1",
+                "payee_options": "",
+                "category_options": "",
+                "payee_selected": "",
+                "category_selected": "",
+                "match_status": "none",
+                "update_map": "",
+            }
+        ],
+    )
+
+    app.run()
+
+    session_df = app.session_state["df"]
+    assert session_df.loc[0, "payee_selected"] == "fp1"
+    assert session_df.loc[0, "category_selected"] == "Uncategorized"
+    assert bool(session_df.loc[0, "reviewed"]) is False
+
+
+def test_accept_remaining_defaults_marks_unreviewed_default_rows(tmp_path: Path) -> None:
+    app, _, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[
+            {
+                "transaction_id": "t1",
+                "date": "2025-01-01",
+                "account_name": "Account 1",
+                "outflow_ils": "10",
+                "inflow_ils": "0",
+                "memo": "memo1",
+                "fingerprint": "fp1",
+                "payee_options": "",
+                "category_options": "",
+                "payee_selected": "",
+                "category_selected": "",
+                "match_status": "none",
+                "update_map": "",
+            }
+        ],
+    )
+
+    app.run()
+    _find_button_by_prefix(app.sidebar, "Accept remaining defaults").click()
+    app.run()
+
+    session_df = app.session_state["df"]
+    assert bool(session_df.loc[0, "reviewed"]) is True
+
+
+def test_save_writes_map_updates_artifact(tmp_path: Path) -> None:
+    app, _, reviewed = _build_app_test(
+        tmp_path,
+        proposed_rows=_make_rows(category_selected="C"),
+    )
+
+    app.run()
+    app.sidebar.checkbox[0].uncheck()
+    app.run()
+
+    group = app.expander[0]
+    _find_selectbox(group, "category_select_0").set_value("D")
+    _find_button(group, "FormSubmitter:row_form_0").click()
+    app.run()
+
+    _find_button_by_label(app.sidebar, "Save").click()
+    app.run()
+
+    map_updates = reviewed.with_name(f"{reviewed.stem}_map_updates{reviewed.suffix}")
+    saved = pd.read_csv(map_updates, dtype="string").fillna("")
+    assert "fingerprint" in saved.columns
+    assert saved.loc[0, "fingerprint"] == "fp1"
+    assert saved.loc[0, "category_target"] == "D"

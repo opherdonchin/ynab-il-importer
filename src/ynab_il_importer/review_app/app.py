@@ -12,6 +12,7 @@ from typing import Any, Callable
 import pandas as pd
 import streamlit as st
 
+import ynab_il_importer.map_updates as map_updates
 import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.review_app.state as review_state
@@ -548,16 +549,36 @@ def main() -> None:
             )
         with save_button_col:
             save_pressed = st.button(save_action, use_container_width=True)
+        map_updates_path = map_updates.default_map_updates_path(save_path)
         if save_pressed:
             if save_action == "Quit":
                 _quit_app()
             review_io.save_reviewed_transactions(df, save_path)
+            map_updates_df = map_updates.save_map_update_candidates(df, base, map_updates_path)
             st.session_state["last_saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             st.session_state["df_original"] = df.copy()
-            st.session_state["save_notice"] = f"Saved to {save_path}"
+            st.session_state["save_notice"] = (
+                f"Saved to {save_path} and wrote {len(map_updates_df)} map updates to {map_updates_path}"
+            )
             if save_action == "Save and quit":
                 _quit_app()
             st.rerun()
+
+        accept_defaults = review_state.accept_defaults_mask(df)
+        accept_count = int(accept_defaults.sum())
+        if st.button(
+            f"Accept remaining defaults ({accept_count})",
+            use_container_width=True,
+            disabled=accept_count == 0,
+        ):
+            df.loc[accept_defaults, "reviewed"] = True
+            st.session_state["df"] = df
+            st.session_state["save_notice"] = (
+                f"Accepted {accept_count} remaining default rows in memory. Save to persist."
+            )
+            st.rerun()
+
+        st.caption(f"Map updates path: {map_updates_path}")
 
         st.markdown(
             f"**Rows to review:** {base_count}\n"
