@@ -65,6 +65,7 @@ def _build_app_test(
     proposed_rows: list[dict[str, str]],
     reviewed_rows: list[dict[str, str]] | None = None,
     resume: bool = False,
+    control_dir: Path | None = None,
 ) -> tuple[AppTest, Path, Path]:
     proposed = tmp_path / "proposed.csv"
     reviewed = tmp_path / "proposed_reviewed.csv"
@@ -76,6 +77,8 @@ def _build_app_test(
         _write_proposed(reviewed, reviewed_rows)
 
     argv = ["app.py", "--in", str(proposed), "--categories", str(categories)]
+    if control_dir is not None:
+        argv.extend(["--control-dir", str(control_dir)])
     if resume:
         argv.append("--resume")
 
@@ -480,3 +483,23 @@ def test_save_writes_map_updates_artifact(tmp_path: Path) -> None:
     assert "fingerprint" in saved.columns
     assert saved.loc[0, "fingerprint"] == "fp1"
     assert saved.loc[0, "category_target"] == "D"
+
+
+def test_save_and_quit_writes_quit_request(tmp_path: Path) -> None:
+    control_dir = tmp_path / "control"
+    app, _, reviewed = _build_app_test(
+        tmp_path,
+        proposed_rows=_make_rows(category_selected="C"),
+        control_dir=control_dir,
+    )
+
+    app.run()
+    app.sidebar.selectbox[0].set_value("Save and quit")
+    app.run()
+    _find_button_by_label(app.sidebar, "Save and quit").click()
+    app.run()
+
+    quit_path = control_dir / review_app.QUIT_REQUEST_FILENAME
+    assert quit_path.exists()
+    saved = pd.read_csv(reviewed, dtype="string").fillna("")
+    assert not saved.empty

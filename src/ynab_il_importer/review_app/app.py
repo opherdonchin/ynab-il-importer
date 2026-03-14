@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import os
+import json
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -23,6 +22,7 @@ DEFAULT_SOURCE = Path("outputs/proposed_transactions.csv")
 DEFAULT_SAVE = Path("outputs/proposed_transactions_reviewed.csv")
 DEFAULT_CATEGORIES = Path("outputs/ynab_categories.csv")
 DEFAULT_RESUME_SENTINEL = "__DEFAULT_RESUME__"
+QUIT_REQUEST_FILENAME = "quit_requested.json"
 
 
 EDITOR_STATE_PREFIXES = (
@@ -85,6 +85,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         const=DEFAULT_RESUME_SENTINEL,
         help="Resume from a previously saved review CSV (optional path).",
     )
+    parser.add_argument(
+        "--control-dir",
+        dest="control_dir",
+        default="",
+        help=argparse.SUPPRESS,
+    )
     return parser
 
 
@@ -124,9 +130,26 @@ def _consume_notice(key: str) -> str:
     return message
 
 
-def _quit_app() -> None:
-    time.sleep(0.1)
-    os._exit(0)
+def _quit_request_path(control_dir: Path) -> Path:
+    return control_dir / QUIT_REQUEST_FILENAME
+
+
+def _request_quit(action: str) -> bool:
+    control_dir_text = str(st.session_state.get("control_dir", "") or "").strip()
+    if not control_dir_text:
+        st.warning("No wrapper control directory was provided. Close the terminal process manually.")
+        return False
+    control_dir = Path(control_dir_text)
+    control_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "action": action,
+        "requested_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    _quit_request_path(control_dir).write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return True
 
 
 def _load_df(path: Path, *, set_source_path: bool = False) -> None:
@@ -180,6 +203,7 @@ def _init_from_cli() -> None:
     st.session_state.setdefault("source_path", str(input_path))
     st.session_state.setdefault("save_path", str(output_path))
     st.session_state.setdefault("category_path", str(args.categories_path))
+    st.session_state.setdefault("control_dir", str(getattr(args, "control_dir", "") or ""))
 
     if input_path.exists() and "df_base" not in st.session_state:
         _load_base(input_path)
@@ -552,7 +576,9 @@ def main() -> None:
         map_updates_path = map_updates.default_map_updates_path(save_path)
         if save_pressed:
             if save_action == "Quit":
-                _quit_app()
+                if _request_quit("quit_without_saving"):
+                    st.success("Quit requested. This tab can be closed.")
+                    st.stop()
             review_io.save_reviewed_transactions(df, save_path)
             map_updates_df = map_updates.save_map_update_candidates(df, base, map_updates_path)
             st.session_state["last_saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -561,7 +587,9 @@ def main() -> None:
                 f"Saved to {save_path} and wrote {len(map_updates_df)} map updates to {map_updates_path}"
             )
             if save_action == "Save and quit":
-                _quit_app()
+                if _request_quit("save_and_quit"):
+                    st.success("Saved and quit requested. This tab can be closed.")
+                    st.stop()
             st.rerun()
 
         accept_defaults = review_state.accept_defaults_mask(df)
