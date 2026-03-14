@@ -12,6 +12,7 @@ import ynab_il_importer.fingerprint as fingerprint
 _PURCHASE_DATE_RE = re.compile(r"\b(\d{2})/(\d{2})/(\d{2})\b")
 _HEBREW_VISUAL_RUN_RE = re.compile(r"[\u0590-\u05FF][\u0590-\u05FF\s'\-\"״׳]*")
 _CARD_FRAGMENT_RE = re.compile(r"\s*ב?\d{4}-\s*בכרטיס המסתיים\b.*$", re.IGNORECASE)
+_CARD_SUFFIX_RE = re.compile(r"(?<!\d)(\d{4})-\s*בכרטיס המסתיים\b", re.IGNORECASE)
 _TRANSFER_SPLIT_RE = re.compile(r"\bהעברה\b")
 _ACCOUNT_TOKEN_RE = re.compile(r"(?<!\d)\d+(?:-\d+){1,4}(?!\d)")
 _LETTER_RE = re.compile(r"[A-Za-z\u0590-\u05FF]")
@@ -152,6 +153,18 @@ def _infer_txn_kind(base_kind: str, inflow_ils: float, outflow_ils: float) -> st
     return "income" if inflow > 0 else "expense"
 
 
+def _extract_card_suffix(description: str, merchant_raw: str, ref: str) -> str:
+    match = _CARD_SUFFIX_RE.search(str(description))
+    if match:
+        return match.group(1)
+
+    merchant = str(merchant_raw).strip()
+    ref_digits = re.sub(r"\D+", "", str(ref))
+    if merchant == "לאומי ויזה" and len(ref_digits) >= 4:
+        return ref_digits[-4:]
+    return ""
+
+
 def is_proper_format(path: str | Path) -> bool:
     source_path = Path(path)
     suffix = source_path.suffix.lower()
@@ -199,6 +212,7 @@ def read_raw(
         description_decoded = str(fields[2]).strip()
         description_fixed = fix_hebrew_visual_order(description_decoded).strip()
         merchant_raw, base_kind = extract_merchant(description_fixed)
+        card_suffix = _extract_card_suffix(description_fixed, merchant_raw, ref)
 
         posting_date = _parse_ddmmyy_compact(posting_date_code)
         purchase_date_match = _PURCHASE_DATE_RE.search(description_decoded)
@@ -229,6 +243,7 @@ def read_raw(
                 "description_clean": merchant_raw,
                 "description_raw": description_fixed,
                 "ref": ref,
+                "card_suffix": card_suffix,
                 "outflow_ils": round(outflow_ils, 2),
                 "inflow_ils": round(inflow_ils, 2),
                 "balance_ils": round(balance_ils, 2) if balance_ils is not None else None,
@@ -260,6 +275,7 @@ def read_raw(
             "description_clean",
             "description_raw",
             "ref",
+            "card_suffix",
             "outflow_ils",
             "inflow_ils",
             "balance_ils",

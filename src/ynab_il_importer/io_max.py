@@ -131,6 +131,11 @@ def _normalize_card_account_name(series: pd.Series) -> pd.Series:
     return out
 
 
+def _extract_card_suffix(series: pd.Series) -> pd.Series:
+    account_name = _normalize_card_account_name(series)
+    return account_name.str.replace(r"^[xX]", "", regex=True).astype("string").fillna("")
+
+
 def _pick_card_account_column(df: pd.DataFrame) -> str | None:
     candidates = [
         "4 ספרות אחרונות של כרטיס האשראי",
@@ -180,14 +185,17 @@ def _build_sheet_result(
     account_col = _pick_card_account_column(raw)
     if account_col is not None:
         account_name = _normalize_card_account_name(raw[account_col])
+        card_suffix = _extract_card_suffix(raw[account_col])
     else:
         account_name = pd.Series([""] * len(raw), index=raw.index, dtype="string")
+        card_suffix = pd.Series([""] * len(raw), index=raw.index, dtype="string")
 
     return pd.DataFrame(
         {
             "source": "card",
             "account_name": account_name,
             "source_account": account_name,
+            "card_suffix": card_suffix,
             "date": pd.to_datetime(
                 _get_column(raw, "תאריך עסקה", None), errors="coerce", dayfirst=True
             ).dt.date,
@@ -303,6 +311,7 @@ def read_raw(
             "source",
             "account_name",
             "source_account",
+            "card_suffix",
             "date",
             "secondary_date",
             "txn_kind",

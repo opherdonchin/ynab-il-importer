@@ -148,3 +148,32 @@ def test_exact_amount_bucket_matches_only_exact_value() -> None:
     assert out.loc[0, "match_status"] == "unique"
     assert out.loc[0, "payee_canonical_suggested"] == "Transfer : Planned Liya"
     assert out.loc[1, "match_status"] == "none"
+
+
+def test_card_suffix_disambiguates_transfer_rules() -> None:
+    rules = _rules(
+        [
+            {
+                "rule_id": "generic",
+                "fingerprint": "לאומי ויזה",
+                "source": "bank",
+                "payee_canonical": "Transfer : Generic Card",
+            },
+            {
+                "rule_id": "specific",
+                "fingerprint": "לאומי ויזה",
+                "source": "bank",
+                "card_suffix": "7195",
+                "payee_canonical": "Transfer : Liya X7195",
+            },
+        ]
+    )
+    tx = pd.DataFrame(
+        [{"fingerprint": "לאומי ויזה", "source": "bank", "card_suffix": "7195", "outflow_ils": 10, "inflow_ils": 0}]
+    )
+
+    out = rules_mod.apply_payee_map_rules(tx, rules)
+
+    assert out.loc[0, "match_status"] == "unique"
+    assert out.loc[0, "match_rule_id"] == "specific"
+    assert out.loc[0, "payee_canonical_suggested"] == "Transfer : Liya X7195"

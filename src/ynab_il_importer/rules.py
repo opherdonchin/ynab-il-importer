@@ -31,6 +31,7 @@ PAYEE_MAP_COLUMNS = [
     "payee_canonical",
     "category_target",
     "notes",
+    "card_suffix",
 ]
 
 RULE_KEY_COLUMNS = [
@@ -42,6 +43,7 @@ RULE_KEY_COLUMNS = [
     "direction",
     "currency",
     "amount_bucket",
+    "card_suffix",
 ]
 
 _TRUE_VALUES = {"1", "true", "t", "yes", "y"}
@@ -52,6 +54,8 @@ _AMOUNT_BUCKET_RE = re.compile(
 _AMOUNT_RANGE_RE = re.compile(
     r"^(?P<low>\d+(?:\.\d+)?)[\\s]*-[\\s]*(?P<high>\d+(?:\.\d+)?)$"
 )
+_CARD_SUFFIX_DIGITS_RE = re.compile(r"\D+")
+_DECIMAL_ZERO_RE = re.compile(r"^\d+\.0+$")
 
 
 def _blank_to_none(value: Any) -> str | None:
@@ -73,6 +77,14 @@ def _normalize_key_value(column: str, value: Any) -> str | None:
         return text.upper()
     if column == "description_clean_norm":
         return normalize.normalize_text(text)
+    if column == "card_suffix":
+        if _DECIMAL_ZERO_RE.match(text):
+            digits = text.split(".", 1)[0]
+        else:
+            digits = _CARD_SUFFIX_DIGITS_RE.sub("", text)
+        if not digits:
+            return None
+        return digits[-4:]
     return text
 
 
@@ -167,6 +179,7 @@ def prepare_transactions_for_rules(df: pd.DataFrame) -> pd.DataFrame:
     out["currency"] = _pick_series(out, ["currency"], default="ILS")
     out["currency"] = out["currency"].replace("", "ILS").str.upper()
     out["amount_bucket"] = _pick_series(out, ["amount_bucket"])
+    out["card_suffix"] = _pick_series(out, ["card_suffix"])
 
     if "direction" in out.columns:
         out["direction"] = out["direction"].astype("string").fillna("").str.strip().str.lower()

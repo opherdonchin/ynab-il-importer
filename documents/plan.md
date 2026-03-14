@@ -2,129 +2,82 @@
 
 ## Goal (Milestone 1)
 
-Deliver a repeatable end-to-end pipeline that:
+Deliver a repeatable end-to-end workflow that:
 1) Ingests bank + card exports
-2) Normalizes into a single schema
-3) Dedupe against YNAB for a chosen date range
+2) Normalizes into one schema
+3) Dedupes against YNAB for a chosen date range
 4) Applies `payee_map.csv` to infer payee + category
-5) Emits a reviewable `outputs/proposed_transactions.csv`
-6) Generates `outputs/map_updates.csv` after review
-7) Uploads only new transactions (idempotent)
+5) Produces a reviewable proposed-transactions CSV
+6) Uploads only safe rows to YNAB with deterministic ids
+7) Reconciles bank statements separately from import
 
 Success criteria:
-- ≥90% of new transactions default to a single payee/category
-- Idempotent uploads (safe to re-run)
-- `payee_map.csv` evolves cleanly with minimal duplication
+- ≥90% of new transactions default to a usable payee/category
+- Upload is idempotent
+- Bank reconciliation is exact-lineage based and safe to re-run
+- Review produces explicit map-candidate artifacts instead of hidden state
 
 ---
 
 ## Current State
 
 Completed:
-- Unified fingerprint generation with optional `mappings/fingerprint_map.csv` canonicalization.
-- Single fingerprint column across all derived outputs; fingerprint log written to `outputs/fingerprint_log.csv`.
-- Normalizers for bank (Bankin/Leumi), card (MAX), and YNAB register exports.
-- Renamed IO modules to `io_leumi`, `io_leumi_xls`, and `io_max` with standardized `read_raw`/`is_proper_format` APIs.
-- Updated `scripts/normalize_file.py` to use format-specific flags and `--dir` autodetect (warn + skip on no match).
-- Standardized internal imports to module-level references for easier traceability.
-- Renamed CLI parse commands to `parse-leumi`, `parse-leumi-xls`, and `parse-max`.
-- Updated `documents/review_app_workflow.md` examples for the new normalize flags and default filenames.
-- Added `--source-dir` support to `scripts/build_proposed_transactions.py` and documented the default `--map` path.
-- `build_proposed_transactions.py` now skips CSVs without usable fingerprints (warnings) so `--source-dir` works safely.
-- Refined review UI summaries and group-apply controls (more informative headers, stable group apply defaults).
-- Default grouped view + paging for groups and group rows; group ordering by size; resume flag + reload original/saved documented.
-- Review app now supports `--in`, `--out`, `--categories`, and `--resume` CLI args.
-- Added `scripts/review_app.py` wrapper to intercept `--help` and pass args to Streamlit.
-- Review app now defaults save path to `{input}_reviewed.csv` unless `--out` is provided.
-- Review UI now highlights edited rows and clarifies that Save is the only persistence point.
-- Review UI now persists review state via `reviewed` column and compares against original proposed file.
-- Review UI changed-mask now aligns by `transaction_id` to support resume without index mismatch errors.
-- Review UI changed-mask now handles duplicate `transaction_id` values by aligning on occurrence order.
-- Review UI sidebar now shows rows-to-review, updated/confirmed, and saved counts.
-- Review app `--resume` now defaults to the resolved save target for `--in` (`{input}_reviewed.csv`), not `outputs/proposed_transactions_reviewed.csv`.
-- Saved counter now reflects rows that are changed vs original and/or marked reviewed, including legacy reviewed files without a `reviewed` column.
-- Review UI row forms no longer use confirm-default checkboxes; submitted rows now apply the currently shown payee/category selections directly.
-- Grouped view now preserves working context after row/group submit by keeping the active group and row expanded.
-- Row-level "Apply to all with this fingerprint" now applies only to untouched rows (not already updated/reviewed).
-- Row/group submit handlers now trigger immediate rerun so side counts and status badges refresh without extra clicks.
-- Review row/group submit paths now explicitly write the mutated dataframe back to `st.session_state["df"]` before rerun to prevent lost edits.
-- Review app state logic has been split into `review_app/state.py` so masks, counts, filters, and row-edit operations are testable outside Streamlit.
-- Review app reload/resume paths now preserve the original source path and reset editor widget state to avoid stale row/category values after reload.
-- Review app no longer reloads the resume CSV on every rerun; resumed sessions now keep in-memory row edits until explicit save/reload.
-- Added AppTest coverage for grouped row save, sidebar save persistence, resume semantics, and reload-state reset.
-- Group-level payee override remains free text; grouped category selection is constrained through the YNAB category list.
-- Group badges now report `Saved` counts using saved-mask semantics, and group bulk apply now skips already updated/reviewed rows.
-- Review UI category dropdowns now support a suggested-vs-all toggle, show `Category Group / Category`, and preserve YNAB category order from the downloaded file.
-- Grouped category controls now place `Show all` beside the group category dropdown, and grouped controls no longer rely on a form submit cycle to refresh category options.
-- `scripts/build_proposed_transactions.py` now retains `source` and `account_name` in proposed outputs so the review UI can show source-account context in row titles.
-- `amount_bucket` rules now support exact matches via `=N`.
-- Added fingerprint-map fixes for `דמי כרטיס` and `עיריית באר שבע`, and amount-based Adrian Sports Trainer rules (`<=350` vs `>350`).
-- Review app sidebar save controls now support `Save`, `Save and quit`, and `Quit`.
-- Review app now loads categories once at startup and keeps them in session; transfer payees no longer require a category to count as resolved.
-- `build_proposed_transactions.py` now removes one-for-one bank/card overlap rows matched on `(date, amount, fingerprint)` before dedupe against YNAB.
-- Added `scripts/reconcile_reviewed_transactions.py` to port saved review decisions onto a rebuilt proposed file.
-- Added `scripts/prepare_ynab_upload.py` and `upload_prep.py` for dry-run upload artifacts with deterministic `import_id` generation, category/account resolution, and optional live upload.
-- Sidebar labels simplified to Updated/Saved.
-- Single `--source` matching flow with `scripts/bootstrap_pairs.py` + `scripts/build_groups.py`.
-- Fingerprint map and algorithm refinements (noise stripping, high-entropy removal, token cap).
-- Narrowed `תשלום` handling: map to Subject only when it is the sole meaningful token.
-- Bootstrapped `mappings/payee_map.csv` from matched pairs and validated it.
-- Added read-only YNAB API download flow and generated `data/derived/ynab_api_norm.csv`.
-- Built fake workflow data + simulated matching to produce `outputs/fake_proposed_transactions.csv`.
-- Generated real `outputs/proposed_transactions.csv` after dedupe against YNAB API data.
-- Implemented Streamlit review UI with row-wise editing, grouped view, validation, and save-to-reviewed CSV.
-- Bootstrap workflow (large YNAB register export) established for initial mapping only.
-- Ongoing workflow uses YNAB API snapshots for dedupe and proposed transactions.
-- Added YNAB categories download script and category list support in the review UI.
-- Added review app workflow doc (`documents/review_app_workflow.md`).
-- Added amount-aware rules using `amount_bucket` parsing.
-- Curated payee map for gas stations, Ikea, Supersal, and transfer mappings.
-- Renamed review UI package to `review_app` for clarity.
+- Unified normalization for Leumi bank, Leumi xls/html, MAX card, and YNAB exports.
+- Fingerprint generation with optional `mappings/fingerprint_map.csv` canonicalization.
+- `balance_ils` is preserved for Leumi normalized bank outputs.
+- MAX normalization now preserves both billing buckets and subtype details (`max_sheet`, `max_txn_type`) and card suffixes.
+- Bank transaction lineage is implemented via versioned `bank_txn_id` values.
+- Separate bank sync and bank reconciliation flows exist:
+  - `scripts/sync_bank_matches.py`
+  - `scripts/reconcile_bank_statement.py`
+- Bank uploads use `bank_txn_id` as `import_id` for newly created bank rows.
+- Existing YNAB bank rows can be stamped via memo markers for reconciliation lineage.
+- Leumi card-payment rows now preserve `card_suffix`, and `לאומי ויזה` transfer rules are disambiguated by card suffix.
+- Proposed transactions now preserve key audit fields such as `source_account`, `secondary_date`, `ref`, `balance_ils`, `bank_txn_id`, and `card_suffix`.
+- Proposed transactions now default unknown payees to the row fingerprint when there are no payee options.
+- Review UI supports resume, grouped editing, “apply to all with this fingerprint”, and explicit reviewed/save state.
+- Upload-prep supports dry-run artifacts plus optional live execution, with deterministic import ids and transfer handling.
 
 In progress:
-- Ongoing manual curation of `mappings/fingerprint_map.csv` and review of `outputs/fingerprint_groups.csv`.
-- Manual review and cleanup of `mappings/payee_map.csv` (payees/categories).
-- `data/paired/2026_03_07/proposed_transactions_rebuilt.csv` and `data/paired/2026_03_07/proposed_transactions_reviewed_rebuilt.csv` have been rebuilt/reconciled after the bank/card overlap fix, but 146 rows are still unresolved.
-- Upload dry-run artifacts exist for the currently ready subset (`data/paired/2026_03_07/ynab_upload_ready.csv` / `.json`): 561 rows prepared, 7 ready rows skipped because `account_name` is still missing/unmapped on MAX rows.
-- Investigation of Bank Leumi `לאומי ויזה` rows: current ambiguity is not resolvable from `account_name` alone because the bank-side source account is always `Bank Leumi`; existing rules still need a transfer-specific discriminator.
+- Review/upload behavior still treats missing non-transfer categories as blocking rather than defaulting to YNAB `Uncategorized`.
+- The review UI does not yet offer a bulk “accept remaining defaults” action.
+- The review flow preserves `update_map`, but there is still no maintained exported log of payee/category mapping candidates.
+- Existing proposed/reviewed CSVs need rebuilding whenever defaulting rules change.
 
 ---
 
-## Next Steps (Priority Order)
+## Immediate Next Steps
 
-1) Process new sources (API workflow)
-- Normalize new bank/card files.
-- Download YNAB API snapshot for the date window.
-- Download YNAB categories for the review dropdowns.
-- Build `outputs/proposed_transactions.csv` from API snapshot.
+1) Review-flow defaults
+- Default unresolved non-transfer categories to the YNAB `Uncategorized` category from the downloaded category list.
+- Keep these defaulted rows unreviewed until explicitly accepted.
+- Add a review action to accept remaining valid defaults in bulk.
 
-2) Curate payee map
-- Review `mappings/payee_map.csv` for duplicates, naming consistency, and categories.
-- Decide defaults where multiple payees are present per fingerprint.
-- Add transfer-specific rules or matching keys for `לאומי ויזה` if we want those bank transfers to resolve automatically.
+2) Map-candidate artifacts
+- Generate and maintain a sorted payee-edit log artifact from review decisions instead of writing directly to `payee_map.csv`.
+- Capture rows where the final reviewed payee/category differs from the original suggestion or where `update_map` is requested.
+- Keep the artifact deterministic so it can be reviewed and copied into `payee_map.csv` manually.
 
-3) Review transactions
-- Resolve the remaining 146 unresolved rows in `data/paired/2026_03_07/proposed_transactions_reviewed_rebuilt.csv`.
-- Fix or explicitly map the 7 ready rows with blank `account_name` from the MAX source so they can be uploaded.
+3) Full workflow validation
+- Rebuild 2026-03-07 and 2026-03-09 proposed files with the new defaults.
+- Walk through normalize → pair → review → upload → sync → reconcile using the real files.
+- Verify that bank reconciliation works only on imported bank rows and that statement-balance checks still hold.
 
-4) Upload flow
-- Validate the dry-run payload in `data/paired/2026_03_07/ynab_upload_ready.csv` / `.json`.
-- Execute a real YNAB upload only after confirming the ready subset and account mappings.
-- Verify idempotent re-run behavior against the generated `import_id` values.
-
-5) Map updates
-- Generate `outputs/map_updates.csv` from reviewed data.
-
-6) Optional exploration
-- Use Splink clustering to suggest additional fingerprint rules.
+4) Remaining cleanup
+- Continue manual curation of `mappings/payee_map.csv` and `mappings/fingerprint_map.csv`.
+- Resolve any remaining account-name gaps on MAX rows before final upload passes.
 
 ---
 
 ## Deliverables to Watch
 
-- `outputs/matched_pairs.csv`
-- `outputs/fingerprint_groups.csv`
+- `data/derived/*/*_norm.csv`
+- `data/paired/*/proposed_transactions.csv`
+- `data/paired/*/proposed_transactions_reviewed.csv`
+- `data/paired/*/ynab_upload.csv`
+- `data/paired/*/bank_sync_report.csv`
+- `data/paired/*/bank_reconcile_report.csv`
+- `outputs/fingerprint_log.csv`
+- `outputs/ynab_categories.csv`
+- `outputs/map_updates.csv` or successor review-log artifact
 - `mappings/payee_map.csv`
-- `outputs/proposed_transactions.csv`
-- `outputs/proposed_transactions_reviewed.csv`
-- `outputs/map_updates.csv`

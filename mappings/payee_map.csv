@@ -1,5 +1,5 @@
-﻿rule_id,is_active,priority,txn_kind,fingerprint,description_clean_norm,account_name,source,direction,currency,amount_bucket,payee_canonical,category_target,notes
-angeli_eirini_vytina_1,True,0,,angeli eirini vytina,,,,,,,Agelini Iyrini,Greece 2025,bootstrap count=1
+﻿rule_id,is_active,priority,txn_kind,fingerprint,description_clean_norm,account_name,source,direction,currency,amount_bucket,payee_canonical,category_target,notes,card_suffix
+angeli_eirini_vytina_1,True,0,,angeli eirini vytina,,,,,,,Agelini Iyrini,Greece 2025,bootstrap count=1,
 anivals_ood_sofia_2,True,0,,anivals ood sofia,,,,,,,Anivals Sofia,Bulgaria July 2025,bootstrap count=1
 atlas_3,True,0,,atlas,,,,,,,Train food,Going out and restaurants,bootstrap count=2
 atlas_4,True,0,,atlas,,,,,,,Atlas,Going out and restaurants,bootstrap count=1
@@ -635,8 +635,8 @@ yuchen_wang_222,True,0,,yuchen wang,,,,,,,Subject,University,bootstrap count=3
 כרמים_668,True,0,,כרמים,,,,,,,Cramim,Birthdays,bootstrap count=1
 כרמית_אזובל_669,True,0,,כרמית אזובל,,,,,,,Isshin Aikido,Aikido,bootstrap count=1
 כרמל_סלמן_670,True,0,,כרמל סלמן,,,,,,,Carmel Salmon,Birthdays,bootstrap count=1
-לאומי_ויזה_671,True,0,,לאומי ויזה,,,,,,,Transfer : Liya X7195,,bootstrap count=22
-לאומי_ויזה_672,True,0,,לאומי ויזה,,,,,,,Transfer : Opher X5898,,bootstrap count=22
+לאומי_ויזה_671,True,0,,לאומי ויזה,,,,,,,Transfer : Liya X7195,,bootstrap count=22,7195
+לאומי_ויזה_672,True,0,,לאומי ויזה,,,,,,,Transfer : Opher X5898,,bootstrap count=22,5898
 לאומי_למשכנת_673,True,0,,לאומי למשכנת,,,,,,,Transfer : Mortgage,🏘️Rent/Mortgage,bootstrap count=23
 לאטו_וואריגאטו_674,True,0,,לאטו וואריגאטו,,,,,,,Gelato Variegato,Going out and restaurants,bootstrap count=2
 לב_הנהלה_675,True,0,,לב הנהלה,,,,,,,Lev Hanahala,Going out and restaurants,bootstrap count=1

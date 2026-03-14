@@ -271,6 +271,7 @@ def prepare_upload_transactions(
     optional_columns = [
         "source",
         "source_account",
+        "card_suffix",
         "secondary_date",
         "ref",
         "balance_ils",

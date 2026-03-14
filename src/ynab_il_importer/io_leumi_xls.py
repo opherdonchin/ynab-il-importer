@@ -27,6 +27,7 @@ _BANK_BALANCE_HEADERS = {
     "יתרה בשח",
     "יתרה בשקלים",
 }
+_CARD_SUFFIX_RE = r"(?<!\d)(\d{4})-\s*בכרטיס המסתיים\b"
 
 
 def _clean_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -92,6 +93,16 @@ def _extract_account_name(df: pd.DataFrame) -> pd.Series:
         return df.iloc[:, 4].astype("string").fillna("").str.strip()
 
     return pd.Series([""] * len(df), index=df.index, dtype="string")
+
+
+def _extract_card_suffix(description: pd.Series, description_clean: pd.Series, ref: pd.Series) -> pd.Series:
+    description_text = description.astype("string").fillna("").str.strip()
+    extracted = description_text.str.extract(_CARD_SUFFIX_RE, expand=False).fillna("")
+    merchant = description_clean.astype("string").fillna("").str.strip()
+    ref_digits = ref.astype("string").fillna("").str.replace(r"\D+", "", regex=True)
+    leumi_visa = (merchant == "לאומי ויזה") & (extracted == "") & (ref_digits.str.len() >= 4)
+    extracted.loc[leumi_visa] = ref_digits.loc[leumi_visa].str[-4:]
+    return extracted.astype("string").fillna("")
 
 
 def _looks_like_transaction_table(df: pd.DataFrame) -> bool:
@@ -313,6 +324,11 @@ def read_raw(
             "amount_bucket": "",
         }
     )
+    result["card_suffix"] = _extract_card_suffix(
+        result["description_raw"],
+        result["description_clean"],
+        result["ref"],
+    )
     result["bank_txn_id"] = result.apply(
         lambda row: bank_identity.make_bank_txn_id(
             source="bank",
@@ -354,6 +370,7 @@ def read_raw(
         "description_clean_norm",
         "fingerprint",
         "ref",
+        "card_suffix",
         "outflow_ils",
         "inflow_ils",
         "balance_ils",

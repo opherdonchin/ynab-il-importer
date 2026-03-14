@@ -191,6 +191,7 @@ def test_read_card_combines_max_sections_and_preserves_source_fields(
     assert set(actual["max_txn_type"].tolist()) == {"רגילה", "דחוי חודשיים"}
     assert set(actual["max_report_scope"].tolist()) == {"9922-כרטיס UNIQ"}
     assert set(actual["max_report_period"].tolist()) == {"03/2026"}
+    assert set(actual["card_suffix"].tolist()) == {"9922"}
     assert pd.to_numeric(actual["max_original_amount"], errors="coerce").round(2).tolist() == [
         360.83,
         568.00,

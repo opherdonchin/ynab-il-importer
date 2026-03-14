@@ -111,6 +111,7 @@ def test_prepare_upload_transactions_uses_bank_txn_id_for_bank_rows() -> None:
             "source": ["bank", "card"],
             "account_name": ["Bank Leumi", "Cash"],
             "source_account": ["123456", ""],
+            "card_suffix": ["7195", ""],
             "date": ["2026-03-01", "2026-03-01"],
             "secondary_date": ["2026-03-02", ""],
             "outflow_ils": ["10.00", "10.00"],
@@ -135,6 +136,7 @@ def test_prepare_upload_transactions_uses_bank_txn_id_for_bank_rows() -> None:
     assert prepared.loc[1, "import_id"] == "YNAB:-10000:2026-03-01:1"
     assert prepared.loc[0, "bank_txn_id"] == bank_txn_id
     assert prepared.loc[0, "source_account"] == "123456"
+    assert prepared.loc[0, "card_suffix"] == "7195"
     assert prepared.loc[0, "secondary_date"] == "2026-03-02"
     assert prepared.loc[0, "ref"] == "0042"
 

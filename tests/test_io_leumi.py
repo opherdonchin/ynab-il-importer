@@ -56,6 +56,35 @@ def test_read_bankin_dat_forwards_running_balance(monkeypatch: pytest.MonkeyPatc
     ]
 
 
+def test_read_bankin_dat_extracts_card_suffix_from_ref_for_leumi_visa(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "ynab_il_importer.io_leumi.account_map.apply_account_name_map",
+        lambda df, source, account_map_path=None: df,
+    )
+    monkeypatch.setattr(
+        "ynab_il_importer.io_leumi.fingerprint.apply_fingerprints",
+        _stub_apply_fingerprints,
+    )
+
+    with tempfile.NamedTemporaryFile(dir=ROOT, suffix=".dat", delete=False) as tmp:
+        raw_path = Path(tmp.name)
+        tmp.write(
+            "0517195,101225,הזיו ימואל,-000008857.44,+000000100.00,0039,67833011333622\n".encode(
+                "cp862"
+            )
+        )
+
+    try:
+        actual = leumi.read_raw(raw_path, use_fingerprint_map=False)
+    finally:
+        raw_path.unlink(missing_ok=True)
+
+    assert actual.loc[0, "description_clean"] == "לאומי ויזה"
+    assert actual.loc[0, "card_suffix"] == "7195"
+
+
 def test_read_bank_xls_forwards_balance_column(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "ynab_il_importer.io_leumi_xls.account_map.apply_account_name_map",
@@ -101,3 +130,36 @@ def test_read_bank_xls_forwards_balance_column(monkeypatch: pytest.MonkeyPatch) 
         10550.75,
         10525.25,
     ]
+
+
+def test_read_bank_xls_extracts_card_suffix_for_leumi_visa(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "ynab_il_importer.io_leumi_xls.account_map.apply_account_name_map",
+        lambda df, source, account_map_path=None: df,
+    )
+    monkeypatch.setattr(
+        "ynab_il_importer.io_leumi_xls.fingerprint.apply_fingerprints",
+        _stub_apply_fingerprints,
+    )
+
+    raw = pd.DataFrame(
+        [
+            {
+                "תאריך": "10/12/2025",
+                "תאריך ערך": "10/12/2025",
+                "תיאור": "לאומי ויזה",
+                "אסמכתא": "517195",
+                "בחובה": "8,857.44",
+                "בזכות": "",
+                "יתרה": "1,000.00",
+                "מספר חשבון": "67833011333622",
+            },
+        ],
+        dtype="string",
+    ).fillna("")
+
+    monkeypatch.setattr("ynab_il_importer.io_leumi_xls._read_bank_table", lambda _: raw)
+
+    actual = leumi_xls.read_raw("tests/fixtures/bank/leumi_sample.xls", use_fingerprint_map=False)
+
+    assert actual.loc[0, "card_suffix"] == "7195"
