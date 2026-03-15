@@ -20,7 +20,7 @@ def _default_report_out(bank_path: Path) -> Path:
 
 def _print_summary(result: dict[str, object], report_path: Path, execute: bool) -> None:
     report = result["report"]
-    print(f"Report: {report_path}")
+    print(export.wrote_message(report_path, len(report)))
     print(f"Account: {result['account_name']} ({result['account_id']})")
     print(f"Matched rows: {result['matched_count']}")
     print(f"Updates planned: {result['update_count']}")
@@ -29,6 +29,20 @@ def _print_summary(result: dict[str, object], report_path: Path, execute: bool) 
         blocked = int((report["action"] == "blocked").sum())
         print(f"Unmatched rows: {unmatched}")
         print(f"Blocked rows: {blocked}")
+        if unmatched:
+            top_unmatched = (
+                report.loc[report["action"] == "unmatched", "candidate_status"]
+                .astype("string")
+                .fillna("")
+                .str.strip()
+                .replace("", "<unspecified>")
+                .value_counts()
+                .head(5)
+            )
+            if not top_unmatched.empty:
+                print("Top unmatched reasons:")
+                for status, count in top_unmatched.items():
+                    print(f"  {status}: {count}")
     if execute:
         print("Executed: yes")
     else:

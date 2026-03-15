@@ -7,6 +7,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+import ynab_il_importer.export as export
 import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_reconcile as review_reconcile
 
@@ -23,7 +24,7 @@ def main() -> None:
     merged, stats = review_reconcile.reconcile_reviewed_transactions(old_df, new_df)
     review_io.save_reviewed_transactions(merged, Path(args.out_path))
 
-    print(f"Wrote {args.out_path} ({len(merged)} rows)")
+    print(export.wrote_message(args.out_path, len(merged)))
     print(
         "Reconciled decisions: "
         f"direct={stats['direct_matches']}, "

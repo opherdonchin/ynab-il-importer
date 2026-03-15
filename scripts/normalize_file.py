@@ -46,7 +46,7 @@ def _normalize_one(
         raise ValueError(f"{in_path} does not look like a valid {fmt} file.")
     df = module.read_raw(in_path, use_fingerprint_map=use_fingerprint_map)
     export.write_dataframe(df, out_path)
-    print(f"Wrote {out_path} ({len(df)} rows)")
+    print(export.wrote_message(out_path, len(df)))
 
 
 def _normalize_dir(
@@ -80,7 +80,7 @@ def _normalize_dir(
             warnings.warn(f"Failed to parse {path} as {fmt}: {exc}", UserWarning)
             continue
         export.write_dataframe(df, out_path)
-        print(f"Wrote {out_path} ({len(df)} rows)")
+        print(export.wrote_message(out_path, len(df)))
 
 
 def main() -> None:

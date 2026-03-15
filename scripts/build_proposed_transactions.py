@@ -236,6 +236,7 @@ def main() -> None:
     deduped, pairs = _dedupe_sources(source_df, ynab_df)
     if args.pairs_out:
         export.write_dataframe(pairs, args.pairs_out)
+        print(export.wrote_message(args.pairs_out, len(pairs)))
 
     rules = rules_mod.load_payee_map(args.map_path)
     out = deduped.copy()
@@ -286,7 +287,7 @@ def main() -> None:
     out = out[columns]
 
     export.write_dataframe(out, args.out_path)
-    print(f"Wrote {args.out_path} ({len(out)} rows)")
+    print(export.wrote_message(args.out_path, len(out)))
 
 
 if __name__ == "__main__":

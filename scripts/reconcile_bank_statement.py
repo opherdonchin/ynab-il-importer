@@ -19,12 +19,50 @@ def _default_report_out(bank_path: Path) -> Path:
 
 
 def _print_summary(result: dict[str, object], report_path: Path, execute: bool) -> None:
-    print(f"Report: {report_path}")
+    print(export.wrote_message(report_path, len(result["report"])))
     print(f"Account: {result['account_name']} ({result['account_id']})")
-    print(f"Anchor: {result['anchor_type']} at {result['anchor_balance_ils']:.2f} ILS")
-    print(f"Updates planned: {result['update_count']}")
-    print(f"Final balance: {result['final_balance_ils']:.2f} ILS")
-    print("Executed: yes" if execute else "Executed: no (dry run)")
+    print(f"Anchor mode: {result['anchor_type'] or 'unknown'}")
+    if result["ok"]:
+        print(f"Anchor: {result['anchor_balance_ils']:.2f} ILS")
+        print(f"Updates planned: {result['update_count']}")
+        print(f"Final balance: {result['final_balance_ils']:.2f} ILS")
+        print("Executed: yes" if execute else "Executed: no (dry run)")
+        return
+
+    print("Status: blocked")
+    if result["reason"]:
+        print(f"Reason: {result['reason']}")
+    print(f"Exact lineage matches in file: {result['matched_count']}")
+    print(f"Already reconciled matches in file: {result['reconciled_match_count']}")
+    if int(result["probable_legacy_match_count"] or 0) > 0:
+        print(
+            "Probable legacy reconciled matches in file: "
+            f"{result['probable_legacy_match_count']}"
+        )
+    if int(result["anchor_expected_count"] or 0) > 0:
+        window_label = (
+            f"rows {result['anchor_window_row_start']}..{result['anchor_window_row_end']}"
+            if int(result["anchor_window_row_start"]) >= 0
+            else "current window"
+        )
+        print(
+            f"Anchor window {window_label}: "
+            f"eligible {result['anchor_eligible_count']} / {result['anchor_expected_count']}, "
+            f"exact lineage {result['anchor_matched_count']} / {result['anchor_expected_count']}, "
+            f"reconciled exact {result['anchor_reconciled_count']} / {result['anchor_expected_count']}"
+        )
+        if int(result["anchor_probable_legacy_count"] or 0) > 0:
+            print(
+                "Probable legacy anchors in window: "
+                f"{result['anchor_probable_legacy_count']} / {result['anchor_expected_count']}"
+            )
+    if int(result["post_anchor_unresolved_count"] or 0) > 0:
+        print(
+            "Post-anchor unresolved rows: "
+            f"{result['post_anchor_unresolved_count']} "
+            f"(first at row {result['first_post_anchor_unresolved_row']})"
+        )
+    print("Executed: no (blocked)")
 
 
 def main() -> None:
@@ -65,6 +103,9 @@ def main() -> None:
     )
     export.write_dataframe(result["report"], report_path)
     _print_summary(result, report_path, execute=args.execute)
+
+    if not result["ok"]:
+        raise SystemExit(1)
 
     if args.execute and result["updates"]:
         response = ynab_api.update_transactions(result["updates"])

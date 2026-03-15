@@ -122,8 +122,8 @@ def main() -> None:
     _print_section(
         "Artifacts",
         [
-            ("prepared CSV", out_path),
-            ("payload JSON", json_out_path),
+            ("prepared CSV", export.display_path(out_path)),
+            ("payload JSON", export.display_path(json_out_path)),
             ("prepared rows", len(prepared)),
         ],
     )

@@ -40,7 +40,7 @@ def main() -> None:
 
     pairs_df = pairing.match_pairs(source_df, ynab_df)
     export.write_dataframe(pairs_df, args.out)
-    print(f"Wrote {args.out} ({len(pairs_df)} rows)")
+    print(export.wrote_message(args.out, len(pairs_df)))
 
 
 if __name__ == "__main__":

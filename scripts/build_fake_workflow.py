@@ -116,9 +116,9 @@ def main() -> None:
     ynab_path = out_dir / "fake_ynab_norm.csv"
     export.write_dataframe(fake_ynab, ynab_path)
 
-    print(f"Wrote {bank_path} ({len(fake_bank)} rows)")
-    print(f"Wrote {card_path} ({len(fake_card)} rows)")
-    print(f"Wrote {ynab_path} ({len(fake_ynab)} rows)")
+    print(export.wrote_message(bank_path, len(fake_bank)))
+    print(export.wrote_message(card_path, len(fake_card)))
+    print(export.wrote_message(ynab_path, len(fake_ynab)))
 
 
 if __name__ == "__main__":

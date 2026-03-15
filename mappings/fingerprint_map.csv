@@ -1,74 +1,78 @@
 ﻿rule_id,is_active,priority,pattern,canonical_text,notes
-paybox,True,0,paybox,paybox,Consolidate PayBox transfers
-סופרפארם,True,0,סופר פארם|סופרפארם,סופרפארם,Consolidate Super-Pharm variants
-דור_אלון,True,0,דור אלון,דור אלון,Consolidate Dor Alon variants
-שופרסל,True,0,שופרסל,שופרסל,Consolidate Shufersal variants
-טיב_טעם,True,0,טיב טעם,טיב טעם,Consolidate Tiv Taam variants
-מחסני_השוק,True,0,מחסני השוק,מחסני השוק,Consolidate Machsanei HaShuk variants
-רשות_הטבע_והגנים,True,0,רשות הטבע והגנים,רשות הטבע והגנים,Consolidate Nature and Parks Authority variants
-צומת_ספרים,True,0,צומת ספרים,צומת ספרים,Consolidate Tzomet Sfarim variants
-רכבת_ישראל,True,0,רכבת ישראל,רכבת ישראל,Consolidate Israel Railways variants
-ארומה,True,0,ארומה,ארומה,Consolidate Aroma variants
-אילנס,True,0,אילנס,אילנס,Consolidate Ilans variants
-קפה_עלית,True,0,קפה עלית,קפה עלית,Consolidate Elite Coffee variants
-לנדוור,True,0,לנדוור,לנדוור,Consolidate Landwer variants
-דלק,True,0,דלק,דלק,Consolidate Delek / fuel station variants
-פז,True,0,פז,פז,Consolidate Paz variants
-סונול,True,0,סונול,סונול,Consolidate Sonol variants
-ניצת_הדובדבן,True,0,ניצת הדובדבן,ניצת הדובדבן,Consolidate Nitzat HaDuvdevan variants
-זול_פעמי,True,0,זול פעמי,זול פעמי,Consolidate Zol Paami variants
-הראל_ביטוח,True,0,הראל ביטוח,הראל ביטוח,Consolidate Harel Insurance variants
-כלל_ביטוח,True,0,כלל ביטוח,כלל ביטוח,Consolidate Clal Insurance variants
-מס_הכנסה,True,0,מס הכנסה,מס הכנסה,Consolidate Income Tax variants
-משרד_התחבורה,True,0,משרד התחבורה,משרד התחבורה,Consolidate Ministry of Transport variants
-המוסד_לביטוח_לאומי,True,0,המוסד לביטוח לאומי,המוסד לביטוח לאומי,Consolidate National Insurance Institute variants
-מי_שבע,True,0,מי שבע,מי שבע,Consolidate Mei Sheva variants
-מרכז_הספורט_והנופש,True,0,מרכז הספורט והנופש,מרכז הספורט והנופש,Consolidate Sport & Recreation Center variants
-סולתם_רדד,True,0,סולתם רדד,סולתם רדד,Consolidate Soltam Radad variants
-סי_קפה,True,0,סי קפה,סי קפה,Consolidate Si Cafe variants
-ספרינט_מוטורוס,True,0,ספרינט מוטורוס,ספרינט מוטורוס,Consolidate Sprint Motoros variants
-בתי_קולנוע,True,0,בתי קולנוע,בתי קולנוע,Consolidate Cinema variants
-בליקר_בייקרי,True,0,בליקר בייקרי,בליקר בייקרי,Consolidate Blekir Bakery variants
-בית_יציב,True,0,בית יציב,בית יציב,Consolidate Beit Yatziv variants
-אלונית,True,0,אלונית,אלונית,Consolidate Alonit variants
-duty_free,True,0,duty free|duty-free|dutyfree|דיוטי פרי,duty free,Consolidate Duty Free variants
-cello,True,0,cello,Cello,Cello park 
-experiment,False,0,experiment,experiment,Disabled: keep recipient names for transfers
-yellow,True,5,yellow,yellow,Split YELLOW from Paz
-מנטה,True,5,מנטה,מנטה,Split Menta from Delek
-ksp,True,0,ksp,ksp,Consolidate KSP variants
-japanika,True,0,japanika|גפניקה,japanika,Consolidate Japanika variants
-קמפאי,True,0,קמפאי,קמפאי,Consolidate Kampai variants
-כללית,True,0,כללית,כללית,Consolidate Clalit variants
-ספידוג,True,0,ספידוג,ספידוג,Consolidate Speedog variants
-אייבורי,True,0,ivory|אייבורי,אייבורי,Consolidate Ivory variants
-hot,True,0,hot mobile,hot,Consolidate HOT Mobile
-hot_2,True,0,next tv by hot,hot,Consolidate HOT Next TV
-למטייל,True,0,למטייל,למטייל,Consolidate Lametayel variants
-לחייל_ולטייל,True,0,לחייל ולטייל,לחייל ולטייל,Consolidate Lahayal V'Lateyal variants
-אליטל,True,0,אליטל,אליטל,Consolidate Alital variants
-חוגי_סיירות,True,0,חוגי סיירות,חוגי סיירות,Consolidate Chug Sayarut variants
-מלך_הממתקים,True,0,מלך הממתקים,מלך הממתקים,Consolidate Melech Hamamtakim variants
-rexail,True,0,rexail,rexail,Consolidate Rexail variants
-רולדין,True,0,רולדין,רולדין,Consolidate Roladin variants
-ורדינון,True,0,ורדינון,ורדינון,Consolidate Vardinon variants
-אייקון,True,0,אייקון,אייקון,Consolidate Icon variants
-באג,True,0,באג ביג,באג,Consolidate BUG variants (Big)
-באג_2,True,0,באג מולטיסיסטם,באג,Consolidate BUG variants (Multisystem)
-פוקס,True,0,פוקס ביג,פוקס,Consolidate Fox variants (Big)
-פוקס_2,True,0,פוקס הום,פוקס,Consolidate Fox Home variants
-פוקס_3,True,0,פוקס נמל,פוקס,Consolidate Fox variants (Port)
-כביש,True,0,כביש 6,כביש,Consolidate Kvish 6 variants
-שייק_בקטר,True,0,שייק בקטר,שייק בקטר,Consolidate Shake Bakatar variants
-שייק_בקטר_2,True,0,שייח בקטר,שייק בקטר,Consolidate Shake Bakatar variants (typo)
-שייק_בקטר_3,True,0,שמואל חגג שייק בקטר,שייק בקטר,Consolidate Shake Bakatar variants (name prefix)
-bit,True,0,bit,bit,Consolidate Bit transfers
-decathlon,True,0,decathlon|דקטלון,decathlon,Consolidate Decathlon variants (Hebrew/English)
-open_spot,True,0,open spot|אופן ספוט,open spot,Consolidate Open/Offen Spot variants (Hebrew/English)
-puzzle_outlet,True,0,puzzle outlet|סופט קוקיז,puzzle outlet,Consolidate Puzzle Outlet / Soft Cookies variants (Hebrew/English)
-subject_payment,False,-10,תשלום,subject,Handled in fingerprint_v0: map תשלום only when sole token
-מאפית_אורן_משי,True,0,מאפית אורן משי|מאפיתת אורן משי,מאפית אורן משי,Consolidate Oren Meshi bakery variants
-דיל_הר_בוקר,True,0,דיל הר בוקר,שופרסל,Consolidate Shufersal Deal (Har Boker) to Shufersal
-Adrian,True,0,אדריאן,Adrian Sports Trainer,Consolidate Adrian variants
-dmei_kartis,True,10,דמי כרטיס,דמי כרטיס,Keep full card-fee fingerprint
-iriyat_beer_sheva,True,10,עיריית באר שבע,עיריית באר שבע,Keep full Beer Sheva municipality fingerprint
+paybox,TRUE,0,paybox,paybox,Consolidate PayBox transfers
+סופרפארם,TRUE,0,סופר פארם|סופרפארם,Superphram,Consolidate Super-Pharm variants
+דור_אלון,TRUE,0,דור אלון,Dor Alon,Consolidate Dor Alon variants
+שופרסל,TRUE,0,שופרסל,Supersol,Consolidate Shufersal variants
+טיב_טעם,TRUE,0,טיב טעם,Tiv Taam,Consolidate Tiv Taam variants
+מחסני_השוק,TRUE,0,מחסני השוק,Machsanei Hashuk,Consolidate Machsanei HaShuk variants
+רשות_הטבע_והגנים,TRUE,0,רשות הטבע והגנים,Reshut Hateva,Consolidate Nature and Parks Authority variants
+צומת_ספרים,TRUE,0,צומת ספרים,Tzomet Sfarim,Consolidate Tzomet Sfarim variants
+רכבת_ישראל,TRUE,0,רכבת ישראל,Israel rail,Consolidate Israel Railways variants
+ארומה,TRUE,0,ארומה,Aroma,Consolidate Aroma variants
+אילנס,TRUE,0,אילנס,Ilans,Consolidate Ilans variants
+קפה_עלית,TRUE,0,קפה עלית,Cafe Illit,Consolidate Elite Coffee variants
+לנדוור,TRUE,0,לנדוור,Landwer,Consolidate Landwer variants
+דלק,TRUE,0,דלק,Delek,Consolidate Delek / fuel station variants
+פז,TRUE,0,פז,Paz,Consolidate Paz variants
+סונול,TRUE,0,סונול,Sonol,Consolidate Sonol variants
+ניצת_הדובדבן,TRUE,0,ניצת הדובדבן,Nitzat Haduvdevan,Consolidate Nitzat HaDuvdevan variants
+זול_פעמי,TRUE,0,זול פעמי,Zol Paami,Consolidate Zol Paami variants
+הראל_ביטוח,TRUE,0,הראל ביטוח,Harel Insurance,Consolidate Harel Insurance variants
+כלל_ביטוח,TRUE,0,כלל ביטוח,Klal Insurance,Consolidate Clal Insurance variants
+מס_הכנסה,TRUE,0,מס הכנסה,Income tax,Consolidate Income Tax variants
+משרד_התחבורה,TRUE,0,משרד התחבורה,Transportation ministry,Consolidate Ministry of Transport variants
+המוסד_לביטוח_לאומי,TRUE,0,המוסד לביטוח לאומי,Bituach Leumi,Consolidate National Insurance Institute variants
+מי_שבע,TRUE,0,מי שבע,Mei Sheva,Consolidate Mei Sheva variants
+מרכז_הספורט_והנופש,TRUE,0,מרכז הספורט והנופש,Sports center,Consolidate Sport & Recreation Center variants
+סולתם_רדד,TRUE,0,סולתם רדד,Soltam,Consolidate Soltam Radad variants
+סי_קפה,TRUE,0,סי קפה,Si Coffee,Consolidate Si Cafe variants
+ספרינט_מוטורוס,TRUE,0,ספרינט מוטורוס,Sprint motors,Consolidate Sprint Motoros variants
+בתי_קולנוע,TRUE,0,בתי קולנוע,Movies,Consolidate Cinema variants
+בליקר_בייקרי,TRUE,0,בליקר בייקרי,Bleeker Bakery,Consolidate Blekir Bakery variants
+בית_יציב,TRUE,0,בית יציב,Beit Yatziv,Consolidate Beit Yatziv variants
+אלונית,TRUE,0,אלונית,Alonit,Consolidate Alonit variants
+duty_free,TRUE,0,duty free|duty-free|dutyfree|דיוטי פרי,duty free,Consolidate Duty Free variants
+cello,TRUE,0,cello,Cello,Cello park 
+experiment,FALSE,0,experiment,experiment,Disabled: keep recipient names for transfers
+yellow,TRUE,5,yellow,yellow,Split YELLOW from Paz
+מנטה,TRUE,5,מנטה,Menta,Split Menta from Delek
+ksp,TRUE,0,ksp,ksp,Consolidate KSP variants
+japanika,TRUE,0,japanika|גפניקה,japanika,Consolidate Japanika variants
+קמפאי,TRUE,0,קמפאי,Kampai,Consolidate Kampai variants
+כללית,TRUE,0,כללית,Clalit,Consolidate Clalit variants
+ספידוג,TRUE,0,ספידוג,Speedog,Consolidate Speedog variants
+אייבורי,TRUE,0,ivory|אייבורי,Ivory,Consolidate Ivory variants
+hot,TRUE,0,hot mobile,hot,Consolidate HOT Mobile
+hot_2,TRUE,0,next tv by hot,hot,Consolidate HOT Next TV
+למטייל,TRUE,0,למטייל,Lametayel,Consolidate Lametayel variants
+לחייל_ולטייל,TRUE,0,לחייל ולטייל,Lahayal lametayel,Consolidate Lahayal V'Lateyal variants
+אליטל,TRUE,0,אליטל,Alital,Consolidate Alital variants
+חוגי_סיירות,TRUE,0,חוגי סיירות,Sayarut,Consolidate Chug Sayarut variants
+מלך_הממתקים,TRUE,0,מלך הממתקים,King of sweets,Consolidate Melech Hamamtakim variants
+rexail,TRUE,0,rexail,rexail,Consolidate Rexail variants
+רולדין,TRUE,0,רולדין,Roladin,Consolidate Roladin variants
+ורדינון,TRUE,0,ורדינון,Vardinon,Consolidate Vardinon variants
+אייקון,TRUE,0,אייקון,Icon,Consolidate Icon variants
+באג,TRUE,0,באג ביג,Bug,Consolidate BUG variants (Big)
+באג_2,TRUE,0,באג מולטיסיסטם,Bug,Consolidate BUG variants (Multisystem)
+פוקס,TRUE,0,פוקס ביג,Fox,Consolidate Fox variants (Big)
+פוקס_2,TRUE,0,פוקס הום,Fox,Consolidate Fox Home variants
+פוקס_3,TRUE,0,פוקס נמל,Fox,Consolidate Fox variants (Port)
+כביש,TRUE,0,כביש 6,Kvish 6,Consolidate Kvish 6 variants
+שייק_בקטר,TRUE,0,שייק בקטר,Shake Bakatar,Consolidate Shake Bakatar variants
+שייק_בקטר_2,TRUE,0,שייח בקטר,Shake Bakatar,Consolidate Shake Bakatar variants (typo)
+שייק_בקטר_3,TRUE,0,שמואל חגג שייק בקטר,Shake Bakatar,Consolidate Shake Bakatar variants (name prefix)
+bit,TRUE,0,bit,bit,Consolidate Bit transfers
+decathlon,TRUE,0,decathlon|דקטלון,decathalon,Consolidate Decathlon variants (Hebrew/English)
+open_spot,TRUE,0,open spot|אופן ספוט,open spot,Consolidate Open/Offen Spot variants (Hebrew/English)
+puzzle_outlet,TRUE,0,puzzle outlet|סופט קוקיז,puzzle outlet,Consolidate Puzzle Outlet / Soft Cookies variants (Hebrew/English)
+subject_payment,FALSE,-10,תשלום,subject,Handled in fingerprint_v0: map תשלום only when sole token
+מאפית_אורן_משי,TRUE,0,מאפית אורן משי|מאפיתת אורן משי,Oren Meshi,Consolidate Oren Meshi bakery variants
+דיל_הר_בוקר,TRUE,0,דיל הר בוקר,Supersol,Consolidate Shufersal Deal (Har Boker) to Shufersal
+Adrian,TRUE,0,אדריאן,Adrian Sports Trainer,Consolidate Adrian variants
+dmei_kartis,TRUE,10,דמי כרטיס,Bank Leumi,Keep full card-fee fingerprint
+iriyat_beer_sheva,TRUE,10,עיריית באר שבע,Beer Sheva Municipality,Keep full Beer Sheva municipality fingerprint
+Subject transfer,TRUE,0,experiment,Subject,Bank transfers to subjects
+iherb,TRUE,0,iherb,iHerb,Any iherb pruchase
+lime,TRUE,0,lime,lime,any lime rental anywhere
+mr pretzels,TRUE,0,mr pretzels,mr pretzels,

@@ -2,6 +2,14 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+import ynab_il_importer.export as export
 
 
 def _most_common_text(series: pd.Series) -> str:
@@ -65,7 +73,7 @@ def main() -> None:
             f"Permission denied writing {out_path}. "
             "Close the file (e.g., in Excel) and rerun."
         ) from exc
-    print(f"Wrote {out_path} ({len(grouped)} rows)")
+    print(export.wrote_message(out_path, len(grouped)))
 
 
 if __name__ == "__main__":

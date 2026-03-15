@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
+import ynab_il_importer.export as export
 import ynab_il_importer.io_leumi as leumi
 import ynab_il_importer.io_leumi_xls as leumi_xls
 import ynab_il_importer.io_max as maxio
@@ -17,6 +18,10 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for bare Python envs
 
 def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _print_wrote(path: Path, row_count: int) -> None:
+    print(export.wrote_message(path, row_count))
 
 
 def _fill_and_validate_ynab_account(
@@ -250,8 +255,8 @@ def _run_build_payee_map(
     preview_out = out_dir / "payee_map_applied_preview.csv"
     candidates.to_csv(candidates_out, index=False, encoding="utf-8-sig")
     preview.to_csv(preview_out, index=False, encoding="utf-8-sig")
-    print(f"Wrote {len(candidates)} rows to {candidates_out}")
-    print(f"Wrote {len(preview)} rows to {preview_out}")
+    _print_wrote(candidates_out, len(candidates))
+    _print_wrote(preview_out, len(preview))
     return candidates, preview
 
 
@@ -266,7 +271,7 @@ if typer is not None:
         df = leumi_xls.read_raw(in_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        print(f"Wrote {len(df)} rows to {out_path}")
+        _print_wrote(out_path, len(df))
 
     @app.command("parse-max")
     def parse_max(
@@ -276,7 +281,7 @@ if typer is not None:
         df = maxio.read_raw(in_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        print(f"Wrote {len(df)} rows to {out_path}")
+        _print_wrote(out_path, len(df))
 
     @app.command("parse-ynab")
     def parse_ynab(
@@ -287,7 +292,7 @@ if typer is not None:
         df = _fill_and_validate_ynab_account(ynab.read_raw(in_path), account_name)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        print(f"Wrote {len(df)} rows to {out_path}")
+        _print_wrote(out_path, len(df))
 
     @app.command("parse-leumi")
     def parse_leumi(
@@ -297,7 +302,7 @@ if typer is not None:
         df = leumi.read_raw(in_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        print(f"Wrote {len(df)} rows to {out_path}")
+        _print_wrote(out_path, len(df))
 
     @app.command("match-pairs")
     def match_pairs(
@@ -324,7 +329,7 @@ if typer is not None:
         pairs_df = pairing.match_pairs(source_df, ynab_df)
         _ensure_parent(out_path)
         pairs_df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        print(f"Wrote {len(pairs_df)} rows to {out_path}")
+        _print_wrote(out_path, len(pairs_df))
 
     @app.command("build-groups")
     def build_groups(
@@ -335,7 +340,7 @@ if typer is not None:
         grouped = _build_groups_df(pairs)
         _ensure_parent(out_path)
         grouped.to_csv(out_path, index=False, encoding="utf-8-sig")
-        print(f"Wrote {len(grouped)} rows to {out_path}")
+        _print_wrote(out_path, len(grouped))
 
     @app.command("build-payee-map")
     def build_payee_map(
@@ -413,25 +418,25 @@ def _fallback_main() -> None:
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        print(f"Wrote {len(df)} rows to {out_path}")
+        _print_wrote(out_path, len(df))
     elif args.command == "parse-max":
         df = maxio.read_raw(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        print(f"Wrote {len(df)} rows to {out_path}")
+        _print_wrote(out_path, len(df))
     elif args.command == "parse-ynab":
         df = _fill_and_validate_ynab_account(ynab.read_raw(args.in_path), args.account_name)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        print(f"Wrote {len(df)} rows to {out_path}")
+        _print_wrote(out_path, len(df))
     elif args.command == "parse-leumi":
         df = leumi.read_raw(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
         df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        print(f"Wrote {len(df)} rows to {out_path}")
+        _print_wrote(out_path, len(df))
     elif args.command == "match-pairs":
         if not args.source:
             raise ValueError("Provide at least one --source input.")
@@ -450,14 +455,14 @@ def _fallback_main() -> None:
         out_path = Path(args.out)
         _ensure_parent(out_path)
         pairs_df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        print(f"Wrote {len(pairs_df)} rows to {out_path}")
+        _print_wrote(out_path, len(pairs_df))
     elif args.command == "build-groups":
         pairs = pd.read_csv(Path(args.pairs))
         grouped = _build_groups_df(pairs)
         out_path = Path(args.out)
         _ensure_parent(out_path)
         grouped.to_csv(out_path, index=False, encoding="utf-8-sig")
-        print(f"Wrote {len(grouped)} rows to {out_path}")
+        _print_wrote(out_path, len(grouped))
     elif args.command == "build-payee-map":
         parsed = [Path(p) for p in args.parsed]
         matched = [Path(p) for p in args.matched_pairs]

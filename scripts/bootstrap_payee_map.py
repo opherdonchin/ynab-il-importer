@@ -10,6 +10,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+import ynab_il_importer.export as export
 import ynab_il_importer.rules as rules
 
 
@@ -103,7 +104,7 @@ def main() -> None:
             out[col] = ""
     out = out[rules.PAYEE_MAP_COLUMNS]
     out.to_csv(args.out, index=False, encoding="utf-8-sig")
-    print(f"Wrote {args.out} ({len(out)} rows)")
+    print(export.wrote_message(args.out, len(out)))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+import sys
 
 import pandas as pd
 from splink.backends.duckdb import DuckDBAPI
@@ -7,6 +8,13 @@ from splink.blocking_rule_library import block_on
 from splink.comparison_library import JaroWinklerAtThresholds
 from splink.internals.linker import Linker
 from splink.internals.settings_creator import SettingsCreator
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+import ynab_il_importer.export as export
 
 
 def _first_token(value: str) -> str:
@@ -74,11 +82,12 @@ def main() -> None:
     clusters = linker.clustering.cluster_pairwise_predictions_at_threshold(
         predictions, threshold_match_probability=args.threshold
     )
+    clusters_df = clusters.as_pandas_dataframe()
 
     out_path = args.output_path
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    clusters.as_pandas_dataframe().to_csv(out_path, index=False, encoding="utf-8-sig")
-    print(f"Wrote {out_path}")
+    clusters_df.to_csv(out_path, index=False, encoding="utf-8-sig")
+    print(export.wrote_message(out_path, len(clusters_df)))
 
 
 if __name__ == "__main__":

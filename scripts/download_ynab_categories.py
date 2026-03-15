@@ -29,7 +29,7 @@ def main() -> None:
         raise ValueError("No categories returned from YNAB API.")
 
     export.write_dataframe(df, args.out_path)
-    print(f"Wrote {args.out_path} ({len(df)} rows)")
+    print(export.wrote_message(args.out_path, len(df)))
 
 
 if __name__ == "__main__":

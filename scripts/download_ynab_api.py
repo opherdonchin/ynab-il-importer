@@ -44,7 +44,7 @@ def main() -> None:
     df = _filter_by_date(df, args.since_date or None, args.until_date or None)
 
     export.write_dataframe(df, args.out_path)
-    print(f"Wrote {args.out_path} ({len(df)} rows)")
+    print(export.wrote_message(args.out_path, len(df)))
 
 
 if __name__ == "__main__":
