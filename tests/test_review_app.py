@@ -460,6 +460,92 @@ def test_accept_remaining_defaults_marks_unreviewed_default_rows(tmp_path: Path)
     assert bool(session_df.loc[0, "reviewed"]) is True
 
 
+def test_defaulted_unique_rows_can_be_shown_for_review(tmp_path: Path) -> None:
+    app, _, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[
+            {
+                "transaction_id": "t1",
+                "date": "2025-01-01",
+                "account_name": "Account 1",
+                "outflow_ils": "10",
+                "inflow_ils": "0",
+                "memo": "memo1",
+                "fingerprint": "fp1",
+                "payee_options": "Cafe",
+                "category_options": "Uncategorized",
+                "payee_selected": "Cafe",
+                "category_selected": "Uncategorized",
+                "match_status": "unique",
+                "update_map": "",
+                "reviewed": "",
+            }
+        ],
+    )
+
+    app.run()
+
+    assert len(app.expander) == 0
+    app.sidebar.radio[0].set_value("Row")
+    app.run()
+    app.sidebar.checkbox[0].uncheck()
+    app.run()
+
+    assert len(app.expander) == 1
+    assert "Account 1" in app.expander[0].label
+
+
+def test_reviewed_only_filter_can_show_reviewed_rows(tmp_path: Path) -> None:
+    app, _, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[
+            {
+                "transaction_id": "t1",
+                "date": "2025-01-01",
+                "account_name": "Account 1",
+                "outflow_ils": "10",
+                "inflow_ils": "0",
+                "memo": "memo1",
+                "fingerprint": "fp1",
+                "payee_options": "Cafe",
+                "category_options": "Food",
+                "payee_selected": "Cafe",
+                "category_selected": "Food",
+                "match_status": "unique",
+                "update_map": "",
+                "reviewed": "TRUE",
+            },
+            {
+                "transaction_id": "t2",
+                "date": "2025-01-02",
+                "account_name": "Account 1",
+                "outflow_ils": "11",
+                "inflow_ils": "0",
+                "memo": "memo2",
+                "fingerprint": "fp2",
+                "payee_options": "Cafe",
+                "category_options": "Food",
+                "payee_selected": "Cafe",
+                "category_selected": "Food",
+                "match_status": "unique",
+                "update_map": "",
+                "reviewed": "",
+            },
+        ],
+    )
+
+    app.run()
+    app.sidebar.radio[0].set_value("Row")
+    app.run()
+    app.sidebar.checkbox[0].uncheck()
+    app.run()
+    app.sidebar.selectbox[1].set_value("Reviewed only")
+    app.run()
+
+    assert len(app.expander) == 1
+    assert "memo1" in app.expander[0].label
+
+
 def test_save_writes_map_updates_artifact(tmp_path: Path) -> None:
     app, _, reviewed = _build_app_test(
         tmp_path,

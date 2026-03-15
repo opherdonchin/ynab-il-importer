@@ -619,8 +619,13 @@ def main() -> None:
 
         st.header("Filters")
         statuses = sorted(df["match_status"].astype("string").fillna("").unique().tolist())
-        default_status = [s for s in statuses if s in {"ambiguous", "none"}] or statuses
+        default_status = statuses
         match_status = st.multiselect("match_status", statuses, default=default_status)
+        reviewed_mode_label = st.selectbox(
+            "Review state",
+            ["All rows", "Unreviewed only", "Reviewed only"],
+            index=0,
+        )
         unresolved_only = st.checkbox("Unresolved only", value=True)
         missing_payee_only = st.checkbox("Missing payee only", value=False)
         missing_category_only = st.checkbox("Missing category only", value=False)
@@ -661,6 +666,11 @@ def main() -> None:
 
     filters = {
         "match_status": match_status,
+        "reviewed_mode": {
+            "All rows": "all",
+            "Unreviewed only": "unreviewed",
+            "Reviewed only": "reviewed",
+        }[reviewed_mode_label],
         "unresolved_only": unresolved_only,
         "missing_payee_only": missing_payee_only,
         "missing_category_only": missing_category_only,

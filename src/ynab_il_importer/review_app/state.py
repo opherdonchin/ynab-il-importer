@@ -103,6 +103,13 @@ def apply_filters(df: pd.DataFrame, filters: dict[str, Any]) -> pd.DataFrame:
     if match_status:
         filtered = filtered[filtered["match_status"].isin(match_status)]
 
+    reviewed = df.get("reviewed", pd.Series([False] * len(df), index=df.index)).astype(bool)
+    reviewed_mode = str(filters.get("reviewed_mode", "") or "").strip().lower()
+    if reviewed_mode == "unreviewed":
+        filtered = filtered[~reviewed.reindex(filtered.index, fill_value=False)]
+    elif reviewed_mode == "reviewed":
+        filtered = filtered[reviewed.reindex(filtered.index, fill_value=False)]
+
     payee_blank = series_or_default(filtered, "payee_selected").str.strip() == ""
     category_blank = series_or_default(filtered, "category_selected").str.strip() == ""
     transfer_payee = series_or_default(filtered, "payee_selected").map(model.is_transfer_payee)

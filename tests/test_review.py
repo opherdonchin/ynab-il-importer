@@ -110,3 +110,34 @@ def test_accept_defaults_mask_marks_ready_unreviewed_rows() -> None:
     mask = review_state.accept_defaults_mask(df)
 
     assert mask.tolist() == [True, False, True]
+
+
+def test_apply_filters_can_limit_to_reviewed_state() -> None:
+    df = pd.DataFrame(
+        {
+            "match_status": ["unique", "unique", "ambiguous"],
+            "payee_selected": ["Cafe", "Cafe", ""],
+            "category_selected": ["Food", "Food", ""],
+            "reviewed": [True, False, True],
+        }
+    )
+
+    reviewed_only = review_state.apply_filters(
+        df,
+        {
+            "match_status": ["unique", "ambiguous"],
+            "reviewed_mode": "reviewed",
+            "unresolved_only": False,
+        },
+    )
+    unreviewed_only = review_state.apply_filters(
+        df,
+        {
+            "match_status": ["unique", "ambiguous"],
+            "reviewed_mode": "unreviewed",
+            "unresolved_only": False,
+        },
+    )
+
+    assert reviewed_only.index.tolist() == [0, 2]
+    assert unreviewed_only.index.tolist() == [1]

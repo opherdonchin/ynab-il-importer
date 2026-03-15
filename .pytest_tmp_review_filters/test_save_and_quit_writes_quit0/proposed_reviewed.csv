@@ -1,0 +1,3 @@
+﻿transaction_id,date,account_name,outflow_ils,inflow_ils,memo,fingerprint,payee_options,category_options,payee_selected,category_selected,match_status,update_map,reviewed
+t1,2025-01-01,Account 1,10,0,memo1,fp1,A;B,C;D,A,C,ambiguous,,
+t2,2025-01-02,Account 1,11,0,memo2,fp1,A;B,C;D,A,C,ambiguous,,
