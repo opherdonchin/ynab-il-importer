@@ -277,6 +277,12 @@ def prepare_upload_transactions(
         "balance_ils",
         "ynab_account_id",
         "bank_txn_id",
+        "max_sheet",
+        "max_txn_type",
+        "max_original_amount",
+        "max_original_currency",
+        "max_report_period",
+        "max_report_scope",
     ]
     columns.extend([col for col in optional_columns if col in df.columns])
     return df[columns].copy()

@@ -100,9 +100,12 @@ def _extract_card_suffix(description: pd.Series, description_clean: pd.Series, r
     extracted = description_text.str.extract(_CARD_SUFFIX_RE, expand=False).fillna("")
     merchant = description_clean.astype("string").fillna("").str.strip()
     ref_digits = ref.astype("string").fillna("").str.replace(r"\D+", "", regex=True)
-    leumi_visa = (merchant == "לאומי ויזה") & (extracted == "") & (ref_digits.str.len() >= 4)
-    extracted.loc[leumi_visa] = ref_digits.loc[leumi_visa].str[-4:]
-    return extracted.astype("string").fillna("")
+    leumi_visa = (merchant == "לאומי ויזה") & (extracted == "") & (ref_digits.str.len() >= 3)
+    extracted.loc[leumi_visa] = ref_digits.loc[leumi_visa].str[-4:].str.zfill(4)
+    extracted = extracted.astype("string").fillna("").str.replace(r"\D+", "", regex=True)
+    has_suffix = extracted.str.len() >= 3
+    extracted.loc[has_suffix] = extracted.loc[has_suffix].str[-4:].str.zfill(4)
+    return extracted
 
 
 def _looks_like_transaction_table(df: pd.DataFrame) -> bool:

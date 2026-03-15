@@ -156,12 +156,12 @@ def _infer_txn_kind(base_kind: str, inflow_ils: float, outflow_ils: float) -> st
 def _extract_card_suffix(description: str, merchant_raw: str, ref: str) -> str:
     match = _CARD_SUFFIX_RE.search(str(description))
     if match:
-        return match.group(1)
+        return match.group(1).zfill(4)
 
     merchant = str(merchant_raw).strip()
     ref_digits = re.sub(r"\D+", "", str(ref))
-    if merchant == "לאומי ויזה" and len(ref_digits) >= 4:
-        return ref_digits[-4:]
+    if merchant == "לאומי ויזה" and len(ref_digits) >= 3:
+        return ref_digits[-4:].zfill(4)
     return ""
 
 

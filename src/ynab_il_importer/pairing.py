@@ -123,9 +123,16 @@ def _prepare_ynab(df: pd.DataFrame) -> pd.DataFrame:
                 "date_key",
                 "amount_key",
                 "ynab_file",
+                "ynab_account_id",
                 "ynab_account",
                 "ynab_payee_raw",
                 "ynab_category_raw",
+                "ynab_fingerprint",
+                "ynab_id",
+                "ynab_import_id",
+                "ynab_matched_transaction_id",
+                "ynab_cleared",
+                "ynab_approved",
             ]
         )
 
@@ -146,7 +153,10 @@ def _prepare_ynab(df: pd.DataFrame) -> pd.DataFrame:
         inflow_ils = amount.where(amount > 0, 0.0).round(2)
     prepared = pd.DataFrame(
         {
-            "account_key": ynab_account,
+            "ynab_account_id": _series_or_default(df, "account_id")
+            .astype("string")
+            .fillna("")
+            .str.strip(),
             "date_key": pd.to_datetime(
                 _series_or_default(df, "date"), errors="coerce"
             ).dt.date,
@@ -164,8 +174,24 @@ def _prepare_ynab(df: pd.DataFrame) -> pd.DataFrame:
             "ynab_category_raw": _series_or_default(df, "category_raw")
             .astype("string")
             .fillna(""),
+            "ynab_fingerprint": _series_or_default(df, "fingerprint")
+            .astype("string")
+            .fillna("")
+            .str.strip(),
+            "ynab_id": _series_or_default(df, "ynab_id").astype("string").fillna("").str.strip(),
+            "ynab_import_id": _series_or_default(df, "import_id")
+            .astype("string")
+            .fillna("")
+            .str.strip(),
+            "ynab_matched_transaction_id": _series_or_default(df, "matched_transaction_id")
+            .astype("string")
+            .fillna("")
+            .str.strip(),
+            "ynab_cleared": _series_or_default(df, "cleared").astype("string").fillna("").str.strip(),
+            "ynab_approved": _series_or_default(df, "approved").astype("string").fillna("").str.strip(),
         }
     )
+    prepared["account_key"] = prepared["ynab_account"]
     return prepared.dropna(subset=["account_key", "date_key", "amount_key"])
 
 
@@ -183,11 +209,18 @@ def _join_pairs(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
                 "raw_text",
                 "fingerprint",
                 "ynab_file",
+                "ynab_account_id",
                 "ynab_account",
                 "ynab_outflow_ils",
                 "ynab_inflow_ils",
                 "ynab_payee_raw",
                 "ynab_category_raw",
+                "ynab_fingerprint",
+                "ynab_id",
+                "ynab_import_id",
+                "ynab_matched_transaction_id",
+                "ynab_cleared",
+                "ynab_approved",
                 "account_key",
                 "date_key",
                 "amount_key",
@@ -209,11 +242,18 @@ def _join_pairs(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
             "raw_text",
             "fingerprint",
             "ynab_file",
+            "ynab_account_id",
             "ynab_account",
             "ynab_outflow_ils",
             "ynab_inflow_ils",
             "ynab_payee_raw",
             "ynab_category_raw",
+            "ynab_fingerprint",
+            "ynab_id",
+            "ynab_import_id",
+            "ynab_matched_transaction_id",
+            "ynab_cleared",
+            "ynab_approved",
             "account_key",
             "date_key",
             "amount_key",
@@ -240,11 +280,18 @@ def match_pairs(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
                 "raw_norm",
                 "fingerprint",
                 "ynab_file",
+                "ynab_account_id",
                 "ynab_account",
                 "ynab_outflow_ils",
                 "ynab_inflow_ils",
                 "ynab_payee_raw",
                 "ynab_category_raw",
+                "ynab_fingerprint",
+                "ynab_id",
+                "ynab_import_id",
+                "ynab_matched_transaction_id",
+                "ynab_cleared",
+                "ynab_approved",
                 "ambiguous_key",
             ]
         )
@@ -275,11 +322,18 @@ def match_pairs(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> pd.DataFrame:
             "raw_norm",
             "fingerprint",
             "ynab_file",
+            "ynab_account_id",
             "ynab_account",
             "ynab_outflow_ils",
             "ynab_inflow_ils",
             "ynab_payee_raw",
             "ynab_category_raw",
+            "ynab_fingerprint",
+            "ynab_id",
+            "ynab_import_id",
+            "ynab_matched_transaction_id",
+            "ynab_cleared",
+            "ynab_approved",
             "ambiguous_key",
         ]
     ]

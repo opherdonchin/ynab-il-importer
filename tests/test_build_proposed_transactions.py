@@ -112,6 +112,7 @@ def test_dedupe_sources_handles_non_range_index(monkeypatch: pytest.MonkeyPatch)
     pairs = pd.DataFrame(
         [
             {
+                "account_key": "Bank Leumi",
                 "account_name": "Bank Leumi",
                 "date": "2025-12-12",
                 "outflow_ils": 25.0,
@@ -126,6 +127,181 @@ def test_dedupe_sources_handles_non_range_index(monkeypatch: pytest.MonkeyPatch)
 
     assert matched_pairs.equals(pairs)
     assert deduped["memo"].tolist() == ["keep"]
+
+
+def test_dedupe_sources_retains_ambiguous_pairs(monkeypatch: pytest.MonkeyPatch) -> None:
+    source_df = pd.DataFrame(
+        [
+            {
+                "account_name": "Opher x9922",
+                "date": "2026-02-25",
+                "outflow_ils": 421.43,
+                "inflow_ils": 0.0,
+                "memo": "passport fee",
+            }
+        ]
+    )
+    ynab_df = pd.DataFrame([{"dummy": 1}])
+    pairs = pd.DataFrame(
+        [
+            {
+                "account_key": "Opher x9922",
+                "account_name": "Opher x9922",
+                "date": "2026-02-25",
+                "outflow_ils": 421.43,
+                "inflow_ils": 0.0,
+                "ambiguous_key": True,
+            },
+            {
+                "account_key": "Opher x9922",
+                "account_name": "Opher x9922",
+                "date": "2026-02-25",
+                "outflow_ils": 421.43,
+                "inflow_ils": 0.0,
+                "ambiguous_key": True,
+            },
+        ]
+    )
+
+    monkeypatch.setattr(build_proposed_transactions.pairing, "match_pairs", lambda *_: pairs)
+
+    with pytest.warns(UserWarning, match="Retaining 1 source rows with ambiguous YNAB"):
+        deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
+
+    assert matched_pairs.equals(pairs)
+    assert deduped["memo"].tolist() == ["passport fee"]
+
+
+def test_dedupe_sources_drops_exact_import_id_matches_before_weak_pairing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_df = pd.DataFrame(
+        [
+            {
+                "account_name": "Opher x9922",
+                "date": "2026-02-25",
+                "outflow_ils": 421.43,
+                "inflow_ils": 0.0,
+                "fingerprint": "ds passport",
+                "description_raw": "DS-11 PASSPORT FEES",
+                "memo": "passport fee 1",
+            },
+            {
+                "account_name": "Opher x9922",
+                "date": "2026-02-25",
+                "outflow_ils": 421.43,
+                "inflow_ils": 0.0,
+                "fingerprint": "ds passport",
+                "description_raw": "DS-11 PASSPORT FEES",
+                "memo": "passport fee 2",
+            },
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "account_name": "Opher x9922",
+                "import_id": "YNAB:-421430:2026-02-25:1",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(
+        build_proposed_transactions.pairing,
+        "match_pairs",
+        lambda source, *_: pd.DataFrame() if len(source) == 1 else pd.DataFrame([{"bad": 1}]),
+    )
+
+    with pytest.warns(UserWarning, match="Dropping 1 source rows matched to YNAB by exact import_id"):
+        deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
+
+    assert matched_pairs.empty
+    assert deduped["memo"].tolist() == ["passport fee 2"]
+
+
+def test_dedupe_sources_prefers_account_ids_for_exact_import_matches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_df = pd.DataFrame(
+        [
+            {
+                "account_name": "Bank Leumi Alias",
+                "ynab_account_id": "acc-bank",
+                "date": "2026-02-25",
+                "outflow_ils": 25.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "delek",
+                "description_raw": "DELEK",
+                "memo": "should drop",
+            },
+            {
+                "account_name": "Bank Leumi Alias",
+                "ynab_account_id": "acc-bank",
+                "date": "2026-02-25",
+                "outflow_ils": 25.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "delek",
+                "description_raw": "DELEK",
+                "memo": "should keep",
+            },
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "account_id": "acc-bank",
+                "account_name": "Bank Leumi",
+                "import_id": "YNAB:-25000:2026-02-25:1",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(
+        build_proposed_transactions.pairing,
+        "match_pairs",
+        lambda source, *_: pd.DataFrame() if len(source) == 1 else pd.DataFrame([{"bad": 1}]),
+    )
+
+    with pytest.warns(UserWarning, match="Dropping 1 source rows matched to YNAB by exact import_id"):
+        deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
+
+    assert matched_pairs.empty
+    assert deduped["memo"].tolist() == ["should keep"]
+
+
+def test_dedupe_source_overlaps_matches_immediate_debit_on_secondary_date() -> None:
+    source_df = pd.DataFrame(
+        [
+            {
+                "source": "bank",
+                "account_name": "Bank Leumi",
+                "date": "2025-12-28",
+                "secondary_date": "2026-01-01",
+                "outflow_ils": 20.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "lime",
+                "card_suffix": "0849",
+                "memo": "bank row",
+            },
+            {
+                "source": "card",
+                "account_name": "Bank Leumi",
+                "date": "2025-12-30",
+                "secondary_date": "2026-01-01",
+                "outflow_ils": 20.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "lime",
+                "card_suffix": "0849",
+                "max_txn_type": "חיוב עסקות מיידי",
+                "memo": "card row",
+            },
+        ]
+    )
+
+    with pytest.warns(UserWarning, match="Dropping 1 bank/card overlap rows"):
+        deduped = build_proposed_transactions._dedupe_source_overlaps(source_df)
+
+    assert deduped["memo"].tolist() == ["bank row"]
 
 
 def test_apply_default_selections_defaults_unmatched_rows() -> None:

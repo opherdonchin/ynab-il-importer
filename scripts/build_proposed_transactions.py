@@ -21,7 +21,16 @@ def _load_csvs(paths: list[Path]) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     skipped: list[str] = []
     for path in paths:
-        df = pd.read_csv(path)
+        df = pd.read_csv(path, dtype="string").fillna("")
+        for col in [
+            "outflow_ils",
+            "inflow_ils",
+            "balance_ils",
+            "max_original_amount",
+            "max_exchange_rate",
+        ]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
         if df.empty:
             warnings.warn(f"Skipping {path} (no rows).", UserWarning)
             continue
@@ -77,11 +86,34 @@ def _dedupe_source_overlaps(source_df: pd.DataFrame) -> pd.DataFrame:
     work = source_df.copy()
     work["_source_norm"] = source_norm
     work["_date_key"] = pd.to_datetime(work["date"], errors="coerce").dt.date
+    work["_secondary_date_key"] = pd.to_datetime(
+        work.get("secondary_date", pd.Series([pd.NA] * len(work), index=work.index)),
+        errors="coerce",
+    ).dt.date
+    work["_account_key"] = (
+        work.get("account_name", pd.Series([""] * len(work), index=work.index))
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
+    work["_card_suffix_key"] = (
+        work.get("card_suffix", pd.Series([""] * len(work), index=work.index))
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
     work["_outflow_key"] = pd.to_numeric(work["outflow_ils"], errors="coerce").fillna(0.0).round(2)
     work["_inflow_key"] = pd.to_numeric(work["inflow_ils"], errors="coerce").fillna(0.0).round(2)
     work["_fingerprint_key"] = work["fingerprint"].astype("string").fillna("").str.strip()
 
-    key_cols = ["_date_key", "_outflow_key", "_inflow_key", "_fingerprint_key"]
+    key_cols = [
+        "_account_key",
+        "_date_key",
+        "_outflow_key",
+        "_inflow_key",
+        "_fingerprint_key",
+        "_card_suffix_key",
+    ]
     valid = work["_date_key"].notna() & (work["_fingerprint_key"] != "")
 
     bank = work.loc[(work["_source_norm"] == "bank") & valid, key_cols].copy()
@@ -96,40 +128,127 @@ def _dedupe_source_overlaps(source_df: pd.DataFrame) -> pd.DataFrame:
         on=key_cols + ["_dup_rank"],
         how="left",
     )
-    drop_index = matched_cards.loc[matched_cards["_matched"].eq(True), "_row_index"]
-    if drop_index.empty:
+    drop_index = matched_cards.loc[matched_cards["_matched"].eq(True), "_row_index"].tolist()
+
+    secondary_aligned_card = work.loc[
+        (work["_source_norm"] == "card")
+        & valid
+        & work["_secondary_date_key"].notna()
+        & (work["_account_key"] != ""),
+        [
+            "_account_key",
+            "_secondary_date_key",
+            "_outflow_key",
+            "_inflow_key",
+            "_card_suffix_key",
+        ],
+    ].copy()
+    if not secondary_aligned_card.empty:
+        second_key_cols = [
+            "_account_key",
+            "_secondary_date_key",
+            "_outflow_key",
+            "_inflow_key",
+            "_card_suffix_key",
+        ]
+        secondary_aligned_card["_dup_rank"] = secondary_aligned_card.groupby(
+            second_key_cols, dropna=False
+        ).cumcount()
+        secondary_aligned_card["_row_index"] = secondary_aligned_card.index
+
+        bank_secondary = work.loc[
+            (work["_source_norm"] == "bank") & valid & work["_secondary_date_key"].notna(),
+            second_key_cols,
+        ].copy()
+        bank_secondary["_dup_rank"] = bank_secondary.groupby(
+            second_key_cols, dropna=False
+        ).cumcount()
+
+        matched_secondary = secondary_aligned_card.merge(
+            bank_secondary.assign(_matched=True),
+            on=second_key_cols + ["_dup_rank"],
+            how="left",
+        )
+        secondary_drop = matched_secondary.loc[
+            matched_secondary["_matched"].eq(True), "_row_index"
+        ]
+        if not secondary_drop.empty:
+            drop_index.extend(secondary_drop.tolist())
+
+    drop_index = sorted(set(drop_index))
+    if not drop_index:
         return source_df.reset_index(drop=True)
 
     warnings.warn(
-        f"Dropping {len(drop_index)} bank/card overlap rows matched on date+amount+fingerprint.",
+        f"Dropping {len(drop_index)} bank/card overlap rows matched on aligned account/date/amount keys.",
         UserWarning,
     )
-    return source_df.drop(index=drop_index.to_list()).reset_index(drop=True).copy()
+    return source_df.drop(index=drop_index).reset_index(drop=True).copy()
 
 
 def _dedupe_sources(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    pairs = pairing.match_pairs(source_df, ynab_df)
+    source_clean = source_df.reset_index(drop=True).copy()
+    source_clean["candidate_import_id"] = _candidate_import_ids(source_clean)
+
+    ynab_with_import = ynab_df.copy()
+    if "import_id" not in ynab_with_import.columns:
+        ynab_with_import["import_id"] = ""
+    ynab_with_import["import_id"] = ynab_with_import["import_id"].astype("string").fillna("").str.strip()
+    ynab_import_keys = {
+        (key, row["import_id"])
+        for _, row in ynab_with_import.iterrows()
+        for key in _account_key_candidates(row, id_col="account_id", name_col="account_name")
+        if row["import_id"] and key
+    }
+
+    exact_import_mask = source_clean.apply(
+        lambda row: any(
+            (key, str(row.get("candidate_import_id", "")).strip()) in ynab_import_keys
+            for key in _account_key_candidates(row, id_col="ynab_account_id", name_col="account_name")
+        ),
+        axis=1,
+    )
+    if exact_import_mask.any():
+        warnings.warn(
+            f"Dropping {int(exact_import_mask.sum())} source rows matched to YNAB by exact import_id.",
+            UserWarning,
+        )
+
+    source_remaining = source_clean.loc[~exact_import_mask].drop(columns=["candidate_import_id"]).copy()
+    pairs = pairing.match_pairs(source_remaining, ynab_df)
     if pairs.empty:
-        return source_df.copy(), pairs
+        return source_remaining.copy(), pairs
 
     key_cols = ["account_name", "date", "outflow_ils", "inflow_ils"]
-    keys = pairs[key_cols].drop_duplicates().copy()
+    ambiguous_mask = (
+        pairs["ambiguous_key"].fillna(False).astype(bool)
+        if "ambiguous_key" in pairs.columns
+        else pd.Series([False] * len(pairs), index=pairs.index)
+    )
+    ambiguous_keys = pairs.loc[ambiguous_mask, key_cols].drop_duplicates().copy()
+    if not ambiguous_keys.empty:
+        warnings.warn(
+            f"Retaining {len(ambiguous_keys)} source rows with ambiguous YNAB date+amount matches.",
+            UserWarning,
+        )
+
+    keys = pairs.loc[~ambiguous_mask, key_cols].drop_duplicates().copy()
     keys["date"] = pd.to_datetime(keys["date"], errors="coerce").dt.date
     keys["outflow_ils"] = pd.to_numeric(keys["outflow_ils"], errors="coerce").fillna(0.0)
     keys["inflow_ils"] = pd.to_numeric(keys["inflow_ils"], errors="coerce").fillna(0.0)
 
-    source_clean = source_df.copy()
-    source_clean["date"] = pd.to_datetime(source_clean["date"], errors="coerce").dt.date
-    source_clean["outflow_ils"] = pd.to_numeric(
-        source_clean["outflow_ils"], errors="coerce"
+    source_compare = source_remaining.copy()
+    source_compare["date"] = pd.to_datetime(source_compare["date"], errors="coerce").dt.date
+    source_compare["outflow_ils"] = pd.to_numeric(
+        source_compare["outflow_ils"], errors="coerce"
     ).fillna(0.0)
-    source_clean["inflow_ils"] = pd.to_numeric(
-        source_clean["inflow_ils"], errors="coerce"
+    source_compare["inflow_ils"] = pd.to_numeric(
+        source_compare["inflow_ils"], errors="coerce"
     ).fillna(0.0)
 
-    merged = source_clean.merge(keys, on=key_cols, how="left", indicator=True)
+    merged = source_compare.merge(keys, on=key_cols, how="left", indicator=True)
     is_dup = merged["_merge"] == "both"
-    deduped = source_df.reset_index(drop=True).loc[~is_dup.to_numpy()].copy()
+    deduped = source_remaining.reset_index(drop=True).loc[~is_dup.to_numpy()].copy()
     return deduped, pairs
 
 
@@ -210,6 +329,64 @@ def _make_transaction_id(row: pd.Series) -> str:
     return f"txn_{digest}"
 
 
+def _candidate_import_ids(source_df: pd.DataFrame) -> pd.Series:
+    if source_df.empty:
+        return pd.Series(dtype="string")
+
+    work = source_df.reset_index().copy()
+    if "transaction_id" not in work.columns:
+        work["transaction_id"] = work.apply(_make_transaction_id, axis=1)
+    else:
+        blank_transaction_id = work["transaction_id"].astype("string").fillna("").str.strip() == ""
+        if blank_transaction_id.any():
+            work.loc[blank_transaction_id, "transaction_id"] = work.loc[
+                blank_transaction_id
+            ].apply(_make_transaction_id, axis=1)
+
+    work["account_key"] = work["account_name"].astype("string").fillna("").str.strip()
+    work["date_key"] = (
+        pd.to_datetime(work["date"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+    )
+    work["amount_milliunits"] = (
+        (
+            pd.to_numeric(work.get("inflow_ils", 0.0), errors="coerce").fillna(0.0)
+            - pd.to_numeric(work.get("outflow_ils", 0.0), errors="coerce").fillna(0.0)
+        )
+        * 1000
+    ).round().astype(int)
+    work["bank_txn_id"] = work.get(
+        "bank_txn_id", pd.Series([""] * len(work), index=work.index)
+    ).astype("string").fillna("").str.strip()
+
+    ordered = work.sort_values(
+        ["account_key", "date_key", "amount_milliunits", "transaction_id", "index"]
+    ).copy()
+    ordered["import_occurrence"] = (
+        ordered.groupby(["account_key", "date_key", "amount_milliunits"], dropna=False)
+        .cumcount()
+        .add(1)
+    )
+    ordered["candidate_import_id"] = ordered.apply(
+        lambda row: row["bank_txn_id"]
+        or f"YNAB:{int(row['amount_milliunits'])}:{row['date_key']}:{int(row['import_occurrence'])}",
+        axis=1,
+    )
+    return (
+        ordered.set_index("index")["candidate_import_id"]
+        .reindex(source_df.index)
+        .astype("string")
+    )
+def _account_key_candidates(row: pd.Series, *, id_col: str, name_col: str) -> list[str]:
+    candidates: list[str] = []
+    account_id = str(row.get(id_col, "")).strip()
+    account_name = str(row.get(name_col, "")).strip()
+    if account_id:
+        candidates.append(account_id)
+    if account_name and account_name not in candidates:
+        candidates.append(account_name)
+    return candidates
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build proposed_transactions.csv")
     parser.add_argument("--source", action="append", default=[])
@@ -282,6 +459,12 @@ def main() -> None:
         "balance_ils",
         "ynab_account_id",
         "bank_txn_id",
+        "max_sheet",
+        "max_txn_type",
+        "max_original_amount",
+        "max_original_currency",
+        "max_report_period",
+        "max_report_scope",
     ]
     columns.extend([col for col in optional_columns if col in out.columns])
     out = out[columns]

@@ -13,6 +13,7 @@ except ModuleNotFoundError:  # pragma: no cover - Py <3.11 fallback
     import tomli as tomllib  # type: ignore
 
 import ynab_il_importer.io_ynab as ynab
+import ynab_il_importer.normalize as normalize
 
 
 BASE_URL = "https://api.ynab.com/v1"
@@ -162,6 +163,8 @@ def transactions_to_dataframe(
         rows.append(
             {
                 "source": "ynab",
+                "ynab_id": txn.get("id", "") or "",
+                "account_id": account_id,
                 "account_name": account_name_map.get(account_id, account_id),
                 "date": txn.get("date", ""),
                 "payee_raw": txn.get("payee_name", "") or "",
@@ -169,6 +172,10 @@ def transactions_to_dataframe(
                 "outflow_ils": round(outflow, 2),
                 "inflow_ils": round(inflow, 2),
                 "memo": txn.get("memo", "") or "",
+                "import_id": txn.get("import_id", "") or "",
+                "matched_transaction_id": txn.get("matched_transaction_id", "") or "",
+                "cleared": txn.get("cleared", "") or "",
+                "approved": bool(txn.get("approved", False)),
                 "currency": "ILS",
                 "amount_bucket": "",
             }
@@ -181,19 +188,27 @@ def transactions_to_dataframe(
     df["txn_kind"] = ynab._infer_txn_kind(
         df["inflow_ils"], df["outflow_ils"], df["payee_raw"], df["category_raw"]
     )
+    df["fingerprint"] = df["payee_raw"].map(normalize.normalize_text)
     return df[
         [
             "source",
+            "ynab_id",
+            "account_id",
             "account_name",
             "date",
             "payee_raw",
             "category_raw",
+            "fingerprint",
             "outflow_ils",
             "inflow_ils",
             "txn_kind",
             "currency",
             "amount_bucket",
             "memo",
+            "import_id",
+            "matched_transaction_id",
+            "cleared",
+            "approved",
         ]
     ]
 

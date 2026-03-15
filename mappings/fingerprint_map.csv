@@ -38,6 +38,27 @@ yellow,TRUE,5,yellow,yellow,Split YELLOW from Paz
 מנטה,TRUE,5,מנטה,Menta,Split Menta from Delek
 ksp,TRUE,0,ksp,ksp,Consolidate KSP variants
 japanika,TRUE,0,japanika|גפניקה,japanika,Consolidate Japanika variants
+lyft,TRUE,0,lyft,lyft,Consolidate Lyft variants
+apple,TRUE,0,apple,apple,Consolidate Apple billing variants
+kindle,TRUE,0,kindle,kindle,Consolidate Kindle variants
+ds_passport,TRUE,0,ds passport|passport fees,ds passport,Consolidate US passport fee variants
+beer_sheva_municipality,TRUE,0,beer sheva municipality|עיריית באר שבע,beer sheva municipality,Consolidate Beer Sheva municipality variants
+asm_food,TRUE,0,אס בי אם שרותי מזון|אם שרותי מזון בי אס,אס בי אם שרותי מזון,Consolidate ASM food variants across bank and MAX
+carrefour_avia,TRUE,0,carrefour אביה|אביהcarrefour,carrefour אביה,Consolidate Carrefour Avia variants across bank and MAX
+merkaz_rechev_yaav,TRUE,0,מרכז רכב יאב|מרכז רכב יא,מרכז רכב יאב,Consolidate Merkaz Rechev Yaav variants
+reshet_bair,TRUE,0,רשת בעיר|בעיר7 רשת,רשת בעיר,Consolidate Reshet BaIr variants
+bug_azrieli,TRUE,0,באג עזריאלי תא|באג עזריאלי,באג עזריאלי,Consolidate Bug Azrieli variants
+cafe_rega_refund,TRUE,0,קפה רגע ביטול|קפה רגע,קפה רגע,Consolidate Cafe Rega refund variants
+eynaim_banegev,TRUE,0,עיניים בנגב|עיניים בנג,עיניים בנגב,Consolidate Eynaim BaNegev variants
+castro_model,TRUE,0,קסטרו מודל|בשg קסטרו מודל,קסטרו מודל,Consolidate Castro Model variants
+isim_accessories,TRUE,0,isim אביזרים לסלולר|אביזרים לסלולרisim,isim אביזרים לסלולר,Consolidate ISIM accessories variants
+mr_green,TRUE,0,מר גרין אבי|מר גרין,מר גרין,Consolidate Mr Green variants
+rami_levi_begin,TRUE,0,רמי לוי מנחם בגין שמואל|שמואל רמי לוי מנחם בגין,רמי לוי מנחם בגין שמואל,Consolidate Rami Levi Begin variants
+ikea_variants,TRUE,0,ikea איקאה|איקאה ikea,ikea איקאה,Consolidate IKEA variants
+etsy_variants,TRUE,0,etsy etsy עסקת חו|etsy etsy,etsy etsy,Consolidate Etsy card variants
+salasalot_yom_tov,TRUE,0,סלסלות יום טוב|סלסלות יום טו,סלסלות יום טוב,Consolidate Yom Tov basket variants
+michaela_felt,TRUE,0,sq michaela felt san diego|michaela felt san diego,michaela felt san diego,Consolidate Michaela Felt San Diego variants
+netflix,TRUE,0,netflix,netflix,Consolidate Netflix variants
 קמפאי,TRUE,0,קמפאי,Kampai,Consolidate Kampai variants
 כללית,TRUE,0,כללית,Clalit,Consolidate Clalit variants
 ספידוג,TRUE,0,ספידוג,Speedog,Consolidate Speedog variants

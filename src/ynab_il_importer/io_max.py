@@ -125,9 +125,9 @@ def _normalize_card_account_name(series: pd.Series) -> pd.Series:
         return _NON_DIGIT_RE.sub("", text)
 
     digits = series.astype("string").fillna("").map(_extract_digits)
-    valid = digits.str.len() >= 4
+    valid = digits.str.len() >= 3
     out = pd.Series([""] * len(series), index=series.index, dtype="string")
-    out.loc[valid] = "x" + digits.loc[valid].str[-4:]
+    out.loc[valid] = "x" + digits.loc[valid].str[-4:].str.zfill(4)
     return out
 
 

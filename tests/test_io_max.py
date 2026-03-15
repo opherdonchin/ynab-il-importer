@@ -198,6 +198,58 @@ def test_read_card_combines_max_sections_and_preserves_source_fields(
     ]
 
 
+def test_read_card_zero_pads_three_digit_card_suffixes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = pd.DataFrame(
+        [
+            {
+                "תאריך עסקה": "01/02/2026",
+                "שם בית העסק": "MERCHANT A",
+                "קטגוריה": "שונות",
+                "4 ספרות אחרונות של כרטיס האשראי": "849",
+                "סוג עסקה": "חיוב עסקות מיידי",
+                "סכום חיוב": "20.00",
+                "מטבע חיוב": "₪",
+                "סכום עסקה מקורי": "20.00",
+                "מטבע עסקה מקורי": "₪",
+                "תאריך חיוב": "03/02/2026",
+                "הערות": "",
+                "תיוגים": "",
+                "מועדון הנחות": "",
+                "מפתח דיסקונט": "",
+                "אופן ביצוע ההעסקה": "אינטרנט",
+                'שער המרה ממטבע מקור/התחשבנות לש"ח': "",
+            }
+        ],
+        dtype="string",
+    ).fillna("")
+    workbook_df = _mock_card_sheet_df(raw)
+
+    def _fake_read_excel(path: Path, sheet_name=None, header=None, dtype=None, nrows=None):  # noqa: ANN001
+        if sheet_name is None and header is None:
+            return {"עסקאות": workbook_df}
+        raise AssertionError("Unexpected read_excel invocation")
+
+    monkeypatch.setattr("ynab_il_importer.io_max.pd.read_excel", _fake_read_excel)
+    monkeypatch.setattr(
+        "ynab_il_importer.io_max.account_map.apply_account_name_map",
+        lambda df, source, account_map_path=None: df,
+    )
+    monkeypatch.setattr(
+        "ynab_il_importer.io_max.fingerprint.apply_fingerprints",
+        lambda df, use_fingerprint_map=True: df.assign(
+            description_clean_norm=df["description_clean"].astype("string").fillna(""),
+            fingerprint=df["description_clean"].astype("string").fillna(""),
+        ),
+    )
+
+    actual = maxio.read_raw("tests/fixtures/card/zero_pad_suffix.xlsx", use_fingerprint_map=False)
+
+    assert actual.loc[0, "account_name"] == "x0849"
+    assert actual.loc[0, "card_suffix"] == "0849"
+
+
 def test_read_card_flips_refund_sign_when_export_is_charge_positive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
