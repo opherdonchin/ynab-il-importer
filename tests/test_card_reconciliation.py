@@ -13,7 +13,12 @@ def _accounts() -> list[dict[str, str]]:
             "id": "acc-card",
             "name": "Opher x9922",
             "transfer_payee_id": "payee-card",
-        }
+        },
+        {
+            "id": "acc-bank",
+            "name": "Bank Leumi",
+            "transfer_payee_id": "payee-bank",
+        },
     ]
 
 
@@ -129,6 +134,38 @@ def _txn_from_source(row: pd.Series, *, txn_id: str, cleared: str) -> dict[str, 
         "cleared": cleared,
         "approved": True,
     }
+
+
+def _transfer_pair(*, transfer_id: str, date: str, amount_ils: float) -> list[dict[str, object]]:
+    milliunits = int(round(amount_ils * 1000))
+    return [
+        {
+            "id": f"{transfer_id}-card",
+            "account_id": "acc-card",
+            "date": date,
+            "amount": milliunits,
+            "memo": "",
+            "import_id": "",
+            "cleared": "cleared",
+            "approved": True,
+            "transfer_account_id": "acc-bank",
+            "transfer_transaction_id": f"{transfer_id}-bank",
+            "payee_name": "Transfer : Bank Leumi",
+        },
+        {
+            "id": f"{transfer_id}-bank",
+            "account_id": "acc-bank",
+            "date": date,
+            "amount": -milliunits,
+            "memo": "",
+            "import_id": "",
+            "cleared": "cleared",
+            "approved": True,
+            "transfer_account_id": "acc-card",
+            "transfer_transaction_id": f"{transfer_id}-card",
+            "payee_name": "Transfer : Opher x9922",
+        },
+    ]
 
 
 def test_load_card_source_ignores_pending_rows(tmp_path: Path) -> None:
@@ -253,7 +290,7 @@ def test_transition_reconciles_previous_and_keeps_current_open(tmp_path: Path) -
         _txn_from_source(previous_rows.iloc[2], txn_id="prev-3", cleared="cleared"),
         _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="uncleared"),
         _txn_from_source(current_rows.iloc[1], txn_id="curr-2", cleared="cleared"),
-    ]
+    ] + _transfer_pair(transfer_id="payment-mar", date="2026-03-10", amount_ils=240.0)
 
     result = card_reconciliation.plan_card_cycle_reconciliation(
         account_name="Opher x9922",
@@ -266,6 +303,9 @@ def test_transition_reconciles_previous_and_keeps_current_open(tmp_path: Path) -
     assert result["ok"] is True
     assert result["previous_total_ils"] == -240.0
     assert result["source_total_ils"] == -190.0
+    assert result["payment_transfer_card_transaction_id"] == "payment-mar-card"
+    assert result["payment_transfer_bank_transaction_id"] == "payment-mar-bank"
+    assert result["payment_transfer_bank_account_name"] == "Bank Leumi"
     assert result["update_count"] == 4
     assert result["updates"] == [
         {"id": "prev-1", "cleared": "reconciled"},
@@ -348,3 +388,39 @@ def test_transition_blocks_when_source_rows_are_already_reconciled(tmp_path: Pat
 
     assert result["ok"] is False
     assert "already reconciled" in result["reason"]
+
+
+def test_transition_blocks_when_payment_transfer_is_missing(tmp_path: Path) -> None:
+    previous_path = tmp_path / "previous.xlsx"
+    current_path = tmp_path / "current.xlsx"
+    _write_snapshot(
+        previous_path,
+        period="03/2026",
+        billed_rows=[_billed_row(date="10-02-2026", merchant="MERCHANT A", amount="100", charge_date="10-03-2026")],
+    )
+    _write_snapshot(
+        current_path,
+        period="04/2026",
+        billed_rows=[_billed_row(date="09-03-2026", merchant="MERCHANT B", amount="120", charge_date="10-04-2026")],
+    )
+
+    previous_df = card_reconciliation.load_card_source(previous_path)
+    current_df = card_reconciliation.load_card_source(current_path)
+    previous_rows = card_reconciliation._target_source_rows(previous_df, "Opher x9922")
+    current_rows = card_reconciliation._target_source_rows(current_df, "Opher x9922")
+
+    transactions = [
+        _txn_from_source(previous_rows.iloc[0], txn_id="prev-1", cleared="cleared"),
+        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="cleared"),
+    ]
+
+    result = card_reconciliation.plan_card_cycle_reconciliation(
+        account_name="Opher x9922",
+        source_df=current_df,
+        previous_df=previous_df,
+        accounts=_accounts(),
+        transactions=transactions,
+    )
+
+    assert result["ok"] is False
+    assert "No card payment transfer found" in result["reason"]

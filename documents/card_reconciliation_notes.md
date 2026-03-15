@@ -23,6 +23,10 @@
 - `--previous + --source` should warn or no-op when the entire previous cohort is already reconciled.
 - `--previous + --source` should fail if some `--source` rows are already reconciled, because that likely means the files are reversed or stale.
 - Mixed reconcile state inside the previous cohort should fail for manual inspection.
+- `--previous + --source` should also require a payment-transfer check:
+  - the absolute previous-cohort total must match a unique transfer inflow in the card account
+  - that transfer must have a linked bank-side counterpart in YNAB
+  - the bank-side counterpart must carry the opposite amount
 
 ## Identity concerns
 
@@ -45,6 +49,20 @@
   - matched / ambiguous / unmatched counts
   - whether a bank payment match was found
   - exactly which rows would be promoted to `reconciled`
+
+## Historical bootstrap lessons
+
+- Older card history in YNAB predates `card_txn_id`, so many real transactions have:
+  - blank `import_id`
+  - blank memo lineage
+  - dates that do not exactly match the earliest raw snapshot they are justified by
+- When bootstrapping historical card months, there are at least three patterns:
+  - grouped manual rows in YNAB that represent several raw rows
+  - border rows that first appear on the following monthly snapshot
+  - deferred / foreign rows that first appear one or more months later
+- That means strict exact-lineage matching is right for current data, but too strict for historical bootstrap without either:
+  - one-time YNAB cleanup
+  - or explicit bootstrap-aware matching rules
 
 ## Implementation notes
 

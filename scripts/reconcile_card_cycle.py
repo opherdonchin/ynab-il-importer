@@ -25,6 +25,13 @@ def _print_summary(result: dict[str, object], report_path: Path, execute: bool) 
     if result.get("previous_total_ils"):
         print(f"Previous total: {result['previous_total_ils']:.2f} ILS")
     print(f"Current total: {result['source_total_ils']:.2f} ILS")
+    if result.get("payment_transfer_card_transaction_id"):
+        print(
+            "Payment transfer: "
+            f"card {result['payment_transfer_card_amount_ils']:.2f} ILS on {result['payment_transfer_card_date']} "
+            f"<-> bank {result['payment_transfer_bank_amount_ils']:.2f} ILS on {result['payment_transfer_bank_date']} "
+            f"in {result['payment_transfer_bank_account_name']}"
+        )
 
     if not result["ok"]:
         print("Status: blocked")

@@ -189,25 +189,32 @@ def _account_lookup(accounts: list[dict[str, Any]], account_name: str) -> dict[s
     }
 
 
-def _ynab_transactions_frame(
+def _account_name_map(accounts: list[dict[str, Any]]) -> dict[str, str]:
+    return {
+        _normalize_text(acc.get("id", "")): _normalize_text(acc.get("name", ""))
+        for acc in accounts
+        if not bool(acc.get("deleted", False))
+    }
+
+
+def _all_ynab_transactions_frame(
     transactions: list[dict[str, Any]],
     *,
-    account_id: str,
+    account_names: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for txn in transactions:
         if bool(txn.get("deleted", False)):
             continue
-        if _normalize_text(txn.get("account_id", "")) != account_id:
-            continue
+        account_id = _normalize_text(txn.get("account_id", ""))
         amount_milliunits = int(txn.get("amount", 0) or 0)
+        parsed_date = pd.to_datetime(txn.get("date", ""), errors="coerce")
         rows.append(
             {
                 "id": _normalize_text(txn.get("id", "")),
-                "account_id": _normalize_text(txn.get("account_id", "")),
-                "date": pd.to_datetime(txn.get("date", ""), errors="coerce").date()
-                if pd.notna(pd.to_datetime(txn.get("date", ""), errors="coerce"))
-                else pd.NaT,
+                "account_id": account_id,
+                "account_name": _normalize_text((account_names or {}).get(account_id, "")),
+                "date": parsed_date.date() if pd.notna(parsed_date) else pd.NaT,
                 "amount_milliunits": amount_milliunits,
                 "signed_ils": round(amount_milliunits / 1000.0, 2),
                 "memo": _normalize_text(txn.get("memo", "")),
@@ -217,9 +224,23 @@ def _ynab_transactions_frame(
                 "cleared": _normalize_text(txn.get("cleared", "")),
                 "approved": bool(txn.get("approved", False)),
                 "payee_name": _normalize_text(txn.get("payee_name", "")),
+                "transfer_account_id": _normalize_text(txn.get("transfer_account_id", "")),
+                "transfer_transaction_id": _normalize_text(txn.get("transfer_transaction_id", "")),
             }
         )
     return pd.DataFrame(rows)
+
+
+def _ynab_transactions_frame(
+    transactions: list[dict[str, Any]],
+    *,
+    account_id: str,
+    account_names: dict[str, str] | None = None,
+) -> pd.DataFrame:
+    all_rows = _all_ynab_transactions_frame(transactions, account_names=account_names)
+    if all_rows.empty:
+        return all_rows
+    return all_rows[all_rows["account_id"] == account_id].copy()
 
 
 @dataclass
@@ -228,6 +249,117 @@ class _ResolvedMatch:
     resolved_via: str
     candidate_status: str
     reason: str
+
+
+@dataclass
+class _PaymentTransferMatch:
+    ok: bool
+    reason: str
+    card_transaction_id: str = ""
+    card_transfer_account_id: str = ""
+    card_transfer_account_name: str = ""
+    card_date: str = ""
+    card_amount_ils: float = 0.0
+    bank_transaction_id: str = ""
+    bank_account_id: str = ""
+    bank_account_name: str = ""
+    bank_date: str = ""
+    bank_amount_ils: float = 0.0
+
+
+def _expected_statement_date(previous_rows: pd.DataFrame) -> pd.Timestamp | pd.NaT:
+    if previous_rows.empty or "secondary_date" not in previous_rows.columns:
+        return pd.NaT
+    secondary = pd.to_datetime(previous_rows["secondary_date"], errors="coerce").dropna()
+    if secondary.empty:
+        return pd.NaT
+    return secondary.max()
+
+
+def _validate_payment_transfer(
+    *,
+    previous_rows: pd.DataFrame,
+    all_ynab_df: pd.DataFrame,
+    card_account_id: str,
+    account_names: dict[str, str],
+) -> _PaymentTransferMatch:
+    expected_total = round(abs(float(previous_rows["signed_ils"].sum())), 2)
+    expected_milliunits = int(round(expected_total * 1000))
+    statement_date = _expected_statement_date(previous_rows)
+
+    candidates = all_ynab_df[
+        (all_ynab_df["account_id"] == card_account_id)
+        & (all_ynab_df["transfer_account_id"] != "")
+        & (all_ynab_df["amount_milliunits"] == expected_milliunits)
+    ].copy()
+    if candidates.empty:
+        return _PaymentTransferMatch(
+            ok=False,
+            reason=f"No card payment transfer found for previous total {expected_total:.2f} ILS.",
+        )
+
+    if pd.notna(statement_date):
+        dates = pd.to_datetime(candidates["date"], errors="coerce")
+        window_mask = (dates - statement_date).abs().dt.days <= 7
+        window_candidates = candidates[window_mask].copy()
+        if not window_candidates.empty:
+            candidates = window_candidates
+
+    if len(candidates) != 1:
+        return _PaymentTransferMatch(
+            ok=False,
+            reason=(
+                f"Expected exactly one card payment transfer for previous total {expected_total:.2f} ILS; "
+                f"found {len(candidates)}."
+            ),
+        )
+
+    card_txn = candidates.iloc[0]
+    bank_txn_id = _normalize_text(card_txn.get("transfer_transaction_id", ""))
+    if not bank_txn_id:
+        return _PaymentTransferMatch(
+            ok=False,
+            reason=f"Card payment transfer {card_txn['id']} has no linked bank transfer transaction.",
+        )
+
+    bank_candidates = all_ynab_df[all_ynab_df["id"] == bank_txn_id].copy()
+    if len(bank_candidates) != 1:
+        return _PaymentTransferMatch(
+            ok=False,
+            reason=f"Linked bank transfer {bank_txn_id} was not found in YNAB transactions.",
+        )
+
+    bank_txn = bank_candidates.iloc[0]
+    if int(bank_txn["amount_milliunits"]) != -expected_milliunits:
+        return _PaymentTransferMatch(
+            ok=False,
+            reason=(
+                f"Linked bank transfer amount {bank_txn['signed_ils']:.2f} ILS does not match "
+                f"expected {-expected_total:.2f} ILS."
+            ),
+        )
+    if _normalize_text(bank_txn.get("transfer_account_id", "")) != card_account_id:
+        return _PaymentTransferMatch(
+            ok=False,
+            reason=f"Linked bank transfer {bank_txn_id} does not point back to the card account.",
+        )
+
+    card_transfer_account_id = _normalize_text(card_txn.get("transfer_account_id", ""))
+    bank_account_id = _normalize_text(bank_txn.get("account_id", ""))
+    return _PaymentTransferMatch(
+        ok=True,
+        reason="",
+        card_transaction_id=_normalize_text(card_txn.get("id", "")),
+        card_transfer_account_id=card_transfer_account_id,
+        card_transfer_account_name=_normalize_text(account_names.get(card_transfer_account_id, "")),
+        card_date=_normalize_text(card_txn.get("date", "")),
+        card_amount_ils=round(float(card_txn["signed_ils"]), 2),
+        bank_transaction_id=bank_txn_id,
+        bank_account_id=bank_account_id,
+        bank_account_name=_normalize_text(account_names.get(bank_account_id, "")),
+        bank_date=_normalize_text(bank_txn.get("date", "")),
+        bank_amount_ils=round(float(bank_txn["signed_ils"]), 2),
+    )
 
 
 def _resolve_card_match(source_row: pd.Series, ynab_df: pd.DataFrame) -> _ResolvedMatch:
@@ -344,6 +476,7 @@ def plan_card_cycle_reconciliation(
     previous_df: pd.DataFrame | None = None,
 ) -> dict[str, object]:
     account = _account_lookup(accounts, account_name)
+    account_names = _account_name_map(accounts)
     source_rows = _target_source_rows(source_df, account_name)
     if source_rows.empty:
         raise ValueError("Source file has no in-scope non-pending rows for the requested account.")
@@ -351,7 +484,8 @@ def plan_card_cycle_reconciliation(
         _target_source_rows(previous_df, account_name) if previous_df is not None else pd.DataFrame()
     )
 
-    ynab_df = _ynab_transactions_frame(transactions, account_id=account["account_id"])
+    all_ynab_df = _all_ynab_transactions_frame(transactions, account_names=account_names)
+    ynab_df = all_ynab_df[all_ynab_df["account_id"] == account["account_id"]].copy()
     if ynab_df.empty:
         raise ValueError(f"No live YNAB transactions found for account {account_name!r}.")
 
@@ -378,6 +512,14 @@ def plan_card_cycle_reconciliation(
         "reason": "",
         "report": report,
         "warning": "",
+        "payment_transfer_card_transaction_id": "",
+        "payment_transfer_card_date": "",
+        "payment_transfer_card_amount_ils": 0.0,
+        "payment_transfer_bank_transaction_id": "",
+        "payment_transfer_bank_account_id": "",
+        "payment_transfer_bank_account_name": "",
+        "payment_transfer_bank_date": "",
+        "payment_transfer_bank_amount_ils": 0.0,
     }
 
     if (report["action"] == "blocked").any():
@@ -449,6 +591,25 @@ def plan_card_cycle_reconciliation(
     current_total = round(float(source_rows["signed_ils"].sum()), 2)
     result["previous_total_ils"] = previous_total
     result["source_total_ils"] = current_total
+
+    payment_match = _validate_payment_transfer(
+        previous_rows=previous_rows,
+        all_ynab_df=all_ynab_df,
+        card_account_id=account["account_id"],
+        account_names=account_names,
+    )
+    if not payment_match.ok:
+        result["ok"] = False
+        result["reason"] = payment_match.reason
+        return result
+    result["payment_transfer_card_transaction_id"] = payment_match.card_transaction_id
+    result["payment_transfer_card_date"] = payment_match.card_date
+    result["payment_transfer_card_amount_ils"] = payment_match.card_amount_ils
+    result["payment_transfer_bank_transaction_id"] = payment_match.bank_transaction_id
+    result["payment_transfer_bank_account_id"] = payment_match.bank_account_id
+    result["payment_transfer_bank_account_name"] = payment_match.bank_account_name
+    result["payment_transfer_bank_date"] = payment_match.bank_date
+    result["payment_transfer_bank_amount_ils"] = payment_match.bank_amount_ils
 
     # All previous rows should settle; current rows should remain open.
     previous_to_reconcile = previous_report.copy()
