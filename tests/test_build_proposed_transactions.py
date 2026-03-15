@@ -269,6 +269,55 @@ def test_dedupe_sources_prefers_account_ids_for_exact_import_matches(
     assert deduped["memo"].tolist() == ["should keep"]
 
 
+def test_dedupe_sources_drops_exact_card_txn_id_matches_before_weak_pairing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_df = pd.DataFrame(
+        [
+            {
+                "account_name": "Opher x9922",
+                "date": "2026-03-09",
+                "outflow_ils": 120.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "merchant a",
+                "description_raw": "MERCHANT A",
+                "card_txn_id": "CARD:V1:1234567890abcdef12345678",
+                "memo": "drop me",
+            },
+            {
+                "account_name": "Opher x9922",
+                "date": "2026-03-09",
+                "outflow_ils": 120.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "merchant b",
+                "description_raw": "MERCHANT B",
+                "card_txn_id": "",
+                "memo": "keep me",
+            },
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "account_name": "Opher x9922",
+                "import_id": "CARD:V1:1234567890abcdef12345678",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(
+        build_proposed_transactions.pairing,
+        "match_pairs",
+        lambda source, *_: pd.DataFrame() if len(source) == 1 else pd.DataFrame([{"bad": 1}]),
+    )
+
+    with pytest.warns(UserWarning, match="Dropping 1 source rows matched to YNAB by exact import_id"):
+        deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
+
+    assert matched_pairs.empty
+    assert deduped["memo"].tolist() == ["keep me"]
+
+
 def test_dedupe_source_overlaps_matches_immediate_debit_on_secondary_date() -> None:
     source_df = pd.DataFrame(
         [

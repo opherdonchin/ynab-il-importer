@@ -4,6 +4,7 @@ import re
 
 import pandas as pd
 import ynab_il_importer.account_map as account_map
+import ynab_il_importer.card_identity as card_identity
 import ynab_il_importer.fingerprint as fingerprint
 
 
@@ -304,6 +305,26 @@ def read_raw(
         result = account_map.apply_account_name_map(
             result, source="card", account_map_path=account_map_path
         )
+    if result.empty:
+        result["card_txn_id"] = pd.Series(dtype="string")
+    else:
+        result["card_txn_id"] = result.apply(
+            lambda row: card_identity.make_card_txn_id(
+                source=row.get("source", "card"),
+                source_account=row.get("source_account", ""),
+                card_suffix=row.get("card_suffix", ""),
+                date=row.get("date", ""),
+                secondary_date=row.get("secondary_date", ""),
+                outflow_ils=row.get("outflow_ils", 0.0),
+                inflow_ils=row.get("inflow_ils", 0.0),
+                description_raw=row.get("description_raw", ""),
+                max_sheet=row.get("max_sheet", ""),
+                max_txn_type=row.get("max_txn_type", ""),
+                max_original_amount=row.get("max_original_amount", ""),
+                max_original_currency=row.get("max_original_currency", ""),
+            ),
+            axis=1,
+        )
     result = fingerprint.apply_fingerprints(result, use_fingerprint_map=use_fingerprint_map)
 
     return result[
@@ -312,6 +333,7 @@ def read_raw(
             "account_name",
             "source_account",
             "card_suffix",
+            "card_txn_id",
             "date",
             "secondary_date",
             "txn_kind",

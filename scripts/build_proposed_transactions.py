@@ -357,6 +357,9 @@ def _candidate_import_ids(source_df: pd.DataFrame) -> pd.Series:
     work["bank_txn_id"] = work.get(
         "bank_txn_id", pd.Series([""] * len(work), index=work.index)
     ).astype("string").fillna("").str.strip()
+    work["card_txn_id"] = work.get(
+        "card_txn_id", pd.Series([""] * len(work), index=work.index)
+    ).astype("string").fillna("").str.strip()
 
     ordered = work.sort_values(
         ["account_key", "date_key", "amount_milliunits", "transaction_id", "index"]
@@ -368,6 +371,7 @@ def _candidate_import_ids(source_df: pd.DataFrame) -> pd.Series:
     )
     ordered["candidate_import_id"] = ordered.apply(
         lambda row: row["bank_txn_id"]
+        or row["card_txn_id"]
         or f"YNAB:{int(row['amount_milliunits'])}:{row['date_key']}:{int(row['import_occurrence'])}",
         axis=1,
     )
@@ -459,6 +463,7 @@ def main() -> None:
         "balance_ils",
         "ynab_account_id",
         "bank_txn_id",
+        "card_txn_id",
         "max_sheet",
         "max_txn_type",
         "max_original_amount",

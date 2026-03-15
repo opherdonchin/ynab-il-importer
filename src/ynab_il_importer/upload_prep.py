@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 import ynab_il_importer.bank_identity as bank_identity
+import ynab_il_importer.card_identity as card_identity
 import ynab_il_importer.review_app.model as review_model
 
 
@@ -44,10 +45,13 @@ def _transfer_target(payee: str) -> str:
     return target.strip()
 
 
-def _bank_import_id(row: pd.Series) -> str:
+def _source_import_id(row: pd.Series) -> str:
     bank_txn_id = _normalize_text(row.get("bank_txn_id", ""))
     if not bank_txn_id:
-        return ""
+        card_txn_id = _normalize_text(row.get("card_txn_id", ""))
+        if not card_txn_id:
+            return ""
+        return card_identity.validate_card_txn_id(card_txn_id)
     return bank_identity.validate_bank_txn_id(bank_txn_id)
 
 
@@ -224,6 +228,12 @@ def prepare_upload_transactions(
         .fillna("")
         .str.strip()
     )
+    df["card_txn_id"] = (
+        df.get("card_txn_id", pd.Series([""] * len(df), index=df.index))
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
     occurrence_order = (
         df.reset_index()
         .sort_values(["account_id", "date", "amount_milliunits", "transaction_id", "index"])
@@ -235,7 +245,7 @@ def prepare_upload_transactions(
         .add(1)
     )
     occurrence_order["import_id"] = occurrence_order.apply(
-        lambda row: _bank_import_id(row)
+        lambda row: _source_import_id(row)
         or f"YNAB:{int(row['amount_milliunits'])}:{row['date']}:{int(row['import_occurrence'])}",
         axis=1,
     )
@@ -277,6 +287,7 @@ def prepare_upload_transactions(
         "balance_ils",
         "ynab_account_id",
         "bank_txn_id",
+        "card_txn_id",
         "max_sheet",
         "max_txn_type",
         "max_original_amount",

@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 import ynab_il_importer.bank_identity as bank_identity
+import ynab_il_importer.card_identity as card_identity
 import ynab_il_importer.upload_prep as upload_prep
 
 
@@ -139,6 +140,50 @@ def test_prepare_upload_transactions_uses_bank_txn_id_for_bank_rows() -> None:
     assert prepared.loc[0, "card_suffix"] == "7195"
     assert prepared.loc[0, "secondary_date"] == "2026-03-02"
     assert prepared.loc[0, "ref"] == "0042"
+
+
+def test_prepare_upload_transactions_uses_card_txn_id_for_card_rows() -> None:
+    card_txn_id = card_identity.make_card_txn_id(
+        source="card",
+        source_account="x9922",
+        card_suffix="9922",
+        date="2026-03-09",
+        secondary_date="2026-04-10",
+        outflow_ils=120,
+        inflow_ils=0,
+        description_raw="MERCHANT A",
+        max_sheet="עסקאות במועד החיוב",
+        max_txn_type="רגילה",
+        max_original_amount=120,
+        max_original_currency="ILS",
+    )
+    reviewed = pd.DataFrame(
+        {
+            "transaction_id": ["t1", "t2"],
+            "source": ["card", "card"],
+            "account_name": ["Cash", "Cash"],
+            "source_account": ["x9922", "x9922"],
+            "card_suffix": ["9922", "9922"],
+            "date": ["2026-03-09", "2026-03-09"],
+            "secondary_date": ["2026-04-10", "2026-04-10"],
+            "outflow_ils": ["120.00", "120.00"],
+            "inflow_ils": ["0", "0"],
+            "memo": ["MERCHANT A", "MERCHANT B"],
+            "card_txn_id": [card_txn_id, ""],
+            "payee_selected": ["Shop", "Shop"],
+            "category_selected": ["Groceries", "Groceries"],
+        }
+    )
+
+    prepared = upload_prep.prepare_upload_transactions(
+        reviewed,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+
+    assert prepared.loc[0, "import_id"] == card_txn_id
+    assert prepared.loc[0, "card_txn_id"] == card_txn_id
+    assert prepared.loc[1, "import_id"] == "YNAB:-120000:2026-03-09:2"
 
 
 def test_prepare_upload_transactions_requires_category_for_non_transfer() -> None:
