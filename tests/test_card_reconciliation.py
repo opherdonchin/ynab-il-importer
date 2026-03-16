@@ -136,6 +136,29 @@ def _txn_from_source(row: pd.Series, *, txn_id: str, cleared: str) -> dict[str, 
     }
 
 
+def _txn_manual(
+    *,
+    txn_id: str,
+    date: str,
+    amount_ils: float,
+    payee_name: str,
+    cleared: str,
+    memo: str = "",
+    import_id: str = "",
+) -> dict[str, object]:
+    return {
+        "id": txn_id,
+        "account_id": "acc-card",
+        "date": date,
+        "amount": int(round(-amount_ils * 1000)),
+        "memo": memo,
+        "import_id": import_id,
+        "cleared": cleared,
+        "approved": True,
+        "payee_name": payee_name,
+    }
+
+
 def _transfer_pair(*, transfer_id: str, date: str, amount_ils: float) -> list[dict[str, object]]:
     milliunits = int(round(amount_ils * 1000))
     return [
@@ -303,6 +326,12 @@ def test_transition_reconciles_previous_and_keeps_current_open(tmp_path: Path) -
     assert result["ok"] is True
     assert result["previous_total_ils"] == -240.0
     assert result["source_total_ils"] == -190.0
+    assert result["matched_previous_count"] == 3
+    assert result["previous_row_count"] == 3
+    assert result["matched_previous_total_ils"] == -240.0
+    assert result["matched_source_count"] == 2
+    assert result["source_row_count"] == 2
+    assert result["matched_source_total_ils"] == -190.0
     assert result["payment_transfer_card_transaction_id"] == "payment-mar-card"
     assert result["payment_transfer_bank_transaction_id"] == "payment-mar-bank"
     assert result["payment_transfer_bank_account_name"] == "Bank Leumi"
@@ -338,8 +367,8 @@ def test_transition_warns_when_previous_is_already_reconciled(tmp_path: Path) ->
 
     transactions = [
         _txn_from_source(previous_rows.iloc[0], txn_id="prev-1", cleared="reconciled"),
-        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="cleared"),
-    ]
+        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="uncleared"),
+    ] + _transfer_pair(transfer_id="payment-mar", date="2026-03-10", amount_ils=100.0)
 
     result = card_reconciliation.plan_card_cycle_reconciliation(
         account_name="Opher x9922",
@@ -351,7 +380,10 @@ def test_transition_warns_when_previous_is_already_reconciled(tmp_path: Path) ->
 
     assert result["ok"] is True
     assert result["warning"] == "All previous-file transactions are already reconciled."
-    assert result["update_count"] == 0
+    assert result["update_count"] == 1
+    assert result["updates"] == [{"id": "curr-1", "cleared": "cleared"}]
+    assert set(result["report"][result["report"]["snapshot_role"] == "previous"]["action"]) == {"already_reconciled"}
+    assert set(result["report"][result["report"]["snapshot_role"] == "source"]["action"]) == {"clear"}
 
 
 def test_transition_blocks_when_source_rows_are_already_reconciled(tmp_path: Path) -> None:
@@ -424,3 +456,154 @@ def test_transition_blocks_when_payment_transfer_is_missing(tmp_path: Path) -> N
 
     assert result["ok"] is False
     assert "No card payment transfer found" in result["reason"]
+
+
+def test_plan_card_match_sync_stamps_unique_date_amount_and_clears_uncleared(tmp_path: Path) -> None:
+    source_path = tmp_path / "current.xlsx"
+    _write_snapshot(
+        source_path,
+        period="04/2026",
+        billed_rows=[_billed_row(date="09-03-2026", merchant="MERCHANT A", amount="100", charge_date="10-04-2026")],
+    )
+    source_df = card_reconciliation.load_card_source(source_path)
+    source_rows = card_reconciliation._target_source_rows(source_df, "Opher x9922")
+
+    transactions = [
+        _txn_manual(
+            txn_id="txn-1",
+            date="2026-03-09",
+            amount_ils=100.0,
+            payee_name="Canonical Payee",
+            cleared="uncleared",
+        )
+    ]
+
+    result = card_reconciliation.plan_card_match_sync(
+        account_name="Opher x9922",
+        source_df=source_df,
+        accounts=_accounts(),
+        transactions=transactions,
+    )
+
+    assert result["update_count"] == 1
+    assert result["updates"] == [
+        {
+            "id": "txn-1",
+            "memo": f"[ynab-il card_txn_id={source_rows.iloc[0]['card_txn_id']}]",
+            "cleared": "cleared",
+        }
+    ]
+    report = result["report"]
+    assert report.loc[0, "resolved_via"] == "date_amount_unique"
+    assert report.loc[0, "action"] == "stamp+clear"
+
+
+def test_plan_card_match_sync_stamps_legacy_import_id_match(tmp_path: Path) -> None:
+    source_path = tmp_path / "current.xlsx"
+    _write_snapshot(
+        source_path,
+        period="04/2026",
+        billed_rows=[_billed_row(date="09-03-2026", merchant="MERCHANT A", amount="100", charge_date="10-04-2026")],
+    )
+    source_df = card_reconciliation.load_card_source(source_path)
+    source_rows = card_reconciliation._target_source_rows(source_df, "Opher x9922")
+    legacy_import_id = source_rows.iloc[0]["legacy_import_id"]
+
+    transactions = [
+        _txn_manual(
+            txn_id="txn-1",
+            date="2026-03-09",
+            amount_ils=100.0,
+            payee_name="Canonical Payee",
+            cleared="uncleared",
+            import_id=legacy_import_id,
+        )
+    ]
+
+    result = card_reconciliation.plan_card_match_sync(
+        account_name="Opher x9922",
+        source_df=source_df,
+        accounts=_accounts(),
+        transactions=transactions,
+    )
+
+    assert result["update_count"] == 1
+    assert result["updates"] == [
+        {
+            "id": "txn-1",
+            "memo": f"[ynab-il card_txn_id={source_rows.iloc[0]['card_txn_id']}]",
+            "cleared": "cleared",
+        }
+    ]
+    report = result["report"]
+    assert report.loc[0, "resolved_via"] == "legacy_import_id"
+    assert report.loc[0, "action"] == "stamp+clear"
+
+
+def test_plan_card_match_sync_noops_on_exact_lineage(tmp_path: Path) -> None:
+    source_path = tmp_path / "current.xlsx"
+    _write_snapshot(
+        source_path,
+        period="04/2026",
+        billed_rows=[_billed_row(date="09-03-2026", merchant="MERCHANT A", amount="100", charge_date="10-04-2026")],
+    )
+    source_df = card_reconciliation.load_card_source(source_path)
+    source_rows = card_reconciliation._target_source_rows(source_df, "Opher x9922")
+
+    transactions = [
+        _txn_manual(
+            txn_id="txn-1",
+            date="2026-03-09",
+            amount_ils=100.0,
+            payee_name="Canonical Payee",
+            cleared="cleared",
+            import_id=source_rows.iloc[0]["card_txn_id"],
+        )
+    ]
+
+    result = card_reconciliation.plan_card_match_sync(
+        account_name="Opher x9922",
+        source_df=source_df,
+        accounts=_accounts(),
+        transactions=transactions,
+    )
+
+    assert result["update_count"] == 0
+    assert result["updates"] == []
+    report = result["report"]
+    assert report.loc[0, "resolved_via"] == "import_id"
+    assert report.loc[0, "action"] == "noop"
+
+
+def test_plan_card_match_sync_refuses_conflicting_linked_candidate(tmp_path: Path) -> None:
+    source_path = tmp_path / "current.xlsx"
+    _write_snapshot(
+        source_path,
+        period="04/2026",
+        billed_rows=[_billed_row(date="09-03-2026", merchant="MERCHANT A", amount="100", charge_date="10-04-2026")],
+    )
+    source_df = card_reconciliation.load_card_source(source_path)
+
+    transactions = [
+        _txn_manual(
+            txn_id="txn-1",
+            date="2026-03-09",
+            amount_ils=100.0,
+            payee_name="Canonical Payee",
+            cleared="uncleared",
+            import_id="CARD:V1:1234567890abcdef12345678",
+        )
+    ]
+
+    result = card_reconciliation.plan_card_match_sync(
+        account_name="Opher x9922",
+        source_df=source_df,
+        accounts=_accounts(),
+        transactions=transactions,
+    )
+
+    assert result["update_count"] == 0
+    report = result["report"]
+    assert report.loc[0, "action"] == "unmatched"
+    assert report.loc[0, "candidate_status"] == "only_linked_date_amount_candidates"
+    assert "already linked to a different card_txn_id" in report.loc[0, "reason"]

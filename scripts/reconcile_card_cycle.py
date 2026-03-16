@@ -24,7 +24,17 @@ def _print_summary(result: dict[str, object], report_path: Path, execute: bool) 
     print(f"Mode: {result['mode']}")
     if result.get("previous_total_ils"):
         print(f"Previous total: {result['previous_total_ils']:.2f} ILS")
+        print(
+            "Previous line match: "
+            f"{result.get('matched_previous_count', 0)}/{result.get('previous_row_count', 0)} rows, "
+            f"matched YNAB total {result.get('matched_previous_total_ils', 0.0):.2f} ILS"
+        )
     print(f"Current total: {result['source_total_ils']:.2f} ILS")
+    print(
+        "Current line match: "
+        f"{result.get('matched_source_count', 0)}/{result.get('source_row_count', 0)} rows, "
+        f"matched YNAB total {result.get('matched_source_total_ils', 0.0):.2f} ILS"
+    )
     if result.get("payment_transfer_card_transaction_id"):
         print(
             "Payment transfer: "
