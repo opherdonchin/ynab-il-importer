@@ -4,6 +4,7 @@ from io import StringIO
 
 
 import pandas as pd
+
 try:
     from lxml import html
 except ImportError:  # pragma: no cover - optional fallback dependency
@@ -12,6 +13,10 @@ except ImportError:  # pragma: no cover - optional fallback dependency
 import ynab_il_importer.account_map as account_map
 import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.fingerprint as fingerprint
+from ynab_il_importer.io_leumi import (
+    extract_merchant,
+    _infer_txn_kind as _infer_txn_kind_leumi,
+)
 
 _BANK_REQUIRED_HEADERS = {"תאריך", "תיאור", "בחובה", "בזכות"}
 _BANK_ACCOUNT_HEADERS = {
@@ -95,14 +100,20 @@ def _extract_account_name(df: pd.DataFrame) -> pd.Series:
     return pd.Series([""] * len(df), index=df.index, dtype="string")
 
 
-def _extract_card_suffix(description: pd.Series, description_clean: pd.Series, ref: pd.Series) -> pd.Series:
+def _extract_card_suffix(
+    description: pd.Series, description_clean: pd.Series, ref: pd.Series
+) -> pd.Series:
     description_text = description.astype("string").fillna("").str.strip()
     extracted = description_text.str.extract(_CARD_SUFFIX_RE, expand=False).fillna("")
     merchant = description_clean.astype("string").fillna("").str.strip()
     ref_digits = ref.astype("string").fillna("").str.replace(r"\D+", "", regex=True)
-    leumi_visa = (merchant == "לאומי ויזה") & (extracted == "") & (ref_digits.str.len() >= 3)
+    leumi_visa = (
+        (merchant == "לאומי ויזה") & (extracted == "") & (ref_digits.str.len() >= 3)
+    )
     extracted.loc[leumi_visa] = ref_digits.loc[leumi_visa].str[-4:].str.zfill(4)
-    extracted = extracted.astype("string").fillna("").str.replace(r"\D+", "", regex=True)
+    extracted = (
+        extracted.astype("string").fillna("").str.replace(r"\D+", "", regex=True)
+    )
     has_suffix = extracted.str.len() >= 3
     extracted.loc[has_suffix] = extracted.loc[has_suffix].str[-4:].str.zfill(4)
     return extracted
@@ -182,7 +193,8 @@ def _extract_bank_table_with_lxml(path: Path) -> pd.DataFrame | None:
             if not cells:
                 continue
             values = [
-                _normalize_cell(" ".join(" ".join(cell.itertext()).split())) for cell in cells
+                _normalize_cell(" ".join(" ".join(cell.itertext()).split()))
+                for cell in cells
             ]
             rows.append(values)
 
@@ -194,7 +206,9 @@ def _extract_bank_table_with_lxml(path: Path) -> pd.DataFrame | None:
             if not _BANK_REQUIRED_HEADERS.issubset(header_values):
                 continue
 
-            header = [value if value else f"unnamed_{idx}" for idx, value in enumerate(row)]
+            header = [
+                value if value else f"unnamed_{idx}" for idx, value in enumerate(row)
+            ]
             width = len(header)
 
             data_rows: list[list[str]] = []
@@ -208,7 +222,9 @@ def _extract_bank_table_with_lxml(path: Path) -> pd.DataFrame | None:
             candidate = pd.DataFrame(data_rows, columns=header)
             candidate = candidate[
                 candidate.apply(
-                    lambda r: any(str(v).strip() not in {"", "nan", "NaN", "None"} for v in r),
+                    lambda r: any(
+                        str(v).strip() not in {"", "nan", "NaN", "None"} for v in r
+                    ),
                     axis=1,
                 )
             ].reset_index(drop=True)
@@ -273,7 +289,9 @@ def is_proper_format(path: str | Path) -> bool:
     try:
         tables = pd.read_html(source_path)
         selected = _select_bank_table(tables)
-        if selected is not None and _BANK_REQUIRED_HEADERS.issubset(set(selected.columns)):
+        if selected is not None and _BANK_REQUIRED_HEADERS.issubset(
+            set(selected.columns)
+        ):
             return True
     except Exception:
         pass
@@ -302,6 +320,15 @@ def read_raw(
 
     source_account = _extract_account_name(raw)
 
+    description_raw = _get_column(raw, "תיאור", "").astype("string").fillna("")
+    # Use the same merchant extraction as io_leumi so txn_kind is consistently inferred
+    extracted = description_raw.map(
+        extract_merchant
+    )  # returns (merchant_raw, base_kind)
+    merchant_raw = extracted.map(lambda t: t[0])
+    base_kind = extracted.map(lambda t: t[1])
+    description_clean = merchant_raw.copy()
+
     result = pd.DataFrame(
         {
             "source": "bank",
@@ -313,12 +340,10 @@ def read_raw(
             "secondary_date": pd.to_datetime(
                 _get_column(raw, "תאריך ערך", None), errors="coerce", dayfirst=True
             ).dt.date,
-            "description_raw": _get_column(raw, "תיאור", "")
-            .astype("string")
-            .fillna(""),
-            "description_clean": _get_column(raw, "תיאור", "")
-            .astype("string")
-            .fillna(""),
+            "txn_kind": "expense",
+            "merchant_raw": merchant_raw,
+            "description_raw": description_raw,
+            "description_clean": description_clean,
             "ref": _get_column(raw, "אסמכתא", "").astype("string").fillna(""),
             "outflow_ils": outflow,
             "inflow_ils": inflow,
@@ -327,6 +352,10 @@ def read_raw(
             "amount_bucket": "",
         }
     )
+    result["txn_kind"] = [
+        _infer_txn_kind_leumi(bk, row["inflow_ils"], row["outflow_ils"])
+        for bk, (_, row) in zip(base_kind, result.iterrows())
+    ]
     result["card_suffix"] = _extract_card_suffix(
         result["description_raw"],
         result["description_clean"],
@@ -360,7 +389,9 @@ def read_raw(
         result = account_map.apply_account_name_map(
             result, source="bank", account_map_path=account_map_path
         )
-    result = fingerprint.apply_fingerprints(result, use_fingerprint_map=use_fingerprint_map)
+    result = fingerprint.apply_fingerprints(
+        result, use_fingerprint_map=use_fingerprint_map
+    )
 
     columns = [
         "source",
@@ -368,6 +399,8 @@ def read_raw(
         "source_account",
         "date",
         "secondary_date",
+        "txn_kind",
+        "merchant_raw",
         "description_clean",
         "description_raw",
         "description_clean_norm",

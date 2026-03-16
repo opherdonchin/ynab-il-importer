@@ -50,17 +50,25 @@ def _load_workbook(path: Path) -> dict[str, pd.DataFrame]:
     return pd.read_excel(path, sheet_name=None, header=None, dtype=str)
 
 
-def _find_headers(workbook: dict[str, pd.DataFrame], path: Path) -> list[tuple[str, int]]:
+def _find_headers(
+    workbook: dict[str, pd.DataFrame], path: Path
+) -> list[tuple[str, int]]:
     header_matches: list[tuple[str, int]] = []
     for sheet_name, sheet_df in workbook.items():
         row_matches = sheet_df.apply(
-            lambda row: row.astype("string").fillna("").str.strip().eq(HEADER_MARKER).any(),
+            lambda row: row.astype("string")
+            .fillna("")
+            .str.strip()
+            .eq(HEADER_MARKER)
+            .any(),
             axis=1,
         )
         if row_matches.any():
             header_matches.append((sheet_name, int(row_matches.idxmax())))
     if not header_matches:
-        raise ValueError(f"Could not find header row containing '{HEADER_MARKER}' in {path}")
+        raise ValueError(
+            f"Could not find header row containing '{HEADER_MARKER}' in {path}"
+        )
     return header_matches
 
 
@@ -92,7 +100,9 @@ def _extract_sheet_table(sheet_df: pd.DataFrame, header_row: int) -> pd.DataFram
     body = body.loc[:, ~pd.Index(body.columns).duplicated(keep="first")]
     body = body[
         body.apply(
-            lambda row: any(str(value).strip() not in {"", "nan", "NaN", "None"} for value in row),
+            lambda row: any(
+                str(value).strip() not in {"", "nan", "NaN", "None"} for value in row
+            ),
             axis=1,
         )
     ].reset_index(drop=True)
@@ -104,12 +114,14 @@ def _pick_amount_column(df: pd.DataFrame) -> str:
     for name in candidates:
         if name in df.columns:
             return name
-    raise ValueError(f"Could not infer amount column in card file. Columns: {list(df.columns)}")
+    raise ValueError(
+        f"Could not infer amount column in card file. Columns: {list(df.columns)}"
+    )
 
 
 def _normalize_currency(series: pd.Series) -> pd.Series:
     out = series.astype("string").fillna("").str.strip()
-    out = out.replace({"₪": "ILS", "ש\"ח": "ILS", "שח": "ILS"})
+    out = out.replace({"₪": "ILS", 'ש"ח': "ILS", "שח": "ILS"})
     out = out.str.upper()
     return out.where(out != "", "ILS")
 
@@ -134,7 +146,9 @@ def _normalize_card_account_name(series: pd.Series) -> pd.Series:
 
 def _extract_card_suffix(series: pd.Series) -> pd.Series:
     account_name = _normalize_card_account_name(series)
-    return account_name.str.replace(r"^[xX]", "", regex=True).astype("string").fillna("")
+    return (
+        account_name.str.replace(r"^[xX]", "", regex=True).astype("string").fillna("")
+    )
 
 
 def _pick_card_account_column(df: pd.DataFrame) -> str | None:
@@ -170,14 +184,24 @@ def _build_sheet_result(
     amount_col = _pick_amount_column(raw)
     amount = _parse_amount(raw[amount_col])
     non_zero = amount[amount != 0]
-    if not non_zero.empty and non_zero[non_zero > 0].sum() >= non_zero[non_zero < 0].abs().sum():
+    if (
+        not non_zero.empty
+        and non_zero[non_zero > 0].sum() >= non_zero[non_zero < 0].abs().sum()
+    ):
         # MAX exports typically encode charges as positive and reversals as negative.
         amount = -amount
 
-    merchant = _get_column(raw, "שם בית העסק", "").astype("string").fillna("").str.strip()
+    merchant = (
+        _get_column(raw, "שם בית העסק", "").astype("string").fillna("").str.strip()
+    )
     notes = _get_column(raw, "הערות", "").astype("string").fillna("").str.strip()
     description = merchant.where(notes == "", merchant + " | " + notes).str.strip(" |")
-    description_clean = description.where(description != "", merchant).astype("string").fillna("").str.strip()
+    description_clean = (
+        description.where(description != "", merchant)
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
     amount = amount.round(2)
     outflow_ils = amount.where(amount < 0, 0.0).abs().round(2)
     inflow_ils = amount.where(amount > 0, 0.0).round(2)
@@ -212,19 +236,39 @@ def _build_sheet_result(
             "outflow_ils": outflow_ils,
             "inflow_ils": inflow_ils,
             "currency": _normalize_currency(_get_column(raw, "מטבע חיוב", "")),
-            "max_sheet": pd.Series([sheet_name] * len(raw), index=raw.index, dtype="string"),
-            "max_report_owner": pd.Series([report_owner] * len(raw), index=raw.index, dtype="string"),
-            "max_report_scope": pd.Series([report_scope] * len(raw), index=raw.index, dtype="string"),
-            "max_report_period": pd.Series([report_period] * len(raw), index=raw.index, dtype="string"),
-            "max_txn_type": _get_column(raw, "סוג עסקה", "").astype("string").fillna("").str.strip(),
-            "max_category": _get_column(raw, "קטגוריה", "").astype("string").fillna("").str.strip(),
-            "max_original_amount": _parse_optional_amount(_get_column(raw, "סכום עסקה מקורי", pd.NA)),
+            "amount_bucket": "",
+            "max_sheet": pd.Series(
+                [sheet_name] * len(raw), index=raw.index, dtype="string"
+            ),
+            "max_report_owner": pd.Series(
+                [report_owner] * len(raw), index=raw.index, dtype="string"
+            ),
+            "max_report_scope": pd.Series(
+                [report_scope] * len(raw), index=raw.index, dtype="string"
+            ),
+            "max_report_period": pd.Series(
+                [report_period] * len(raw), index=raw.index, dtype="string"
+            ),
+            "max_txn_type": _get_column(raw, "סוג עסקה", "")
+            .astype("string")
+            .fillna("")
+            .str.strip(),
+            "max_category": _get_column(raw, "קטגוריה", "")
+            .astype("string")
+            .fillna("")
+            .str.strip(),
+            "max_original_amount": _parse_optional_amount(
+                _get_column(raw, "סכום עסקה מקורי", pd.NA)
+            ),
             "max_original_currency": _get_column(raw, "מטבע עסקה מקורי", "")
             .astype("string")
             .fillna("")
             .str.strip(),
             "max_comments": notes,
-            "max_tags": _get_column(raw, "תיוגים", "").astype("string").fillna("").str.strip(),
+            "max_tags": _get_column(raw, "תיוגים", "")
+            .astype("string")
+            .fillna("")
+            .str.strip(),
             "max_discount_club": _get_column(raw, "מועדון הנחות", "")
             .astype("string")
             .fillna("")
@@ -250,12 +294,18 @@ def is_proper_format(path: str | Path) -> bool:
     if suffix and suffix not in {".xls", ".xlsx"}:
         return False
     try:
-        sheets = pd.read_excel(source_path, sheet_name=None, header=None, dtype=str, nrows=20)
+        sheets = pd.read_excel(
+            source_path, sheet_name=None, header=None, dtype=str, nrows=20
+        )
     except Exception:
         return False
     for sheet_df in sheets.values():
         has_marker = sheet_df.apply(
-            lambda row: row.astype("string").fillna("").str.strip().eq(HEADER_MARKER).any(),
+            lambda row: row.astype("string")
+            .fillna("")
+            .str.strip()
+            .eq(HEADER_MARKER)
+            .any(),
             axis=1,
         )
         if has_marker.any():
@@ -325,7 +375,9 @@ def read_raw(
             ),
             axis=1,
         )
-    result = fingerprint.apply_fingerprints(result, use_fingerprint_map=use_fingerprint_map)
+    result = fingerprint.apply_fingerprints(
+        result, use_fingerprint_map=use_fingerprint_map
+    )
 
     return result[
         [
@@ -345,6 +397,7 @@ def read_raw(
             "outflow_ils",
             "inflow_ils",
             "currency",
+            "amount_bucket",
             "max_sheet",
             "max_report_owner",
             "max_report_scope",

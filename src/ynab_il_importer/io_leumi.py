@@ -41,7 +41,9 @@ def _parse_amount(value: str) -> float:
     return float(text)
 
 
-def _parse_optional_amount(value: str, *, require_decimal: bool = False) -> float | None:
+def _parse_optional_amount(
+    value: str, *, require_decimal: bool = False
+) -> float | None:
     text = str(value).strip().replace(",", "")
     if not text:
         return None
@@ -89,10 +91,16 @@ def _pick_transfer_party(description: str) -> str:
 
     right_core = _TRANSFER_SPLIT_RE.split(right, maxsplit=1)[0]
     right_clean = _cleanup_merchant(right_core)
-    if right_clean and right_clean not in _TRANSFER_GENERIC_TOKENS and _has_letters(right_clean):
+    if (
+        right_clean
+        and right_clean not in _TRANSFER_GENERIC_TOKENS
+        and _has_letters(right_clean)
+    ):
         return right_clean
 
-    left_parts = [part.strip() for part in _MULTISPACE_RE.split(left.strip()) if part.strip()]
+    left_parts = [
+        part.strip() for part in _MULTISPACE_RE.split(left.strip()) if part.strip()
+    ]
     left_candidate = left_parts[-1] if left_parts else left
     left_candidate = re.sub(r"^[\d,\-\s]+", "", left_candidate).strip()
     left_clean = _cleanup_merchant(left_candidate)
@@ -197,7 +205,10 @@ def read_raw(
     account_map_path: str | Path | None = None,
 ) -> pd.DataFrame:
     source_path = Path(path)
-    decoded_lines = [line.decode("cp862", errors="replace").strip() for line in source_path.read_bytes().splitlines()]
+    decoded_lines = [
+        line.decode("cp862", errors="replace").strip()
+        for line in source_path.read_bytes().splitlines()
+    ]
     decoded_lines = [line for line in decoded_lines if line]
     reader = csv.reader(decoded_lines, delimiter=",", quotechar='"')
 
@@ -223,7 +234,9 @@ def read_raw(
 
         txn_amount = _parse_amount(fields[3])
         balance_ils = (
-            _parse_optional_amount(fields[4], require_decimal=True) if len(fields) >= 5 else None
+            _parse_optional_amount(fields[4], require_decimal=True)
+            if len(fields) >= 5
+            else None
         )
         outflow_ils = abs(txn_amount) if txn_amount < 0 else 0.0
         inflow_ils = txn_amount if txn_amount > 0 else 0.0
@@ -246,7 +259,9 @@ def read_raw(
                 "card_suffix": card_suffix,
                 "outflow_ils": round(outflow_ils, 2),
                 "inflow_ils": round(inflow_ils, 2),
-                "balance_ils": round(balance_ils, 2) if balance_ils is not None else None,
+                "balance_ils": (
+                    round(balance_ils, 2) if balance_ils is not None else None
+                ),
                 "bank_txn_id": bank_identity.make_bank_txn_id(
                     source="bank",
                     source_account=source_account,
@@ -290,5 +305,29 @@ def read_raw(
         result = account_map.apply_account_name_map(
             result, source="bank", account_map_path=account_map_path
         )
-    result = fingerprint.apply_fingerprints(result, use_fingerprint_map=use_fingerprint_map)
-    return result
+    result = fingerprint.apply_fingerprints(
+        result, use_fingerprint_map=use_fingerprint_map
+    )
+    return result[
+        [
+            "source",
+            "account_name",
+            "source_account",
+            "date",
+            "secondary_date",
+            "txn_kind",
+            "merchant_raw",
+            "description_clean",
+            "description_raw",
+            "description_clean_norm",
+            "fingerprint",
+            "ref",
+            "card_suffix",
+            "outflow_ils",
+            "inflow_ils",
+            "balance_ils",
+            "bank_txn_id",
+            "currency",
+            "amount_bucket",
+        ]
+    ]
