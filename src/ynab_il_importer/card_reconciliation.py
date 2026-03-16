@@ -83,7 +83,9 @@ def _legacy_import_ids(df: pd.DataFrame) -> pd.Series:
 
     work = df.reset_index().copy()
     work["account_key"] = _normalize_text_series(work["account_name"])
-    work["date_key"] = pd.to_datetime(work["date"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+    work["date_key"] = (
+        pd.to_datetime(work["date"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+    )
     work["amount_milliunits"] = (_signed_amount_ils(work) * 1000).round().astype(int)
     work["stable_key"] = work.apply(_row_identity_hash, axis=1)
     ordered = work.sort_values(
@@ -98,7 +100,11 @@ def _legacy_import_ids(df: pd.DataFrame) -> pd.Series:
         lambda row: f"YNAB:{int(row['amount_milliunits'])}:{row['date_key']}:{int(row['import_occurrence'])}",
         axis=1,
     )
-    return ordered.set_index("index")["legacy_import_id"].reindex(df.index).astype("string")
+    return (
+        ordered.set_index("index")["legacy_import_id"]
+        .reindex(df.index)
+        .astype("string")
+    )
 
 
 def _ensure_card_txn_id(df: pd.DataFrame) -> pd.DataFrame:
@@ -140,8 +146,12 @@ def _drop_pending_rows(df: pd.DataFrame) -> pd.DataFrame:
     out["max_sheet"] = _normalize_text_series(
         out.get("max_sheet", pd.Series([""] * len(out), index=out.index))
     )
-    out["outflow_ils"] = pd.to_numeric(out.get("outflow_ils", 0.0), errors="coerce").fillna(0.0)
-    out["inflow_ils"] = pd.to_numeric(out.get("inflow_ils", 0.0), errors="coerce").fillna(0.0)
+    out["outflow_ils"] = pd.to_numeric(
+        out.get("outflow_ils", 0.0), errors="coerce"
+    ).fillna(0.0)
+    out["inflow_ils"] = pd.to_numeric(
+        out.get("inflow_ils", 0.0), errors="coerce"
+    ).fillna(0.0)
     signed = _signed_amount_ils(out)
     return out[(out["max_sheet"] != PENDING_SHEET_NAME) & (signed != 0)].copy()
 
@@ -150,13 +160,20 @@ def load_card_source(path: str | Path) -> pd.DataFrame:
     source_path = Path(path)
     if source_path.suffix.lower() == ".csv":
         df = pd.read_csv(source_path, dtype="string").fillna("")
-        for col in ["outflow_ils", "inflow_ils", "max_original_amount", "max_exchange_rate"]:
+        for col in [
+            "outflow_ils",
+            "inflow_ils",
+            "max_original_amount",
+            "max_exchange_rate",
+        ]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
         if "date" in df.columns:
             df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
         if "secondary_date" in df.columns:
-            df["secondary_date"] = pd.to_datetime(df["secondary_date"], errors="coerce").dt.date
+            df["secondary_date"] = pd.to_datetime(
+                df["secondary_date"], errors="coerce"
+            ).dt.date
         return _drop_pending_rows(_ensure_card_txn_id(df))
 
     if source_path.suffix.lower() in {".xlsx", ".xls"}:
@@ -171,43 +188,57 @@ def _target_source_rows(df: pd.DataFrame, account_name: str) -> pd.DataFrame:
     work["source_account"] = _normalize_text_series(
         work.get("source_account", pd.Series([""] * len(work), index=work.index))
     )
-    mask = (work["account_name"] == account_name) | (work["source_account"] == account_name)
+    mask = (work["account_name"] == account_name) | (
+        work["source_account"] == account_name
+    )
     filtered = work.loc[mask].copy()
     if filtered.empty:
-        available = sorted((set(work["account_name"].tolist()) | set(work["source_account"].tolist())) - {""})
+        available = sorted(
+            (set(work["account_name"].tolist()) | set(work["source_account"].tolist()))
+            - {""}
+        )
         raise ValueError(
             f"Account {account_name!r} not found in card source. Available accounts: {available}"
         )
     filtered["date"] = pd.to_datetime(filtered["date"], errors="coerce").dt.date
-    filtered["secondary_date"] = pd.to_datetime(filtered["secondary_date"], errors="coerce").dt.date
-    filtered["outflow_ils"] = pd.to_numeric(filtered["outflow_ils"], errors="coerce").fillna(0.0).round(2)
-    filtered["inflow_ils"] = pd.to_numeric(filtered["inflow_ils"], errors="coerce").fillna(0.0).round(2)
+    filtered["secondary_date"] = pd.to_datetime(
+        filtered["secondary_date"], errors="coerce"
+    ).dt.date
+    filtered["outflow_ils"] = (
+        pd.to_numeric(filtered["outflow_ils"], errors="coerce").fillna(0.0).round(2)
+    )
+    filtered["inflow_ils"] = (
+        pd.to_numeric(filtered["inflow_ils"], errors="coerce").fillna(0.0).round(2)
+    )
     filtered["max_sheet"] = _normalize_text_series(
         filtered.get("max_sheet", pd.Series([""] * len(filtered), index=filtered.index))
     )
     filtered["card_txn_id"] = _normalize_text_series(filtered["card_txn_id"])
     filtered["legacy_import_id"] = _legacy_import_ids(filtered)
     filtered["description_match"] = filtered.apply(
-        lambda row: _normalize_match_text(row.get("description_raw", row.get("memo", ""))),
+        lambda row: _normalize_match_text(
+            row.get("description_raw", row.get("memo", ""))
+        ),
         axis=1,
     )
     filtered["row_index"] = range(len(filtered))
     filtered["signed_ils"] = _signed_amount_ils(filtered)
-    filtered = filtered[
-        filtered["max_sheet"] != PENDING_SHEET_NAME
-    ].copy()
+    filtered = filtered[filtered["max_sheet"] != PENDING_SHEET_NAME].copy()
     filtered = filtered[filtered["signed_ils"] != 0].copy()
     filtered.reset_index(drop=True, inplace=True)
     filtered["row_index"] = range(len(filtered))
     return filtered
 
 
-def _account_lookup(accounts: list[dict[str, Any]], account_name: str) -> dict[str, str]:
+def _account_lookup(
+    accounts: list[dict[str, Any]], account_name: str
+) -> dict[str, str]:
     normalized_target = _normalize_text(account_name)
     matches = [
         acc
         for acc in accounts
-        if not bool(acc.get("deleted", False)) and _normalize_text(acc.get("name", "")) == normalized_target
+        if not bool(acc.get("deleted", False))
+        and _normalize_text(acc.get("name", "")) == normalized_target
     ]
     if not matches:
         raise ValueError(f"YNAB account not found: {account_name}")
@@ -243,19 +274,27 @@ def _all_ynab_transactions_frame(
             {
                 "id": _normalize_text(txn.get("id", "")),
                 "account_id": account_id,
-                "account_name": _normalize_text((account_names or {}).get(account_id, "")),
+                "account_name": _normalize_text(
+                    (account_names or {}).get(account_id, "")
+                ),
                 "date": parsed_date.date() if pd.notna(parsed_date) else pd.NaT,
                 "amount_milliunits": amount_milliunits,
                 "signed_ils": round(amount_milliunits / 1000.0, 2),
                 "memo": _normalize_text(txn.get("memo", "")),
                 "memo_match": _normalize_match_text(txn.get("memo", "")),
                 "import_id": _normalize_text(txn.get("import_id", "")),
-                "card_txn_id_marker": card_identity.extract_card_txn_id_from_memo(txn.get("memo", "")),
+                "card_txn_id_marker": card_identity.extract_card_txn_id_from_memo(
+                    txn.get("memo", "")
+                ),
                 "cleared": _normalize_text(txn.get("cleared", "")),
                 "approved": bool(txn.get("approved", False)),
                 "payee_name": _normalize_text(txn.get("payee_name", "")),
-                "transfer_account_id": _normalize_text(txn.get("transfer_account_id", "")),
-                "transfer_transaction_id": _normalize_text(txn.get("transfer_transaction_id", "")),
+                "transfer_account_id": _normalize_text(
+                    txn.get("transfer_account_id", "")
+                ),
+                "transfer_transaction_id": _normalize_text(
+                    txn.get("transfer_transaction_id", "")
+                ),
             }
         )
     return pd.DataFrame(rows)
@@ -273,7 +312,9 @@ def _ynab_transactions_frame(
     return all_rows[all_rows["account_id"] == account_id].copy()
 
 
-def _card_lineage_maps(ynab_df: pd.DataFrame) -> tuple[dict[str, list[int]], dict[str, list[int]]]:
+def _card_lineage_maps(
+    ynab_df: pd.DataFrame,
+) -> tuple[dict[str, list[int]], dict[str, list[int]]]:
     import_map: dict[str, list[int]] = {}
     memo_map: dict[str, list[int]] = {}
     for idx, row in ynab_df.iterrows():
@@ -286,10 +327,14 @@ def _card_lineage_maps(ynab_df: pd.DataFrame) -> tuple[dict[str, list[int]], dic
     return import_map, memo_map
 
 
-def _card_date_amount_candidates(source_row: pd.Series, ynab_df: pd.DataFrame) -> pd.DataFrame:
+def _card_date_amount_candidates(
+    source_row: pd.Series, ynab_df: pd.DataFrame
+) -> pd.DataFrame:
     candidates = ynab_df.copy()
     candidates = candidates[candidates["date"] == source_row["date"]]
-    candidates = candidates[(candidates["signed_ils"] - source_row["signed_ils"]).abs() < 0.001]
+    candidates = candidates[
+        (candidates["signed_ils"] - source_row["signed_ils"]).abs() < 0.001
+    ]
     return candidates
 
 
@@ -335,10 +380,14 @@ def _card_lineage_conflict_summary(
     parts: list[str] = []
     import_hits = import_map.get(card_txn_id, [])
     if len(import_hits) == 1:
-        parts.append(f"import_id -> {_summarize_card_candidate(ynab_df.loc[import_hits[0]])}")
+        parts.append(
+            f"import_id -> {_summarize_card_candidate(ynab_df.loc[import_hits[0]])}"
+        )
     memo_hits = memo_map.get(card_txn_id, [])
     if len(memo_hits) == 1:
-        parts.append(f"memo_marker -> {_summarize_card_candidate(ynab_df.loc[memo_hits[0]])}")
+        parts.append(
+            f"memo_marker -> {_summarize_card_candidate(ynab_df.loc[memo_hits[0]])}"
+        )
     return " || ".join(parts)
 
 
@@ -359,7 +408,10 @@ def _resolve_exact_card_lineage(
             return None, "", f"duplicate YNAB import_id matches for {card_txn_id}"
         if len(import_hits) == 1:
             candidate = ynab_df.loc[import_hits[0]]
-            if candidate["date"] == source_date and abs(float(candidate["signed_ils"]) - source_amount) < 0.001:
+            if (
+                candidate["date"] == source_date
+                and abs(float(candidate["signed_ils"]) - source_amount) < 0.001
+            ):
                 return candidate, "import_id", ""
             mismatch_reasons.append(
                 "card_txn_id import_id is attached to a YNAB transaction with different date/amount"
@@ -370,7 +422,10 @@ def _resolve_exact_card_lineage(
             return None, "", f"duplicate YNAB memo markers for {card_txn_id}"
         if len(memo_hits) == 1:
             candidate = ynab_df.loc[memo_hits[0]]
-            if candidate["date"] == source_date and abs(float(candidate["signed_ils"]) - source_amount) < 0.001:
+            if (
+                candidate["date"] == source_date
+                and abs(float(candidate["signed_ils"]) - source_amount) < 0.001
+            ):
                 return candidate, "memo_marker", ""
             mismatch_reasons.append(
                 "card_txn_id memo marker is attached to a YNAB transaction with different date/amount"
@@ -380,10 +435,17 @@ def _resolve_exact_card_lineage(
     if legacy_import_id:
         legacy_hits = ynab_df.index[ynab_df["import_id"] == legacy_import_id].tolist()
         if len(legacy_hits) > 1:
-            return None, "", f"duplicate YNAB legacy import_id matches for {legacy_import_id}"
+            return (
+                None,
+                "",
+                f"duplicate YNAB legacy import_id matches for {legacy_import_id}",
+            )
         if len(legacy_hits) == 1:
             candidate = ynab_df.loc[legacy_hits[0]]
-            if candidate["date"] == source_date and abs(float(candidate["signed_ils"]) - source_amount) < 0.001:
+            if (
+                candidate["date"] == source_date
+                and abs(float(candidate["signed_ils"]) - source_amount) < 0.001
+            ):
                 return candidate, "legacy_import_id", ""
             mismatch_reasons.append(
                 "legacy import_id is attached to a YNAB transaction with different date/amount"
@@ -402,9 +464,13 @@ def _card_candidate_diagnostics(
 ) -> tuple[int, int, str, str, str]:
     candidates = _card_date_amount_candidates(source_row, ynab_df)
     candidate_count = int(len(candidates))
-    candidate_reconciled_count = int((candidates["cleared"] == "reconciled").sum()) if candidate_count else 0
+    candidate_reconciled_count = (
+        int((candidates["cleared"] == "reconciled").sum()) if candidate_count else 0
+    )
     candidate_summary = _summarize_card_candidate_rows(candidates)
-    lineage_conflict = _card_lineage_conflict_summary(source_row, ynab_df, import_map, memo_map)
+    lineage_conflict = _card_lineage_conflict_summary(
+        source_row, ynab_df, import_map, memo_map
+    )
     if candidate_count == 0:
         return 0, 0, "no_date_amount_match", candidate_summary, lineage_conflict
 
@@ -457,7 +523,9 @@ def _card_sync_fallback_candidate(
     source_row: pd.Series,
     ynab_df: pd.DataFrame,
 ) -> tuple[pd.Series | None, str, str]:
-    candidates = _card_unlinked_candidates(_card_date_amount_candidates(source_row, ynab_df))
+    candidates = _card_unlinked_candidates(
+        _card_date_amount_candidates(source_row, ynab_df)
+    )
     memo_exact = candidates[candidates["memo_match"] == source_row["description_match"]]
     if len(memo_exact) == 1:
         return memo_exact.iloc[0], "memo_exact", ""
@@ -507,7 +575,9 @@ class _PaymentTransferMatch:
 def _expected_statement_date(previous_rows: pd.DataFrame) -> pd.Timestamp | pd.NaT:
     if previous_rows.empty or "secondary_date" not in previous_rows.columns:
         return pd.NaT
-    secondary = pd.to_datetime(previous_rows["secondary_date"], errors="coerce").dropna()
+    secondary = pd.to_datetime(
+        previous_rows["secondary_date"], errors="coerce"
+    ).dropna()
     if secondary.empty:
         return pd.NaT
     return secondary.max()
@@ -588,7 +658,9 @@ def _validate_payment_transfer(
         reason="",
         card_transaction_id=_normalize_text(card_txn.get("id", "")),
         card_transfer_account_id=card_transfer_account_id,
-        card_transfer_account_name=_normalize_text(account_names.get(card_transfer_account_id, "")),
+        card_transfer_account_name=_normalize_text(
+            account_names.get(card_transfer_account_id, "")
+        ),
         card_date=_normalize_text(card_txn.get("date", "")),
         card_amount_ils=round(float(card_txn["signed_ils"]), 2),
         bank_transaction_id=bank_txn_id,
@@ -601,29 +673,50 @@ def _validate_payment_transfer(
 
 def _resolve_card_match(source_row: pd.Series, ynab_df: pd.DataFrame) -> _ResolvedMatch:
     if ynab_df.empty:
-        return _ResolvedMatch(None, "", "no_candidates", "no YNAB transaction candidates")
+        return _ResolvedMatch(
+            None, "", "no_candidates", "no YNAB transaction candidates"
+        )
 
     card_txn_id = _normalize_text(source_row.get("card_txn_id", ""))
     if card_txn_id:
         import_hits = ynab_df.index[ynab_df["import_id"] == card_txn_id].tolist()
         if len(import_hits) == 1:
-            return _ResolvedMatch(ynab_df.loc[import_hits[0]], "import_id", "exact_lineage", "")
+            return _ResolvedMatch(
+                ynab_df.loc[import_hits[0]], "import_id", "exact_lineage", ""
+            )
         if len(import_hits) > 1:
-            return _ResolvedMatch(None, "", "duplicate_import_id", f"duplicate YNAB import_id matches for {card_txn_id}")
+            return _ResolvedMatch(
+                None,
+                "",
+                "duplicate_import_id",
+                f"duplicate YNAB import_id matches for {card_txn_id}",
+            )
 
         memo_hits = ynab_df.index[ynab_df["card_txn_id_marker"] == card_txn_id].tolist()
         if len(memo_hits) == 1:
-            return _ResolvedMatch(ynab_df.loc[memo_hits[0]], "memo_marker", "exact_lineage", "")
+            return _ResolvedMatch(
+                ynab_df.loc[memo_hits[0]], "memo_marker", "exact_lineage", ""
+            )
         if len(memo_hits) > 1:
-            return _ResolvedMatch(None, "", "duplicate_memo_marker", f"duplicate YNAB memo markers for {card_txn_id}")
+            return _ResolvedMatch(
+                None,
+                "",
+                "duplicate_memo_marker",
+                f"duplicate YNAB memo markers for {card_txn_id}",
+            )
 
     legacy_import_id = _normalize_text(source_row.get("legacy_import_id", ""))
     if legacy_import_id:
         legacy_hits = ynab_df.index[ynab_df["import_id"] == legacy_import_id].tolist()
         if len(legacy_hits) == 1:
             candidate = ynab_df.loc[legacy_hits[0]]
-            if candidate["date"] == source_row["date"] and abs(candidate["signed_ils"] - source_row["signed_ils"]) < 0.001:
-                return _ResolvedMatch(candidate, "legacy_import_id", "legacy_import_id", "")
+            if (
+                candidate["date"] == source_row["date"]
+                and abs(candidate["signed_ils"] - source_row["signed_ils"]) < 0.001
+            ):
+                return _ResolvedMatch(
+                    candidate, "legacy_import_id", "legacy_import_id", ""
+                )
 
     same_key = ynab_df[
         (ynab_df["date"] == source_row["date"])
@@ -634,12 +727,29 @@ def _resolve_card_match(source_row: pd.Series, ynab_df: pd.DataFrame) -> _Resolv
 
     memo_exact = same_key[same_key["memo_match"] == source_row["description_match"]]
     if len(memo_exact) == 1:
-        return _ResolvedMatch(memo_exact.iloc[0], "memo_exact", "unique_memo_exact_candidate", "")
+        return _ResolvedMatch(
+            memo_exact.iloc[0], "memo_exact", "unique_memo_exact_candidate", ""
+        )
     if len(memo_exact) > 1:
-        return _ResolvedMatch(None, "", "ambiguous_memo_exact_candidates", "multiple same-date/same-amount memo-confirmed candidates")
+        return _ResolvedMatch(
+            None,
+            "",
+            "ambiguous_memo_exact_candidates",
+            "multiple same-date/same-amount memo-confirmed candidates",
+        )
     if len(same_key) == 1:
-        return _ResolvedMatch(None, "", "weak_unique_date_amount", "unique date/amount candidate exists but memo does not confirm it")
-    return _ResolvedMatch(None, "", "ambiguous_date_amount_candidates", "multiple same-date/same-amount candidates")
+        return _ResolvedMatch(
+            None,
+            "",
+            "weak_unique_date_amount",
+            "unique date/amount candidate exists but memo does not confirm it",
+        )
+    return _ResolvedMatch(
+        None,
+        "",
+        "ambiguous_date_amount_candidates",
+        "multiple same-date/same-amount candidates",
+    )
 
 
 def _row_report(source_row: pd.Series, snapshot_role: str) -> dict[str, object]:
@@ -649,10 +759,16 @@ def _row_report(source_row: pd.Series, snapshot_role: str) -> dict[str, object]:
         "account_name": _normalize_text(source_row.get("account_name", "")),
         "date": _normalize_text(source_row.get("date", "")),
         "secondary_date": _normalize_text(source_row.get("secondary_date", "")),
-        "description_raw": _normalize_text(source_row.get("description_raw", source_row.get("memo", ""))),
+        "description_raw": _normalize_text(
+            source_row.get("description_raw", source_row.get("memo", ""))
+        ),
         "fingerprint": _normalize_text(source_row.get("fingerprint", "")),
-        "outflow_ils": float(pd.to_numeric(source_row.get("outflow_ils", 0.0), errors="coerce") or 0.0),
-        "inflow_ils": float(pd.to_numeric(source_row.get("inflow_ils", 0.0), errors="coerce") or 0.0),
+        "outflow_ils": float(
+            pd.to_numeric(source_row.get("outflow_ils", 0.0), errors="coerce") or 0.0
+        ),
+        "inflow_ils": float(
+            pd.to_numeric(source_row.get("inflow_ils", 0.0), errors="coerce") or 0.0
+        ),
         "card_txn_id": _normalize_text(source_row.get("card_txn_id", "")),
         "legacy_import_id": _normalize_text(source_row.get("legacy_import_id", "")),
         "resolved_via": "",
@@ -667,7 +783,9 @@ def _row_report(source_row: pd.Series, snapshot_role: str) -> dict[str, object]:
     }
 
 
-def _summarize_open_older_rows(ynab_df: pd.DataFrame, first_source_date: Any) -> pd.DataFrame:
+def _summarize_open_older_rows(
+    ynab_df: pd.DataFrame, first_source_date: Any
+) -> pd.DataFrame:
     cutoff = pd.to_datetime(first_source_date, errors="coerce")
     if pd.isna(cutoff):
         return pd.DataFrame()
@@ -678,16 +796,25 @@ def _summarize_open_older_rows(ynab_df: pd.DataFrame, first_source_date: Any) ->
     ].copy()
 
 
-def _apply_updates_for_rows(rows: pd.DataFrame, *, target_cleared: str) -> list[dict[str, str]]:
+def _apply_updates_for_rows(
+    rows: pd.DataFrame, *, target_cleared: str
+) -> list[dict[str, str]]:
     updates: list[dict[str, str]] = []
     for _, row in rows.iterrows():
         if _normalize_text(row.get("prior_cleared", "")) == target_cleared:
             continue
-        updates.append({"id": _normalize_text(row.get("ynab_transaction_id", "")), "cleared": target_cleared})
+        updates.append(
+            {
+                "id": _normalize_text(row.get("ynab_transaction_id", "")),
+                "cleared": target_cleared,
+            }
+        )
     return updates
 
 
-def _evaluate_snapshot_rows(source_df: pd.DataFrame, ynab_df: pd.DataFrame, *, snapshot_role: str) -> pd.DataFrame:
+def _evaluate_snapshot_rows(
+    source_df: pd.DataFrame, ynab_df: pd.DataFrame, *, snapshot_role: str
+) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for _, source_row in source_df.iterrows():
         report_row = _row_report(source_row, snapshot_role)
@@ -696,11 +823,19 @@ def _evaluate_snapshot_rows(source_df: pd.DataFrame, ynab_df: pd.DataFrame, *, s
         report_row["candidate_status"] = resolved.candidate_status
         report_row["reason"] = resolved.reason
         if resolved.ynab_row is not None:
-            report_row["ynab_transaction_id"] = _normalize_text(resolved.ynab_row.get("id", ""))
-            report_row["ynab_import_id"] = _normalize_text(resolved.ynab_row.get("import_id", ""))
+            report_row["ynab_transaction_id"] = _normalize_text(
+                resolved.ynab_row.get("id", "")
+            )
+            report_row["ynab_import_id"] = _normalize_text(
+                resolved.ynab_row.get("import_id", "")
+            )
             report_row["ynab_date"] = _normalize_text(resolved.ynab_row.get("date", ""))
-            report_row["ynab_signed_ils"] = round(float(resolved.ynab_row.get("signed_ils", 0.0)), 2)
-            report_row["prior_cleared"] = _normalize_text(resolved.ynab_row.get("cleared", ""))
+            report_row["ynab_signed_ils"] = round(
+                float(resolved.ynab_row.get("signed_ils", 0.0)), 2
+            )
+            report_row["prior_cleared"] = _normalize_text(
+                resolved.ynab_row.get("cleared", "")
+            )
             report_row["action"] = "matched"
         else:
             report_row["action"] = "blocked"
@@ -727,10 +862,16 @@ def _card_sync_report_row(
         "account_name": _normalize_text(source_row.get("account_name", "")),
         "date": _normalize_text(source_row.get("date", "")),
         "secondary_date": _normalize_text(source_row.get("secondary_date", "")),
-        "description_raw": _normalize_text(source_row.get("description_raw", source_row.get("memo", ""))),
+        "description_raw": _normalize_text(
+            source_row.get("description_raw", source_row.get("memo", ""))
+        ),
         "fingerprint": _normalize_text(source_row.get("fingerprint", "")),
-        "outflow_ils": float(pd.to_numeric(source_row.get("outflow_ils", 0.0), errors="coerce") or 0.0),
-        "inflow_ils": float(pd.to_numeric(source_row.get("inflow_ils", 0.0), errors="coerce") or 0.0),
+        "outflow_ils": float(
+            pd.to_numeric(source_row.get("outflow_ils", 0.0), errors="coerce") or 0.0
+        ),
+        "inflow_ils": float(
+            pd.to_numeric(source_row.get("inflow_ils", 0.0), errors="coerce") or 0.0
+        ),
         "card_txn_id": _normalize_text(source_row.get("card_txn_id", "")),
         "legacy_import_id": _normalize_text(source_row.get("legacy_import_id", "")),
         "resolved_transaction_id": resolved_transaction_id,
@@ -757,14 +898,18 @@ def plan_card_match_sync(
     source_rows = _target_source_rows(source_df, account_name)
     ynab_df = _ynab_transactions_frame(transactions, account_id=account["account_id"])
     if ynab_df.empty:
-        raise ValueError(f"No live YNAB transactions found for account {account_name!r}.")
+        raise ValueError(
+            f"No live YNAB transactions found for account {account_name!r}."
+        )
 
     import_map, memo_map = _card_lineage_maps(ynab_df)
     report_rows: list[dict[str, object]] = []
     updates: list[dict[str, str]] = []
 
     for _, source_row in source_rows.iterrows():
-        matched, resolved_via, reason = _resolve_exact_card_lineage(source_row, ynab_df, import_map, memo_map)
+        matched, resolved_via, reason = _resolve_exact_card_lineage(
+            source_row, ynab_df, import_map, memo_map
+        )
         (
             candidate_count,
             candidate_reconciled_count,
@@ -774,7 +919,9 @@ def plan_card_match_sync(
         ) = _card_candidate_diagnostics(source_row, ynab_df, import_map, memo_map)
 
         if matched is None and reason == "no exact lineage match":
-            matched, fallback_via, fallback_reason = _card_sync_fallback_candidate(source_row, ynab_df)
+            matched, fallback_via, fallback_reason = _card_sync_fallback_candidate(
+                source_row, ynab_df
+            )
             if matched is not None:
                 resolved_via = fallback_via
                 reason = ""
@@ -803,7 +950,9 @@ def plan_card_match_sync(
 
         if resolved_via in {"legacy_import_id", "memo_exact", "date_amount_unique"}:
             try:
-                new_memo = card_identity.append_card_txn_id_marker(matched.get("memo", ""), source_row["card_txn_id"])
+                new_memo = card_identity.append_card_txn_id_marker(
+                    matched.get("memo", ""), source_row["card_txn_id"]
+                )
             except ValueError as exc:
                 report_rows.append(
                     _card_sync_report_row(
@@ -855,7 +1004,9 @@ def plan_card_match_sync(
         "account_name": account["account_name"],
         "updates": updates,
         "report": report,
-        "matched_count": int(report["action"].ne("unmatched").sum()) if not report.empty else 0,
+        "matched_count": (
+            int(report["action"].ne("unmatched").sum()) if not report.empty else 0
+        ),
         "update_count": len(updates),
     }
 
@@ -867,23 +1018,34 @@ def plan_card_cycle_reconciliation(
     accounts: list[dict[str, Any]],
     transactions: list[dict[str, Any]],
     previous_df: pd.DataFrame | None = None,
+    allow_reconciled_source: bool = False,
 ) -> dict[str, object]:
     account = _account_lookup(accounts, account_name)
     account_names = _account_name_map(accounts)
     source_rows = _target_source_rows(source_df, account_name)
     if source_rows.empty:
-        raise ValueError("Source file has no in-scope non-pending rows for the requested account.")
+        raise ValueError(
+            "Source file has no in-scope non-pending rows for the requested account."
+        )
     previous_rows = (
-        _target_source_rows(previous_df, account_name) if previous_df is not None else pd.DataFrame()
+        _target_source_rows(previous_df, account_name)
+        if previous_df is not None
+        else pd.DataFrame()
     )
 
-    all_ynab_df = _all_ynab_transactions_frame(transactions, account_names=account_names)
+    all_ynab_df = _all_ynab_transactions_frame(
+        transactions, account_names=account_names
+    )
     ynab_df = all_ynab_df[all_ynab_df["account_id"] == account["account_id"]].copy()
     if ynab_df.empty:
-        raise ValueError(f"No live YNAB transactions found for account {account_name!r}.")
+        raise ValueError(
+            f"No live YNAB transactions found for account {account_name!r}."
+        )
 
     mode = "transition" if previous_df is not None else "source_only"
-    source_report = _evaluate_snapshot_rows(source_rows, ynab_df, snapshot_role="source")
+    source_report = _evaluate_snapshot_rows(
+        source_rows, ynab_df, snapshot_role="source"
+    )
     previous_report = (
         _evaluate_snapshot_rows(previous_rows, ynab_df, snapshot_role="previous")
         if previous_df is not None
@@ -899,11 +1061,41 @@ def plan_card_cycle_reconciliation(
         "source_row_count": int(len(source_rows)),
         "previous_row_count": int(len(previous_rows)),
         "source_total_ils": round(float(source_rows["signed_ils"].sum()), 2),
-        "previous_total_ils": round(float(previous_rows["signed_ils"].sum()), 2) if previous_df is not None else 0.0,
+        "previous_total_ils": (
+            round(float(previous_rows["signed_ils"].sum()), 2)
+            if previous_df is not None
+            else 0.0
+        ),
         "matched_source_count": int((source_report["ynab_transaction_id"] != "").sum()),
-        "matched_previous_count": int((previous_report["ynab_transaction_id"] != "").sum()) if previous_df is not None else 0,
-        "matched_source_total_ils": round(float(pd.to_numeric(source_report.get("ynab_signed_ils", 0.0), errors="coerce").fillna(0.0).sum()), 2),
-        "matched_previous_total_ils": round(float(pd.to_numeric(previous_report.get("ynab_signed_ils", 0.0), errors="coerce").fillna(0.0).sum()), 2) if previous_df is not None else 0.0,
+        "matched_previous_count": (
+            int((previous_report["ynab_transaction_id"] != "").sum())
+            if previous_df is not None
+            else 0
+        ),
+        "matched_source_total_ils": round(
+            float(
+                pd.to_numeric(
+                    source_report.get("ynab_signed_ils", 0.0), errors="coerce"
+                )
+                .fillna(0.0)
+                .sum()
+            ),
+            2,
+        ),
+        "matched_previous_total_ils": (
+            round(
+                float(
+                    pd.to_numeric(
+                        previous_report.get("ynab_signed_ils", 0.0), errors="coerce"
+                    )
+                    .fillna(0.0)
+                    .sum()
+                ),
+                2,
+            )
+            if previous_df is not None
+            else 0.0
+        ),
         "update_count": 0,
         "updates": [],
         "reason": "",
@@ -929,8 +1121,10 @@ def plan_card_cycle_reconciliation(
         )
         return result
 
-    source_reconciled = source_report[source_report["prior_cleared"] == "reconciled"].copy()
-    if not source_reconciled.empty:
+    source_reconciled = source_report[
+        source_report["prior_cleared"] == "reconciled"
+    ].copy()
+    if not source_reconciled.empty and not allow_reconciled_source:
         result["ok"] = False
         first = source_reconciled.iloc[0]
         result["reason"] = (
@@ -939,6 +1133,15 @@ def plan_card_cycle_reconciliation(
             "Pass the older settled file as --previous and a newer current file as --source."
         )
         return result
+    if not source_reconciled.empty and allow_reconciled_source:
+        report.loc[
+            (report["snapshot_role"] == "source")
+            & (report["prior_cleared"] == "reconciled"),
+            "action",
+        ] = "already_reconciled"
+        result["warning"] = (
+            f"{len(source_reconciled)} source rows are already reconciled and will be skipped."
+        )
 
     if mode == "source_only":
         older_open = _summarize_open_older_rows(ynab_df, source_rows["date"].min())
@@ -954,10 +1157,13 @@ def plan_card_cycle_reconciliation(
 
         matched_source_rows = source_report.copy()
         report.loc[
-            (report["snapshot_role"] == "source") & (report["prior_cleared"] == "cleared"),
+            (report["snapshot_role"] == "source")
+            & (report["prior_cleared"] == "cleared"),
             "action",
         ] = "keep_cleared"
-        to_clear = matched_source_rows[matched_source_rows["prior_cleared"] == "uncleared"].copy()
+        to_clear = matched_source_rows[
+            matched_source_rows["prior_cleared"] == "uncleared"
+        ].copy()
         for _, row in to_clear.iterrows():
             report.loc[
                 (report["snapshot_role"] == "source")
@@ -969,8 +1175,12 @@ def plan_card_cycle_reconciliation(
         result["report"] = report
         return result
 
-    previous_reconciled = previous_report[previous_report["prior_cleared"] == "reconciled"].copy()
-    if not previous_reconciled.empty and len(previous_reconciled) != len(previous_report):
+    previous_reconciled = previous_report[
+        previous_report["prior_cleared"] == "reconciled"
+    ].copy()
+    if not previous_reconciled.empty and len(previous_reconciled) != len(
+        previous_report
+    ):
         result["ok"] = False
         first = previous_reconciled.iloc[0]
         result["reason"] = (
@@ -1005,16 +1215,25 @@ def plan_card_cycle_reconciliation(
     result["payment_transfer_bank_amount_ils"] = payment_match.bank_amount_ils
 
     # All previous rows should settle; current rows should remain open.
-    previous_all_reconciled = len(previous_report) > 0 and len(previous_reconciled) == len(previous_report)
-    previous_to_reconcile = previous_report[previous_report["prior_cleared"] != "reconciled"].copy()
-    source_to_clear = source_report[source_report["prior_cleared"] == "uncleared"].copy()
+    previous_all_reconciled = len(previous_report) > 0 and len(
+        previous_reconciled
+    ) == len(previous_report)
+    previous_to_reconcile = previous_report[
+        previous_report["prior_cleared"] != "reconciled"
+    ].copy()
+    source_to_clear = source_report[
+        source_report["prior_cleared"] == "uncleared"
+    ].copy()
     if previous_all_reconciled:
         result["warning"] = "All previous-file transactions are already reconciled."
-        report.loc[report["snapshot_role"] == "previous", "action"] = "already_reconciled"
+        report.loc[report["snapshot_role"] == "previous", "action"] = (
+            "already_reconciled"
+        )
     else:
         report.loc[report["snapshot_role"] == "previous", "action"] = "reconcile"
     report.loc[
-        (report["snapshot_role"] == "source") & (report["prior_cleared"] == "uncleared"),
+        (report["snapshot_role"] == "source")
+        & (report["prior_cleared"] == "uncleared"),
         "action",
     ] = "clear"
     report.loc[
@@ -1022,8 +1241,26 @@ def plan_card_cycle_reconciliation(
         "action",
     ] = "keep_cleared"
 
-    updates = _apply_updates_for_rows(previous_to_reconcile, target_cleared="reconciled")
+    updates = _apply_updates_for_rows(
+        previous_to_reconcile, target_cleared="reconciled"
+    )
     updates.extend(_apply_updates_for_rows(source_to_clear, target_cleared="cleared"))
+
+    # In card reconciliation, only reconcile the card-side payment transfer.
+    card_transfer_id = _normalize_text(payment_match.card_transaction_id)
+    transfer_rows = all_ynab_df[
+        all_ynab_df["id"].isin([card_transfer_id] if card_transfer_id else [])
+    ].copy()
+    if not transfer_rows.empty:
+        transfer_to_reconcile = transfer_rows[
+            transfer_rows["cleared"] != "reconciled"
+        ].copy()
+        transfer_to_reconcile = transfer_to_reconcile.rename(
+            columns={"id": "ynab_transaction_id", "cleared": "prior_cleared"}
+        )
+        updates.extend(
+            _apply_updates_for_rows(transfer_to_reconcile, target_cleared="reconciled")
+        )
 
     result["updates"] = updates
     result["update_count"] = len(updates)

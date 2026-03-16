@@ -60,8 +60,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Reconcile one card account using a current source file and optional previous finished-month file."
     )
-    parser.add_argument("--account", required=True, help="Target YNAB card account name.")
-    parser.add_argument("--source", required=True, help="New current card snapshot (.xlsx or normalized .csv).")
+    parser.add_argument(
+        "--account", required=True, help="Target YNAB card account name."
+    )
+    parser.add_argument(
+        "--source",
+        required=True,
+        help="New current card snapshot (.xlsx or normalized .csv).",
+    )
     parser.add_argument(
         "--previous",
         default="",
@@ -77,13 +83,23 @@ def main() -> None:
         action="store_true",
         help="PATCH eligible YNAB transactions after validation passes.",
     )
+    parser.add_argument(
+        "--allow-reconciled-source",
+        action="store_true",
+        dest="allow_reconciled_source",
+        help="Skip the block when source rows are already reconciled (e.g. a later cycle ran first).",
+    )
     args = parser.parse_args()
 
     source_path = Path(args.source)
-    report_path = Path(args.report_out) if args.report_out else _default_report_out(source_path)
+    report_path = (
+        Path(args.report_out) if args.report_out else _default_report_out(source_path)
+    )
 
     source_df = card_reconciliation.load_card_source(source_path)
-    previous_df = card_reconciliation.load_card_source(args.previous) if args.previous else None
+    previous_df = (
+        card_reconciliation.load_card_source(args.previous) if args.previous else None
+    )
     accounts = ynab_api.fetch_accounts()
     transactions = ynab_api.fetch_transactions()
 
@@ -93,6 +109,7 @@ def main() -> None:
         previous_df=previous_df,
         accounts=accounts,
         transactions=transactions,
+        allow_reconciled_source=args.allow_reconciled_source,
     )
     export.write_dataframe(result["report"], report_path)
     _print_summary(result, report_path, execute=args.execute)
