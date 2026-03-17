@@ -321,4 +321,95 @@ def test_read_card_flips_refund_sign_when_export_is_charge_positive(
 
     assert actual["outflow_ils"].tolist() == [100.0, 0.0]
     assert actual["inflow_ils"].tolist() == [0.0, 25.0]
-    assert actual["txn_kind"].tolist() == ["expense", "credit"]
+
+
+def test_read_card_flips_when_positive_rows_are_majority_even_if_negative_sum_dominates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = pd.DataFrame(
+        [
+            {
+                "תאריך עסקה": "01/10/2025",
+                "שם בית העסק": "MERCHANT A",
+                "קטגוריה": "שונות",
+                "4 ספרות אחרונות של כרטיס האשראי": "5898",
+                "סוג עסקה": "רגילה",
+                "סכום חיוב": "100.00",
+                "מטבע חיוב": "₪",
+                "סכום עסקה מקורי": "100.00",
+                "מטבע עסקה מקורי": "₪",
+                "תאריך חיוב": "10/10/2025",
+                "הערות": "",
+                "תיוגים": "",
+                "מועדון הנחות": "",
+                "מפתח דיסקונט": "",
+                "אופן ביצוע ההעסקה": "טלפוני",
+                'שער המרה ממטבע מקור/התחשבנות לש"ח': "",
+            },
+            {
+                "תאריך עסקה": "02/10/2025",
+                "שם בית העסק": "MERCHANT B",
+                "קטגוריה": "שונות",
+                "4 ספרות אחרונות של כרטיס האשראי": "5898",
+                "סוג עסקה": "רגילה",
+                "סכום חיוב": "100.00",
+                "מטבע חיוב": "₪",
+                "סכום עסקה מקורי": "100.00",
+                "מטבע עסקה מקורי": "₪",
+                "תאריך חיוב": "10/10/2025",
+                "הערות": "",
+                "תיוגים": "",
+                "מועדון הנחות": "",
+                "מפתח דיסקונט": "",
+                "אופן ביצוע ההעסקה": "טלפוני",
+                'שער המרה ממטבע מקור/התחשבנות לש"ח': "",
+            },
+            {
+                "תאריך עסקה": "03/10/2025",
+                "שם בית העסק": "MERCHANT C",
+                "קטגוריה": "שונות",
+                "4 ספרות אחרונות של כרטיס האשראי": "5898",
+                "סוג עסקה": "רגילה",
+                "סכום חיוב": "-300.00",
+                "מטבע חיוב": "₪",
+                "סכום עסקה מקורי": "-300.00",
+                "מטבע עסקה מקורי": "₪",
+                "תאריך חיוב": "10/10/2025",
+                "הערות": "ביטול עסקה",
+                "תיוגים": "",
+                "מועדון הנחות": "",
+                "מפתח דיסקונט": "",
+                "אופן ביצוע ההעסקה": "טלפוני",
+                'שער המרה ממטבע מקור/התחשבנות לש"ח': "",
+            },
+        ],
+        dtype="string",
+    ).fillna("")
+    workbook_df = _mock_card_sheet_df(raw)
+
+    def _fake_read_excel(path: Path, sheet_name=None, header=None, dtype=None, nrows=None):  # noqa: ANN001
+        if sheet_name is None and header is None:
+            return {"עסקאות": workbook_df}
+        raise AssertionError(
+            "Unexpected read_excel invocation: "
+            f"path={path}, sheet_name={sheet_name}, header={header}, dtype={dtype}, nrows={nrows}"
+        )
+
+    monkeypatch.setattr("ynab_il_importer.io_max.pd.read_excel", _fake_read_excel)
+    monkeypatch.setattr(
+        "ynab_il_importer.io_max.account_map.apply_account_name_map",
+        lambda df, source, account_map_path=None: df,
+    )
+    monkeypatch.setattr(
+        "ynab_il_importer.io_max.fingerprint.apply_fingerprints",
+        lambda df, use_fingerprint_map=True: df.assign(
+            description_clean_norm=df["description_clean"].astype("string").fillna(""),
+            fingerprint=df["description_clean"].astype("string").fillna(""),
+        ),
+    )
+
+    actual = maxio.read_raw("tests/fixtures/card/majority_positive_case.xlsx", use_fingerprint_map=False)
+
+    assert actual["outflow_ils"].tolist() == [100.0, 100.0, 0.0]
+    assert actual["inflow_ils"].tolist() == [0.0, 0.0, 300.0]
+    assert actual["txn_kind"].tolist() == ["expense", "expense", "credit"]

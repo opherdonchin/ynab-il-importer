@@ -42,6 +42,12 @@ def _print_summary(result: dict[str, object], report_path: Path, execute: bool) 
             f"<-> bank {result['payment_transfer_bank_amount_ils']:.2f} ILS on {result['payment_transfer_bank_date']} "
             f"in {result['payment_transfer_bank_account_name']}"
         )
+    if result.get("separately_settled_count"):
+        dates_str = ", ".join(result.get("separately_settled_dates", []))
+        print(
+            f"Separately settled: {result['separately_settled_count']} rows "
+            f"(billing dates: {dates_str})"
+        )
 
     if not result["ok"]:
         print("Status: blocked")

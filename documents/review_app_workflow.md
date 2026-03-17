@@ -130,11 +130,34 @@ Examples:
 
 ## 6) After Review
 
-- Use `outputs/proposed_transactions_reviewed.csv` for upload preparation.
+- Use the reviewed CSV for upload preparation (see §8).
 - Generate `outputs/map_updates.csv` from reviewed data when needed.
 - Rebuild proposed transactions if the bank/card overlap dedupe changes; debit-card purchases can otherwise appear once from bank and once from card.
 
-## 7) Rebuild + Reconcile After Overlap-Dedupe Changes
+## 7) Stamp Lineage on Existing YNAB Transactions
+
+Before or after upload, stamp `bank_txn_id` / `card_txn_id` lineage onto transactions already present in YNAB. Always do a dry-run first (omit `--execute`), then re-run with `--execute` when the report looks correct.
+
+**Bank (all accounts in the normalized CSV):**
+
+```bash
+pixi run python scripts/sync_bank_matches.py \
+  --bank data/derived/<date>/Bankin_leumi_norm.csv \
+  --report-out data/paired/<date>/bank_sync_report.csv
+# add --execute when ready
+```
+
+**Card (one run per card account):**
+
+```bash
+pixi run python scripts/sync_card_matches.py \
+  --account "<Card Account Name>" \
+  --source data/raw/<date>/card.xlsx \
+  --report-out data/paired/<date>/<account>_card_sync_report.csv
+# add --execute when ready
+```
+
+## 8) Rebuild + Reconcile After Overlap-Dedupe Changes
 
 If `build_proposed_transactions.py` changed how bank/card overlap dedupe works, rebuild the proposed file and then port your saved review decisions onto the rebuilt file:
 
@@ -173,3 +196,33 @@ Notes:
 - `--skip-missing-accounts` drops rows whose `account_name` still does not map to a live YNAB account.
 - The script fetches live YNAB accounts and categories, resolves category ids, and generates deterministic `import_id` values.
 - Add `--execute` only when you are ready to actually create the prepared transactions in YNAB.
+
+## 10) Card Reconciliation
+
+Validate that card source totals match what is in YNAB. Run once per card account.
+
+**Mid-month (`--source` only) — validate current open cycle:**
+
+```bash
+pixi run python scripts/reconcile_card_cycle.py \
+  --account "<Card Account Name>" \
+  --source data/raw/<date>/card.xlsx \
+  --report-out data/paired/<date>/<account>_card_reconcile_report.csv
+# add --execute when ready to mark matched rows as reconciled
+```
+
+**Month-transition (`--previous + --source`) — validate closed month and payment transfer:**
+
+```bash
+pixi run python scripts/reconcile_card_cycle.py \
+  --account "<Card Account Name>" \
+  --previous data/paired/previous_max/<account>/<prev_month>_card_reconcile_report.csv \
+  --source data/raw/<date>/card.xlsx \
+  --report-out data/paired/<date>/<account>_card_reconcile_report.csv
+# add --execute when ready
+```
+
+Notes:
+- `--previous` is the reconcile report saved from the prior billing cycle.
+- The script validates that the previous cohort total matches a unique card-account transfer inflow in YNAB with a linked bank-side counterpart.
+- Save the completed report to `data/paired/previous_max/<account>/` as `<month>_card_reconcile_report.csv` for use as `--previous` in the next cycle.

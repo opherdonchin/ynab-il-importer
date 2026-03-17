@@ -5,7 +5,9 @@ import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.bank_reconciliation as bank_reconciliation
 
 
-def _accounts(*, last_reconciled_at: str = "2026-03-10T12:00:00Z") -> list[dict[str, str]]:
+def _accounts(
+    *, last_reconciled_at: str = "2026-03-10T12:00:00Z"
+) -> list[dict[str, str]]:
     return [
         {
             "id": "acc-bank",
@@ -86,7 +88,7 @@ def test_plan_bank_match_sync_stamps_and_clears_unique_memo_match() -> None:
     assert result["updates"] == [
         {
             "id": "txn-1",
-            "memo": f"GROCERIES\n[ynab-il bank_txn_id={bank_txn_id}]",
+            "memo": f"GROCERIES\n[ynab-il bank_txn_id={bank_txn_id} ref=001]",
             "cleared": "cleared",
         }
     ]
@@ -94,7 +96,8 @@ def test_plan_bank_match_sync_stamps_and_clears_unique_memo_match() -> None:
     assert result["report"].loc[0, "action"] == "stamp+clear"
 
 
-def test_plan_bank_match_sync_refuses_weak_date_amount_only_match() -> None:
+def test_plan_bank_match_sync_stamps_unique_date_amount_match() -> None:
+    """A unique unlinked date+amount candidate is accepted; bank_txn_id + ref get stamped."""
     bank_df = pd.DataFrame(
         [
             _bank_row(
@@ -106,6 +109,7 @@ def test_plan_bank_match_sync_refuses_weak_date_amount_only_match() -> None:
             )
         ]
     )
+    bank_txn_id = bank_df.loc[0, "bank_txn_id"]
     ynab_transactions = [
         {
             "id": "txn-1",
@@ -125,15 +129,21 @@ def test_plan_bank_match_sync_refuses_weak_date_amount_only_match() -> None:
         ynab_transactions,
     )
 
-    assert result["update_count"] == 0
-    assert result["report"].loc[0, "action"] == "unmatched"
-    assert (
-        result["report"].loc[0, "reason"]
-        == "unique date/amount candidate exists but memo/payee does not confirm it"
-    )
+    assert result["update_count"] == 1
+    assert result["updates"] == [
+        {
+            "id": "txn-1",
+            "memo": f"SOMETHING ELSE\n[ynab-il bank_txn_id={bank_txn_id} ref=001]",
+            "cleared": "cleared",
+        }
+    ]
+    assert result["report"].loc[0, "resolved_via"] == "unique_date_amount"
+    assert result["report"].loc[0, "action"] == "stamp+clear"
 
 
-def test_plan_bank_match_sync_stamps_legacy_nonbank_import_id_on_exact_memo_match() -> None:
+def test_plan_bank_match_sync_stamps_legacy_nonbank_import_id_on_exact_memo_match() -> (
+    None
+):
     bank_df = pd.DataFrame(
         [
             _bank_row(
@@ -169,7 +179,7 @@ def test_plan_bank_match_sync_stamps_legacy_nonbank_import_id_on_exact_memo_matc
     assert result["updates"] == [
         {
             "id": "txn-1",
-            "memo": f"GROCERIES\n[ynab-il bank_txn_id={bank_txn_id}]",
+            "memo": f"GROCERIES\n[ynab-il bank_txn_id={bank_txn_id} ref=001]",
         }
     ]
     assert result["report"].loc[0, "resolved_via"] == "memo_exact"
@@ -213,17 +223,20 @@ def test_plan_bank_match_sync_stamps_unique_reconciled_date_amount_candidate() -
     assert result["updates"] == [
         {
             "id": "txn-1",
-            "memo": f"[ynab-il bank_txn_id={bank_txn_id}]",
+            "memo": f"[ynab-il bank_txn_id={bank_txn_id} ref=001]",
         }
     ]
     assert result["report"].loc[0, "resolved_via"] == "date_amount_reconciled"
     assert (
-        result["report"].loc[0, "candidate_status"] == "unique_reconciled_date_amount_candidate"
+        result["report"].loc[0, "candidate_status"]
+        == "unique_reconciled_date_amount_candidate"
     )
     assert result["report"].loc[0, "action"] == "stamp"
 
 
-def test_plan_bank_statement_reconciliation_uses_exact_lineage_and_running_balance() -> None:
+def test_plan_bank_statement_reconciliation_uses_exact_lineage_and_running_balance() -> (
+    None
+):
     amounts = [-10, -20, -30, -40, -50, -60, -70, -80]
     balances = [990, 970, 940, 900, 850, 790, 720, 640]
     bank_rows = [
@@ -395,7 +408,9 @@ def test_plan_bank_statement_reconciliation_reports_blocked_anchor_counts() -> N
     assert result["report"].iloc[1]["action"] == "matched_preview"
 
 
-def test_plan_bank_statement_reconciliation_uses_starting_balance_when_last_reconciled_missing() -> None:
+def test_plan_bank_statement_reconciliation_uses_starting_balance_when_last_reconciled_missing() -> (
+    None
+):
     bank_rows = [
         _bank_row(
             date="2026-03-01",
@@ -461,7 +476,9 @@ def test_plan_bank_statement_reconciliation_uses_starting_balance_when_last_reco
     ]
 
 
-def test_plan_bank_statement_reconciliation_requires_starting_balance_date_when_unset() -> None:
+def test_plan_bank_statement_reconciliation_requires_starting_balance_date_when_unset() -> (
+    None
+):
     bank_df = pd.DataFrame(
         [
             _bank_row(

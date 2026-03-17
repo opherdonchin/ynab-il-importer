@@ -95,7 +95,9 @@ def _coerce_date_series(series: pd.Series) -> pd.Series:
     return pd.to_datetime(series, errors="coerce").dt.date
 
 
-def _coerce_money_series(series: pd.Series, *, allow_missing: bool = False) -> pd.Series:
+def _coerce_money_series(
+    series: pd.Series, *, allow_missing: bool = False
+) -> pd.Series:
     converted = pd.to_numeric(series, errors="coerce")
     if allow_missing:
         return converted.round(2)
@@ -139,20 +141,28 @@ def _prepare_bank_dataframe(bank_df: pd.DataFrame) -> pd.DataFrame:
     prepared["row_index"] = prepared.index
     prepared["account_name"] = _normalize_text_series(prepared["account_name"])
     if "ynab_account_id" in prepared.columns:
-        prepared["ynab_account_id"] = _normalize_text_series(prepared["ynab_account_id"])
+        prepared["ynab_account_id"] = _normalize_text_series(
+            prepared["ynab_account_id"]
+        )
     else:
         prepared["ynab_account_id"] = ""
     prepared["source_account"] = _normalize_text_series(
-        prepared.get("source_account", pd.Series([""] * len(prepared), index=prepared.index))
+        prepared.get(
+            "source_account", pd.Series([""] * len(prepared), index=prepared.index)
+        )
     )
     prepared["secondary_date"] = _coerce_date_series(
-        prepared.get("secondary_date", pd.Series([None] * len(prepared), index=prepared.index))
+        prepared.get(
+            "secondary_date", pd.Series([None] * len(prepared), index=prepared.index)
+        )
     )
     prepared["date"] = _coerce_date_series(prepared["date"])
     prepared["outflow_ils"] = _coerce_money_series(prepared["outflow_ils"])
     prepared["inflow_ils"] = _coerce_money_series(prepared["inflow_ils"])
     prepared["balance_ils"] = _coerce_money_series(
-        prepared.get("balance_ils", pd.Series([pd.NA] * len(prepared), index=prepared.index)),
+        prepared.get(
+            "balance_ils", pd.Series([pd.NA] * len(prepared), index=prepared.index)
+        ),
         allow_missing=True,
     )
     prepared["description_raw"] = _normalize_text_series(
@@ -164,7 +174,9 @@ def _prepare_bank_dataframe(bank_df: pd.DataFrame) -> pd.DataFrame:
     prepared["ref"] = _normalize_text_series(
         prepared.get("ref", pd.Series([""] * len(prepared), index=prepared.index))
     )
-    prepared["bank_txn_id"] = prepared["bank_txn_id"].map(bank_identity.validate_bank_txn_id)
+    prepared["bank_txn_id"] = prepared["bank_txn_id"].map(
+        bank_identity.validate_bank_txn_id
+    )
     prepared["amount_milliunits"] = prepared.apply(
         lambda row: _amount_milliunits(row["outflow_ils"], row["inflow_ils"]),
         axis=1,
@@ -174,7 +186,9 @@ def _prepare_bank_dataframe(bank_df: pd.DataFrame) -> pd.DataFrame:
         bank_identity.normalize_bank_memo_match_text
     )
     prepared["fingerprint_match_key"] = _normalize_text_series(
-        prepared.get("fingerprint", pd.Series([""] * len(prepared), index=prepared.index))
+        prepared.get(
+            "fingerprint", pd.Series([""] * len(prepared), index=prepared.index)
+        )
     ).map(normalize.normalize_text)
     return prepared
 
@@ -191,6 +205,7 @@ def _prepare_ynab_transactions(transactions: list[dict[str, Any]]) -> pd.DataFra
         except ValueError as exc:
             memo_bank_txn_id = ""
             memo_marker_error = str(exc)
+        memo_ref = bank_identity.extract_bank_ref_from_memo(memo)
         parsed_date = pd.to_datetime(txn.get("date", ""), errors="coerce")
         rows.append(
             {
@@ -204,20 +219,27 @@ def _prepare_ynab_transactions(transactions: list[dict[str, Any]]) -> pd.DataFra
                     bank_identity.strip_bank_txn_id_markers(memo)
                 ),
                 "payee_name": _normalize_text(txn.get("payee_name", "")),
-                "payee_match_key": normalize.normalize_text(_normalize_text(txn.get("payee_name", ""))),
+                "payee_match_key": normalize.normalize_text(
+                    _normalize_text(txn.get("payee_name", ""))
+                ),
                 "import_id": _normalize_text(txn.get("import_id", "")),
                 "memo_bank_txn_id": memo_bank_txn_id,
+                "memo_ref": memo_ref,
                 "memo_marker_error": memo_marker_error,
                 "cleared": _normalize_text(txn.get("cleared", "")),
                 "approved": bool(txn.get("approved", False)),
-                "matched_transaction_id": _normalize_text(txn.get("matched_transaction_id", "")),
+                "matched_transaction_id": _normalize_text(
+                    txn.get("matched_transaction_id", "")
+                ),
                 "deleted": False,
             }
         )
     return pd.DataFrame(rows)
 
 
-def _resolve_account(bank_df: pd.DataFrame, accounts: list[dict[str, Any]]) -> ResolvedAccount:
+def _resolve_account(
+    bank_df: pd.DataFrame, accounts: list[dict[str, Any]]
+) -> ResolvedAccount:
     active_accounts = _active_accounts(accounts)
     account_by_id = {
         _normalize_text(account.get("id", "")): account for account in active_accounts
@@ -229,12 +251,18 @@ def _resolve_account(bank_df: pd.DataFrame, accounts: list[dict[str, Any]]) -> R
     mapped_ids = sorted(
         {
             value
-            for value in bank_df["ynab_account_id"].astype("string").fillna("").str.strip().tolist()
+            for value in bank_df["ynab_account_id"]
+            .astype("string")
+            .fillna("")
+            .str.strip()
+            .tolist()
             if value
         }
     )
     if len(mapped_ids) > 1:
-        raise ValueError(f"Bank CSV resolves to multiple ynab_account_id values: {mapped_ids}")
+        raise ValueError(
+            f"Bank CSV resolves to multiple ynab_account_id values: {mapped_ids}"
+        )
     if mapped_ids:
         account_id = mapped_ids[0]
         if account_id not in account_by_id:
@@ -250,7 +278,11 @@ def _resolve_account(bank_df: pd.DataFrame, accounts: list[dict[str, Any]]) -> R
     account_names = sorted(
         {
             value
-            for value in bank_df["account_name"].astype("string").fillna("").str.strip().tolist()
+            for value in bank_df["account_name"]
+            .astype("string")
+            .fillna("")
+            .str.strip()
+            .tolist()
             if value
         }
     )
@@ -276,14 +308,19 @@ def _filter_account_transactions(
 ) -> pd.DataFrame:
     if ynab_df.empty:
         return ynab_df.copy()
-    filtered = ynab_df[ynab_df["account_id"] == account_id].copy().reset_index(drop=True)
+    filtered = (
+        ynab_df[ynab_df["account_id"] == account_id].copy().reset_index(drop=True)
+    )
     filtered["row_index"] = filtered.index
     return filtered
 
 
-def _lineage_maps(ynab_df: pd.DataFrame) -> tuple[dict[str, list[int]], dict[str, list[int]]]:
+def _lineage_maps(
+    ynab_df: pd.DataFrame,
+) -> tuple[dict[str, list[int]], dict[str, list[int]], dict[str, list[int]]]:
     import_map: dict[str, list[int]] = {}
     memo_map: dict[str, list[int]] = {}
+    ref_map: dict[str, list[int]] = {}
     for idx, row in ynab_df.iterrows():
         import_id = _normalize_text(row.get("import_id", ""))
         if bank_identity.is_bank_txn_id(import_id):
@@ -291,7 +328,10 @@ def _lineage_maps(ynab_df: pd.DataFrame) -> tuple[dict[str, list[int]], dict[str
         memo_bank_txn_id = _normalize_text(row.get("memo_bank_txn_id", ""))
         if memo_bank_txn_id:
             memo_map.setdefault(memo_bank_txn_id, []).append(idx)
-    return import_map, memo_map
+        memo_ref = _normalize_text(row.get("memo_ref", ""))
+        if memo_ref:
+            ref_map.setdefault(memo_ref, []).append(idx)
+    return import_map, memo_map, ref_map
 
 
 def _resolve_exact_lineage(
@@ -299,10 +339,12 @@ def _resolve_exact_lineage(
     ynab_df: pd.DataFrame,
     import_map: dict[str, list[int]],
     memo_map: dict[str, list[int]],
+    ref_map: dict[str, list[int]] | None = None,
 ) -> tuple[pd.Series | None, str, str]:
     bank_txn_id = bank_row["bank_txn_id"]
     bank_date = bank_row["date"]
     bank_amount = int(bank_row["amount_milliunits"])
+    bank_ref = _normalize_text(bank_row.get("ref", ""))
     mismatch_reasons: list[str] = []
 
     import_hits = import_map.get(bank_txn_id, [])
@@ -331,6 +373,20 @@ def _resolve_exact_lineage(
             "bank_txn_id memo marker is attached to a YNAB transaction with different date/amount"
         )
 
+    # ref-in-memo lookup: if a previous sync stamped the bank ref into the YNAB
+    # memo, use that as confirmation together with a date+amount check.
+    if bank_ref and ref_map is not None:
+        ref_hits = ref_map.get(bank_ref, [])
+        if len(ref_hits) == 1:
+            candidate = ynab_df.loc[ref_hits[0]]
+            candidate_date = candidate.get("date")
+            candidate_amount = int(candidate.get("amount_milliunits", 0) or 0)
+            if candidate_date == bank_date and candidate_amount == bank_amount:
+                return candidate, "memo_ref", ""
+            mismatch_reasons.append(
+                "memo ref marker is attached to a YNAB transaction with different date/amount"
+            )
+
     if mismatch_reasons:
         return None, "", "; ".join(mismatch_reasons)
     return None, "", "no exact lineage match"
@@ -339,7 +395,9 @@ def _resolve_exact_lineage(
 def _date_amount_candidates(bank_row: pd.Series, ynab_df: pd.DataFrame) -> pd.DataFrame:
     candidates = ynab_df.copy()
     candidates = candidates[candidates["date"] == bank_row["date"]]
-    candidates = candidates[candidates["amount_milliunits"] == bank_row["amount_milliunits"]]
+    candidates = candidates[
+        candidates["amount_milliunits"] == bank_row["amount_milliunits"]
+    ]
     return candidates
 
 
@@ -388,10 +446,14 @@ def _lineage_conflict_summary(
     parts: list[str] = []
     import_hits = import_map.get(bank_txn_id, [])
     if len(import_hits) == 1:
-        parts.append(f"import_id -> {_summarize_ynab_candidate(ynab_df.loc[import_hits[0]])}")
+        parts.append(
+            f"import_id -> {_summarize_ynab_candidate(ynab_df.loc[import_hits[0]])}"
+        )
     memo_hits = memo_map.get(bank_txn_id, [])
     if len(memo_hits) == 1:
-        parts.append(f"memo_marker -> {_summarize_ynab_candidate(ynab_df.loc[memo_hits[0]])}")
+        parts.append(
+            f"memo_marker -> {_summarize_ynab_candidate(ynab_df.loc[memo_hits[0]])}"
+        )
     return " || ".join(parts)
 
 
@@ -403,9 +465,13 @@ def _candidate_diagnostics(
 ) -> tuple[int, int, str, str, str]:
     candidates = _date_amount_candidates(bank_row, ynab_df)
     candidate_count = int(len(candidates))
-    candidate_reconciled_count = int((candidates["cleared"] == "reconciled").sum()) if candidate_count else 0
+    candidate_reconciled_count = (
+        int((candidates["cleared"] == "reconciled").sum()) if candidate_count else 0
+    )
     candidate_summary = _summarize_candidate_rows(candidates)
-    lineage_conflict = _lineage_conflict_summary(bank_row, ynab_df, import_map, memo_map)
+    lineage_conflict = _lineage_conflict_summary(
+        bank_row, ynab_df, import_map, memo_map
+    )
     if candidate_count == 0:
         return 0, 0, "no_date_amount_match", candidate_summary, lineage_conflict
 
@@ -419,7 +485,9 @@ def _candidate_diagnostics(
             lineage_conflict,
         )
 
-    memo_exact = unlinked[unlinked["memo_match_key"] == bank_row["description_match_key"]]
+    memo_exact = unlinked[
+        unlinked["memo_match_key"] == bank_row["description_match_key"]
+    ]
     if len(memo_exact) == 1:
         return (
             candidate_count,
@@ -493,9 +561,13 @@ def _candidate_diagnostics(
     )
 
 
-def _memo_exact_fallback_candidate(bank_row: pd.Series, ynab_df: pd.DataFrame) -> tuple[pd.Series | None, str]:
+def _memo_exact_fallback_candidate(
+    bank_row: pd.Series, ynab_df: pd.DataFrame
+) -> tuple[pd.Series | None, str]:
     candidates = _unlinked_candidates(_date_amount_candidates(bank_row, ynab_df))
-    candidates = candidates[candidates["memo_match_key"] == bank_row["description_match_key"]]
+    candidates = candidates[
+        candidates["memo_match_key"] == bank_row["description_match_key"]
+    ]
 
     if candidates.empty:
         return None, "no conservative memo match"
@@ -504,7 +576,9 @@ def _memo_exact_fallback_candidate(bank_row: pd.Series, ynab_df: pd.DataFrame) -
     return candidates.iloc[0], ""
 
 
-def _payee_exact_fallback_candidate(bank_row: pd.Series, ynab_df: pd.DataFrame) -> tuple[pd.Series | None, str]:
+def _payee_exact_fallback_candidate(
+    bank_row: pd.Series, ynab_df: pd.DataFrame
+) -> tuple[pd.Series | None, str]:
     fingerprint_match_key = _normalize_text(bank_row.get("fingerprint_match_key", ""))
     if not fingerprint_match_key:
         return None, "no conservative payee match"
@@ -605,44 +679,67 @@ def plan_bank_match_sync(
     ynab_df = _filter_account_transactions(
         _prepare_ynab_transactions(ynab_transactions), resolved_account.account_id
     )
-    import_map, memo_map = _lineage_maps(ynab_df)
+    import_map, memo_map, ref_map = _lineage_maps(ynab_df)
 
     report_rows: list[dict[str, Any]] = []
     updates: list[dict[str, Any]] = []
 
     for _, bank_row in prepared_bank.iterrows():
-        matched, resolved_via, reason = _resolve_exact_lineage(bank_row, ynab_df, import_map, memo_map)
+        matched, resolved_via, reason = _resolve_exact_lineage(
+            bank_row, ynab_df, import_map, memo_map, ref_map
+        )
         (
             candidate_count,
             candidate_reconciled_count,
             candidate_status,
             candidate_summary,
             lineage_conflict_summary,
-        ) = _candidate_diagnostics(
-            bank_row, ynab_df, import_map, memo_map
-        )
+        ) = _candidate_diagnostics(bank_row, ynab_df, import_map, memo_map)
         if matched is None and reason == "no exact lineage match":
             matched, fallback_reason = _memo_exact_fallback_candidate(bank_row, ynab_df)
             if matched is not None:
                 resolved_via = "memo_exact"
                 reason = ""
             else:
-                matched, payee_reason = _payee_exact_fallback_candidate(bank_row, ynab_df)
+                matched, payee_reason = _payee_exact_fallback_candidate(
+                    bank_row, ynab_df
+                )
                 if matched is not None:
                     resolved_via = "payee_exact"
                     reason = ""
                 else:
-                    matched, legacy_reason = _legacy_reconciled_fallback_candidate(bank_row, ynab_df)
+                    matched, legacy_reason = _legacy_reconciled_fallback_candidate(
+                        bank_row, ynab_df
+                    )
                     if matched is not None:
                         resolved_via = "date_amount_reconciled"
                         reason = ""
                     else:
-                        base_reason = fallback_reason
-                        if candidate_status == "unique_reconciled_date_amount_candidate":
-                            base_reason = legacy_reason
-                        elif candidate_status == "unique_payee_match_date_amount_candidate":
-                            base_reason = payee_reason
-                        reason = _sync_unmatched_reason(candidate_status, base_reason)
+                        # Last resort: accept a unique unlinked date+amount candidate so we
+                        # can stamp the bank_txn_id + ref into its memo.  Future reconciliation
+                        # runs will then recognise it via the stronger memo_ref lookup.
+                        unlinked = _unlinked_candidates(
+                            _date_amount_candidates(bank_row, ynab_df)
+                        )
+                        if len(unlinked) == 1:
+                            matched = unlinked.iloc[0]
+                            resolved_via = "unique_date_amount"
+                            reason = ""
+                        else:
+                            base_reason = fallback_reason
+                            if (
+                                candidate_status
+                                == "unique_reconciled_date_amount_candidate"
+                            ):
+                                base_reason = legacy_reason
+                            elif (
+                                candidate_status
+                                == "unique_payee_match_date_amount_candidate"
+                            ):
+                                base_reason = payee_reason
+                            reason = _sync_unmatched_reason(
+                                candidate_status, base_reason
+                            )
 
         if matched is None:
             report_rows.append(
@@ -664,11 +761,17 @@ def plan_bank_match_sync(
         patch: dict[str, Any] = {"id": transaction_id}
         actions: list[str] = []
 
-        if resolved_via in {"memo_exact", "payee_exact", "date_amount_reconciled"}:
+        if resolved_via in {
+            "memo_exact",
+            "payee_exact",
+            "date_amount_reconciled",
+            "unique_date_amount",
+        }:
             try:
                 patch["memo"] = bank_identity.append_bank_txn_id_marker(
                     matched.get("memo", ""),
                     bank_row["bank_txn_id"],
+                    ref=_normalize_text(bank_row.get("ref", "")),
                 )
                 actions.append("stamp")
             except ValueError as exc:
@@ -720,7 +823,9 @@ def plan_bank_match_sync(
         "account_name": resolved_account.account_name,
         "updates": updates,
         "report": report,
-        "matched_count": int((report["action"] != "unmatched").sum()) if not report.empty else 0,
+        "matched_count": (
+            int((report["action"] != "unmatched").sum()) if not report.empty else 0
+        ),
         "update_count": len(updates),
     }
 
@@ -728,9 +833,7 @@ def plan_bank_match_sync(
 def _require_balance_column(bank_df: pd.DataFrame) -> None:
     if bank_df["balance_ils"].isna().any():
         missing_rows = bank_df.loc[bank_df["balance_ils"].isna(), "row_index"].tolist()
-        raise ValueError(
-            f"Bank CSV is missing balance_ils on row(s): {missing_rows}"
-        )
+        raise ValueError(f"Bank CSV is missing balance_ils on row(s): {missing_rows}")
 
 
 def _last_reconciled_date(last_reconciled_at: str) -> pd.Timestamp | None:
@@ -745,7 +848,9 @@ def _last_reconciled_date(last_reconciled_at: str) -> pd.Timestamp | None:
 def _starting_balance_transaction(ynab_df: pd.DataFrame) -> pd.Series:
     if ynab_df.empty:
         raise ValueError("No YNAB transactions found for the target account.")
-    ordered = ynab_df.sort_values(["date", "id"], na_position="last").reset_index(drop=True)
+    ordered = ynab_df.sort_values(["date", "id"], na_position="last").reset_index(
+        drop=True
+    )
     first = ordered.iloc[0]
     if pd.isna(first["date"]):
         raise ValueError("Could not determine starting balance transaction date.")
@@ -796,25 +901,28 @@ def _resolve_reconciliation_rows(
     ynab_df: pd.DataFrame,
     import_map: dict[str, list[int]],
     memo_map: dict[str, list[int]],
+    ref_map: dict[str, list[int]] | None = None,
 ) -> tuple[list[ReconciliationResolution], list[dict[str, Any]]]:
     resolutions: list[ReconciliationResolution] = []
     report_rows: list[dict[str, Any]] = []
 
     for _, bank_row in prepared_bank.iterrows():
         matched, resolved_via, reason = _resolve_exact_lineage(
-            bank_row, ynab_df, import_map, memo_map
+            bank_row, ynab_df, import_map, memo_map, ref_map
         )
-        transaction_id = _normalize_text(matched.get("id", "")) if matched is not None else ""
-        prior_cleared = _normalize_text(matched.get("cleared", "")) if matched is not None else ""
+        transaction_id = (
+            _normalize_text(matched.get("id", "")) if matched is not None else ""
+        )
+        prior_cleared = (
+            _normalize_text(matched.get("cleared", "")) if matched is not None else ""
+        )
         (
             candidate_count,
             candidate_reconciled_count,
             candidate_status,
             candidate_summary,
             lineage_conflict_summary,
-        ) = _candidate_diagnostics(
-            bank_row, ynab_df, import_map, memo_map
-        )
+        ) = _candidate_diagnostics(bank_row, ynab_df, import_map, memo_map)
         if matched is None:
             reason = _candidate_reason(candidate_status, reason)
         resolutions.append(
@@ -868,8 +976,14 @@ def _find_anchor_window(
     best_count = -1
     for start in range(0, len(resolutions) - anchor_streak + 1):
         window = resolutions[start : start + anchor_streak]
-        eligible_count = sum(1 for resolution in window if _is_anchor_candidate(resolution))
-        if eligible_count > best_count or (eligible_count == best_count and best_start is not None and start > best_start):
+        eligible_count = sum(
+            1 for resolution in window if _is_anchor_candidate(resolution)
+        )
+        if eligible_count > best_count or (
+            eligible_count == best_count
+            and best_start is not None
+            and start > best_start
+        ):
             best_start = start
             best_count = eligible_count
         elif eligible_count > best_count:
@@ -898,13 +1012,19 @@ def _reconciliation_result(
     final_balance_ils: float | None = None,
 ) -> dict[str, Any]:
     report = pd.DataFrame(report_rows, columns=RECONCILIATION_REPORT_COLUMNS)
-    resolved_ids = report["resolved_transaction_id"].astype("string").fillna("").str.strip()
+    resolved_ids = (
+        report["resolved_transaction_id"].astype("string").fillna("").str.strip()
+    )
     matched_mask = resolved_ids != ""
     matched_count = int(matched_mask.sum())
     reconciled_match_count = int(
         (
             matched_mask
-            & report["prior_cleared"].astype("string").fillna("").str.strip().eq("reconciled")
+            & report["prior_cleared"]
+            .astype("string")
+            .fillna("")
+            .str.strip()
+            .eq("reconciled")
         ).sum()
     )
     probable_legacy_match_count = int(
@@ -920,12 +1040,24 @@ def _reconciliation_result(
     if anchor_window_start is None:
         anchor_window = report.head(min(anchor_streak, len(report))).copy()
     else:
-        anchor_window = report.iloc[anchor_window_start : anchor_window_start + anchor_streak].copy()
+        anchor_window = report.iloc[
+            anchor_window_start : anchor_window_start + anchor_streak
+        ].copy()
     anchor_matched_count = int(
-        anchor_window["resolved_transaction_id"].astype("string").fillna("").str.strip().ne("").sum()
+        anchor_window["resolved_transaction_id"]
+        .astype("string")
+        .fillna("")
+        .str.strip()
+        .ne("")
+        .sum()
     )
     anchor_reconciled_count = int(
-        anchor_window["prior_cleared"].astype("string").fillna("").str.strip().eq("reconciled").sum()
+        anchor_window["prior_cleared"]
+        .astype("string")
+        .fillna("")
+        .str.strip()
+        .eq("reconciled")
+        .sum()
     )
     anchor_probable_legacy_count = int(
         anchor_window["candidate_status"]
@@ -936,8 +1068,16 @@ def _reconciliation_result(
         .sum()
     )
     anchor_eligible_mask = (
-        anchor_window["resolved_transaction_id"].astype("string").fillna("").str.strip().ne("")
-        & anchor_window["prior_cleared"].astype("string").fillna("").str.strip().eq("reconciled")
+        anchor_window["resolved_transaction_id"]
+        .astype("string")
+        .fillna("")
+        .str.strip()
+        .ne("")
+        & anchor_window["prior_cleared"]
+        .astype("string")
+        .fillna("")
+        .str.strip()
+        .eq("reconciled")
     ) | (
         anchor_window["candidate_status"]
         .astype("string")
@@ -957,16 +1097,24 @@ def _reconciliation_result(
     else:
         post_anchor = report.iloc[0:0].copy()
     post_anchor_unresolved = post_anchor[
-        post_anchor["resolved_transaction_id"].astype("string").fillna("").str.strip().eq("")
+        post_anchor["resolved_transaction_id"]
+        .astype("string")
+        .fillna("")
+        .str.strip()
+        .eq("")
     ]
     post_anchor_unresolved_count = int(len(post_anchor_unresolved))
     first_post_anchor_unresolved_row = (
-        int(post_anchor_unresolved.iloc[0]["row_index"]) if not post_anchor_unresolved.empty else -1
+        int(post_anchor_unresolved.iloc[0]["row_index"])
+        if not post_anchor_unresolved.empty
+        else -1
     )
 
     if final_balance_ils is None:
         final_balance_ils = (
-            round(float(prepared_bank.iloc[-1]["balance_ils"]), 2) if not prepared_bank.empty else 0.0
+            round(float(prepared_bank.iloc[-1]["balance_ils"]), 2)
+            if not prepared_bank.empty
+            else 0.0
         )
 
     return {
@@ -974,6 +1122,7 @@ def _reconciliation_result(
         "reason": reason,
         "account_id": resolved_account.account_id,
         "account_name": resolved_account.account_name,
+        "last_reconciled_at": resolved_account.last_reconciled_at,
         "anchor_type": anchor_type,
         "anchor_transaction_id": anchor_transaction_id,
         "anchor_balance_ils": anchor_balance_ils,
@@ -1003,6 +1152,7 @@ def plan_bank_statement_reconciliation(
     ynab_transactions: list[dict[str, Any]],
     *,
     anchor_streak: int = 7,
+    use_ynab_reconciled_date: bool = False,
 ) -> dict[str, Any]:
     if anchor_streak < 1:
         raise ValueError("anchor_streak must be at least 1.")
@@ -1013,7 +1163,7 @@ def plan_bank_statement_reconciliation(
     ynab_df = _filter_account_transactions(
         _prepare_ynab_transactions(ynab_transactions), resolved_account.account_id
     )
-    import_map, memo_map = _lineage_maps(ynab_df)
+    import_map, memo_map, ref_map = _lineage_maps(ynab_df)
 
     earliest_bank_date = prepared_bank["date"].min()
     updates: list[dict[str, Any]] = []
@@ -1022,6 +1172,7 @@ def plan_bank_statement_reconciliation(
         ynab_df,
         import_map,
         memo_map,
+        ref_map,
     )
 
     last_reconciled = _last_reconciled_date(resolved_account.last_reconciled_at)
@@ -1033,21 +1184,22 @@ def plan_bank_statement_reconciliation(
     last_reconciled_exists = last_reconciled is not None
 
     if last_reconciled is not None:
-        required_start = (last_reconciled - timedelta(days=7)).date()
-        if earliest_bank_date > required_start:
-            return _reconciliation_result(
-                resolved_account=resolved_account,
-                prepared_bank=prepared_bank,
-                report_rows=report_rows,
-                anchor_streak=anchor_streak,
-                last_reconciled_exists=last_reconciled_exists,
-                ok=False,
-                anchor_type="last_reconciled_at",
-                reason=(
-                    "Bank CSV starts too late for auto-reconciliation: "
-                    f"{earliest_bank_date} > {required_start}."
-                ),
-            )
+        if use_ynab_reconciled_date:
+            required_start = (last_reconciled - timedelta(days=7)).date()
+            if earliest_bank_date > required_start:
+                return _reconciliation_result(
+                    resolved_account=resolved_account,
+                    prepared_bank=prepared_bank,
+                    report_rows=report_rows,
+                    anchor_streak=anchor_streak,
+                    last_reconciled_exists=last_reconciled_exists,
+                    ok=False,
+                    anchor_type="last_reconciled_at",
+                    reason=(
+                        "Bank CSV starts too late for auto-reconciliation: "
+                        f"{earliest_bank_date} > {required_start}."
+                    ),
+                )
         if len(prepared_bank) < anchor_streak:
             return _reconciliation_result(
                 resolved_account=resolved_account,
@@ -1059,11 +1211,13 @@ def plan_bank_statement_reconciliation(
                 anchor_type="last_reconciled_at",
                 reason=f"Bank CSV has fewer than {anchor_streak} rows; cannot establish anchor.",
             )
-        anchor_start_index, best_anchor_start_index, best_anchor_count = _find_anchor_window(
-            resolutions, anchor_streak
+        anchor_start_index, best_anchor_start_index, best_anchor_count = (
+            _find_anchor_window(resolutions, anchor_streak)
         )
         diagnostic_anchor_start = (
-            anchor_start_index if anchor_start_index is not None else best_anchor_start_index
+            anchor_start_index
+            if anchor_start_index is not None
+            else best_anchor_start_index
         )
         if anchor_start_index is None:
             return _reconciliation_result(
@@ -1095,7 +1249,8 @@ def plan_bank_statement_reconciliation(
                     candidate_summary=resolution.candidate_summary,
                     lineage_conflict_summary=resolution.lineage_conflict_summary,
                     action="anchor_failed",
-                    reason=resolution.reason or "row is not eligible as a reconciled anchor",
+                    reason=resolution.reason
+                    or "row is not eligible as a reconciled anchor",
                 )
                 return _reconciliation_result(
                     resolved_account=resolved_account,
@@ -1195,7 +1350,11 @@ def plan_bank_statement_reconciliation(
 
         running_balance = round(running_balance + float(bank_row["amount_ils"]), 2)
         balance_match = _same_balance(running_balance, float(bank_row["balance_ils"]))
-        action = "already_reconciled" if resolution.prior_cleared == "reconciled" else "reconcile"
+        action = (
+            "already_reconciled"
+            if resolution.prior_cleared == "reconciled"
+            else "reconcile"
+        )
         report_rows[i] = _reconciliation_report_row(
             bank_row,
             resolved_transaction_id=resolution.resolved_transaction_id,
@@ -1231,7 +1390,9 @@ def plan_bank_statement_reconciliation(
             )
 
         if resolution.prior_cleared != "reconciled":
-            updates.append({"id": resolution.resolved_transaction_id, "cleared": "reconciled"})
+            updates.append(
+                {"id": resolution.resolved_transaction_id, "cleared": "reconciled"}
+            )
 
     final_bank_balance = round(float(prepared_bank.iloc[-1]["balance_ils"]), 2)
     if not _same_balance(running_balance, final_bank_balance):

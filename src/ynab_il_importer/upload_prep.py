@@ -61,10 +61,14 @@ def _validate_columns(df: pd.DataFrame, required: list[str]) -> None:
         raise ValueError(f"Missing required columns: {missing}")
 
 
-def _account_lookup(accounts: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str, str]]:
+def _account_lookup(
+    accounts: list[dict[str, Any]],
+) -> tuple[dict[str, str], dict[str, str]]:
     active = [acc for acc in accounts if not bool(acc.get("deleted", False))]
     name_counts = Counter(_normalize_text(acc.get("name", "")) for acc in active)
-    duplicates = sorted(name for name, count in name_counts.items() if name and count > 1)
+    duplicates = sorted(
+        name for name, count in name_counts.items() if name and count > 1
+    )
     if duplicates:
         raise ValueError(f"Duplicate YNAB account names: {duplicates}")
 
@@ -74,14 +78,18 @@ def _account_lookup(accounts: list[dict[str, Any]]) -> tuple[dict[str, str], dic
         if _normalize_text(acc.get("name", ""))
     }
     transfer_payees = {
-        _normalize_text(acc.get("name", "")): _normalize_text(acc.get("transfer_payee_id", ""))
+        _normalize_text(acc.get("name", "")): _normalize_text(
+            acc.get("transfer_payee_id", "")
+        )
         for acc in active
         if _normalize_text(acc.get("name", ""))
     }
     return account_ids, transfer_payees
 
 
-def uploadable_account_mask(df: pd.DataFrame, accounts: list[dict[str, Any]]) -> pd.Series:
+def uploadable_account_mask(
+    df: pd.DataFrame, accounts: list[dict[str, Any]]
+) -> pd.Series:
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
     account_ids, _ = _account_lookup(accounts)
     account_names = _normalize_text_series(df["account_name"])
@@ -95,12 +103,16 @@ def _category_lookup(categories_df: pd.DataFrame) -> dict[str, str]:
 
     names = _normalize_text_series(active["category_name"])
     name_counts = Counter(names.tolist())
-    duplicates = sorted(name for name, count in name_counts.items() if name and count > 1)
+    duplicates = sorted(
+        name for name, count in name_counts.items() if name and count > 1
+    )
     if duplicates:
         raise ValueError(f"Duplicate YNAB category names: {duplicates}")
 
     return {
-        _normalize_text(row.get("category_name", "")): _normalize_text(row.get("category_id", ""))
+        _normalize_text(row.get("category_name", "")): _normalize_text(
+            row.get("category_id", "")
+        )
         for _, row in active.iterrows()
         if _normalize_text(row.get("category_name", ""))
     }
@@ -134,7 +146,9 @@ def _category_alias_lookup(categories_df: pd.DataFrame) -> dict[str, str]:
         alias_to_id[alias] = category_id
 
     if duplicate_aliases:
-        raise ValueError(f"Ambiguous simplified YNAB category aliases: {sorted(set(duplicate_aliases))}")
+        raise ValueError(
+            f"Ambiguous simplified YNAB category aliases: {sorted(set(duplicate_aliases))}"
+        )
     return alias_to_id
 
 
@@ -169,12 +183,19 @@ def prepare_upload_transactions(
     accounts: list[dict[str, Any]],
     categories_df: pd.DataFrame,
     cleared: str = "cleared",
-    approved: bool = True,
+    approved: bool = False,
 ) -> pd.DataFrame:
     validate_ready_for_upload(reviewed_df)
 
     df = reviewed_df.copy()
-    for col in ["transaction_id", "account_name", "date", "memo", "payee_selected", "category_selected"]:
+    for col in [
+        "transaction_id",
+        "account_name",
+        "date",
+        "memo",
+        "payee_selected",
+        "category_selected",
+    ]:
         df[col] = _normalize_text_series(df[col])
     for col in ["outflow_ils", "inflow_ils"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0).round(2)
@@ -184,24 +205,36 @@ def prepare_upload_transactions(
     category_alias_ids = _category_alias_lookup(categories_df)
 
     df["account_id"] = df["account_name"].map(account_ids).astype("string").fillna("")
-    missing_accounts = sorted(df.loc[df["account_id"] == "", "account_name"].unique().tolist())
+    missing_accounts = sorted(
+        df.loc[df["account_id"] == "", "account_name"].unique().tolist()
+    )
     if missing_accounts:
-        raise ValueError(f"Missing YNAB account ids for account_name values: {missing_accounts}")
+        raise ValueError(
+            f"Missing YNAB account ids for account_name values: {missing_accounts}"
+        )
 
     df["transfer_target"] = df["payee_selected"].map(_transfer_target)
     is_transfer = df["payee_selected"].map(review_model.is_transfer_payee)
 
-    transfer_target_ids = df["transfer_target"].map(transfer_payees).astype("string").fillna("")
-    transfer_target_account_ids = df["transfer_target"].map(account_ids).astype("string").fillna("")
+    transfer_target_ids = (
+        df["transfer_target"].map(transfer_payees).astype("string").fillna("")
+    )
+    transfer_target_account_ids = (
+        df["transfer_target"].map(account_ids).astype("string").fillna("")
+    )
     missing_transfer_targets = sorted(
-        df.loc[is_transfer & (transfer_target_ids == ""), "transfer_target"].unique().tolist()
+        df.loc[is_transfer & (transfer_target_ids == ""), "transfer_target"]
+        .unique()
+        .tolist()
     )
     if missing_transfer_targets:
         raise ValueError(
             f"Missing transfer payee ids for target accounts: {missing_transfer_targets}"
         )
 
-    df["category_id"] = df["category_selected"].map(category_ids).astype("string").fillna("")
+    df["category_id"] = (
+        df["category_selected"].map(category_ids).astype("string").fillna("")
+    )
     unresolved_category = (~is_transfer) & (df["category_id"] == "")
     if unresolved_category.any():
         aliases = df.loc[unresolved_category, "category_selected"].map(_category_alias)
@@ -209,17 +242,23 @@ def prepare_upload_transactions(
             aliases.map(category_alias_ids).astype("string").fillna("")
         )
     missing_categories = sorted(
-        df.loc[~is_transfer & (df["category_id"] == ""), "category_selected"].unique().tolist()
+        df.loc[~is_transfer & (df["category_id"] == ""), "category_selected"]
+        .unique()
+        .tolist()
     )
     if missing_categories:
-        raise ValueError(f"Missing YNAB category ids for category_selected values: {missing_categories}")
+        raise ValueError(
+            f"Missing YNAB category ids for category_selected values: {missing_categories}"
+        )
 
     df["payee_id"] = ""
     df.loc[is_transfer, "payee_id"] = transfer_target_ids.loc[is_transfer]
     df["payee_name_upload"] = df["payee_selected"].where(~is_transfer, "")
     df.loc[is_transfer, "category_id"] = ""
     df["transfer_target_account_id"] = ""
-    df.loc[is_transfer, "transfer_target_account_id"] = transfer_target_account_ids.loc[is_transfer]
+    df.loc[is_transfer, "transfer_target_account_id"] = transfer_target_account_ids.loc[
+        is_transfer
+    ]
 
     df["amount_milliunits"] = df.apply(_amount_milliunits, axis=1)
     df["bank_txn_id"] = (
@@ -236,11 +275,15 @@ def prepare_upload_transactions(
     )
     occurrence_order = (
         df.reset_index()
-        .sort_values(["account_id", "date", "amount_milliunits", "transaction_id", "index"])
+        .sort_values(
+            ["account_id", "date", "amount_milliunits", "transaction_id", "index"]
+        )
         .copy()
     )
     occurrence_order["import_occurrence"] = (
-        occurrence_order.groupby(["account_id", "date", "amount_milliunits"], dropna=False)
+        occurrence_order.groupby(
+            ["account_id", "date", "amount_milliunits"], dropna=False
+        )
         .cumcount()
         .add(1)
     )
@@ -250,7 +293,9 @@ def prepare_upload_transactions(
         axis=1,
     )
     occurrence_map = occurrence_order.set_index("index")["import_id"]
-    df["import_id"] = df.index.to_series().map(occurrence_map).astype("string").fillna("")
+    df["import_id"] = (
+        df.index.to_series().map(occurrence_map).astype("string").fillna("")
+    )
 
     df["cleared"] = cleared
     df["approved"] = bool(approved)
@@ -337,8 +382,12 @@ def _transactions_frame(transactions: list[dict[str, Any]]) -> pd.DataFrame:
                 "cleared": _normalize_text(txn.get("cleared", "")),
                 "approved": bool(txn.get("approved", False)),
                 "import_id": _normalize_text(txn.get("import_id", "")),
-                "matched_transaction_id": _normalize_text(txn.get("matched_transaction_id", "")),
-                "transfer_account_id": _normalize_text(txn.get("transfer_account_id", "")),
+                "matched_transaction_id": _normalize_text(
+                    txn.get("matched_transaction_id", "")
+                ),
+                "transfer_account_id": _normalize_text(
+                    txn.get("transfer_account_id", "")
+                ),
                 "deleted": bool(txn.get("deleted", False)),
                 "payee_name": _normalize_text(txn.get("payee_name", "")),
                 "category_name": _normalize_text(txn.get("category_name", "")),
@@ -365,14 +414,20 @@ def upload_preflight(
     prepared["account_id"] = _normalize_text_series(prepared["account_id"])
     prepared["upload_kind"] = _normalize_text_series(prepared["upload_kind"])
     prepared["payee_id"] = _normalize_text_series(prepared["payee_id"])
-    prepared["payee_name_upload"] = _normalize_text_series(prepared["payee_name_upload"])
+    prepared["payee_name_upload"] = _normalize_text_series(
+        prepared["payee_name_upload"]
+    )
     prepared["category_id"] = _normalize_text_series(prepared["category_id"])
     prepared["date_key"] = pd.to_datetime(prepared["date"], errors="coerce")
     prepared["amount_milliunits"] = (
-        pd.to_numeric(prepared["amount_milliunits"], errors="coerce").fillna(0).astype(int)
+        pd.to_numeric(prepared["amount_milliunits"], errors="coerce")
+        .fillna(0)
+        .astype(int)
     )
 
-    payload_duplicates = prepared.groupby(["account_id", "import_id"], dropna=False).size()
+    payload_duplicates = prepared.groupby(
+        ["account_id", "import_id"], dropna=False
+    ).size()
     payload_duplicate_keys = [
         (account_id, import_id)
         for (account_id, import_id), count in payload_duplicates.items()
@@ -393,7 +448,8 @@ def upload_preflight(
                 {
                     (row["account_id"], row["import_id"])
                     for _, row in prepared.iterrows()
-                    if row["import_id"] and (row["account_id"], row["import_id"]) in existing_keys
+                    if row["import_id"]
+                    and (row["account_id"], row["import_id"]) in existing_keys
                 }
             )
 
@@ -406,12 +462,15 @@ def upload_preflight(
             )
             if not merged.empty:
                 merged["date_gap_days"] = (
-                    merged["date_key_prepared"] - merged["date_key_existing"]
-                ).abs().dt.days
+                    (merged["date_key_prepared"] - merged["date_key_existing"])
+                    .abs()
+                    .dt.days
+                )
                 merged = merged[merged["date_gap_days"] <= 10]
                 if not merged.empty:
                     potential_match_import_ids = sorted(
-                        set(merged["import_id_prepared"].tolist()) - set(existing_import_id_hits)
+                        set(merged["import_id_prepared"].tolist())
+                        - set(existing_import_id_hits)
                     )
 
     is_transfer = prepared["upload_kind"] == "transfer"
@@ -455,13 +514,17 @@ def summarize_upload_response(response: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def classify_upload_result(summary: dict[str, int], *, prepared_count: int) -> dict[str, Any]:
+def classify_upload_result(
+    summary: dict[str, int], *, prepared_count: int
+) -> dict[str, Any]:
     saved = int(summary.get("saved", 0))
     duplicate_import_ids = int(summary.get("duplicate_import_ids", 0))
     matched_existing = int(summary.get("matched_existing", 0))
     transfer_saved = int(summary.get("transfer_saved", 0))
 
-    idempotent_rerun = prepared_count > 0 and saved == 0 and duplicate_import_ids == prepared_count
+    idempotent_rerun = (
+        prepared_count > 0 and saved == 0 and duplicate_import_ids == prepared_count
+    )
     verification_needed = saved > 0
 
     if idempotent_rerun:
@@ -497,7 +560,9 @@ def verify_upload_response(
     )
     prepared["date"] = _normalize_text_series(prepared["date"])
     prepared["amount_milliunits"] = (
-        pd.to_numeric(prepared["amount_milliunits"], errors="coerce").fillna(0).astype(int)
+        pd.to_numeric(prepared["amount_milliunits"], errors="coerce")
+        .fillna(0)
+        .astype(int)
     )
     prepared["upload_kind"] = _normalize_text_series(prepared["upload_kind"])
 
@@ -518,16 +583,21 @@ def verify_upload_response(
     response_indexed = response_df.set_index(["account_id", "import_id"], drop=False)
 
     if prepared_indexed.index.has_duplicates:
-        prepared_indexed = prepared_indexed[~prepared_indexed.index.duplicated(keep="first")]
+        prepared_indexed = prepared_indexed[
+            ~prepared_indexed.index.duplicated(keep="first")
+        ]
     if response_indexed.index.has_duplicates:
-        response_indexed = response_indexed[~response_indexed.index.duplicated(keep="first")]
+        response_indexed = response_indexed[
+            ~response_indexed.index.duplicated(keep="first")
+        ]
 
     missing_saved = sorted(
-        set(response.get("transaction_ids", []) or [])
-        - set(response_df["id"].tolist())
+        set(response.get("transaction_ids", []) or []) - set(response_df["id"].tolist())
     )
 
-    shared_keys = sorted(set(prepared_indexed.index).intersection(set(response_indexed.index)))
+    shared_keys = sorted(
+        set(prepared_indexed.index).intersection(set(response_indexed.index))
+    )
     amount_mismatches: list[str] = []
     date_mismatches: list[str] = []
     account_mismatches: list[str] = []
@@ -539,7 +609,9 @@ def verify_upload_response(
         response_row = response_indexed.loc[(account_id, import_id)]
         label = _account_import_label(account_id, import_id)
 
-        if int(prepared_row["amount_milliunits"]) != int(response_row["amount_milliunits"]):
+        if int(prepared_row["amount_milliunits"]) != int(
+            response_row["amount_milliunits"]
+        ):
             amount_mismatches.append(label)
         if str(prepared_row["date"]) != str(response_row["date"]):
             date_mismatches.append(label)
@@ -547,11 +619,14 @@ def verify_upload_response(
             account_mismatches.append(label)
 
         is_transfer = str(prepared_row["upload_kind"]) == "transfer"
-        response_transfer_account_id = str(response_row.get("transfer_account_id", "") or "")
+        response_transfer_account_id = str(
+            response_row.get("transfer_account_id", "") or ""
+        )
         if is_transfer:
             if not response_transfer_account_id or (
                 str(prepared_row["transfer_target_account_id"])
-                and response_transfer_account_id != str(prepared_row["transfer_target_account_id"])
+                and response_transfer_account_id
+                != str(prepared_row["transfer_target_account_id"])
             ):
                 transfer_mismatches.append(label)
         else:
@@ -560,7 +635,11 @@ def verify_upload_response(
 
         prepared_category_id = str(prepared_row.get("category_id", "") or "")
         response_category_id = str(response_row.get("category_id", "") or "")
-        if not is_transfer and prepared_category_id and prepared_category_id != response_category_id:
+        if (
+            not is_transfer
+            and prepared_category_id
+            and prepared_category_id != response_category_id
+        ):
             category_mismatches.append(label)
 
     return {

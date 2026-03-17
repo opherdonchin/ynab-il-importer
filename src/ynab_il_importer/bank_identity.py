@@ -13,7 +13,9 @@ BANK_TXN_ID_SCHEME = "BANK"
 BANK_TXN_ID_VERSION = "V1"
 BANK_TXN_ID_PREFIX = f"{BANK_TXN_ID_SCHEME}:{BANK_TXN_ID_VERSION}:"
 _BANK_TXN_ID_RE = re.compile(r"^(BANK):(V\d+):([0-9a-f]{24})$")
-_MEMO_MARKER_RE = re.compile(r"\[ynab-il bank_txn_id=([^\]]+)\]")
+# Capture the bank_txn_id token (stops at whitespace/]); optional trailing fields like ref= are ignored
+_MEMO_MARKER_RE = re.compile(r"\[ynab-il bank_txn_id=(BANK:[^\]\s]+)(?:[^\]]*)?\]")
+_MEMO_REF_RE = re.compile(r"\[ynab-il[^\]]*\bref=([^\]\s]+)")
 _KNOWN_VERSIONS = {BANK_TXN_ID_VERSION}
 
 
@@ -112,7 +114,14 @@ def strip_bank_txn_id_markers(value: Any) -> str:
     return stripped.strip()
 
 
-def append_bank_txn_id_marker(memo: Any, bank_txn_id: Any) -> str:
+def extract_bank_ref_from_memo(value: Any) -> str:
+    """Return the ref stamped inside a [ynab-il ...] marker, or '' if absent."""
+    text = str(value or "")
+    match = _MEMO_REF_RE.search(text)
+    return match.group(1) if match else ""
+
+
+def append_bank_txn_id_marker(memo: Any, bank_txn_id: Any, *, ref: str = "") -> str:
     validated = validate_bank_txn_id(bank_txn_id)
     text = str(memo or "")
     found = extract_bank_txn_ids_from_memo(text)
@@ -123,7 +132,12 @@ def append_bank_txn_id_marker(memo: Any, bank_txn_id: Any) -> str:
     if found == [validated]:
         return text
 
-    marker = f"[ynab-il bank_txn_id={validated}]"
+    clean_ref = _normalize_text(ref)
+    marker = (
+        f"[ynab-il bank_txn_id={validated}]"
+        if not clean_ref
+        else f"[ynab-il bank_txn_id={validated} ref={clean_ref}]"
+    )
     base = text.rstrip()
     if not base:
         return marker

@@ -583,6 +583,29 @@ def _expected_statement_date(previous_rows: pd.DataFrame) -> pd.Timestamp | pd.N
     return secondary.max()
 
 
+def _identify_billing_date_groups(
+    previous_rows: pd.DataFrame,
+) -> tuple[object, pd.DataFrame, pd.DataFrame]:
+    """Split previous rows into main billing date and separately-settled groups.
+
+    The main billing date is the latest secondary_date, which corresponds to the
+    monthly bundled payment transfer from the bank. Rows with earlier secondary_dates
+    were settled individually by the card company and do not roll into the monthly
+    payment transfer.
+
+    Returns (main_billing_date, main_rows, sep_rows).
+    sep_rows is empty when all rows share the same secondary_date.
+    """
+    if "secondary_date" not in previous_rows.columns or previous_rows.empty:
+        return None, previous_rows.copy(), pd.DataFrame(columns=previous_rows.columns)
+    sec_dates = pd.to_datetime(previous_rows["secondary_date"], errors="coerce")
+    main_date = sec_dates.max()
+    if pd.isna(main_date):
+        return None, previous_rows.copy(), pd.DataFrame(columns=previous_rows.columns)
+    mask = sec_dates == main_date
+    return main_date, previous_rows[mask].copy(), previous_rows[~mask].copy()
+
+
 def _validate_payment_transfer(
     *,
     previous_rows: pd.DataFrame,
@@ -1101,6 +1124,8 @@ def plan_card_cycle_reconciliation(
         "reason": "",
         "report": report,
         "warning": "",
+        "separately_settled_count": 0,
+        "separately_settled_dates": [],
         "payment_transfer_card_transaction_id": "",
         "payment_transfer_card_date": "",
         "payment_transfer_card_amount_ils": 0.0,
@@ -1195,8 +1220,17 @@ def plan_card_cycle_reconciliation(
     result["previous_total_ils"] = previous_total
     result["source_total_ils"] = current_total
 
+    _, main_previous_rows, sep_previous_rows = _identify_billing_date_groups(
+        previous_rows
+    )
+    result["separately_settled_count"] = int(len(sep_previous_rows))
+    result["separately_settled_dates"] = (
+        sorted(str(d) for d in sep_previous_rows["secondary_date"].unique())
+        if not sep_previous_rows.empty
+        else []
+    )
     payment_match = _validate_payment_transfer(
-        previous_rows=previous_rows,
+        previous_rows=main_previous_rows,
         all_ynab_df=all_ynab_df,
         card_account_id=account["account_id"],
         account_names=account_names,
@@ -1231,6 +1265,14 @@ def plan_card_cycle_reconciliation(
         )
     else:
         report.loc[report["snapshot_role"] == "previous", "action"] = "reconcile"
+        if not sep_previous_rows.empty:
+            sep_date_strs = set(
+                str(d) for d in sep_previous_rows["secondary_date"].unique()
+            )
+            sep_mask = (report["snapshot_role"] == "previous") & (
+                report["secondary_date"].isin(sep_date_strs)
+            )
+            report.loc[sep_mask, "action"] = "reconcile_separate"
     report.loc[
         (report["snapshot_role"] == "source")
         & (report["prior_cleared"] == "uncleared"),

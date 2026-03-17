@@ -183,13 +183,10 @@ def _build_sheet_result(
 ) -> pd.DataFrame:
     amount_col = _pick_amount_column(raw)
     amount = _parse_amount(raw[amount_col])
-    non_zero = amount[amount != 0]
-    if (
-        not non_zero.empty
-        and non_zero[non_zero > 0].sum() >= non_zero[non_zero < 0].abs().sum()
-    ):
-        # MAX exports typically encode charges as positive and reversals as negative.
-        amount = -amount
+    # MAX "charge amount" columns encode charges as positive and
+    # refunds/reversals as negative. Convert to YNAB signed convention:
+    # outflow as negative, inflow as positive.
+    amount = -amount
 
     merchant = (
         _get_column(raw, "שם בית העסק", "").astype("string").fillna("").str.strip()

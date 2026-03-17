@@ -1001,3 +1001,163 @@ def test_plan_card_match_sync_refuses_conflicting_linked_candidate(
     assert report.loc[0, "action"] == "unmatched"
     assert report.loc[0, "candidate_status"] == "only_linked_date_amount_candidates"
     assert "already linked to a different card_txn_id" in report.loc[0, "reason"]
+
+
+def test_transition_reconciles_separately_settled_rows(tmp_path: Path) -> None:
+    """Previous file has rows with both a main billing date and earlier separately-settled dates.
+    Only the main billing date rows are used to look up the payment transfer.
+    All previous rows (main + separately settled) are marked reconciled.
+    """
+    previous_path = tmp_path / "previous.xlsx"
+    current_path = tmp_path / "current.xlsx"
+    _write_snapshot(
+        previous_path,
+        period="03/2026",
+        billed_rows=[
+            _billed_row(
+                date="10-02-2026",
+                merchant="MERCHANT A",
+                amount="100",
+                charge_date="10-03-2026",
+            ),
+            _billed_row(
+                date="11-02-2026",
+                merchant="MERCHANT B",
+                amount="80",
+                charge_date="10-03-2026",
+            ),
+        ],
+        foreign_rows=[
+            _billed_row(
+                date="06-02-2026",
+                merchant="NETFLIX",
+                amount="69.90",
+                charge_date="08-02-2026",
+            ),
+            _billed_row(
+                date="01-02-2026",
+                merchant="CHATGPT",
+                amount="62.00",
+                charge_date="03-02-2026",
+            ),
+        ],
+    )
+    _write_snapshot(
+        current_path,
+        period="04/2026",
+        billed_rows=[
+            _billed_row(
+                date="09-03-2026",
+                merchant="MERCHANT C",
+                amount="120",
+                charge_date="10-04-2026",
+            ),
+        ],
+    )
+
+    previous_df = card_reconciliation.load_card_source(previous_path)
+    current_df = card_reconciliation.load_card_source(current_path)
+    previous_rows = card_reconciliation._target_source_rows(previous_df, "Opher x9922")
+    current_rows = card_reconciliation._target_source_rows(current_df, "Opher x9922")
+
+    # 4 previous rows: 2 main (2026-03-10), 2 separately settled (2026-02-08, 2026-02-03)
+    assert len(previous_rows) == 4
+
+    # Payment transfer for the MAIN billing total only (100+80=180), NOT including sep rows
+    transactions = [
+        _txn_from_source(previous_rows.iloc[0], txn_id="prev-main-a", cleared="cleared"),
+        _txn_from_source(previous_rows.iloc[1], txn_id="prev-main-b", cleared="cleared"),
+        _txn_from_source(previous_rows.iloc[2], txn_id="prev-netflix", cleared="cleared"),
+        _txn_from_source(previous_rows.iloc[3], txn_id="prev-chatgpt", cleared="cleared"),
+        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="cleared"),
+    ] + _transfer_pair(transfer_id="payment-mar", date="2026-03-10", amount_ils=180.0)
+
+    result = card_reconciliation.plan_card_cycle_reconciliation(
+        account_name="Opher x9922",
+        source_df=current_df,
+        previous_df=previous_df,
+        accounts=_accounts(),
+        transactions=transactions,
+    )
+
+    assert result["ok"] is True
+    assert result["separately_settled_count"] == 2
+    assert result["separately_settled_dates"] == ["2026-02-03", "2026-02-08"]
+    assert result["payment_transfer_card_transaction_id"] == "payment-mar-card"
+    assert result["previous_total_ils"] == -311.9  # 100+80+69.90+62
+    assert result["payment_transfer_card_amount_ils"] == 180.0
+
+    prev_report = result["report"][result["report"]["snapshot_role"] == "previous"]
+    main_actions = set(prev_report[prev_report["secondary_date"] == "2026-03-10"]["action"])
+    sep_actions = set(prev_report[prev_report["secondary_date"] != "2026-03-10"]["action"])
+    assert main_actions == {"reconcile"}
+    assert sep_actions == {"reconcile_separate"}
+
+    # All 4 previous rows + the card-side payment transfer should be reconciled
+    update_ids = {u["id"] for u in result["updates"]}
+    assert update_ids == {"prev-main-a", "prev-main-b", "prev-netflix", "prev-chatgpt", "payment-mar-card"}
+    assert all(u["cleared"] == "reconciled" for u in result["updates"])
+
+
+def test_transition_blocks_when_only_full_total_transfer_exists_for_sep_settled(
+    tmp_path: Path,
+) -> None:
+    """If YNAB has a transfer for the full statement total (including sep-settled rows)
+    but not for the main billing total alone, reconcile should block."""
+    previous_path = tmp_path / "previous.xlsx"
+    current_path = tmp_path / "current.xlsx"
+    _write_snapshot(
+        previous_path,
+        period="03/2026",
+        billed_rows=[
+            _billed_row(
+                date="10-02-2026",
+                merchant="MERCHANT A",
+                amount="100",
+                charge_date="10-03-2026",
+            ),
+        ],
+        foreign_rows=[
+            _billed_row(
+                date="06-02-2026",
+                merchant="NETFLIX",
+                amount="69.90",
+                charge_date="08-02-2026",
+            ),
+        ],
+    )
+    _write_snapshot(
+        current_path,
+        period="04/2026",
+        billed_rows=[
+            _billed_row(
+                date="09-03-2026",
+                merchant="MERCHANT C",
+                amount="120",
+                charge_date="10-04-2026",
+            ),
+        ],
+    )
+
+    previous_df = card_reconciliation.load_card_source(previous_path)
+    current_df = card_reconciliation.load_card_source(current_path)
+    previous_rows = card_reconciliation._target_source_rows(previous_df, "Opher x9922")
+    current_rows = card_reconciliation._target_source_rows(current_df, "Opher x9922")
+
+    # Transfer is for the FULL total (100+69.90=169.90) not the main-only total (100)
+    transactions = [
+        _txn_from_source(previous_rows.iloc[0], txn_id="prev-main", cleared="cleared"),
+        _txn_from_source(previous_rows.iloc[1], txn_id="prev-netflix", cleared="cleared"),
+        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="cleared"),
+    ] + _transfer_pair(transfer_id="payment-mar", date="2026-03-10", amount_ils=169.90)
+
+    result = card_reconciliation.plan_card_cycle_reconciliation(
+        account_name="Opher x9922",
+        source_df=current_df,
+        previous_df=previous_df,
+        accounts=_accounts(),
+        transactions=transactions,
+    )
+
+    assert result["ok"] is False
+    assert "No card payment transfer found for previous total 100.00 ILS" in result["reason"]

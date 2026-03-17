@@ -32,6 +32,11 @@ def _print_summary(result: dict[str, object], report_path: Path, execute: bool) 
     print("Status: blocked")
     if result["reason"]:
         print(f"Reason: {result['reason']}")
+    if result.get("last_reconciled_at"):
+        print(
+            f"YNAB account last_reconciled_at: {result['last_reconciled_at']} "
+            "(updated only by YNAB's native reconciliation wizard, not by API patching)"
+        )
     print(f"Exact lineage matches in file: {result['matched_count']}")
     print(f"Already reconciled matches in file: {result['reconciled_match_count']}")
     if int(result["probable_legacy_match_count"] or 0) > 0:
@@ -69,7 +74,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Reconcile a normalized bank statement against YNAB using bank_txn_id lineage."
     )
-    parser.add_argument("--bank", required=True, help="Normalized bank CSV with balance_ils.")
+    parser.add_argument(
+        "--bank", required=True, help="Normalized bank CSV with balance_ils."
+    )
     parser.add_argument(
         "--report-out",
         default="",
@@ -82,6 +89,16 @@ def main() -> None:
         help="Required opening streak of exact reconciled matches when last_reconciled_at exists.",
     )
     parser.add_argument(
+        "--use-ynab-reconciled-date",
+        action="store_true",
+        default=False,
+        help=(
+            "Enforce the last_reconciled_at date guard from the YNAB account. "
+            "By default this is ignored because YNAB only updates that field via "
+            "its native reconciliation wizard, not through API patching."
+        ),
+    )
+    parser.add_argument(
         "--execute",
         action="store_true",
         help="PATCH eligible YNAB transactions to cleared=reconciled after validation passes.",
@@ -89,7 +106,9 @@ def main() -> None:
     args = parser.parse_args()
 
     bank_path = Path(args.bank)
-    report_path = Path(args.report_out) if args.report_out else _default_report_out(bank_path)
+    report_path = (
+        Path(args.report_out) if args.report_out else _default_report_out(bank_path)
+    )
 
     bank_df = bank_reconciliation.load_bank_csv(bank_path)
     accounts = ynab_api.fetch_accounts()
@@ -100,6 +119,7 @@ def main() -> None:
         accounts,
         transactions,
         anchor_streak=args.anchor_streak,
+        use_ynab_reconciled_date=args.use_ynab_reconciled_date,
     )
     export.write_dataframe(result["report"], report_path)
     _print_summary(result, report_path, execute=args.execute)

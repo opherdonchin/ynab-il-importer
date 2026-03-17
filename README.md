@@ -114,12 +114,52 @@ pixi run python scripts/download_ynab_categories.py \
 
 ```bash
 pixi run python scripts/build_proposed_transactions.py \
-  --source data/derived/bank_normalized.csv \
-  --source data/derived/card_normalized.csv \
-  --ynab data/derived/ynab_api_norm.csv \
+  --source data/derived/<date>/bank_leumi_norm.csv \
+  --source data/derived/<date>/card_max_norm.csv \
+  --ynab data/derived/<date>/ynab_api_norm.csv \
   --map mappings/payee_map.csv \
-  --out outputs/proposed_transactions.csv \
-  --pairs-out outputs/real_matched_pairs.csv
+  --out data/paired/<date>/proposed_transactions.csv \
+  --pairs-out data/paired/<date>/matched_pairs.csv
+```
+
+5. Review in the Streamlit UI (see `documents/review_app_workflow.md`):
+
+```bash
+pixi run python scripts/review_app.py \
+  --in data/paired/<date>/proposed_transactions.csv \
+  --categories outputs/ynab_categories.csv
+```
+
+6. Stamp lineage on existing YNAB transactions (dry-run first, then add `--execute`):
+
+```bash
+pixi run python scripts/sync_bank_matches.py \
+  --bank data/derived/<date>/bank_leumi_norm.csv \
+  --report-out data/paired/<date>/bank_sync_report.csv
+
+pixi run python scripts/sync_card_matches.py \
+  --account "<Card Account Name>" \
+  --source data/raw/<date>/card.xlsx \
+  --report-out data/paired/<date>/<account>_card_sync_report.csv
+```
+
+7. Prepare and upload reviewed transactions (dry-run first, then add `--execute`):
+
+```bash
+pixi run python scripts/prepare_ynab_upload.py \
+  --in data/paired/<date>/proposed_transactions_reviewed.csv \
+  --out data/paired/<date>/ynab_upload.csv \
+  --ready-only \
+  --skip-missing-accounts
+```
+
+8. Reconcile card accounts (mid-month: `--source` only; end-of-month: add `--previous`):
+
+```bash
+pixi run python scripts/reconcile_card_cycle.py \
+  --account "<Card Account Name>" \
+  --source data/raw/<date>/card.xlsx \
+  --report-out data/paired/<date>/<account>_card_reconcile_report.csv
 ```
 
 ## Fingerprint Mapping
@@ -209,17 +249,27 @@ Safe editing guidelines for `mappings/payee_map.csv`:
 
 ## Review UI (Streamlit)
 
-The review UI edits `outputs/proposed_transactions.csv` and writes a reviewed copy.
+The review UI edits a proposed transactions CSV and writes a reviewed copy.
 
 Run:
 
 ```bash
-pixi run streamlit run src/ynab_il_importer/review_app/app.py
+pixi run python scripts/review_app.py \
+  --in data/paired/<date>/proposed_transactions.csv \
+  --categories outputs/ynab_categories.csv
+```
+
+Resume a prior session:
+
+```bash
+pixi run python scripts/review_app.py --resume
 ```
 
 Default behavior:
-- Loads `outputs/proposed_transactions.csv` if it exists.
-- Saves to `outputs/proposed_transactions_reviewed.csv` (configurable in the UI).
+- Loads `outputs/proposed_transactions.csv` if `--in` is not given.
+- Saves to `<input>_reviewed.csv` (configurable in the UI or via `--out`).
+
+See `documents/review_app_workflow.md` for the full review and upload workflow.
 
 Hard rule for readiness:
 - Both `payee_selected` and `category_selected` must be filled.

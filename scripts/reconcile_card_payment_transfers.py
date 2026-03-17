@@ -15,6 +15,7 @@ since those variants represent the actually-executed reconciliation.
 
 Dry-run by default; pass --execute to apply.
 """
+
 import re
 import sys
 from collections import defaultdict
@@ -35,7 +36,9 @@ REPORTS_ROOT = ROOT / "data" / "paired" / "previous_max"
 ACCOUNT_SUFFIXES = ("x5898", "x7195", "x9922")
 
 # Previous-row action values that signal the billing cycle was settled
-VALID_PREVIOUS_ACTIONS = {"reconcile", "already_reconciled"}
+VALID_PREVIOUS_ACTIONS = {"reconcile", "reconcile_separate", "already_reconciled"}
+# Only rows with these actions map to the main monthly payment transfer
+MAIN_BILLING_ACTIONS = {"reconcile", "already_reconciled"}
 CYCLE_RE = re.compile(r"^(\d{4}_\d{2})_card_reconcile_report")
 
 execute = "--execute" in sys.argv
@@ -96,10 +99,25 @@ for suffix in ACCOUNT_SUFFIXES:
         report_path = sorted(settled_files)[-1]
         report = pd.read_csv(report_path)
         previous_rows = report[report["snapshot_role"] == "previous"]
-        settled_rows = previous_rows[previous_rows["action"].isin(VALID_PREVIOUS_ACTIONS)]
+        settled_rows = previous_rows[
+            previous_rows["action"].isin(VALID_PREVIOUS_ACTIONS)
+        ]
 
-        outflow = pd.to_numeric(settled_rows["outflow_ils"], errors="coerce").fillna(0.0)
-        inflow = pd.to_numeric(settled_rows["inflow_ils"], errors="coerce").fillna(0.0)
+        # Separately-settled rows have no bundled payment transfer; only include
+        # the main billing rows when looking for the monthly payment transfer.
+        main_rows = settled_rows[settled_rows["action"].isin(MAIN_BILLING_ACTIONS)]
+        if main_rows.empty:
+            sep_count = (settled_rows["action"] == "reconcile_separate").sum()
+            print(
+                f"  {cycle} [{report_path.name}]: {sep_count} separately-settled row(s) only, "
+                f"no payment transfer to check"
+            )
+            continue
+
+        outflow = pd.to_numeric(main_rows["outflow_ils"], errors="coerce").fillna(
+            0.0
+        )
+        inflow = pd.to_numeric(main_rows["inflow_ils"], errors="coerce").fillna(0.0)
         previous_total = round(float((inflow - outflow).sum()), 2)
 
         # Find the card-side payment transfer with the matching amount
@@ -112,7 +130,9 @@ for suffix in ACCOUNT_SUFFIXES:
 
         if not match.ok:
             issues.append(f"{suffix}/{cycle} ({report_path.name}): {match.reason}")
-            print(f"  {cycle} [{report_path.name}]: previous total {abs(previous_total):.2f} ILS — NOT FOUND: {match.reason}")
+            print(
+                f"  {cycle} [{report_path.name}]: previous total {abs(previous_total):.2f} ILS — NOT FOUND: {match.reason}"
+            )
             continue
 
         card_id = match.card_transaction_id
@@ -120,7 +140,11 @@ for suffix in ACCOUNT_SUFFIXES:
         row = all_ynab_df[all_ynab_df["id"] == card_id]
         current_cleared = row.iloc[0]["cleared"] if not row.empty else "MISSING"
 
-        status = "already reconciled" if current_cleared == "reconciled" else "→ needs reconcile"
+        status = (
+            "already reconciled"
+            if current_cleared == "reconciled"
+            else "→ needs reconcile"
+        )
         print(
             f"  {cycle} [{report_path.name}]: previous total {abs(previous_total):.2f} ILS  "
             f"transfer {match.card_date}  cleared={current_cleared}  {status}"

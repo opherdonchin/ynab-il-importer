@@ -39,8 +39,12 @@ def _print_messages(title: str, messages: list[str]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Prepare reviewed transactions for YNAB upload")
-    parser.add_argument("--in", dest="input_path", required=True, help="Reviewed transactions CSV.")
+    parser = argparse.ArgumentParser(
+        description="Prepare reviewed transactions for YNAB upload"
+    )
+    parser.add_argument(
+        "--in", dest="input_path", required=True, help="Reviewed transactions CSV."
+    )
     parser.add_argument(
         "--out",
         dest="out_path",
@@ -58,6 +62,13 @@ def main() -> None:
         choices=["cleared", "uncleared"],
         default="cleared",
         help="Cleared status to send to YNAB.",
+    )
+    parser.add_argument(
+        "--approved",
+        type=lambda v: v.lower() not in {"false", "0", "no"},
+        default=False,
+        metavar="BOOL",
+        help="Approved flag sent to YNAB (default: false). Pass true/false.",
     )
     parser.add_argument(
         "--execute",
@@ -83,7 +94,9 @@ def main() -> None:
 
     input_path = Path(args.input_path)
     out_path = Path(args.out_path) if args.out_path else _default_csv_out(input_path)
-    json_out_path = Path(args.json_out_path) if args.json_out_path else _default_json_out(out_path)
+    json_out_path = (
+        Path(args.json_out_path) if args.json_out_path else _default_json_out(out_path)
+    )
 
     reviewed = review_io.load_proposed_transactions(input_path)
     accounts = ynab_api.fetch_accounts()
@@ -107,7 +120,7 @@ def main() -> None:
         accounts=accounts,
         categories_df=categories,
         cleared=args.cleared,
-        approved=True,
+        approved=args.approved,
     )
     payload = upload_prep.upload_payload_records(prepared)
     preflight = upload_prep.upload_preflight(prepared, existing_transactions)
@@ -152,14 +165,21 @@ def main() -> None:
         raise ValueError(
             "Payload contains duplicate (account_id, import_id) keys: "
             + ", ".join(
-                [f"{account_id}::{import_id}" for account_id, import_id in preflight["payload_duplicate_import_keys"]]
+                [
+                    f"{account_id}::{import_id}"
+                    for account_id, import_id in preflight[
+                        "payload_duplicate_import_keys"
+                    ]
+                ]
             )
         )
 
     if args.execute:
         response = ynab_api.create_transactions(payload)
         summary = upload_prep.summarize_upload_response(response)
-        outcome = upload_prep.classify_upload_result(summary, prepared_count=len(prepared))
+        outcome = upload_prep.classify_upload_result(
+            summary, prepared_count=len(prepared)
+        )
         _print_section(
             "Upload result",
             [
@@ -186,7 +206,10 @@ def main() -> None:
                 "Upload verification",
                 [
                     ("checked", verification["checked"]),
-                    ("missing saved txns", len(verification["missing_saved_transactions"])),
+                    (
+                        "missing saved txns",
+                        len(verification["missing_saved_transactions"]),
+                    ),
                     ("amount mismatches", len(verification["amount_mismatches"])),
                     ("date mismatches", len(verification["date_mismatches"])),
                     ("account mismatches", len(verification["account_mismatches"])),
@@ -207,7 +230,10 @@ def main() -> None:
         else:
             _print_section(
                 "Upload verification",
-                [("status", "skipped"), ("reason", "no newly saved transactions returned by YNAB")],
+                [
+                    ("status", "skipped"),
+                    ("reason", "no newly saved transactions returned by YNAB"),
+                ],
             )
 
 

@@ -67,6 +67,10 @@ Completed:
 - x5898 Nov-10, Dec-10 transfers confirmed reconciled. All 5 cycles processed.
 - x9922: 5 cycles with reconcile evidence — all payment transfers already reconciled.
 - x7195: 2 cycles with reconcile evidence (2025_12, 2026_03) — both already reconciled. 4 earlier cycles (2025_10, 2025_11, 2026_01, 2026_02) bootstrapped via sync+direct-YNAB and have no reconcile report; payment transfers for those cycles are not auto-verified (no report evidence to compute expected amount).
+- **Separately-settled card charges are now handled automatically** in `reconcile_card_cycle.py` (as of 2026-03-17). MAX sometimes debits certain charges (subscriptions, government fees) directly from the bank account before the monthly billing cycle. These rows appear in the billing statement with an earlier `secondary_date` than the main billing date. The algorithm: the latest `secondary_date` is identified as the main billing date; rows with earlier secondary_dates are "separately settled" and do not roll into the monthly payment transfer; they are reconciled directly as card expenses (action = `reconcile_separate`). `reconcile_card_payment_transfers.py` correctly excludes `reconcile_separate` rows from the payment transfer amount lookup.
+- x9922 2026_03 (March 16 snapshot) reconciled in full: 46 main-cycle rows via 14,563.73 ILS transfer + 12 separately-settled rows (Facebook, Netflix, ChatGPT, Passport fees, Evernote, Apple) reconciled directly. 58 transactions patched.
+- x7195 2026_03 (March 16 snapshot) reconciled: 38 rows via 18,582.46 ILS transfer. 38 transactions patched.
+- 2026_03_16 full cycle complete: YNAB upload (65/67), bank sync, bank reconcile, all card syncs (x5898/x7195/x9922), all card reconciles (x5898/x7195/x9922) — all done.
 
 In progress:
 - Bank reconciliation anchor selection is too permissive and can choose a late streak near the end of the file, resulting in zero planned updates even when older cleared rows should be promoted.
@@ -85,11 +89,12 @@ In progress:
 2. Card reconciliation hardening
 - Add `CARD:V2` identity generation with occurrence discriminator for exact duplicate card rows (x9922 had collisions in 2026_02 raw source).
 - Add stronger sanity checks that `--previous` is older and `--source` is newer/current.
-- Encode "separately settled immediate charges" rule so it doesn't require manual filtered-previous CSV workaround.
+- ~~Encode "separately settled immediate charges" rule so it doesn't require manual filtered-previous CSV workaround.~~ **Done (2026-03-17)**: handled automatically via `secondary_date` grouping.
 
 3. End-to-end verification
-- Run bank sync + bank reconcile for 2026_03_16 cycle.
-- Upload any remaining approved transactions to YNAB (`prepare_ynab_upload.py --execute`).
+- ~~Run bank sync + bank reconcile for 2026_03_16 cycle.~~ **Done.**
+- ~~Upload any remaining approved transactions to YNAB (`prepare_ynab_upload.py --execute`).~~ **Done (65/67).**
+- ~~Card reconcile x5898, x7195, x9922 for 2026_03.~~ **Done.**
 - Keep documentation current as the implementation stabilizes.
 
 ---
