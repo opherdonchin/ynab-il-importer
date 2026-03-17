@@ -114,9 +114,7 @@ for suffix in ACCOUNT_SUFFIXES:
             )
             continue
 
-        outflow = pd.to_numeric(main_rows["outflow_ils"], errors="coerce").fillna(
-            0.0
-        )
+        outflow = pd.to_numeric(main_rows["outflow_ils"], errors="coerce").fillna(0.0)
         inflow = pd.to_numeric(main_rows["inflow_ils"], errors="coerce").fillna(0.0)
         previous_total = round(float((inflow - outflow).sum()), 2)
 

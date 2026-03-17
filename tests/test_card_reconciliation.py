@@ -1065,10 +1065,18 @@ def test_transition_reconciles_separately_settled_rows(tmp_path: Path) -> None:
 
     # Payment transfer for the MAIN billing total only (100+80=180), NOT including sep rows
     transactions = [
-        _txn_from_source(previous_rows.iloc[0], txn_id="prev-main-a", cleared="cleared"),
-        _txn_from_source(previous_rows.iloc[1], txn_id="prev-main-b", cleared="cleared"),
-        _txn_from_source(previous_rows.iloc[2], txn_id="prev-netflix", cleared="cleared"),
-        _txn_from_source(previous_rows.iloc[3], txn_id="prev-chatgpt", cleared="cleared"),
+        _txn_from_source(
+            previous_rows.iloc[0], txn_id="prev-main-a", cleared="cleared"
+        ),
+        _txn_from_source(
+            previous_rows.iloc[1], txn_id="prev-main-b", cleared="cleared"
+        ),
+        _txn_from_source(
+            previous_rows.iloc[2], txn_id="prev-netflix", cleared="cleared"
+        ),
+        _txn_from_source(
+            previous_rows.iloc[3], txn_id="prev-chatgpt", cleared="cleared"
+        ),
         _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="cleared"),
     ] + _transfer_pair(transfer_id="payment-mar", date="2026-03-10", amount_ils=180.0)
 
@@ -1088,14 +1096,24 @@ def test_transition_reconciles_separately_settled_rows(tmp_path: Path) -> None:
     assert result["payment_transfer_card_amount_ils"] == 180.0
 
     prev_report = result["report"][result["report"]["snapshot_role"] == "previous"]
-    main_actions = set(prev_report[prev_report["secondary_date"] == "2026-03-10"]["action"])
-    sep_actions = set(prev_report[prev_report["secondary_date"] != "2026-03-10"]["action"])
+    main_actions = set(
+        prev_report[prev_report["secondary_date"] == "2026-03-10"]["action"]
+    )
+    sep_actions = set(
+        prev_report[prev_report["secondary_date"] != "2026-03-10"]["action"]
+    )
     assert main_actions == {"reconcile"}
     assert sep_actions == {"reconcile_separate"}
 
     # All 4 previous rows + the card-side payment transfer should be reconciled
     update_ids = {u["id"] for u in result["updates"]}
-    assert update_ids == {"prev-main-a", "prev-main-b", "prev-netflix", "prev-chatgpt", "payment-mar-card"}
+    assert update_ids == {
+        "prev-main-a",
+        "prev-main-b",
+        "prev-netflix",
+        "prev-chatgpt",
+        "payment-mar-card",
+    }
     assert all(u["cleared"] == "reconciled" for u in result["updates"])
 
 
@@ -1147,7 +1165,9 @@ def test_transition_blocks_when_only_full_total_transfer_exists_for_sep_settled(
     # Transfer is for the FULL total (100+69.90=169.90) not the main-only total (100)
     transactions = [
         _txn_from_source(previous_rows.iloc[0], txn_id="prev-main", cleared="cleared"),
-        _txn_from_source(previous_rows.iloc[1], txn_id="prev-netflix", cleared="cleared"),
+        _txn_from_source(
+            previous_rows.iloc[1], txn_id="prev-netflix", cleared="cleared"
+        ),
         _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="cleared"),
     ] + _transfer_pair(transfer_id="payment-mar", date="2026-03-10", amount_ils=169.90)
 
@@ -1160,4 +1180,7 @@ def test_transition_blocks_when_only_full_total_transfer_exists_for_sep_settled(
     )
 
     assert result["ok"] is False
-    assert "No card payment transfer found for previous total 100.00 ILS" in result["reason"]
+    assert (
+        "No card payment transfer found for previous total 100.00 ILS"
+        in result["reason"]
+    )
