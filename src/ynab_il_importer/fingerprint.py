@@ -12,6 +12,8 @@ import ynab_il_importer.normalize as normalize
 
 DEFAULT_TOKEN_LIMIT = 10
 FINGERPRINT_MAP_COLUMNS = ["rule_id", "is_active", "priority", "pattern", "canonical_text", "notes"]
+DEFAULT_FINGERPRINT_MAP_PATH = Path("mappings/fingerprint_map.csv")
+DEFAULT_FINGERPRINT_LOG_PATH = Path("outputs/fingerprint_log.csv")
 LOG_COLUMNS = [
     "run_id",
     "row_index",
@@ -327,8 +329,9 @@ def _pick_text_source(df: pd.DataFrame, candidates: list[str]) -> tuple[pd.Serie
 def apply_fingerprints(
     df: pd.DataFrame,
     map_rules: pd.DataFrame | None = None,
-    log_path: str | Path = Path("outputs/fingerprint_log.csv"),
+    log_path: str | Path = DEFAULT_FINGERPRINT_LOG_PATH,
     use_fingerprint_map: bool = True,
+    fingerprint_map_path: str | Path = DEFAULT_FINGERPRINT_MAP_PATH,
 ) -> pd.DataFrame:
     if df is None or df.empty:
         return df.copy()
@@ -343,7 +346,7 @@ def apply_fingerprints(
     if not use_fingerprint_map:
         rules = pd.DataFrame(columns=["rule_id", "priority", "pattern", "canonical_text", "notes"])
     elif rules is None:
-        rules = load_fingerprint_map(Path("mappings/fingerprint_map.csv"))
+        rules = load_fingerprint_map(fingerprint_map_path)
 
     matched_rule_id = pd.Series([""] * len(out), index=out.index, dtype="string")
     matched_pattern = pd.Series([""] * len(out), index=out.index, dtype="string")

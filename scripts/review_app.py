@@ -115,11 +115,24 @@ def _pick_port(requested_port: int) -> int:
         return int(sock.getsockname()[1])
 
 
-def _port_available(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+def _port_has_listener(port: int) -> bool:
+    for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
         try:
-            sock.bind(("127.0.0.1", port))
+            with socket.socket(family, socket.SOCK_STREAM) as sock:
+                sock.settimeout(0.2)
+                if sock.connect_ex((host, port)) == 0:
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def _port_available(port: int) -> bool:
+    if _port_has_listener(port):
+        return False
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock_v4:
+        try:
+            sock_v4.bind(("127.0.0.1", port))
         except OSError:
             return False
     return True
@@ -185,6 +198,17 @@ def _launch_background_watcher(control_dir: Path, pid: int, log_path: Path) -> N
         )
 
 
+def _wait_for_streamlit_ready(process: subprocess.Popen[object], port: int) -> bool:
+    deadline = time.time() + 12.0
+    while time.time() < deadline:
+        if process.poll() is not None:
+            return False
+        if _port_has_listener(port):
+            return True
+        time.sleep(0.25)
+    return process.poll() is None and _port_has_listener(port)
+
+
 def _launch_review_app(args: argparse.Namespace) -> int:
     app_path = ROOT / "src" / "ynab_il_importer" / "review_app" / "app.py"
     input_path = Path(args.input_path)
@@ -192,6 +216,14 @@ def _launch_review_app(args: argparse.Namespace) -> int:
         Path(args.output_path)
         if any(arg == "--out" or arg.startswith("--out=") for arg in sys.argv[1:])
         else _default_output_path(input_path)
+    )
+    categories_path = review_app._effective_categories_path(
+        categories_path=str(args.categories_path),
+        profile=str(getattr(args, "profile", "") or ""),
+        categories_flag=any(
+            arg == "--categories" or arg.startswith("--categories=")
+            for arg in sys.argv[1:]
+        ),
     )
     session_dir = _make_session_dir()
     control_dir = session_dir / "control"
@@ -202,7 +234,7 @@ def _launch_review_app(args: argparse.Namespace) -> int:
         app_path=app_path,
         input_path=input_path,
         output_path=output_path,
-        categories_path=Path(args.categories_path),
+        categories_path=categories_path,
         resume=getattr(args, "resume", None),
         control_dir=control_dir,
         port=port,
@@ -222,10 +254,9 @@ def _launch_review_app(args: argparse.Namespace) -> int:
             close_fds=True,
         )
 
-    time.sleep(1.0)
-    if process.poll() is not None:
+    if not _wait_for_streamlit_ready(process, port):
         raise RuntimeError(
-            f"Review app exited immediately. Check log: {log_path}"
+            f"Review app failed to start on port {port}. Check log: {log_path}"
         )
 
     _launch_background_watcher(control_dir, process.pid, log_path)

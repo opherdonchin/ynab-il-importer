@@ -11,6 +11,7 @@ if str(SRC) not in sys.path:
 import ynab_il_importer.export as export
 import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.upload_prep as upload_prep
+import ynab_il_importer.workflow_profiles as workflow_profiles
 import ynab_il_importer.ynab_api as ynab_api
 
 
@@ -90,6 +91,8 @@ def main() -> None:
         action="store_true",
         help="Skip rows whose account_name does not map to a live YNAB account.",
     )
+    parser.add_argument("--profile", default="", help="Workflow profile (for budget defaults).")
+    parser.add_argument("--budget-id", dest="budget_id", default="", help="Override YNAB budget/plan id.")
     args = parser.parse_args()
 
     input_path = Path(args.input_path)
@@ -97,9 +100,14 @@ def main() -> None:
     json_out_path = (
         Path(args.json_out_path) if args.json_out_path else _default_json_out(out_path)
     )
+    profile = workflow_profiles.resolve_profile(args.profile or None)
+    plan_id = workflow_profiles.resolve_budget_id(
+        profile=profile.name,
+        budget_id=args.budget_id,
+    )
 
     reviewed = review_io.load_proposed_transactions(input_path)
-    accounts = ynab_api.fetch_accounts()
+    accounts = ynab_api.fetch_accounts(plan_id=plan_id or None)
     if args.reviewed_only:
         reviewed = reviewed[reviewed["reviewed"].astype(bool)].copy()
     if args.ready_only:
@@ -112,8 +120,10 @@ def main() -> None:
         reviewed = reviewed[account_mask].copy()
     if reviewed.empty:
         raise ValueError("No rows remain after applying the selected upload filters.")
-    categories = ynab_api.categories_to_dataframe(ynab_api.fetch_categories())
-    existing_transactions = ynab_api.fetch_transactions()
+    categories = ynab_api.categories_to_dataframe(
+        ynab_api.fetch_categories(plan_id=plan_id or None)
+    )
+    existing_transactions = ynab_api.fetch_transactions(plan_id=plan_id or None)
 
     prepared = upload_prep.prepare_upload_transactions(
         reviewed,
@@ -175,7 +185,7 @@ def main() -> None:
         )
 
     if args.execute:
-        response = ynab_api.create_transactions(payload)
+        response = ynab_api.create_transactions(payload, plan_id=plan_id or None)
         summary = upload_prep.summarize_upload_response(response)
         outcome = upload_prep.classify_upload_result(
             summary, prepared_count=len(prepared)

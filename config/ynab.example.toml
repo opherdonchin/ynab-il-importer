@@ -1,4 +1,17 @@
 # Copy to ynab.local.toml and fill in your IDs.
 # Keep this file out of git.
+#
+# Legacy single-budget mode:
+# budget_id = ""
+#
+# Profile mode:
+default_profile = "family"
 
+[profiles.family]
+budget_id = ""
+
+[profiles.pilates]
+budget_id = ""
+
+[profiles.aikido]
 budget_id = ""

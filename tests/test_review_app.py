@@ -111,6 +111,15 @@ def _find_button_by_prefix(container, prefix: str):
     return next(widget for widget in container.button if widget.label.startswith(prefix))
 
 
+def _find_multiselect_by_label(container, label: str):
+    return next(widget for widget in container.multiselect if widget.label == label)
+
+
+def _show_all_primary_states(app: AppTest) -> None:
+    _find_multiselect_by_label(app.sidebar, "Readiness").set_value(["Not ready", "Ready"])
+    _find_multiselect_by_label(app.sidebar, "Save state").set_value(["Unsaved", "Saved"])
+
+
 def _sidebar_markdown_text(app: AppTest) -> str:
     return "\n".join(markdown.value for markdown in app.sidebar.markdown)
 
@@ -156,6 +165,28 @@ def test_format_category_label_uses_group_slash_name() -> None:
     )
 
 
+def test_effective_categories_path_uses_profile_default_when_flag_missing() -> None:
+    actual = review_app._effective_categories_path(
+        categories_path=str(review_app.DEFAULT_CATEGORIES),
+        profile="pilates",
+        categories_flag=False,
+    )
+
+    assert actual == Path("outputs/pilates/ynab_categories.csv")
+
+
+def test_effective_categories_path_keeps_explicit_categories_override() -> None:
+    custom = Path("tmp/custom_categories.csv")
+
+    actual = review_app._effective_categories_path(
+        categories_path=str(custom),
+        profile="pilates",
+        categories_flag=True,
+    )
+
+    assert actual == custom
+
+
 def test_changed_mask_aligns_duplicate_transaction_ids() -> None:
     base = pd.DataFrame(
         {
@@ -184,7 +215,7 @@ def test_grouped_row_save_updates_counts_and_persists_to_file(tmp_path: Path) ->
     )
 
     app.run()
-    app.sidebar.checkbox[0].uncheck()
+    _show_all_primary_states(app)
     app.run()
 
     assert any("Account 1" in expander.label for expander in app.expander)
@@ -207,7 +238,7 @@ def test_grouped_row_save_updates_counts_and_persists_to_file(tmp_path: Path) ->
     assert saved.loc[0, "category_selected"] == "D"
     assert saved.loc[0, "reviewed"] == "TRUE"
     assert "**Saved:** 1" in _sidebar_markdown_text(app)
-    app.sidebar.checkbox[0].uncheck()
+    _show_all_primary_states(app)
     app.run()
     assert "Saved: 1" in _group_markdown_text(app)
     assert "Unsaved: 1" not in _group_markdown_text(app)
@@ -220,7 +251,7 @@ def test_group_apply_does_not_overwrite_reviewed_rows(tmp_path: Path) -> None:
     )
 
     app.run()
-    app.sidebar.checkbox[0].uncheck()
+    _show_all_primary_states(app)
     app.run()
 
     group = app.expander[0]
@@ -260,7 +291,7 @@ def test_category_toggle_exposes_all_categories(tmp_path: Path) -> None:
     app.run()
     app.sidebar.radio[0].set_value("Row")
     app.run()
-    app.sidebar.checkbox[0].uncheck()
+    _show_all_primary_states(app)
     app.run()
 
     row = app.expander[0]
@@ -285,7 +316,7 @@ def test_group_category_toggle_exposes_all_categories(tmp_path: Path) -> None:
     )
 
     app.run()
-    app.sidebar.checkbox[0].uncheck()
+    _show_all_primary_states(app)
     app.run()
 
     group = app.expander[0]
@@ -356,6 +387,8 @@ def test_grouped_row_save_works_while_resumed(tmp_path: Path) -> None:
     )
 
     app.run()
+    _show_all_primary_states(app)
+    app.run()
 
     group = app.expander[0]
     _find_selectbox(group, "category_select_0").set_value("D")
@@ -381,7 +414,7 @@ def test_reload_original_clears_stale_widget_state(tmp_path: Path) -> None:
     )
 
     app.run()
-    app.sidebar.checkbox[0].uncheck()
+    _show_all_primary_states(app)
     app.run()
 
     group = app.expander[0]
@@ -394,7 +427,7 @@ def test_reload_original_clears_stale_widget_state(tmp_path: Path) -> None:
 
     assert Path(app.session_state["source_path"]) == proposed
     assert app.session_state["df"].loc[0, "category_selected"] == "C"
-    app.sidebar.checkbox[0].uncheck()
+    _show_all_primary_states(app)
     app.run()
     group = app.expander[0]
     assert _find_selectbox(group, "category_select_0").value == "C"
@@ -488,7 +521,7 @@ def test_defaulted_unique_rows_can_be_shown_for_review(tmp_path: Path) -> None:
     assert len(app.expander) == 0
     app.sidebar.radio[0].set_value("Row")
     app.run()
-    app.sidebar.checkbox[0].uncheck()
+    _show_all_primary_states(app)
     app.run()
 
     assert len(app.expander) == 1
@@ -537,9 +570,9 @@ def test_reviewed_only_filter_can_show_reviewed_rows(tmp_path: Path) -> None:
     app.run()
     app.sidebar.radio[0].set_value("Row")
     app.run()
-    app.sidebar.checkbox[0].uncheck()
+    _show_all_primary_states(app)
     app.run()
-    app.sidebar.selectbox[1].set_value("Reviewed only")
+    _find_multiselect_by_label(app.sidebar, "Progress tag").set_value(["resolved"])
     app.run()
 
     assert len(app.expander) == 1
@@ -553,7 +586,7 @@ def test_save_writes_map_updates_artifact(tmp_path: Path) -> None:
     )
 
     app.run()
-    app.sidebar.checkbox[0].uncheck()
+    _show_all_primary_states(app)
     app.run()
 
     group = app.expander[0]

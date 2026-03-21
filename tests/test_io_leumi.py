@@ -14,8 +14,13 @@ import ynab_il_importer.io_leumi as leumi
 import ynab_il_importer.io_leumi_xls as leumi_xls
 
 
-def _stub_apply_fingerprints(df: pd.DataFrame, use_fingerprint_map: bool = True) -> pd.DataFrame:
+def _stub_apply_fingerprints(
+    df: pd.DataFrame,
+    use_fingerprint_map: bool = True,
+    **kwargs,
+) -> pd.DataFrame:
     _ = use_fingerprint_map
+    _ = kwargs
     out = df.copy()
     text = out.get("description_clean", "").astype("string").fillna("")
     out["description_clean_norm"] = text

@@ -318,6 +318,103 @@ def test_dedupe_sources_drops_exact_card_txn_id_matches_before_weak_pairing(
     assert deduped["memo"].tolist() == ["keep me"]
 
 
+def test_dedupe_sources_retains_lineage_conflict_after_exact_import_drop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_df = pd.DataFrame(
+        [
+            {
+                "account_name": "Bank Leumi",
+                "date": "2026-03-12",
+                "outflow_ils": 7.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "dabbah",
+                "bank_txn_id": "BANK:V1:111111111111111111111111",
+                "memo": "drop me",
+            },
+            {
+                "account_name": "Bank Leumi",
+                "date": "2026-03-12",
+                "outflow_ils": 7.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "ikea",
+                "bank_txn_id": "BANK:V1:222222222222222222222222",
+                "memo": "keep me",
+            },
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "account_name": "Bank Leumi",
+                "import_id": "BANK:V1:111111111111111111111111",
+            }
+        ]
+    )
+    pairs = pd.DataFrame(
+        [
+            {
+                "account_name": "Bank Leumi",
+                "date": "2026-03-12",
+                "outflow_ils": 7.0,
+                "inflow_ils": 0.0,
+                "ynab_import_id": "BANK:V1:111111111111111111111111",
+                "ynab_fingerprint": "dabbah",
+                "ambiguous_key": False,
+            }
+        ]
+    )
+
+    monkeypatch.setattr(build_proposed_transactions.pairing, "match_pairs", lambda *_: pairs)
+
+    with pytest.warns(UserWarning) as record:
+        deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
+
+    messages = [str(item.message) for item in record]
+    assert any("exact import_id" in message for message in messages)
+    assert any("lineage conflict" in message for message in messages)
+    assert matched_pairs.equals(pairs)
+    assert deduped["memo"].tolist() == ["keep me"]
+
+
+def test_dedupe_sources_drops_fingerprint_conflict_without_lineage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_df = pd.DataFrame(
+        [
+            {
+                "account_name": "Bank Leumi",
+                "date": "2026-03-12",
+                "outflow_ils": 7.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "ikea",
+                "memo": "keep me",
+            }
+        ]
+    )
+    ynab_df = pd.DataFrame([{"account_name": "Bank Leumi", "import_id": ""}])
+    pairs = pd.DataFrame(
+        [
+            {
+                "account_name": "Bank Leumi",
+                "date": "2026-03-12",
+                "outflow_ils": 7.0,
+                "inflow_ils": 0.0,
+                "ynab_import_id": "",
+                "ynab_fingerprint": "dabbah",
+                "ambiguous_key": False,
+            }
+        ]
+    )
+
+    monkeypatch.setattr(build_proposed_transactions.pairing, "match_pairs", lambda *_: pairs)
+
+    deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
+
+    assert matched_pairs.equals(pairs)
+    assert deduped.empty
+
+
 def test_dedupe_source_overlaps_matches_immediate_debit_on_secondary_date() -> None:
     source_df = pd.DataFrame(
         [

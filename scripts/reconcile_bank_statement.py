@@ -9,6 +9,7 @@ if str(SRC) not in sys.path:
 
 import ynab_il_importer.bank_reconciliation as bank_reconciliation
 import ynab_il_importer.export as export
+import ynab_il_importer.workflow_profiles as workflow_profiles
 import ynab_il_importer.ynab_api as ynab_api
 
 
@@ -103,16 +104,23 @@ def main() -> None:
         action="store_true",
         help="PATCH eligible YNAB transactions to cleared=reconciled after validation passes.",
     )
+    parser.add_argument("--profile", default="", help="Workflow profile (for budget defaults).")
+    parser.add_argument("--budget-id", dest="budget_id", default="", help="Override YNAB budget/plan id.")
     args = parser.parse_args()
 
     bank_path = Path(args.bank)
     report_path = (
         Path(args.report_out) if args.report_out else _default_report_out(bank_path)
     )
+    profile = workflow_profiles.resolve_profile(args.profile or None)
+    plan_id = workflow_profiles.resolve_budget_id(
+        profile=profile.name,
+        budget_id=args.budget_id,
+    )
 
     bank_df = bank_reconciliation.load_bank_csv(bank_path)
-    accounts = ynab_api.fetch_accounts()
-    transactions = ynab_api.fetch_transactions()
+    accounts = ynab_api.fetch_accounts(plan_id=plan_id or None)
+    transactions = ynab_api.fetch_transactions(plan_id=plan_id or None)
 
     result = bank_reconciliation.plan_bank_statement_reconciliation(
         bank_df,
@@ -128,7 +136,7 @@ def main() -> None:
         raise SystemExit(1)
 
     if args.execute and result["updates"]:
-        response = ynab_api.update_transactions(result["updates"])
+        response = ynab_api.update_transactions(result["updates"], plan_id=plan_id or None)
         print(f"Patched transactions: {len(response.get('transactions', []) or [])}")
 
 

@@ -512,3 +512,171 @@ def test_plan_bank_statement_reconciliation_requires_starting_balance_date_when_
     assert result["ok"] is False
     assert result["anchor_type"] == "starting_balance"
     assert "must start on the starting balance date" in result["reason"]
+
+
+def test_plan_uncleared_ynab_triage_flags_exact_unlinked_bank_match() -> None:
+    bank_df = pd.DataFrame(
+        [
+            _bank_row(
+                date="2026-03-10",
+                amount_ils=200.0,
+                balance_ils=1200.0,
+                description_raw="BIT DANA",
+                index=1,
+            )
+        ]
+    )
+    ynab_transactions = [
+        {
+            "id": "txn-1",
+            "account_id": "acc-bank",
+            "date": "2026-03-10",
+            "amount": 200000,
+            "memo": "Dana Bit",
+            "payee_name": "Pilates: Private",
+            "import_id": "",
+            "cleared": "uncleared",
+            "approved": True,
+        }
+    ]
+
+    result = bank_reconciliation.plan_uncleared_ynab_triage(
+        bank_df,
+        _accounts(),
+        ynab_transactions,
+    )
+
+    assert result["candidate_source_match_count"] == 1
+    assert result["report"].loc[0, "triage"] == "candidate_source_match"
+    assert result["report"].loc[0, "reason"] == (
+        "exact date+amount bank row exists and is not yet linked"
+    )
+    assert result["report"].loc[0, "suggested_action"] == "run_sync_or_accept_match"
+
+
+def test_plan_uncleared_ynab_triage_flags_recent_pending_without_bank_match() -> None:
+    bank_df = pd.DataFrame(
+        [
+            _bank_row(
+                date="2026-03-10",
+                amount_ils=-10.0,
+                balance_ils=990.0,
+                description_raw="FEE",
+                index=1,
+            )
+        ]
+    )
+    ynab_transactions = [
+        {
+            "id": "txn-1",
+            "account_id": "acc-bank",
+            "date": "2026-03-09",
+            "amount": 200000,
+            "memo": "Recent inflow",
+            "payee_name": "Pilates",
+            "import_id": "",
+            "cleared": "uncleared",
+            "approved": True,
+        }
+    ]
+
+    result = bank_reconciliation.plan_uncleared_ynab_triage(
+        bank_df,
+        _accounts(),
+        ynab_transactions,
+        pending_window_days=3,
+    )
+
+    assert result["recent_pending_count"] == 1
+    assert result["report"].loc[0, "triage"] == "recent_pending"
+    assert result["report"].loc[0, "suggested_action"] == "wait_for_bank"
+
+
+def test_plan_uncleared_ynab_triage_flags_stale_orphan_without_bank_match() -> None:
+    bank_df = pd.DataFrame(
+        [
+            _bank_row(
+                date="2026-03-10",
+                amount_ils=-10.0,
+                balance_ils=990.0,
+                description_raw="FEE",
+                index=1,
+            )
+        ]
+    )
+    ynab_transactions = [
+        {
+            "id": "txn-1",
+            "account_id": "acc-bank",
+            "date": "2026-02-20",
+            "amount": 200000,
+            "memo": "Old inflow",
+            "payee_name": "Pilates",
+            "import_id": "",
+            "cleared": "uncleared",
+            "approved": True,
+        }
+    ]
+
+    result = bank_reconciliation.plan_uncleared_ynab_triage(
+        bank_df,
+        _accounts(),
+        ynab_transactions,
+        pending_window_days=3,
+    )
+
+    assert result["stale_orphan_count"] == 1
+    assert result["report"].loc[0, "triage"] == "stale_orphan"
+    assert result["report"].loc[0, "suggested_action"] == "review_for_delete"
+
+
+def test_plan_uncleared_ynab_triage_flags_link_conflict() -> None:
+    bank_df = pd.DataFrame(
+        [
+            _bank_row(
+                date="2026-03-10",
+                amount_ils=200.0,
+                balance_ils=1200.0,
+                description_raw="BIT DANA",
+                index=1,
+            )
+        ]
+    )
+    bank_txn_id = bank_df.loc[0, "bank_txn_id"]
+    ynab_transactions = [
+        {
+            "id": "txn-linked",
+            "account_id": "acc-bank",
+            "date": "2026-03-10",
+            "amount": 200000,
+            "memo": "Different row",
+            "payee_name": "Bit",
+            "import_id": bank_txn_id,
+            "cleared": "cleared",
+            "approved": True,
+        },
+        {
+            "id": "txn-uncleared",
+            "account_id": "acc-bank",
+            "date": "2026-03-10",
+            "amount": 200000,
+            "memo": "Dana Bit",
+            "payee_name": "Pilates: Private",
+            "import_id": "",
+            "cleared": "uncleared",
+            "approved": True,
+        },
+    ]
+
+    result = bank_reconciliation.plan_uncleared_ynab_triage(
+        bank_df,
+        _accounts(),
+        ynab_transactions,
+    )
+
+    assert result["candidate_source_match_count"] == 1
+    assert result["report"].loc[0, "triage"] == "candidate_source_match"
+    assert result["report"].loc[0, "reason"] == (
+        "exact date+amount bank row exists but is already linked elsewhere"
+    )
+    assert result["report"].loc[0, "suggested_action"] == "investigate_link_conflict"

@@ -9,6 +9,7 @@ if str(SRC) not in sys.path:
 
 import ynab_il_importer.card_reconciliation as card_reconciliation
 import ynab_il_importer.export as export
+import ynab_il_importer.workflow_profiles as workflow_profiles
 import ynab_il_importer.ynab_api as ynab_api
 
 
@@ -72,12 +73,12 @@ def main() -> None:
     parser.add_argument(
         "--source",
         required=True,
-        help="New current card snapshot (.xlsx or normalized .csv).",
+        help="New current card snapshot (.xlsx/.html or normalized .csv).",
     )
     parser.add_argument(
         "--previous",
         default="",
-        help="Previous finished-month card snapshot (.xlsx or normalized .csv).",
+        help="Previous finished-month card snapshot (.xlsx/.html or normalized .csv).",
     )
     parser.add_argument(
         "--report-out",
@@ -95,19 +96,26 @@ def main() -> None:
         dest="allow_reconciled_source",
         help="Skip the block when source rows are already reconciled (e.g. a later cycle ran first).",
     )
+    parser.add_argument("--profile", default="", help="Workflow profile (for budget defaults).")
+    parser.add_argument("--budget-id", dest="budget_id", default="", help="Override YNAB budget/plan id.")
     args = parser.parse_args()
 
     source_path = Path(args.source)
     report_path = (
         Path(args.report_out) if args.report_out else _default_report_out(source_path)
     )
+    profile = workflow_profiles.resolve_profile(args.profile or None)
+    plan_id = workflow_profiles.resolve_budget_id(
+        profile=profile.name,
+        budget_id=args.budget_id,
+    )
 
     source_df = card_reconciliation.load_card_source(source_path)
     previous_df = (
         card_reconciliation.load_card_source(args.previous) if args.previous else None
     )
-    accounts = ynab_api.fetch_accounts()
-    transactions = ynab_api.fetch_transactions()
+    accounts = ynab_api.fetch_accounts(plan_id=plan_id or None)
+    transactions = ynab_api.fetch_transactions(plan_id=plan_id or None)
 
     result = card_reconciliation.plan_card_cycle_reconciliation(
         account_name=args.account,
@@ -124,7 +132,7 @@ def main() -> None:
         raise SystemExit(1)
 
     if args.execute and result["updates"]:
-        response = ynab_api.update_transactions(result["updates"])
+        response = ynab_api.update_transactions(result["updates"], plan_id=plan_id or None)
         print(f"Patched transactions: {len(response.get('transactions', []) or [])}")
 
 

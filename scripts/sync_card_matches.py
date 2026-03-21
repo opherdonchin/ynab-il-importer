@@ -9,6 +9,7 @@ if str(SRC) not in sys.path:
 
 import ynab_il_importer.card_reconciliation as card_reconciliation
 import ynab_il_importer.export as export
+import ynab_il_importer.workflow_profiles as workflow_profiles
 import ynab_il_importer.ynab_api as ynab_api
 
 
@@ -51,7 +52,11 @@ def main() -> None:
         description="Stamp card_txn_id lineage onto existing YNAB card transactions and clear matches."
     )
     parser.add_argument("--account", required=True, help="Target YNAB card account name.")
-    parser.add_argument("--source", required=True, help="Card snapshot (.xlsx or normalized .csv).")
+    parser.add_argument(
+        "--source",
+        required=True,
+        help="Card snapshot (.xlsx/.html or normalized .csv).",
+    )
     parser.add_argument(
         "--report-out",
         default="",
@@ -62,14 +67,21 @@ def main() -> None:
         action="store_true",
         help="PATCH YNAB transactions after writing the dry-run report.",
     )
+    parser.add_argument("--profile", default="", help="Workflow profile (for budget defaults).")
+    parser.add_argument("--budget-id", dest="budget_id", default="", help="Override YNAB budget/plan id.")
     args = parser.parse_args()
 
     source_path = Path(args.source)
     report_path = Path(args.report_out) if args.report_out else _default_report_out(source_path)
+    profile = workflow_profiles.resolve_profile(args.profile or None)
+    plan_id = workflow_profiles.resolve_budget_id(
+        profile=profile.name,
+        budget_id=args.budget_id,
+    )
 
     source_df = card_reconciliation.load_card_source(source_path)
-    accounts = ynab_api.fetch_accounts()
-    transactions = ynab_api.fetch_transactions()
+    accounts = ynab_api.fetch_accounts(plan_id=plan_id or None)
+    transactions = ynab_api.fetch_transactions(plan_id=plan_id or None)
 
     result = card_reconciliation.plan_card_match_sync(
         account_name=args.account,
@@ -81,7 +93,7 @@ def main() -> None:
     _print_summary(result, report_path, execute=args.execute)
 
     if args.execute and result["updates"]:
-        response = ynab_api.update_transactions(result["updates"])
+        response = ynab_api.update_transactions(result["updates"], plan_id=plan_id or None)
         print(f"Patched transactions: {len(response.get('transactions', []) or [])}")
 
 

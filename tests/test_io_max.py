@@ -178,7 +178,7 @@ def test_read_card_combines_max_sections_and_preserves_source_fields(
     )
     monkeypatch.setattr(
         "ynab_il_importer.io_max.fingerprint.apply_fingerprints",
-        lambda df, use_fingerprint_map=True: df.assign(
+        lambda df, use_fingerprint_map=True, **kwargs: df.assign(
             description_clean_norm=df["description_clean"].astype("string").fillna(""),
             fingerprint=df["description_clean"].astype("string").fillna(""),
         ),
@@ -238,7 +238,7 @@ def test_read_card_zero_pads_three_digit_card_suffixes(
     )
     monkeypatch.setattr(
         "ynab_il_importer.io_max.fingerprint.apply_fingerprints",
-        lambda df, use_fingerprint_map=True: df.assign(
+        lambda df, use_fingerprint_map=True, **kwargs: df.assign(
             description_clean_norm=df["description_clean"].astype("string").fillna(""),
             fingerprint=df["description_clean"].astype("string").fillna(""),
         ),
@@ -311,7 +311,7 @@ def test_read_card_flips_refund_sign_when_export_is_charge_positive(
     )
     monkeypatch.setattr(
         "ynab_il_importer.io_max.fingerprint.apply_fingerprints",
-        lambda df, use_fingerprint_map=True: df.assign(
+        lambda df, use_fingerprint_map=True, **kwargs: df.assign(
             description_clean_norm=df["description_clean"].astype("string").fillna(""),
             fingerprint=df["description_clean"].astype("string").fillna(""),
         ),
@@ -402,7 +402,7 @@ def test_read_card_flips_when_positive_rows_are_majority_even_if_negative_sum_do
     )
     monkeypatch.setattr(
         "ynab_il_importer.io_max.fingerprint.apply_fingerprints",
-        lambda df, use_fingerprint_map=True: df.assign(
+        lambda df, use_fingerprint_map=True, **kwargs: df.assign(
             description_clean_norm=df["description_clean"].astype("string").fillna(""),
             fingerprint=df["description_clean"].astype("string").fillna(""),
         ),

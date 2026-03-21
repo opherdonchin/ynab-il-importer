@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import sys
 import warnings
+from collections.abc import Iterable
 from pathlib import Path
 
 import pandas as pd
@@ -15,6 +16,7 @@ import ynab_il_importer.export as export
 import ynab_il_importer.pairing as pairing
 import ynab_il_importer.proposed_defaults as proposed_defaults
 import ynab_il_importer.rules as rules_mod
+import ynab_il_importer.workflow_profiles as workflow_profiles
 
 
 def _load_csvs(paths: list[Path]) -> pd.DataFrame:
@@ -232,10 +234,52 @@ def _dedupe_sources(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> tuple[pd.
             UserWarning,
         )
 
-    keys = pairs.loc[~ambiguous_mask, key_cols].drop_duplicates().copy()
-    keys["date"] = pd.to_datetime(keys["date"], errors="coerce").dt.date
-    keys["outflow_ils"] = pd.to_numeric(keys["outflow_ils"], errors="coerce").fillna(0.0)
-    keys["inflow_ils"] = pd.to_numeric(keys["inflow_ils"], errors="coerce").fillna(0.0)
+    non_ambiguous_pairs = pairs.loc[~ambiguous_mask].copy()
+    if non_ambiguous_pairs.empty:
+        return source_remaining.copy(), pairs
+
+    non_ambiguous_pairs["date"] = pd.to_datetime(
+        non_ambiguous_pairs["date"], errors="coerce"
+    ).dt.date
+    non_ambiguous_pairs["outflow_ils"] = pd.to_numeric(
+        non_ambiguous_pairs["outflow_ils"], errors="coerce"
+    ).fillna(0.0)
+    non_ambiguous_pairs["inflow_ils"] = pd.to_numeric(
+        non_ambiguous_pairs["inflow_ils"], errors="coerce"
+    ).fillna(0.0)
+    non_ambiguous_pairs["ynab_import_id"] = (
+        non_ambiguous_pairs.get(
+            "ynab_import_id",
+            pd.Series([""] * len(non_ambiguous_pairs), index=non_ambiguous_pairs.index),
+        )
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
+    non_ambiguous_pairs["ynab_fingerprint"] = (
+        non_ambiguous_pairs.get(
+            "ynab_fingerprint",
+            pd.Series([""] * len(non_ambiguous_pairs), index=non_ambiguous_pairs.index),
+        )
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
+    pair_summary = (
+        non_ambiguous_pairs.groupby(key_cols, dropna=False)
+        .agg(
+            ynab_import_ids=(
+                "ynab_import_id",
+                lambda values: sorted({str(v).strip() for v in values if str(v).strip()}),
+            ),
+            ynab_fingerprints=(
+                "ynab_fingerprint",
+                lambda values: sorted({str(v).strip() for v in values if str(v).strip()}),
+            ),
+        )
+        .reset_index()
+    )
+    pair_summary["_pair_key_hit"] = True
 
     source_compare = source_remaining.copy()
     source_compare["date"] = pd.to_datetime(source_compare["date"], errors="coerce").dt.date
@@ -245,9 +289,19 @@ def _dedupe_sources(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> tuple[pd.
     source_compare["inflow_ils"] = pd.to_numeric(
         source_compare["inflow_ils"], errors="coerce"
     ).fillna(0.0)
-
-    merged = source_compare.merge(keys, on=key_cols, how="left", indicator=True)
-    is_dup = merged["_merge"] == "both"
+    source_compare["source_lineage_id"] = source_compare.apply(_source_lineage_id, axis=1)
+    merged = source_compare.merge(pair_summary, on=key_cols, how="left")
+    has_key_hit = merged["_pair_key_hit"].eq(True)
+    protected_mask = merged.apply(_protect_from_weak_dedupe, axis=1)
+    is_dup = has_key_hit & ~protected_mask
+    protected_count = int((has_key_hit & protected_mask).sum())
+    if protected_count:
+        warnings.warn(
+            "Retaining "
+            f"{protected_count} source rows with lineage conflict "
+            "against weak YNAB date+amount matches.",
+            UserWarning,
+        )
     deduped = source_remaining.reset_index(drop=True).loc[~is_dup.to_numpy()].copy()
     return deduped, pairs
 
@@ -380,6 +434,52 @@ def _candidate_import_ids(source_df: pd.DataFrame) -> pd.Series:
         .reindex(source_df.index)
         .astype("string")
     )
+
+
+def _source_lineage_id(row: pd.Series) -> str:
+    bank_txn_id = _optional_text(row.get("bank_txn_id", ""))
+    if bank_txn_id:
+        return bank_txn_id
+    return _optional_text(row.get("card_txn_id", ""))
+
+
+def _to_string_set(value: object) -> set[str]:
+    if value is None:
+        return set()
+    if isinstance(value, (str, bytes)):
+        text = _optional_text(value)
+        return {text} if text else set()
+    if isinstance(value, Iterable):
+        out = {_optional_text(item) for item in value}
+        out.discard("")
+        return out
+    if pd.isna(value):
+        return set()
+    text = _optional_text(value)
+    return {text} if text else set()
+
+
+def _protect_from_weak_dedupe(row: pd.Series) -> bool:
+    if not bool(row.get("_pair_key_hit", False)):
+        return False
+
+    source_lineage = _optional_text(row.get("source_lineage_id", ""))
+    ynab_import_ids = _to_string_set(row.get("ynab_import_ids", []))
+
+    lineage_conflict = (
+        bool(source_lineage)
+        and bool(ynab_import_ids)
+        and source_lineage not in ynab_import_ids
+    )
+    return lineage_conflict
+
+
+def _optional_text(value: object) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, (str, bytes)) and pd.isna(value):
+        return ""
+    return str(value).strip()
 def _account_key_candidates(row: pd.Series, *, id_col: str, name_col: str) -> list[str]:
     candidates: list[str] = []
     account_id = str(row.get(id_col, "")).strip()
@@ -393,13 +493,17 @@ def _account_key_candidates(row: pd.Series, *, id_col: str, name_col: str) -> li
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build proposed_transactions.csv")
+    parser.add_argument("--profile", default="", help="Workflow profile (for default map paths).")
     parser.add_argument("--source", action="append", default=[])
     parser.add_argument("--source-dir", action="append", default=[])
     parser.add_argument("--ynab", required=True)
-    parser.add_argument("--map", dest="map_path", default=Path("mappings/payee_map.csv"))
+    parser.add_argument("--map", dest="map_path", type=Path, default=None)
     parser.add_argument("--out", dest="out_path", default="outputs/proposed_transactions.csv")
     parser.add_argument("--pairs-out", dest="pairs_out", default="")
     args = parser.parse_args()
+
+    profile = workflow_profiles.resolve_profile(args.profile or None)
+    map_path = args.map_path or profile.payee_map_path
 
     source_paths = _expand_source_paths(
         [Path(p) for p in args.source],
@@ -419,7 +523,7 @@ def main() -> None:
         export.write_dataframe(pairs, args.pairs_out)
         print(export.wrote_message(args.pairs_out, len(pairs)))
 
-    rules = rules_mod.load_payee_map(args.map_path)
+    rules = rules_mod.load_payee_map(map_path)
     out = deduped.copy()
     out["transaction_id"] = out.apply(_make_transaction_id, axis=1)
     out["memo"] = out.get("raw_text", out.get("description_raw", ""))

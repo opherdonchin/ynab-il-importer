@@ -869,6 +869,105 @@ def test_plan_card_match_sync_stamps_unique_date_amount_and_clears_uncleared(
     assert report.loc[0, "action"] == "stamp+clear"
 
 
+def test_plan_card_match_sync_stamps_same_date_memo_exact_candidate(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "current.xlsx"
+    _write_snapshot(
+        source_path,
+        period="04/2026",
+        billed_rows=[
+            _billed_row(
+                date="09-03-2026",
+                merchant="MERCHANT A",
+                amount="100",
+                charge_date="10-04-2026",
+            )
+        ],
+    )
+    source_df = card_reconciliation.load_card_source(source_path)
+    source_rows = card_reconciliation._target_source_rows(source_df, "Opher x9922")
+
+    transactions = [
+        _txn_manual(
+            txn_id="txn-1",
+            date="2026-03-09",
+            amount_ils=100.0,
+            payee_name="Canonical Payee",
+            cleared="uncleared",
+            memo="MERCHANT A",
+        )
+    ]
+
+    result = card_reconciliation.plan_card_match_sync(
+        account_name="Opher x9922",
+        source_df=source_df,
+        accounts=_accounts(),
+        transactions=transactions,
+    )
+
+    assert result["update_count"] == 1
+    assert result["updates"] == [
+        {
+            "id": "txn-1",
+            "memo": f"MERCHANT A\n[ynab-il card_txn_id={source_rows.iloc[0]['card_txn_id']}]",
+            "cleared": "cleared",
+        }
+    ]
+    report = result["report"]
+    assert report.loc[0, "resolved_via"] == "date_amount_unique_memo_exact"
+    assert report.loc[0, "action"] == "stamp+clear"
+
+
+def test_plan_card_match_sync_stamps_secondary_date_amount_match_and_clears_uncleared(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "current.xlsx"
+    _write_snapshot(
+        source_path,
+        period="04/2026",
+        billed_rows=[
+            _billed_row(
+                date="09-03-2026",
+                merchant="MERCHANT A",
+                amount="100",
+                charge_date="10-04-2026",
+            )
+        ],
+    )
+    source_df = card_reconciliation.load_card_source(source_path)
+    source_rows = card_reconciliation._target_source_rows(source_df, "Opher x9922")
+
+    transactions = [
+        _txn_manual(
+            txn_id="txn-1",
+            date="2026-04-10",
+            amount_ils=100.0,
+            payee_name="Canonical Payee",
+            cleared="uncleared",
+        )
+    ]
+
+    result = card_reconciliation.plan_card_match_sync(
+        account_name="Opher x9922",
+        source_df=source_df,
+        accounts=_accounts(),
+        transactions=transactions,
+    )
+
+    assert result["update_count"] == 1
+    assert result["updates"] == [
+        {
+            "id": "txn-1",
+            "memo": f"[ynab-il card_txn_id={source_rows.iloc[0]['card_txn_id']}]",
+            "cleared": "cleared",
+        }
+    ]
+    report = result["report"]
+    assert report.loc[0, "resolved_via"] == "secondary_date_amount_unique"
+    assert report.loc[0, "action"] == "stamp+clear"
+
+
 def test_plan_card_match_sync_stamps_legacy_import_id_match(tmp_path: Path) -> None:
     source_path = tmp_path / "current.xlsx"
     _write_snapshot(
@@ -958,6 +1057,48 @@ def test_plan_card_match_sync_noops_on_exact_lineage(tmp_path: Path) -> None:
     report = result["report"]
     assert report.loc[0, "resolved_via"] == "import_id"
     assert report.loc[0, "action"] == "noop"
+
+
+def test_source_only_clears_secondary_date_memo_exact_match(tmp_path: Path) -> None:
+    source_path = tmp_path / "current.xlsx"
+    _write_snapshot(
+        source_path,
+        period="04/2026",
+        billed_rows=[
+            _billed_row(
+                date="09-03-2026",
+                merchant="MERCHANT A",
+                amount="100",
+                charge_date="10-04-2026",
+            )
+        ],
+    )
+    source_df = card_reconciliation.load_card_source(source_path)
+
+    transactions = [
+        _txn_manual(
+            txn_id="txn-1",
+            date="2026-04-10",
+            amount_ils=100.0,
+            payee_name="Canonical Payee",
+            cleared="uncleared",
+            memo="MERCHANT A",
+        )
+    ]
+
+    result = card_reconciliation.plan_card_cycle_reconciliation(
+        account_name="Opher x9922",
+        source_df=source_df,
+        accounts=_accounts(),
+        transactions=transactions,
+    )
+
+    assert result["ok"] is True
+    assert result["update_count"] == 1
+    assert result["updates"] == [{"id": "txn-1", "cleared": "cleared"}]
+    report = result["report"]
+    assert report.loc[0, "resolved_via"] == "secondary_date_memo_exact"
+    assert report.loc[0, "action"] == "clear"
 
 
 def test_plan_card_match_sync_refuses_conflicting_linked_candidate(

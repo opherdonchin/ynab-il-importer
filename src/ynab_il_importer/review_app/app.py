@@ -16,6 +16,7 @@ import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.review_app.state as review_state
 import ynab_il_importer.review_app.validation as review_validation
+import ynab_il_importer.workflow_profiles as workflow_profiles
 
 
 DEFAULT_SOURCE = Path("outputs/proposed_transactions.csv")
@@ -80,6 +81,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="YNAB categories CSV (for category dropdowns).",
     )
     parser.add_argument(
+        "--profile",
+        default="",
+        help="Workflow profile used to resolve default category file paths.",
+    )
+    parser.add_argument(
         "--resume",
         nargs="?",
         const=DEFAULT_RESUME_SENTINEL,
@@ -97,6 +103,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 def _parse_cli_args() -> argparse.Namespace:
     parser = _build_arg_parser()
     return parser.parse_known_args(sys.argv[1:])[0]
+
+
+def _effective_categories_path(
+    *, categories_path: str, profile: str = "", categories_flag: bool | None = None
+) -> Path:
+    if categories_flag is None:
+        categories_flag = _cli_has_flag("--categories")
+    if categories_flag:
+        return Path(categories_path)
+    resolved_profile = workflow_profiles.resolve_profile(profile or None)
+    return resolved_profile.categories_path
 
 
 def _clear_editor_state() -> None:
@@ -197,12 +214,16 @@ def _init_from_cli() -> None:
     args = _parse_cli_args()
     input_path = Path(args.input_path)
     output_path = Path(args.output_path)
+    categories_path = _effective_categories_path(
+        categories_path=args.categories_path,
+        profile=getattr(args, "profile", "") or "",
+    )
     if not _cli_has_flag("--out"):
         output_path = _default_reviewed_path(input_path)
 
     st.session_state.setdefault("source_path", str(input_path))
     st.session_state.setdefault("save_path", str(output_path))
-    st.session_state.setdefault("category_path", str(args.categories_path))
+    st.session_state.setdefault("category_path", str(categories_path))
     st.session_state.setdefault("control_dir", str(getattr(args, "control_dir", "") or ""))
 
     if input_path.exists() and "df_base" not in st.session_state:
@@ -299,6 +320,285 @@ def _render_status_badges(*, unsaved: bool, changed: bool, reviewed: bool) -> No
         )
     if badges:
         st.markdown(" ".join(badges), unsafe_allow_html=True)
+
+
+_PRIMARY_STATE_META: dict[tuple[str, str], dict[str, str]] = {
+    ("Not ready", "Unsaved"): {
+        "short": "NR/US",
+        "label": "Not ready • Unsaved",
+        "color": "#b91c1c",
+        "bg": "#fef2f2",
+        "css": "txn-pri-nr-us",
+    },
+    ("Not ready", "Saved"): {
+        "short": "NR/S",
+        "label": "Not ready • Saved",
+        "color": "#6d28d9",
+        "bg": "#f5f3ff",
+        "css": "txn-pri-nr-s",
+    },
+    ("Ready", "Unsaved"): {
+        "short": "R/US",
+        "label": "Ready • Unsaved",
+        "color": "#b45309",
+        "bg": "#fffbeb",
+        "css": "txn-pri-r-us",
+    },
+    ("Ready", "Saved"): {
+        "short": "R/S",
+        "label": "Ready • Saved",
+        "color": "#15803d",
+        "bg": "#f0fdf4",
+        "css": "txn-pri-r-s",
+    },
+}
+
+
+def _primary_state_meta(readiness: str, save_state: str) -> dict[str, str]:
+    return _PRIMARY_STATE_META.get(
+        (str(readiness or ""), str(save_state or "")),
+        {
+            "short": "UNK",
+            "label": "Unknown state",
+            "color": "#374151",
+            "bg": "#f3f4f6",
+            "css": "txn-pri-unk",
+        },
+    )
+
+
+def _inject_primary_state_css() -> None:
+    if st.session_state.get("_primary_state_css_injected"):
+        return
+    st.markdown(
+        """
+<style>
+.txn-state-anchor { display: none; }
+.txn-state-anchor.txn-pri-nr-us + div[data-testid="stExpander"] {
+  border: 2px solid #b91c1c;
+  border-radius: 0.5rem;
+}
+.txn-state-anchor.txn-pri-nr-s + div[data-testid="stExpander"] {
+  border: 2px solid #6d28d9;
+  border-radius: 0.5rem;
+}
+.txn-state-anchor.txn-pri-r-us + div[data-testid="stExpander"] {
+  border: 2px solid #b45309;
+  border-radius: 0.5rem;
+}
+.txn-state-anchor.txn-pri-r-s + div[data-testid="stExpander"] {
+  border: 2px solid #15803d;
+  border-radius: 0.5rem;
+}
+</style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.session_state["_primary_state_css_injected"] = True
+
+
+def _render_primary_state_anchor(readiness: str, save_state: str) -> None:
+    css = _primary_state_meta(readiness, save_state)["css"]
+    st.markdown(f"<div class='txn-state-anchor {css}'></div>", unsafe_allow_html=True)
+
+
+def _render_primary_state_banner(readiness: str, save_state: str) -> None:
+    meta = _primary_state_meta(readiness, save_state)
+    st.markdown(
+        (
+            "<div style='"
+            f"border:1px solid {meta['color']};"
+            f"background:{meta['bg']};"
+            "border-radius:6px;"
+            "padding:0.25rem 0.5rem;"
+            "margin:0.1rem 0 0.5rem 0;"
+            "'>"
+            f"<span style='color:{meta['color']};font-weight:700;'>{meta['label']}</span>"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def _render_primary_state_strip(readiness: str, save_state: str) -> None:
+    meta = _primary_state_meta(readiness, save_state)
+    st.markdown(
+        (
+            "<div style='"
+            f"height:0.28rem;background:{meta['color']};"
+            "border-radius:4px;margin:0.05rem 0 0.15rem 0;"
+            "'></div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def _dominant_group_primary_state(
+    readiness: pd.Series, save_state: pd.Series
+) -> tuple[str, str]:
+    priority = [
+        ("Not ready", "Unsaved"),
+        ("Not ready", "Saved"),
+        ("Ready", "Unsaved"),
+        ("Ready", "Saved"),
+    ]
+    for ready_value, save_value in priority:
+        mask = readiness.eq(ready_value) & save_state.eq(save_value)
+        if bool(mask.any()):
+            return ready_value, save_value
+    return "Ready", "Unsaved"
+
+
+def _render_secondary_tag_badges(
+    *, inference: str, progress: str, persistence: str
+) -> None:
+    inference_colors = {
+        "unrecognized": "#6b7280",
+        "missing": "#b91c1c",
+        "ambiguous": "#7c3aed",
+        "unique": "#0369a1",
+    }
+    progress_colors = {"unchanged": "#6b7280", "resolved": "#2563eb"}
+    persistence_colors = {"unsaved": "#b45309", "saved": "#15803d"}
+    inf = str(inference or "").strip().lower()
+    prog = str(progress or "").strip().lower()
+    pers = str(persistence or "").strip().lower()
+
+    spans = [
+        (
+            f"<span style='color:{inference_colors.get(inf, '#374151')};"
+            "font-weight:600;'>"
+            f"inference: {inf or 'unknown'}</span>"
+        ),
+        (
+            f"<span style='color:{progress_colors.get(prog, '#374151')};"
+            "font-weight:600;'>"
+            f"progress: {prog or 'unknown'}</span>"
+        ),
+        (
+            f"<span style='color:{persistence_colors.get(pers, '#374151')};"
+            "font-weight:600;'>"
+            f"persistence: {pers or 'unknown'}</span>"
+        ),
+    ]
+    st.markdown(" | ".join(spans), unsafe_allow_html=True)
+
+
+def _row_key_series(df: pd.DataFrame) -> pd.Series:
+    if "transaction_id" not in df.columns:
+        return pd.Series(df.index.astype("string"), index=df.index, dtype="string")
+    txn_id = df["transaction_id"].astype("string").fillna("")
+    occurrence = txn_id.groupby(txn_id).cumcount().astype("string")
+    return txn_id + "|" + occurrence
+
+
+def _required_category_missing_mask(df: pd.DataFrame) -> pd.Series:
+    payee = review_state.series_or_default(df, "payee_selected").str.strip()
+    category = review_state.series_or_default(df, "category_selected").str.strip()
+    transfer = payee.map(review_model.is_transfer_payee)
+    return category.eq("") & ~transfer
+
+
+def _ready_mask(df: pd.DataFrame) -> pd.Series:
+    payee = review_state.series_or_default(df, "payee_selected").str.strip()
+    return payee.ne("") & ~_required_category_missing_mask(df)
+
+
+def _derive_inference_tags(df: pd.DataFrame) -> pd.Series:
+    match_status = review_state.series_or_default(df, "match_status").str.strip().str.lower()
+    payee = review_state.series_or_default(df, "payee_selected").str.strip()
+    missing_required = payee.eq("") | _required_category_missing_mask(df)
+
+    inferred = pd.Series(["unique"] * len(df), index=df.index, dtype="string")
+    inferred = inferred.where(~match_status.eq("none"), "unrecognized")
+    inferred = inferred.where(~match_status.eq("ambiguous"), "ambiguous")
+    inferred = inferred.where(
+        ~(~match_status.isin(["none", "ambiguous"]) & missing_required), "missing"
+    )
+    unknown = (
+        ~match_status.isin(["", "none", "ambiguous", "unique"])
+        & ~missing_required
+    )
+    inferred = inferred.where(~unknown, match_status)
+    return inferred
+
+
+def _initial_inference_tags(df: pd.DataFrame, base: pd.DataFrame | None) -> pd.Series:
+    fallback = _derive_inference_tags(df)
+    if base is None or base.empty:
+        return fallback
+
+    base_keys = _row_key_series(base)
+    base_inference = _derive_inference_tags(base)
+    base_map = pd.Series(base_inference.to_numpy(), index=base_keys)
+
+    current_keys = _row_key_series(df)
+    aligned = current_keys.map(base_map)
+    return aligned.fillna(fallback).astype("string")
+
+
+def _apply_row_filters(
+    df: pd.DataFrame,
+    *,
+    primary_ready: list[str],
+    primary_save: list[str],
+    tag_inference: list[str],
+    tag_progress: list[str],
+    tag_persistence: list[str],
+    readiness_state: pd.Series,
+    save_state: pd.Series,
+    inference_tag: pd.Series,
+    progress_tag: pd.Series,
+    persistence_tag: pd.Series,
+    fingerprint_query: str,
+    payee_query: str,
+    memo_query: str,
+    source_query: str,
+    account_query: str,
+) -> pd.DataFrame:
+    mask = pd.Series([True] * len(df), index=df.index)
+    mask &= readiness_state.isin(primary_ready)
+    mask &= save_state.isin(primary_save)
+    mask &= inference_tag.isin(tag_inference)
+    mask &= progress_tag.isin(tag_progress)
+    mask &= persistence_tag.isin(tag_persistence)
+
+    if fingerprint_query:
+        mask &= (
+            review_state.series_or_default(df, "fingerprint")
+            .str.casefold()
+            .str.contains(fingerprint_query, regex=False)
+        )
+    if payee_query:
+        payee_text = (
+            review_state.series_or_default(df, "payee_selected")
+            + " "
+            + review_state.series_or_default(df, "payee_options")
+        )
+        mask &= payee_text.str.casefold().str.contains(payee_query, regex=False)
+    if memo_query:
+        memo_text = (
+            review_state.series_or_default(df, "memo")
+            + " "
+            + review_state.series_or_default(df, "description_raw")
+            + " "
+            + review_state.series_or_default(df, "description_clean")
+        )
+        mask &= memo_text.str.casefold().str.contains(memo_query, regex=False)
+    if source_query:
+        mask &= (
+            review_state.series_or_default(df, "source")
+            .str.casefold()
+            .str.contains(source_query, regex=False)
+        )
+    if account_query:
+        mask &= (
+            review_state.series_or_default(df, "account_name")
+            .str.casefold()
+            .str.contains(account_query, regex=False)
+        )
+
+    return df[mask]
 
 
 def _merge_category_choices(*values: str) -> list[str]:
@@ -498,6 +798,7 @@ def _format_category_label(value: str, group_map: dict[str, str]) -> str:
 def main() -> None:
     st.set_page_config(page_title="YNAB Review", layout="wide")
     st.title("Proposed Transactions Review")
+    _inject_primary_state_css()
 
     _init_from_cli()
     _ensure_loaded()
@@ -528,6 +829,24 @@ def main() -> None:
     saved_mask = review_state.saved_mask(original, base, df.index)
     updated_mask = (changed_mask | reviewed_mask).astype(bool)
     inconsistent = review_validation.inconsistent_fingerprints(df)
+    ready_mask_series = _ready_mask(df)
+    readiness_state = pd.Series(
+        ["Ready" if bool(value) else "Not ready" for value in ready_mask_series],
+        index=df.index,
+        dtype="string",
+    )
+    save_state = pd.Series(
+        ["Saved" if bool(value) else "Unsaved" for value in saved_mask],
+        index=df.index,
+        dtype="string",
+    )
+    inference_tag = _initial_inference_tags(df, base)
+    progress_tag = pd.Series(
+        ["resolved" if bool(value) else "unchanged" for value in updated_mask],
+        index=df.index,
+        dtype="string",
+    )
+    persistence_tag = save_state.str.lower()
 
     base_count = len(base) if isinstance(base, pd.DataFrame) and not base.empty else len(df)
     updated_confirmed_count = int(updated_mask.sum())
@@ -618,17 +937,53 @@ def main() -> None:
         view_mode = st.radio("Mode", ["Grouped", "Row"], index=0, key="view_mode")
 
         st.header("Filters")
-        statuses = sorted(df["match_status"].astype("string").fillna("").unique().tolist())
-        default_status = statuses
-        match_status = st.multiselect("match_status", statuses, default=default_status)
-        reviewed_mode_label = st.selectbox(
-            "Review state",
-            ["All rows", "Unreviewed only", "Reviewed only"],
-            index=0,
+        st.caption("Primary dimensions")
+        primary_ready = st.multiselect(
+            "Readiness",
+            ["Not ready", "Ready"],
+            default=["Not ready"],
+            key="filter_primary_ready",
         )
-        unresolved_only = st.checkbox("Unresolved only", value=True)
-        missing_payee_only = st.checkbox("Missing payee only", value=False)
-        missing_category_only = st.checkbox("Missing category only", value=False)
+        primary_save = st.multiselect(
+            "Save state",
+            ["Unsaved", "Saved"],
+            default=["Unsaved"],
+            key="filter_primary_save",
+        )
+
+        st.caption("Secondary tags")
+        inference_canonical = ["unrecognized", "missing", "ambiguous", "unique"]
+        inference_seen = [
+            value
+            for value in inference_canonical
+            if value in set(inference_tag.astype("string").tolist())
+        ]
+        inference_extra = sorted(
+            set(inference_tag.astype("string").tolist()) - set(inference_seen)
+        )
+        inference_options = inference_seen + inference_extra
+        if not inference_options:
+            inference_options = inference_canonical.copy()
+        selected_inference = st.multiselect(
+            "Inference tag",
+            inference_options,
+            default=inference_options,
+            key="filter_tag_inference",
+        )
+        selected_progress = st.multiselect(
+            "Progress tag",
+            ["unchanged", "resolved"],
+            default=["unchanged", "resolved"],
+            key="filter_tag_progress",
+        )
+        selected_persistence = st.multiselect(
+            "Persistence tag",
+            ["unsaved", "saved"],
+            default=["unsaved", "saved"],
+            key="filter_tag_persistence",
+        )
+
+        st.caption("Text filters")
         fingerprint_query = st.text_input("Fingerprint contains")
         payee_query = st.text_input("Payee contains")
         memo_query = st.text_input("Memo/description contains")
@@ -646,6 +1001,17 @@ def main() -> None:
 
     changed_count = int(changed_mask.sum())
     reviewed_count = int(reviewed_mask.sum())
+    matrix_counts = (
+        pd.Series(
+            [
+                f"{str(readiness_state.loc[idx])} / {str(save_state.loc[idx])}"
+                for idx in df.index
+            ],
+            index=df.index,
+        )
+        .value_counts()
+        .to_dict()
+    )
     st.markdown(
         f"**Total:** {counts['total']} | "
         f"**Missing payee:** {counts['missing_payee']} | "
@@ -656,6 +1022,13 @@ def main() -> None:
         f"**Reviewed:** {reviewed_count} | "
         f"**Unsaved:** {modified}"
     )
+    st.markdown(
+        "**Primary Matrix:** "
+        f"NR/US={matrix_counts.get('Not ready / Unsaved', 0)} | "
+        f"NR/S={matrix_counts.get('Not ready / Saved', 0)} | "
+        f"R/US={matrix_counts.get('Ready / Unsaved', 0)} | "
+        f"R/S={matrix_counts.get('Ready / Saved', 0)}"
+    )
     if counts["missing_payee"] == 0 and counts["missing_category"] == 0:
         st.success("Ready for upload: payee and category are filled for all rows.")
     else:
@@ -664,24 +1037,24 @@ def main() -> None:
     if not inconsistent.empty:
         st.warning(f"Inconsistent fingerprints: {len(inconsistent)}")
 
-    filters = {
-        "match_status": match_status,
-        "reviewed_mode": {
-            "All rows": "all",
-            "Unreviewed only": "unreviewed",
-            "Reviewed only": "reviewed",
-        }[reviewed_mode_label],
-        "unresolved_only": unresolved_only,
-        "missing_payee_only": missing_payee_only,
-        "missing_category_only": missing_category_only,
-        "fingerprint_query": fingerprint_query,
-        "payee_query": payee_query,
-        "memo_query": memo_query,
-        "source_query": source_query,
-        "account_query": account_query,
-    }
-
-    filtered = review_state.apply_filters(df, filters)
+    filtered = _apply_row_filters(
+        df,
+        primary_ready=primary_ready,
+        primary_save=primary_save,
+        tag_inference=selected_inference,
+        tag_progress=selected_progress,
+        tag_persistence=selected_persistence,
+        readiness_state=readiness_state,
+        save_state=save_state,
+        inference_tag=inference_tag,
+        progress_tag=progress_tag,
+        persistence_tag=persistence_tag,
+        fingerprint_query=str(fingerprint_query or "").strip().casefold(),
+        payee_query=str(payee_query or "").strip().casefold(),
+        memo_query=str(memo_query or "").strip().casefold(),
+        source_query=str(source_query or "").strip().casefold(),
+        account_query=str(account_query or "").strip().casefold(),
+    )
 
     payee_defaults = review_state.most_common_by_fingerprint(df, "payee_selected")
     category_defaults = review_state.most_common_by_fingerprint(df, "category_selected")
@@ -704,6 +1077,9 @@ def main() -> None:
         end = start + page_size
         for idx in indices[start:end]:
             row = df.loc[idx]
+            row_readiness = str(readiness_state.loc[idx] or "")
+            row_save_state = str(save_state.loc[idx] or "")
+            primary_meta = _primary_state_meta(row_readiness, row_save_state)
             summary_text = _pick_summary_text(row)
             memo_snip = summary_text[:80] + ("…" if len(summary_text) > 80 else "")
             payee_summary = _format_option_summary(
@@ -716,16 +1092,24 @@ def main() -> None:
                 limit=2,
             )
             summary = (
-                f"{row.get('date','')} | {_format_amount(row)} | "
+                f"[{primary_meta['short']}] {row.get('date','')} | {_format_amount(row)} | "
                 f"{str(row.get('account_name', '') or '').strip()} | "
                 f"{memo_snip} | Payee: {payee_summary} | Cat: {category_summary}"
             )
             expanded = st.session_state.get("expanded_row_id") == idx
+            _render_primary_state_strip(row_readiness, row_save_state)
+            _render_primary_state_anchor(row_readiness, row_save_state)
             with st.expander(summary, expanded=expanded):
+                _render_primary_state_banner(row_readiness, row_save_state)
                 _render_status_badges(
                     unsaved=bool(unsaved_mask.loc[idx]),
                     changed=bool(changed_mask.loc[idx]),
                     reviewed=bool(reviewed_mask.loc[idx]),
+                )
+                _render_secondary_tag_badges(
+                    inference=str(inference_tag.loc[idx] or ""),
+                    progress=str(progress_tag.loc[idx] or ""),
+                    persistence=str(persistence_tag.loc[idx] or ""),
                 )
                 st.write(
                     {
@@ -734,6 +1118,10 @@ def main() -> None:
                         "memo": str(row.get("memo", "") or ""),
                         "fingerprint": row.get("fingerprint", ""),
                         "match_status": row.get("match_status", ""),
+                        "inference_tag_initial": str(inference_tag.loc[idx] or ""),
+                        "progress_tag": str(progress_tag.loc[idx] or ""),
+                        "persistence_tag": str(persistence_tag.loc[idx] or ""),
+                        "ready_state": str(readiness_state.loc[idx] or ""),
                         "source": row.get("source", ""),
                         "account": row.get("account_name", ""),
                     }
@@ -798,14 +1186,22 @@ def main() -> None:
                 limit=3,
             )
             header_fp = fp if len(fp) <= 80 else fp[:77] + "…"
+            group_ready = readiness_state.loc[group.index].astype("string")
+            group_save = save_state.loc[group.index].astype("string")
+            group_ready_value, group_save_value = _dominant_group_primary_state(
+                group_ready, group_save
+            )
+            group_primary_meta = _primary_state_meta(group_ready_value, group_save_value)
             header = (
-                f"{header_fp} ({len(group)}) | "
+                f"[{group_primary_meta['short']}] {header_fp} ({len(group)}) | "
                 f"Payee: {group_payee_summary} | Cat: {group_category_summary}"
             )
 
+            _render_primary_state_strip(group_ready_value, group_save_value)
             with st.expander(
                 header, expanded=(st.session_state.get("expanded_group_fp") == fp)
             ):
+                _render_primary_state_banner(group_ready_value, group_save_value)
                 group_unsaved = int(unsaved_mask.loc[group.index].sum())
                 group_changed = int(changed_mask.loc[group.index].sum())
                 group_saved = int(saved_mask.loc[group.index].sum())
@@ -992,6 +1388,9 @@ def main() -> None:
                 row_end = row_start + group_row_page_size
                 for idx in row_indices[row_start:row_end]:
                     row = df.loc[idx]
+                    row_readiness = str(readiness_state.loc[idx] or "")
+                    row_save_state = str(save_state.loc[idx] or "")
+                    primary_meta = _primary_state_meta(row_readiness, row_save_state)
                     summary_text = _pick_summary_text(row)
                     memo_snip = summary_text[:60] + ("…" if len(summary_text) > 60 else "")
                     payee_summary = _format_option_summary(
@@ -1006,7 +1405,7 @@ def main() -> None:
                         limit=2,
                     )
                     summary = (
-                        f"{row.get('date','')} | {_format_amount(row)} | "
+                        f"[{primary_meta['short']}] {row.get('date','')} | {_format_amount(row)} | "
                         f"{str(row.get('account_name', '') or '').strip()} | "
                         f"{memo_snip} | Payee: {payee_summary} | Cat: {category_summary}"
                     )
@@ -1014,11 +1413,19 @@ def main() -> None:
                         st.session_state.get("expanded_group_fp") == fp
                         and st.session_state.get("expanded_group_row_id") == idx
                     )
+                    _render_primary_state_strip(row_readiness, row_save_state)
+                    _render_primary_state_anchor(row_readiness, row_save_state)
                     with st.expander(summary, expanded=row_expanded):
+                        _render_primary_state_banner(row_readiness, row_save_state)
                         _render_status_badges(
                             unsaved=bool(unsaved_mask.loc[idx]),
                             changed=bool(changed_mask.loc[idx]),
                             reviewed=bool(reviewed_mask.loc[idx]),
+                        )
+                        _render_secondary_tag_badges(
+                            inference=str(inference_tag.loc[idx] or ""),
+                            progress=str(progress_tag.loc[idx] or ""),
+                            persistence=str(persistence_tag.loc[idx] or ""),
                         )
                         _render_row_controls(
                             df,

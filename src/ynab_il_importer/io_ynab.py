@@ -1,6 +1,25 @@
 from pathlib import Path
+import io
+import zipfile
 
 import pandas as pd
+
+
+def _read_ynab_csv(path: Path) -> pd.DataFrame:
+    if path.suffix.lower() == ".zip":
+        with zipfile.ZipFile(path) as archive:
+            register_members = [
+                name for name in archive.namelist() if name.lower().endswith("register.csv")
+            ]
+            if not register_members:
+                raise ValueError(f"Could not find Register.csv inside {path}")
+            if len(register_members) > 1:
+                raise ValueError(
+                    f"Multiple register CSV files found inside {path}: {register_members}"
+                )
+            raw = archive.read(register_members[0]).decode("utf-8-sig")
+        return pd.read_csv(io.StringIO(raw))
+    return pd.read_csv(path)
 
 
 def _find_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
@@ -49,10 +68,10 @@ def _infer_txn_kind(
 def is_proper_format(path: str | Path) -> bool:
     source_path = Path(path)
     suffix = source_path.suffix.lower()
-    if suffix and suffix not in {".csv"}:
+    if suffix and suffix not in {".csv", ".zip"}:
         return False
     try:
-        sample = pd.read_csv(source_path, nrows=1)
+        sample = _read_ynab_csv(source_path).head(1)
     except Exception:
         return False
     if sample.empty:
@@ -76,10 +95,14 @@ def read_raw(
     *,
     use_fingerprint_map: bool = True,
     account_map_path: str | Path | None = None,
+    fingerprint_map_path: str | Path | None = None,
+    fingerprint_log_path: str | Path | None = None,
 ) -> pd.DataFrame:
     _ = use_fingerprint_map
     _ = account_map_path
-    raw = pd.read_csv(Path(path))
+    _ = fingerprint_map_path
+    _ = fingerprint_log_path
+    raw = _read_ynab_csv(Path(path))
     raw.columns = [str(col).strip() for col in raw.columns]
 
     date_col = _find_column(raw, ["Date", "תאריך"])

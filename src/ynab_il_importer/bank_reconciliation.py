@@ -31,6 +31,32 @@ SYNC_REPORT_COLUMNS = [
     "reason",
 ]
 
+UNCLEARED_TRIAGE_COLUMNS = [
+    "ynab_row_index",
+    "ynab_transaction_id",
+    "date",
+    "amount_ils",
+    "payee_name",
+    "memo",
+    "import_id",
+    "matched_transaction_id",
+    "exact_bank_row_count",
+    "exact_unlinked_bank_row_count",
+    "exact_linked_elsewhere_count",
+    "near_bank_row_count",
+    "near_unlinked_bank_row_count",
+    "near_linked_elsewhere_count",
+    "near_window_days",
+    "days_from_latest_bank_row",
+    "exact_bank_dates",
+    "near_bank_dates",
+    "exact_bank_summary",
+    "near_bank_summary",
+    "triage",
+    "reason",
+    "suggested_action",
+]
+
 RECONCILIATION_REPORT_COLUMNS = [
     "row_index",
     "date",
@@ -334,6 +360,16 @@ def _lineage_maps(
     return import_map, memo_map, ref_map
 
 
+def _linked_row_indexes_for_bank_txn_id(
+    bank_txn_id: str,
+    import_map: dict[str, list[int]],
+    memo_map: dict[str, list[int]],
+) -> list[int]:
+    linked = set(import_map.get(bank_txn_id, []))
+    linked.update(memo_map.get(bank_txn_id, []))
+    return sorted(linked)
+
+
 def _resolve_exact_lineage(
     bank_row: pd.Series,
     ynab_df: pd.DataFrame,
@@ -457,6 +493,78 @@ def _lineage_conflict_summary(
     return " || ".join(parts)
 
 
+def _summarize_bank_row(
+    row: pd.Series,
+    *,
+    linkage_status: str = "",
+    linked_ynab_summary: str = "",
+) -> str:
+    fingerprint = _truncate_text(row.get("fingerprint", "") or "<blank>", limit=40)
+    description = _truncate_text(row.get("description_raw", "") or "<blank>", limit=60)
+    summary = (
+        f"{row.get('date')} | "
+        f"{float(row.get('amount_ils', 0.0)):.2f} | "
+        f"status={linkage_status or '<unknown>'} | "
+        f"fingerprint={fingerprint} | "
+        f"description={description}"
+    )
+    if linked_ynab_summary:
+        summary += f" | linked_ynab={linked_ynab_summary}"
+    return summary
+
+
+def _summarize_bank_candidates_for_triage(
+    bank_candidates: pd.DataFrame,
+    ynab_df: pd.DataFrame,
+    import_map: dict[str, list[int]],
+    memo_map: dict[str, list[int]],
+    *,
+    ynab_transaction_id: str,
+) -> tuple[int, int, str]:
+    if bank_candidates.empty:
+        return 0, 0, ""
+
+    unlinked_count = 0
+    linked_elsewhere_count = 0
+    parts: list[str] = []
+
+    ordered = bank_candidates.sort_values(
+        ["date", "amount_milliunits", "bank_txn_id"], na_position="last"
+    )
+    for _, bank_row in ordered.iterrows():
+        bank_txn_id = _normalize_text(bank_row.get("bank_txn_id", ""))
+        linked_row_indexes = _linked_row_indexes_for_bank_txn_id(
+            bank_txn_id, import_map, memo_map
+        )
+        if not linked_row_indexes:
+            linkage_status = "unlinked"
+            unlinked_count += 1
+            linked_ynab_summary = ""
+        else:
+            linked_transaction_ids = {
+                _normalize_text(ynab_df.loc[idx].get("id", ""))
+                for idx in linked_row_indexes
+            }
+            if linked_transaction_ids == {ynab_transaction_id}:
+                linkage_status = "linked_to_self"
+                linked_ynab_summary = ""
+            else:
+                linkage_status = "linked_elsewhere"
+                linked_elsewhere_count += 1
+                linked_ynab_summary = " || ".join(
+                    _summarize_ynab_candidate(ynab_df.loc[idx]) for idx in linked_row_indexes
+                )
+        parts.append(
+            _summarize_bank_row(
+                bank_row,
+                linkage_status=linkage_status,
+                linked_ynab_summary=linked_ynab_summary,
+            )
+        )
+
+    return unlinked_count, linked_elsewhere_count, " || ".join(parts)
+
+
 def _candidate_diagnostics(
     bank_row: pd.Series,
     ynab_df: pd.DataFrame,
@@ -559,6 +667,206 @@ def _candidate_diagnostics(
         candidate_summary,
         lineage_conflict,
     )
+
+
+def _uncleared_triage_row(
+    ynab_row: pd.Series,
+    *,
+    exact_bank_row_count: int = 0,
+    exact_unlinked_bank_row_count: int = 0,
+    exact_linked_elsewhere_count: int = 0,
+    near_bank_row_count: int = 0,
+    near_unlinked_bank_row_count: int = 0,
+    near_linked_elsewhere_count: int = 0,
+    near_window_days: int = 0,
+    days_from_latest_bank_row: int | None = None,
+    exact_bank_dates: str = "",
+    near_bank_dates: str = "",
+    exact_bank_summary: str = "",
+    near_bank_summary: str = "",
+    triage: str = "",
+    reason: str = "",
+    suggested_action: str = "",
+) -> dict[str, Any]:
+    return {
+        "ynab_row_index": int(ynab_row["row_index"]),
+        "ynab_transaction_id": _normalize_text(ynab_row.get("id", "")),
+        "date": ynab_row["date"],
+        "amount_ils": round(float(ynab_row["amount_ils"]), 2),
+        "payee_name": _normalize_text(ynab_row.get("payee_name", "")),
+        "memo": _normalize_text(ynab_row.get("memo", "")),
+        "import_id": _normalize_text(ynab_row.get("import_id", "")),
+        "matched_transaction_id": _normalize_text(
+            ynab_row.get("matched_transaction_id", "")
+        ),
+        "exact_bank_row_count": exact_bank_row_count,
+        "exact_unlinked_bank_row_count": exact_unlinked_bank_row_count,
+        "exact_linked_elsewhere_count": exact_linked_elsewhere_count,
+        "near_bank_row_count": near_bank_row_count,
+        "near_unlinked_bank_row_count": near_unlinked_bank_row_count,
+        "near_linked_elsewhere_count": near_linked_elsewhere_count,
+        "near_window_days": near_window_days,
+        "days_from_latest_bank_row": days_from_latest_bank_row,
+        "exact_bank_dates": exact_bank_dates,
+        "near_bank_dates": near_bank_dates,
+        "exact_bank_summary": exact_bank_summary,
+        "near_bank_summary": near_bank_summary,
+        "triage": triage,
+        "reason": reason,
+        "suggested_action": suggested_action,
+    }
+
+
+def plan_uncleared_ynab_triage(
+    bank_df: pd.DataFrame,
+    accounts: list[dict[str, Any]],
+    ynab_transactions: list[dict[str, Any]],
+    *,
+    near_window_days: int = 7,
+    pending_window_days: int = 3,
+) -> dict[str, Any]:
+    if near_window_days < 0:
+        raise ValueError("near_window_days must be >= 0.")
+    if pending_window_days < 0:
+        raise ValueError("pending_window_days must be >= 0.")
+
+    prepared_bank = _prepare_bank_dataframe(bank_df)
+    resolved_account = _resolve_account(prepared_bank, accounts)
+    ynab_df = _filter_account_transactions(
+        _prepare_ynab_transactions(ynab_transactions), resolved_account.account_id
+    )
+    import_map, memo_map, _ = _lineage_maps(ynab_df)
+
+    uncleared = (
+        ynab_df[ynab_df["cleared"] == "uncleared"].copy().reset_index(drop=True)
+    )
+    if uncleared.empty:
+        report = pd.DataFrame(columns=UNCLEARED_TRIAGE_COLUMNS)
+        return {
+            "account_id": resolved_account.account_id,
+            "account_name": resolved_account.account_name,
+            "report": report,
+            "recent_pending_count": 0,
+            "candidate_source_match_count": 0,
+            "stale_orphan_count": 0,
+        }
+
+    latest_bank_date = prepared_bank["date"].max()
+    report_rows: list[dict[str, Any]] = []
+
+    for _, ynab_row in uncleared.iterrows():
+        exact = prepared_bank[
+            (prepared_bank["date"] == ynab_row["date"])
+            & (prepared_bank["amount_milliunits"] == ynab_row["amount_milliunits"])
+        ].copy()
+        near = prepared_bank[
+            (prepared_bank["amount_milliunits"] == ynab_row["amount_milliunits"])
+            & (
+                (
+                    pd.to_datetime(prepared_bank["date"])
+                    - pd.Timestamp(ynab_row["date"])
+                )
+                .abs()
+                .dt.days
+                <= near_window_days
+            )
+        ].copy()
+
+        exact_unlinked_count, exact_linked_elsewhere_count, exact_summary = (
+            _summarize_bank_candidates_for_triage(
+                exact,
+                ynab_df,
+                import_map,
+                memo_map,
+                ynab_transaction_id=_normalize_text(ynab_row.get("id", "")),
+            )
+        )
+        near_unlinked_count, near_linked_elsewhere_count, near_summary = (
+            _summarize_bank_candidates_for_triage(
+                near,
+                ynab_df,
+                import_map,
+                memo_map,
+                ynab_transaction_id=_normalize_text(ynab_row.get("id", "")),
+            )
+        )
+
+        exact_dates = " | ".join(sorted({str(value) for value in exact["date"].tolist()}))
+        near_dates = " | ".join(sorted({str(value) for value in near["date"].tolist()}))
+        days_from_latest_bank_row = (
+            int((latest_bank_date - ynab_row["date"]).days)
+            if not pd.isna(latest_bank_date) and not pd.isna(ynab_row["date"])
+            else None
+        )
+
+        if exact_unlinked_count > 0:
+            triage = "candidate_source_match"
+            reason = "exact date+amount bank row exists and is not yet linked"
+            suggested_action = "run_sync_or_accept_match"
+        elif exact_linked_elsewhere_count > 0:
+            triage = "candidate_source_match"
+            reason = "exact date+amount bank row exists but is already linked elsewhere"
+            suggested_action = "investigate_link_conflict"
+        elif near_unlinked_count > 0:
+            triage = "candidate_source_match"
+            reason = (
+                f"same-amount bank row exists within {near_window_days} days and is not yet linked"
+            )
+            suggested_action = "review_nearby_match"
+        elif near_linked_elsewhere_count > 0:
+            triage = "candidate_source_match"
+            reason = (
+                f"same-amount bank row exists within {near_window_days} days but is already linked elsewhere"
+            )
+            suggested_action = "investigate_link_conflict"
+        elif (
+            days_from_latest_bank_row is not None
+            and days_from_latest_bank_row <= pending_window_days
+        ):
+            triage = "recent_pending"
+            reason = "transaction is close to the end of the available bank window"
+            suggested_action = "wait_for_bank"
+        else:
+            triage = "stale_orphan"
+            reason = f"no same-amount bank row exists within {near_window_days} days"
+            suggested_action = "review_for_delete"
+
+        report_rows.append(
+            _uncleared_triage_row(
+                ynab_row,
+                exact_bank_row_count=int(len(exact)),
+                exact_unlinked_bank_row_count=exact_unlinked_count,
+                exact_linked_elsewhere_count=exact_linked_elsewhere_count,
+                near_bank_row_count=int(len(near)),
+                near_unlinked_bank_row_count=near_unlinked_count,
+                near_linked_elsewhere_count=near_linked_elsewhere_count,
+                near_window_days=near_window_days,
+                days_from_latest_bank_row=days_from_latest_bank_row,
+                exact_bank_dates=exact_dates,
+                near_bank_dates=near_dates,
+                exact_bank_summary=exact_summary,
+                near_bank_summary=near_summary,
+                triage=triage,
+                reason=reason,
+                suggested_action=suggested_action,
+            )
+        )
+
+    report = pd.DataFrame(report_rows, columns=UNCLEARED_TRIAGE_COLUMNS).sort_values(
+        ["date", "amount_ils", "ynab_transaction_id"], na_position="last"
+    )
+    report = report.reset_index(drop=True)
+
+    return {
+        "account_id": resolved_account.account_id,
+        "account_name": resolved_account.account_name,
+        "report": report,
+        "recent_pending_count": int((report["triage"] == "recent_pending").sum()),
+        "candidate_source_match_count": int(
+            (report["triage"] == "candidate_source_match").sum()
+        ),
+        "stale_orphan_count": int((report["triage"] == "stale_orphan").sum()),
+    }
 
 
 def _memo_exact_fallback_candidate(

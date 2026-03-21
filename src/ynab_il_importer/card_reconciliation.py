@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 import hashlib
 from pathlib import Path
 from typing import Any
@@ -8,11 +9,20 @@ from typing import Any
 import pandas as pd
 
 import ynab_il_importer.card_identity as card_identity
+import ynab_il_importer.io_leumi_card_html as io_leumi_card_html
 import ynab_il_importer.io_max as io_max
 import ynab_il_importer.normalize as normalize
 
 
 PENDING_SHEET_NAME = "עסקאות שאושרו וטרם נקלטו"
+STAMP_CARD_SYNC_RESOLVED_VIAS = {
+    "legacy_import_id",
+    "memo_exact",
+    "date_amount_unique",
+    "date_amount_unique_memo_exact",
+    "secondary_date_amount_unique",
+    "secondary_date_amount_unique_memo_exact",
+}
 
 CARD_SYNC_REPORT_COLUMNS = [
     "row_index",
@@ -179,6 +189,11 @@ def load_card_source(path: str | Path) -> pd.DataFrame:
     if source_path.suffix.lower() in {".xlsx", ".xls"}:
         return _drop_pending_rows(_ensure_card_txn_id(io_max.read_raw(source_path)))
 
+    if source_path.suffix.lower() in {".html", ".htm"}:
+        return _drop_pending_rows(
+            _ensure_card_txn_id(io_leumi_card_html.read_raw(source_path))
+        )
+
     raise ValueError(f"Unsupported card source file type: {source_path}")
 
 
@@ -228,6 +243,64 @@ def _target_source_rows(df: pd.DataFrame, account_name: str) -> pd.DataFrame:
     filtered.reset_index(drop=True, inplace=True)
     filtered["row_index"] = range(len(filtered))
     return filtered
+
+
+def _coerce_optional_date(value: Any, *, field_name: str) -> date | None:
+    text = _normalize_text(value)
+    if not text:
+        return None
+    parsed = pd.to_datetime(text, errors="coerce")
+    if pd.isna(parsed):
+        raise ValueError(
+            f"Invalid {field_name} value {value!r}; expected YYYY-MM-DD."
+        )
+    return parsed.date()
+
+
+def _filter_rows_by_date_range(
+    rows: pd.DataFrame,
+    *,
+    date_from: Any = None,
+    date_to: Any = None,
+    range_name: str,
+    allow_empty: bool = True,
+) -> tuple[pd.DataFrame, int]:
+    parsed_from = _coerce_optional_date(date_from, field_name=f"{range_name}_date_from")
+    parsed_to = _coerce_optional_date(date_to, field_name=f"{range_name}_date_to")
+    if parsed_from is None and parsed_to is None:
+        return rows.copy(), 0
+    if parsed_from is not None and parsed_to is not None and parsed_from > parsed_to:
+        raise ValueError(
+            f"{range_name}_date_from {parsed_from} is after {range_name}_date_to {parsed_to}."
+        )
+    if rows.empty:
+        if allow_empty:
+            return rows.copy(), 0
+        raise ValueError(
+            f"No {range_name} rows are available for filtering in the requested account."
+        )
+
+    row_dates = pd.to_datetime(rows["date"], errors="coerce").dt.date
+    mask = pd.Series([True] * len(rows), index=rows.index)
+    if parsed_from is not None:
+        mask = mask & (row_dates >= parsed_from)
+    if parsed_to is not None:
+        mask = mask & (row_dates <= parsed_to)
+    filtered = rows.loc[mask].copy()
+    dropped_count = int(len(rows) - len(filtered))
+
+    if filtered.empty and not allow_empty:
+        bounds = []
+        if parsed_from is not None:
+            bounds.append(f"from {parsed_from}")
+        if parsed_to is not None:
+            bounds.append(f"to {parsed_to}")
+        bounds_txt = " ".join(bounds).strip()
+        raise ValueError(
+            f"No {range_name} rows remain after applying date filter {bounds_txt}."
+        )
+
+    return filtered, dropped_count
 
 
 def _account_lookup(
@@ -327,15 +400,38 @@ def _card_lineage_maps(
     return import_map, memo_map
 
 
-def _card_date_amount_candidates(
-    source_row: pd.Series, ynab_df: pd.DataFrame
+def _card_date_amount_candidates_for_field(
+    source_row: pd.Series, ynab_df: pd.DataFrame, *, date_field: str
 ) -> pd.DataFrame:
+    target_date = pd.to_datetime(source_row.get(date_field, ""), errors="coerce")
+    if pd.isna(target_date):
+        return ynab_df.iloc[0:0].copy()
     candidates = ynab_df.copy()
-    candidates = candidates[candidates["date"] == source_row["date"]]
+    candidates = candidates[candidates["date"] == target_date.date()]
     candidates = candidates[
         (candidates["signed_ils"] - source_row["signed_ils"]).abs() < 0.001
     ]
     return candidates
+
+
+def _card_date_amount_candidates(
+    source_row: pd.Series, ynab_df: pd.DataFrame
+) -> pd.DataFrame:
+    return _card_date_amount_candidates_for_field(source_row, ynab_df, date_field="date")
+
+
+def _card_secondary_date_amount_candidates(
+    source_row: pd.Series, ynab_df: pd.DataFrame
+) -> pd.DataFrame:
+    primary = pd.to_datetime(source_row.get("date", ""), errors="coerce")
+    secondary = pd.to_datetime(source_row.get("secondary_date", ""), errors="coerce")
+    if pd.isna(secondary):
+        return ynab_df.iloc[0:0].copy()
+    if pd.notna(primary) and primary.date() == secondary.date():
+        return ynab_df.iloc[0:0].copy()
+    return _card_date_amount_candidates_for_field(
+        source_row, ynab_df, date_field="secondary_date"
+    )
 
 
 def _card_unlinked_candidates(candidates: pd.DataFrame) -> pd.DataFrame:
@@ -462,89 +558,119 @@ def _card_candidate_diagnostics(
     import_map: dict[str, list[int]],
     memo_map: dict[str, list[int]],
 ) -> tuple[int, int, str, str, str]:
-    candidates = _card_date_amount_candidates(source_row, ynab_df)
-    candidate_count = int(len(candidates))
-    candidate_reconciled_count = (
-        int((candidates["cleared"] == "reconciled").sum()) if candidate_count else 0
-    )
-    candidate_summary = _summarize_card_candidate_rows(candidates)
     lineage_conflict = _card_lineage_conflict_summary(
         source_row, ynab_df, import_map, memo_map
     )
-    if candidate_count == 0:
-        return 0, 0, "no_date_amount_match", candidate_summary, lineage_conflict
 
-    unlinked = _card_unlinked_candidates(candidates)
-    if unlinked.empty:
+    def _diagnose(candidates: pd.DataFrame, *, prefix: str = "") -> tuple[int, int, str, str]:
+        candidate_count = int(len(candidates))
+        candidate_reconciled_count = (
+            int((candidates["cleared"] == "reconciled").sum()) if candidate_count else 0
+        )
+        candidate_summary = _summarize_card_candidate_rows(candidates)
+        if candidate_count == 0:
+            return 0, 0, "", candidate_summary
+
+        unlinked = _card_unlinked_candidates(candidates)
+        if unlinked.empty:
+            return (
+                candidate_count,
+                candidate_reconciled_count,
+                f"only_linked_{prefix}date_amount_candidates",
+                candidate_summary,
+            )
+
+        memo_exact = unlinked[unlinked["memo_match"] == source_row["description_match"]]
+        if len(memo_exact) == 1:
+            return (
+                candidate_count,
+                candidate_reconciled_count,
+                f"unique_{prefix}memo_exact_candidate",
+                candidate_summary,
+            )
+        if len(memo_exact) > 1:
+            return (
+                candidate_count,
+                candidate_reconciled_count,
+                f"ambiguous_{prefix}memo_exact_candidates",
+                candidate_summary,
+            )
+
+        if len(unlinked) == 1:
+            return (
+                candidate_count,
+                candidate_reconciled_count,
+                f"unique_{prefix}date_amount_candidate",
+                candidate_summary,
+            )
         return (
             candidate_count,
             candidate_reconciled_count,
-            "only_linked_date_amount_candidates",
+            f"ambiguous_{prefix}date_amount_candidates",
             candidate_summary,
-            lineage_conflict,
         )
 
-    memo_exact = unlinked[unlinked["memo_match"] == source_row["description_match"]]
-    if len(memo_exact) == 1:
-        return (
-            candidate_count,
-            candidate_reconciled_count,
-            "unique_memo_exact_candidate",
-            candidate_summary,
-            lineage_conflict,
-        )
-    if len(memo_exact) > 1:
-        return (
-            candidate_count,
-            candidate_reconciled_count,
-            "ambiguous_memo_exact_candidates",
-            candidate_summary,
-            lineage_conflict,
-        )
+    primary = _diagnose(_card_date_amount_candidates(source_row, ynab_df))
+    if primary[0] > 0:
+        return primary + (lineage_conflict,)
 
-    if len(unlinked) == 1:
-        return (
-            candidate_count,
-            candidate_reconciled_count,
-            "unique_date_amount_candidate",
-            candidate_summary,
-            lineage_conflict,
-        )
-    return (
-        candidate_count,
-        candidate_reconciled_count,
-        "ambiguous_date_amount_candidates",
-        candidate_summary,
-        lineage_conflict,
+    secondary = _diagnose(
+        _card_secondary_date_amount_candidates(source_row, ynab_df),
+        prefix="secondary_",
     )
+    if secondary[0] > 0:
+        return secondary + (lineage_conflict,)
+    return 0, 0, "no_date_amount_match", "", lineage_conflict
 
 
 def _card_sync_fallback_candidate(
     source_row: pd.Series,
     ynab_df: pd.DataFrame,
 ) -> tuple[pd.Series | None, str, str]:
-    candidates = _card_unlinked_candidates(
-        _card_date_amount_candidates(source_row, ynab_df)
+    def _resolve_candidates(
+        candidates: pd.DataFrame, *, resolved_via: str, empty_reason: str, many_reason: str
+    ) -> tuple[pd.Series | None, str, str]:
+        memo_exact = candidates[candidates["memo_match"] == source_row["description_match"]]
+        if len(memo_exact) == 1:
+            return memo_exact.iloc[0], f"{resolved_via}_memo_exact", ""
+        if len(memo_exact) > 1:
+            return None, "", many_reason
+        if len(candidates) == 1:
+            return candidates.iloc[0], resolved_via, ""
+        if candidates.empty:
+            return None, "", empty_reason
+        return None, "", many_reason
+
+    primary = _resolve_candidates(
+        _card_unlinked_candidates(_card_date_amount_candidates(source_row, ynab_df)),
+        resolved_via="date_amount_unique",
+        empty_reason="no unique same-date/same-amount candidate",
+        many_reason="multiple same-date/same-amount candidates",
     )
-    memo_exact = candidates[candidates["memo_match"] == source_row["description_match"]]
-    if len(memo_exact) == 1:
-        return memo_exact.iloc[0], "memo_exact", ""
-    if len(memo_exact) > 1:
-        return None, "", "multiple same-date/same-amount memo-confirmed candidates"
-    if len(candidates) == 1:
-        return candidates.iloc[0], "date_amount_unique", ""
-    if candidates.empty:
-        return None, "", "no unique same-date/same-amount candidate"
-    return None, "", "multiple same-date/same-amount candidates"
+    if primary[0] is not None or primary[2] != "no unique same-date/same-amount candidate":
+        return primary
+
+    return _resolve_candidates(
+        _card_unlinked_candidates(_card_secondary_date_amount_candidates(source_row, ynab_df)),
+        resolved_via="secondary_date_amount_unique",
+        empty_reason="no unique billing-date/same-amount candidate",
+        many_reason="multiple billing-date/same-amount candidates",
+    )
 
 
 def _card_sync_unmatched_reason(candidate_status: str, base_reason: str) -> str:
     if candidate_status == "only_linked_date_amount_candidates":
         return "same date/amount candidate is already linked to a different card_txn_id"
+    if candidate_status == "only_linked_secondary_date_amount_candidates":
+        return "same billing-date/amount candidate is already linked to a different card_txn_id"
     if candidate_status == "ambiguous_memo_exact_candidates":
         return "multiple same-date/same-amount memo-confirmed candidates"
+    if candidate_status == "ambiguous_secondary_memo_exact_candidates":
+        return "multiple billing-date/same-amount memo-confirmed candidates"
     if candidate_status == "ambiguous_date_amount_candidates":
         return "multiple YNAB transactions share this date/amount"
+    if candidate_status == "ambiguous_secondary_date_amount_candidates":
+        return "multiple YNAB transactions share this billing-date/amount"
     return base_reason
 
 
@@ -741,12 +867,47 @@ def _resolve_card_match(source_row: pd.Series, ynab_df: pd.DataFrame) -> _Resolv
                     candidate, "legacy_import_id", "legacy_import_id", ""
                 )
 
-    same_key = ynab_df[
-        (ynab_df["date"] == source_row["date"])
-        & ((ynab_df["signed_ils"] - source_row["signed_ils"]).abs() < 0.001)
-    ].copy()
+    same_key = _card_date_amount_candidates(source_row, ynab_df)
     if same_key.empty:
-        return _ResolvedMatch(None, "", "no_date_amount_match", "no date/amount match")
+        secondary_key = _card_secondary_date_amount_candidates(source_row, ynab_df)
+        if secondary_key.empty:
+            return _ResolvedMatch(
+                None,
+                "",
+                "no_date_amount_match",
+                "no date/amount or billing-date/amount match",
+            )
+
+        memo_exact = secondary_key[
+            secondary_key["memo_match"] == source_row["description_match"]
+        ]
+        if len(memo_exact) == 1:
+            return _ResolvedMatch(
+                memo_exact.iloc[0],
+                "secondary_date_memo_exact",
+                "unique_secondary_memo_exact_candidate",
+                "",
+            )
+        if len(memo_exact) > 1:
+            return _ResolvedMatch(
+                None,
+                "",
+                "ambiguous_secondary_memo_exact_candidates",
+                "multiple billing-date/same-amount memo-confirmed candidates",
+            )
+        if len(secondary_key) == 1:
+            return _ResolvedMatch(
+                None,
+                "",
+                "weak_unique_secondary_date_amount",
+                "unique billing-date/amount candidate exists but memo does not confirm it",
+            )
+        return _ResolvedMatch(
+            None,
+            "",
+            "ambiguous_secondary_date_amount_candidates",
+            "multiple billing-date/same-amount candidates",
+        )
 
     memo_exact = same_key[same_key["memo_match"] == source_row["description_match"]]
     if len(memo_exact) == 1:
@@ -916,9 +1077,18 @@ def plan_card_match_sync(
     source_df: pd.DataFrame,
     accounts: list[dict[str, Any]],
     transactions: list[dict[str, Any]],
+    source_date_from: Any = None,
+    source_date_to: Any = None,
 ) -> dict[str, object]:
     account = _account_lookup(accounts, account_name)
     source_rows = _target_source_rows(source_df, account_name)
+    source_rows, source_filtered_out_count = _filter_rows_by_date_range(
+        source_rows,
+        date_from=source_date_from,
+        date_to=source_date_to,
+        range_name="source",
+        allow_empty=False,
+    )
     ynab_df = _ynab_transactions_frame(transactions, account_id=account["account_id"])
     if ynab_df.empty:
         raise ValueError(
@@ -971,7 +1141,7 @@ def plan_card_match_sync(
         patch: dict[str, str] = {"id": transaction_id}
         actions: list[str] = []
 
-        if resolved_via in {"legacy_import_id", "memo_exact", "date_amount_unique"}:
+        if resolved_via in STAMP_CARD_SYNC_RESOLVED_VIAS:
             try:
                 new_memo = card_identity.append_card_txn_id_marker(
                     matched.get("memo", ""), source_row["card_txn_id"]
@@ -1025,6 +1195,8 @@ def plan_card_match_sync(
     return {
         "account_id": account["account_id"],
         "account_name": account["account_name"],
+        "source_row_count": int(len(source_rows)),
+        "source_filtered_out_count": source_filtered_out_count,
         "updates": updates,
         "report": report,
         "matched_count": (
@@ -1042,19 +1214,39 @@ def plan_card_cycle_reconciliation(
     transactions: list[dict[str, Any]],
     previous_df: pd.DataFrame | None = None,
     allow_reconciled_source: bool = False,
+    source_date_from: Any = None,
+    source_date_to: Any = None,
+    previous_date_from: Any = None,
+    previous_date_to: Any = None,
 ) -> dict[str, object]:
     account = _account_lookup(accounts, account_name)
     account_names = _account_name_map(accounts)
     source_rows = _target_source_rows(source_df, account_name)
+    source_rows, source_filtered_out_count = _filter_rows_by_date_range(
+        source_rows,
+        date_from=source_date_from,
+        date_to=source_date_to,
+        range_name="source",
+        allow_empty=False,
+    )
     if source_rows.empty:
         raise ValueError(
             "Source file has no in-scope non-pending rows for the requested account."
         )
+    previous_filtered_out_count = 0
     previous_rows = (
         _target_source_rows(previous_df, account_name)
         if previous_df is not None
         else pd.DataFrame()
     )
+    if previous_df is not None:
+        previous_rows, previous_filtered_out_count = _filter_rows_by_date_range(
+            previous_rows,
+            date_from=previous_date_from,
+            date_to=previous_date_to,
+            range_name="previous",
+            allow_empty=False,
+        )
 
     all_ynab_df = _all_ynab_transactions_frame(
         transactions, account_names=account_names
@@ -1083,6 +1275,8 @@ def plan_card_cycle_reconciliation(
         "account_name": account["account_name"],
         "source_row_count": int(len(source_rows)),
         "previous_row_count": int(len(previous_rows)),
+        "source_filtered_out_count": source_filtered_out_count,
+        "previous_filtered_out_count": previous_filtered_out_count,
         "source_total_ils": round(float(source_rows["signed_ils"].sum()), 2),
         "previous_total_ils": (
             round(float(previous_rows["signed_ils"].sum()), 2)

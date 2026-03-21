@@ -43,8 +43,9 @@ pixi run python scripts/build_proposed_transactions.py \
 
 Notes:
 - `--map` defaults to `mappings/payee_map.csv` if omitted.
-- You can use `--source-dir data/derived` instead of repeating `--source` flags.
-- `--source-dir` will skip CSVs that don't contain a usable `fingerprint` column.
+- Prefer explicit `--source` flags for bank/card normalized files.
+- Avoid `--source-dir` when the directory also contains `ynab_api_norm.csv`; YNAB snapshots can include fingerprints and may be treated as source rows.
+- Weak date+amount dedupe now retains source rows when lineage (`bank_txn_id`/`card_txn_id`) or fingerprint conflicts with matched YNAB candidates, preventing false drops.
 
 ## 2) Review in Streamlit
 
@@ -54,7 +55,15 @@ Run the review UI:
 pixi run python scripts/review_app.py
 ```
 
+Launcher behavior:
+- The wrapper starts Streamlit in the background and prints the active URL.
+- If port `8501` is occupied, the wrapper chooses the next free port unless `--port` is specified.
+
 Notes:
+- Sidebar filters are split into primary dimensions and secondary tags:
+  - Primary dimensions: `Readiness` (`Not ready`/`Ready`) and `Save state` (`Unsaved`/`Saved`).
+  - Secondary tags: `Inference tag`, `Progress tag`, `Persistence tag`.
+- Default filter selection is `Not ready` + `Unsaved` on primary dimensions; secondary tags default to all.
 - Category selection can switch between fingerprint-suggested categories and the full YNAB category list.
 - Full-category mode includes `Internal Master Category / Uncategorized` when it exists in the downloaded YNAB categories.
 - Category labels are shown as `Category Group / Category` in YNAB order.
@@ -73,6 +82,11 @@ Notes:
 - The sidebar save control supports `Save`, `Save and quit`, and `Quit`.
 - Transfer rows (`payee_selected` starts with `Transfer :`) do not require a category to count as resolved.
 - Row status badges: **Unsaved** (changed since last save), **Changed vs original**, **Reviewed** (explicitly saved/confirmed).
+- Row details now expose tag values:
+  - `inference_tag_initial` (sticky initial categorization)
+  - `progress_tag` (`unchanged` / `resolved`)
+  - `persistence_tag` (`unsaved` / `saved`)
+- Expander labels include a primary-state marker (`NR/US`, `NR/S`, `R/US`, `R/S`) with color-coded state styling.
 - You can pass `--in`, `--out`, and `--categories` to set initial paths.
 - Use `--resume` to reopen the default reviewed file for your `--in` path (`{input}_reviewed.csv`):
 
@@ -130,7 +144,7 @@ Examples:
 
 ## 6) After Review
 
-- Use the reviewed CSV for upload preparation (see §8).
+- Use the reviewed CSV for upload preparation (see §9).
 - Generate `outputs/map_updates.csv` from reviewed data when needed.
 - Rebuild proposed transactions if the bank/card overlap dedupe changes; debit-card purchases can otherwise appear once from bank and once from card.
 
@@ -163,7 +177,8 @@ If `build_proposed_transactions.py` changed how bank/card overlap dedupe works, 
 
 ```bash
 pixi run python scripts/build_proposed_transactions.py \
-  --source-dir data/derived/2026_03_07 \
+  --source data/derived/2026_03_07/Bankin_leumi_norm.csv \
+  --source data/derived/2026_03_07/card_max_norm.csv \
   --ynab data/derived/2026_03_07/ynab_api_norm.csv \
   --out data/paired/2026_03_07/proposed_transactions_rebuilt.csv \
   --pairs-out data/paired/2026_03_07/matched_pairs_rebuilt.csv
@@ -178,7 +193,7 @@ Notes:
 - `reconcile_reviewed_transactions.py` matches saved decisions by `transaction_id` first.
 - If needed, it also falls back to a conservative `(date, outflow_ils, inflow_ils, fingerprint)` match.
 
-## 8) Prepare YNAB Upload
+## 9) Prepare YNAB Upload
 
 Prepare a dry-run upload file from the reviewed CSV:
 
@@ -192,12 +207,27 @@ pixi run python scripts/prepare_ynab_upload.py \
 ```
 
 Notes:
-- `--ready-only` keeps only rows with payee selected and category selected for non-transfer rows.
+- `--ready-only` keeps only rows with payee selected and category selected for non-transfer rows, and excludes zero-amount rows.
 - `--skip-missing-accounts` drops rows whose `account_name` still does not map to a live YNAB account.
 - The script fetches live YNAB accounts and categories, resolves category ids, and generates deterministic `import_id` values.
 - Add `--execute` only when you are ready to actually create the prepared transactions in YNAB.
 
-## 10) Card Reconciliation
+## 10) Bank Reconciliation
+
+After upload + bank lineage sync, reconcile matched bank rows in YNAB.
+
+```bash
+pixi run python scripts/reconcile_bank_statement.py \
+  --bank data/derived/<date>/Bankin_leumi_norm.csv \
+  --report-out data/paired/<date>/bank_reconcile_report.csv
+# add --execute when ready
+```
+
+Notes:
+- The script uses `bank_txn_id` lineage and statement balance anchors.
+- Use dry-run first; add `--execute` only when the report shows safe updates.
+
+## 11) Card Reconciliation
 
 Validate that card source totals match what is in YNAB. Run once per card account.
 
@@ -226,3 +256,4 @@ Notes:
 - `--previous` is the reconcile report saved from the prior billing cycle.
 - The script validates that the previous cohort total matches a unique card-account transfer inflow in YNAB with a linked bank-side counterpart.
 - Save the completed report to `data/paired/previous_max/<account>/` as `<month>_card_reconcile_report.csv` for use as `--previous` in the next cycle.
+- Add `--allow-reconciled-source` only when the source cycle was already reconciled by an earlier run and you intentionally want to reuse it.

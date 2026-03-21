@@ -122,6 +122,9 @@ pixi run python scripts/build_proposed_transactions.py \
   --pairs-out data/paired/<date>/matched_pairs.csv
 ```
 
+Notes:
+- Weak date+amount dedupe is lineage-aware: if a source `bank_txn_id`/`card_txn_id` conflicts with matched YNAB lineage (or fingerprint), the source row is retained for review instead of dropped.
+
 5. Review in the Streamlit UI (see `documents/review_app_workflow.md`):
 
 ```bash
@@ -134,7 +137,7 @@ pixi run python scripts/review_app.py \
 
 ```bash
 pixi run python scripts/sync_bank_matches.py \
-  --bank data/derived/<date>/bank_leumi_norm.csv \
+  --bank data/derived/<date>/Bankin_leumi_norm.csv \
   --report-out data/paired/<date>/bank_sync_report.csv
 
 pixi run python scripts/sync_card_matches.py \
@@ -153,7 +156,18 @@ pixi run python scripts/prepare_ynab_upload.py \
   --skip-missing-accounts
 ```
 
-8. Reconcile card accounts (mid-month: `--source` only; end-of-month: add `--previous`):
+Notes:
+- `--ready-only` excludes zero-amount rows (`outflow_ils == 0` and `inflow_ils == 0`) so pending placeholders are not uploaded.
+
+8. Reconcile bank statement rows after upload + lineage sync:
+
+```bash
+pixi run python scripts/reconcile_bank_statement.py \
+  --bank data/derived/<date>/Bankin_leumi_norm.csv \
+  --report-out data/paired/<date>/bank_reconcile_report.csv
+```
+
+9. Reconcile card accounts (mid-month: `--source` only; end-of-month: add `--previous`):
 
 ```bash
 pixi run python scripts/reconcile_card_cycle.py \
@@ -259,6 +273,10 @@ pixi run python scripts/review_app.py \
   --categories outputs/ynab_categories.csv
 ```
 
+Launcher behavior:
+- The wrapper starts Streamlit in the background and prints the active URL.
+- If `8501` is busy, it auto-selects the next free port unless you pass `--port`.
+
 Resume a prior session:
 
 ```bash
@@ -268,6 +286,11 @@ pixi run python scripts/review_app.py --resume
 Default behavior:
 - Loads `outputs/proposed_transactions.csv` if `--in` is not given.
 - Saves to `<input>_reviewed.csv` (configurable in the UI or via `--out`).
+- Sidebar filters are split into:
+  - Primary dimensions: `Readiness` (`Not ready`/`Ready`) and `Save state` (`Unsaved`/`Saved`)
+  - Secondary tags: `Inference tag`, `Progress tag`, `Persistence tag`
+- Default filter selection is `Not ready` + `Unsaved` on primary dimensions; secondary tags default to showing all.
+- Row expanders include a primary state marker (`NR/US`, `NR/S`, `R/US`, `R/S`) and color-coded state styling.
 
 See `documents/review_app_workflow.md` for the full review and upload workflow.
 

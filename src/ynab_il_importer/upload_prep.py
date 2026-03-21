@@ -38,6 +38,12 @@ def _amount_milliunits(row: pd.Series) -> int:
     return int(round((inflow - outflow) * 1000))
 
 
+def _nonzero_amount_mask(df: pd.DataFrame) -> pd.Series:
+    outflow = pd.to_numeric(df["outflow_ils"], errors="coerce").fillna(0.0)
+    inflow = pd.to_numeric(df["inflow_ils"], errors="coerce").fillna(0.0)
+    return (outflow != 0.0) | (inflow != 0.0)
+
+
 def _transfer_target(payee: str) -> str:
     if not review_model.is_transfer_payee(payee):
         return ""
@@ -158,14 +164,17 @@ def validate_ready_for_upload(df: pd.DataFrame) -> None:
     payee = _normalize_text_series(df["payee_selected"])
     category = _normalize_text_series(df["category_selected"])
     transfer = payee.map(review_model.is_transfer_payee)
+    nonzero_amount = _nonzero_amount_mask(df)
 
     missing_payee = df.index[payee == ""].tolist()
     missing_category = df.index[(category == "") & ~transfer].tolist()
-    if missing_payee or missing_category:
+    zero_amount = df.index[~nonzero_amount].tolist()
+    if missing_payee or missing_category or zero_amount:
         raise ValueError(
             "Reviewed file is not ready for upload: "
             f"{len(missing_payee)} rows missing payee, "
-            f"{len(missing_category)} rows missing category."
+            f"{len(missing_category)} rows missing category, "
+            f"{len(zero_amount)} rows with zero amount."
         )
 
 
@@ -174,7 +183,8 @@ def ready_mask(df: pd.DataFrame) -> pd.Series:
     payee = _normalize_text_series(df["payee_selected"])
     category = _normalize_text_series(df["category_selected"])
     transfer = payee.map(review_model.is_transfer_payee)
-    return (payee != "") & ((category != "") | transfer)
+    nonzero_amount = _nonzero_amount_mask(df)
+    return (payee != "") & ((category != "") | transfer) & nonzero_amount
 
 
 def prepare_upload_transactions(
@@ -635,10 +645,20 @@ def verify_upload_response(
 
         prepared_category_id = str(prepared_row.get("category_id", "") or "")
         response_category_id = str(response_row.get("category_id", "") or "")
+        response_category_name = str(response_row.get("category_name", "") or "")
+        prepared_category_name = str(prepared_row.get("category_selected", "") or "")
+        category_matches = prepared_category_id == response_category_id
+        if (
+            not category_matches
+            and not response_category_id
+            and prepared_category_name
+            and prepared_category_name == response_category_name
+        ):
+            category_matches = True
         if (
             not is_transfer
             and prepared_category_id
-            and prepared_category_id != response_category_id
+            and not category_matches
         ):
             category_mismatches.append(label)
 

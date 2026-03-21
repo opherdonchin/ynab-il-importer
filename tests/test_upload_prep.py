@@ -225,6 +225,45 @@ def test_ready_mask_treats_transfer_without_category_as_ready() -> None:
     assert upload_prep.ready_mask(reviewed).tolist() == [True, False]
 
 
+def test_ready_mask_excludes_zero_amount_rows_even_if_other_fields_are_ready() -> None:
+    reviewed = pd.DataFrame(
+        {
+            "transaction_id": ["t1", "t2"],
+            "account_name": ["Bank Leumi", "Bank Leumi"],
+            "date": ["2026-03-01", "2026-03-02"],
+            "outflow_ils": ["0", "10.00"],
+            "inflow_ils": ["0", "0"],
+            "memo": ["pending", "ready"],
+            "payee_selected": ["Bit", "Cafe"],
+            "category_selected": ["Uncategorized", "Groceries"],
+        }
+    )
+
+    assert upload_prep.ready_mask(reviewed).tolist() == [False, True]
+
+
+def test_prepare_upload_transactions_rejects_zero_amount_rows() -> None:
+    reviewed = pd.DataFrame(
+        {
+            "transaction_id": ["t1"],
+            "account_name": ["Bank Leumi"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["0"],
+            "inflow_ils": ["0"],
+            "memo": ["pending"],
+            "payee_selected": ["Bit"],
+            "category_selected": ["Uncategorized"],
+        }
+    )
+
+    with pytest.raises(ValueError, match="zero amount"):
+        upload_prep.prepare_upload_transactions(
+            reviewed,
+            accounts=_accounts(),
+            categories_df=_categories(),
+        )
+
+
 def test_uploadable_account_mask_marks_unknown_accounts() -> None:
     reviewed = pd.DataFrame(
         {
@@ -480,6 +519,48 @@ def test_verify_upload_response_allows_same_import_id_on_different_accounts() ->
 
     assert verification == {
         "checked": 2,
+        "missing_saved_transactions": [],
+        "amount_mismatches": [],
+        "date_mismatches": [],
+        "account_mismatches": [],
+        "transfer_mismatches": [],
+        "category_mismatches": [],
+    }
+
+
+def test_verify_upload_response_accepts_uncategorized_name_without_category_id() -> None:
+    prepared = pd.DataFrame(
+        {
+            "import_id": ["imp-uncat"],
+            "account_id": ["acc-bank"],
+            "date": ["2026-01-01"],
+            "amount_milliunits": [-1000],
+            "upload_kind": ["regular"],
+            "category_id": ["cat-uncat"],
+            "category_selected": ["Uncategorized"],
+            "transfer_target_account_id": [""],
+        }
+    )
+    response = {
+        "transaction_ids": ["t1"],
+        "transactions": [
+            {
+                "id": "t1",
+                "import_id": "imp-uncat",
+                "account_id": "acc-bank",
+                "date": "2026-01-01",
+                "amount": -1000,
+                "category_id": "",
+                "category_name": "Uncategorized",
+                "transfer_account_id": "",
+            },
+        ],
+    }
+
+    verification = upload_prep.verify_upload_response(prepared, response)
+
+    assert verification == {
+        "checked": 1,
         "missing_saved_transactions": [],
         "amount_mismatches": [],
         "date_mismatches": [],

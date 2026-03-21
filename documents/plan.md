@@ -1,116 +1,128 @@
-# ynab-il-importer — Execution Plan (current)
+# ynab-il-importer - Execution Plan (current)
 
-## Goal (Milestone 1)
+## Goal (Milestone 2)
 
-Deliver a repeatable end-to-end workflow that:
-1. Ingests bank + card exports
-2. Normalizes into one schema
-3. Dedupes against YNAB for a chosen date range
-4. Applies `payee_map.csv` to infer payee + category
-5. Produces a reviewable proposed-transactions CSV
-6. Uploads only safe rows to YNAB with deterministic ids
-7. Reconciles bank and card accounts separately from import
+Extend the working Family import pipeline into a profile-aware workflow so Family, Pilates, and later Aikido can share the same code while keeping budgets, mappings, outputs, and reconciliation state separate.
 
 Success criteria:
-- >=90% of new transactions default to a usable payee/category
-- Upload is idempotent
-- Bank reconciliation is exact-lineage based and safe to re-run
-- Card reconciliation is stateless, account-scoped, and safe to re-run
-- Review produces explicit map-candidate artifacts instead of hidden state
+1. Each business/profile can resolve its own YNAB budget and file locations cleanly.
+2. Bank + card normalization reuse the same core schema and downstream tooling.
+3. Mapping bootstrap stays profile-scoped (`payee_map`, `fingerprint_map`, logs, categories, outputs).
+4. Review and upload workflows work for non-Family profiles without manual path juggling.
+5. Sync/reconcile remain safe and exact where historical data allows it.
+6. Legacy oddities are isolated as explicit bootstrap exceptions rather than leaking into steady-state code.
 
 ---
 
 ## Current State
 
 Completed:
-- Unified normalization for Leumi bank, Leumi xls/html, MAX card, and YNAB exports.
-- Fingerprint generation with optional `mappings/fingerprint_map.csv` canonicalization.
-- `balance_ils` is preserved for Leumi normalized bank outputs.
-- MAX normalization preserves billing-bucket details (`max_sheet`, `max_txn_type`), `secondary_date`, report period metadata, and `card_suffix`.
-- Bank transaction lineage is implemented via versioned `bank_txn_id` values.
-- Separate bank sync and bank reconciliation flows exist:
-  - `scripts/sync_bank_matches.py`
-  - `scripts/reconcile_bank_statement.py`
-- Bank uploads use `bank_txn_id` as `import_id` for newly created bank rows.
-- Existing YNAB bank rows can be stamped via memo markers for reconciliation lineage.
-- Leumi card-payment rows preserve `card_suffix`, and `לאומי ויזה` transfer rules are disambiguated by card suffix.
-- Proposed transactions preserve audit fields such as `source_account`, `secondary_date`, `ref`, `balance_ils`, `bank_txn_id`, and `card_suffix`.
-- Proposed transactions default unknown payees to the row fingerprint when there are no payee options, and default missing non-transfer categories to `Uncategorized`.
-- Review UI supports resume, grouped editing, explicit reviewed/save state, viewing reviewed rows, viewing defaulted rows, accepting defaults in bulk, and deterministic map-update export.
-- Upload-prep supports dry-run artifacts plus optional live execution, with deterministic import ids and transfer handling.
-- YNAB exports preserve lineage/state fields needed for stronger matching:
-  - `ynab_id`
-  - `account_id`
-  - `import_id`
-  - `matched_transaction_id`
-  - `cleared`
-  - `approved`
-- Card transaction lineage is now implemented via versioned `card_txn_id` values.
-- MAX normalization emits `card_txn_id`.
-- Card uploads use `card_txn_id` as `import_id` for newly created card rows.
-- A new stateless card reconciliation flow exists:
-  - `scripts/reconcile_card_cycle.py`
-  - `src/ynab_il_importer/card_reconciliation.py`
-- Card reconciliation supports:
-  - `--source` only for mid-month validation/sync
-  - `--previous + --source` for month-transition reconciliation
-- Card reconciliation ignores `approved but not registered` rows and zero-charged rows.
-- Card transition reconciliation now validates the payment transfer:
-  - previous cohort total must match a unique card-account transfer inflow
-  - that transfer must have a linked bank-side counterpart in YNAB
-  - the bank-side counterpart amount must match the opposite amount
-- Card reconciliation has targeted tests with real temporary MAX-style `.xlsx` snapshots plus YNAB-like live transaction payloads.
-- Card reconciliation supports `--allow-reconciled-source` flag to handle cycles where source rows were already reconciled by a prior run (e.g., a later cycle reconcile ran first).
-- All three card accounts (x5898, x7195, x9922) are reconciled through at least `2026_03`.
-- All card-side payment transfers for reconciled cycles are confirmed reconciled in YNAB.
-- `scripts/reconcile_card_payment_transfers.py` correctly scans all report variants (e.g. `_after_cleanup`, `_filtered_previous`) per cycle to find the executed reconcile report, and checks/patches payment transfer `cleared` state.
-- x5898 Nov-10, Dec-10 transfers confirmed reconciled. All 5 cycles processed.
-- x9922: 5 cycles with reconcile evidence — all payment transfers already reconciled.
-- x7195: 2 cycles with reconcile evidence (2025_12, 2026_03) — both already reconciled. 4 earlier cycles (2025_10, 2025_11, 2026_01, 2026_02) bootstrapped via sync+direct-YNAB and have no reconcile report; payment transfers for those cycles are not auto-verified (no report evidence to compute expected amount).
-- **Separately-settled card charges are now handled automatically** in `reconcile_card_cycle.py` (as of 2026-03-17). MAX sometimes debits certain charges (subscriptions, government fees) directly from the bank account before the monthly billing cycle. These rows appear in the billing statement with an earlier `secondary_date` than the main billing date. The algorithm: the latest `secondary_date` is identified as the main billing date; rows with earlier secondary_dates are "separately settled" and do not roll into the monthly payment transfer; they are reconciled directly as card expenses (action = `reconcile_separate`). `reconcile_card_payment_transfers.py` correctly excludes `reconcile_separate` rows from the payment transfer amount lookup.
-- x9922 2026_03 (March 16 snapshot) reconciled in full: 46 main-cycle rows via 14,563.73 ILS transfer + 12 separately-settled rows (Facebook, Netflix, ChatGPT, Passport fees, Evernote, Apple) reconciled directly. 58 transactions patched.
-- x7195 2026_03 (March 16 snapshot) reconciled: 38 rows via 18,582.46 ILS transfer. 38 transactions patched.
-- 2026_03_16 full cycle complete: YNAB upload (65/67), bank sync, bank reconcile, all card syncs (x5898/x7195/x9922), all card reconciles (x5898/x7195/x9922) — all done.
+- Family steady-state workflow remains in place.
+- A new profile layer exists in `src/ynab_il_importer/workflow_profiles.py`.
+- Profile-aware budget resolution now supports Family, Pilates, and Aikido via `config/ynab.local.toml` and env overrides.
+- Non-Family profiles default to isolated state under `mappings/<profile>/...` and `outputs/<profile>/...`.
+- Fingerprint application now accepts profile-specific map/log paths instead of assuming the Family defaults.
+- Normalization CLI now supports `--profile`, explicit mapping overrides, and profile-based output defaults.
+- YNAB export normalization now reads `.zip` exports directly.
+- Pilates credit-card HTML exports now normalize through `src/ynab_il_importer/io_leumi_card_html.py` into the shared card schema.
+- Card sync/reconcile code now understands Pilates HTML card sources.
+- Card matching now supports billing-date fallback (`secondary_date`) and stamps lineage for both same-date and billing-date fallback matches.
+- Review app now supports `--profile` so non-Family workflows can use the correct categories file by default.
+- Pilates account mapping bootstrap exists in `mappings/pilates/account_name_map.csv`.
+- Pilates fingerprint map was forked from the current shared baseline into `mappings/pilates/fingerprint_map.csv`.
+- Pilates bootstrap runs were completed:
+  - raw bank/card/YNAB export files normalized
+  - historical matched pairs generated
+  - `mappings/pilates/payee_map.csv` bootstrapped and validated
+  - `outputs/pilates/fingerprint_groups.csv` generated
+  - live Pilates categories downloaded to `outputs/pilates/ynab_categories.csv`
+  - live Pilates transactions downloaded to `data/derived/pilates/ynab_api_norm.csv`
+  - live proposed transactions built in `data/paired/pilates_live/proposed_transactions.csv`
+- The Pilates review/upload pass for the clean forward batch is complete:
+  - reviewed transactions were split into clean-forward vs legacy-card bootstrap batches
+  - the clean-forward batch was prepared and uploaded
+  - the legacy-card bootstrap batch was intentionally not uploaded
+- Bank sync now emits an uncleared-YNAB triage report in addition to the normal sync report.
+- Uncleared-YNAB triage logic now classifies rows as `recent_pending`, `candidate_source_match`, or `stale_orphan`.
+- Pilates bank cleanup was completed against the live budget:
+  - historical bank date mismatches were corrected in YNAB
+  - the remaining bank-side memo lineage stamps were applied
+  - the full normalized bank file now reconciles cleanly in dry-run and execute modes
+- Targeted tests covering the new Pilates/profile work are passing.
+
+Important findings:
+- Pilates YNAB budget/accounts were identified successfully.
+- Pilates bank account maps cleanly to the Pilates budget.
+- Pilates card statements can be normalized with the new parser.
+- The Pilates credit-card account in live YNAB currently only has transactions through `2025-12-01`; 2026 card activity has not yet been uploaded there.
+- Part of the historical Pilates card history in YNAB was imported in aggregated chunks (for example date-range rows such as `01.11-06.11`) instead of statement line items.
+- Because of those historical aggregates, exact line-by-line card reconciliation is not possible for all 2025 Pilates cycles with the existing exact-lineage algorithm.
+- Existing YNAB bank transactions can be recognized by source-vs-YNAB pairing without being cleared/reconciled yet; source pairing and YNAB mutation are separate stages.
+- Current Pilates bank live status:
+  - no uncleared bank rows remain in the active `2025-11-01` to `2026-03-19` working window
+  - reconciliation verification on the normalized bank file reports `Updates planned: 0`
+  - the working bank balance now replays cleanly to the statement ending balance
 
 In progress:
-- Bank reconciliation anchor selection is too permissive and can choose a late streak near the end of the file, resulting in zero planned updates even when older cleared rows should be promoted.
-- Bank reconciliation still needs explicit per-account grouping / skip-warn behavior for multi-account source files.
+- Family-budget transactions were downloaded to `data/derived/family/ynab_api_norm.csv` so the `In Family` side can now be analyzed locally.
+- We still need to decide and document the bootstrap boundary for legacy aggregated Pilates card history.
+- Bank reconciliation anchor selection is still too permissive in the general code path.
+- The `In Family` cross-budget relationship still needs an explicit data/flow decision using the downloaded Family-budget data.
+- A future workflow wrapper/automation pass is desirable, but it is intentionally deferred until Pilates conventions settle.
 
 ---
 
 ## Immediate Next Steps
 
-1. Bank reconciliation correction
-- Constrain anchor selection so the anchor window must occur before the first unreconciled matched row.
-- Reconcile per mapped YNAB account.
-- Warn and skip unmapped accounts by default instead of failing the whole run.
-- Improve blocked-run reporting so manual cleanup is straightforward.
+1. Pilates bootstrap boundary for card reconciliation
+- Treat the pre-2026 aggregated card history as legacy bootstrap territory.
+- Decide whether to:
+  - start exact card reconciliation only after a clean itemized boundary, or
+  - build a separate aggregation-aware bootstrap helper for grouped historical card rows.
+- Document the chosen rule before attempting full historical card reconcile.
 
-2. Card reconciliation hardening
-- Add `CARD:V2` identity generation with occurrence discriminator for exact duplicate card rows (x9922 had collisions in 2026_02 raw source).
-- Add stronger sanity checks that `--previous` is older and `--source` is newer/current.
-- ~~Encode "separately settled immediate charges" rule so it doesn't require manual filtered-previous CSV workaround.~~ **Done (2026-03-17)**: handled automatically via `secondary_date` grouping.
+2. Bank reconciliation hardening
+- Constrain anchor selection so it cannot anchor after unreconciled matched rows.
+- Reconcile per mapped account when a source file contains multiple accounts.
+- Warn and skip unmapped accounts instead of failing the whole run.
 
-3. End-to-end verification
-- ~~Run bank sync + bank reconcile for 2026_03_16 cycle.~~ **Done.**
-- ~~Upload any remaining approved transactions to YNAB (`prepare_ynab_upload.py --execute`).~~ **Done (65/67).**
-- ~~Card reconcile x5898, x7195, x9922 for 2026_03.~~ **Done.**
-- Keep documentation current as the implementation stabilizes.
+3. Family/Pilates cross-plan handling
+- Pull the needed Family-budget side data for the `In Family` flow.
+- Decide how Family-budget transactions should participate in Pilates bootstrap and steady-state syncing.
+
+4. Later workflow automation
+- Once Pilates steady-state conventions are stable, build a higher-level wrapper that runs:
+  - normalize
+  - sync dry-run + uncleared triage
+  - sync execute for safe exact matches
+  - proposed transaction build/review/upload
+  - post-upload sync if needed
+  - reconcile
+- Keep this as a later ergonomics pass rather than mixing hidden YNAB mutations into the proposal-building step.
+
+5. Aikido preparation
+- Reuse the new profile model for Aikido once Pilates conventions settle.
+- Keep new helpers generic unless a Pilates-only rule is unavoidable.
 
 ---
 
 ## Deliverables to Watch
 
-- `data/derived/*/*_norm.csv`
-- `data/paired/*/proposed_transactions.csv`
-- `data/paired/*/proposed_transactions_reviewed.csv`
-- `data/paired/*/ynab_upload.csv`
-- `data/paired/*/bank_sync_report.csv`
-- `data/paired/*/bank_reconcile_report.csv`
-- future: `data/paired/*/card_reconcile_report.csv`
-- `outputs/fingerprint_log.csv`
-- `outputs/ynab_categories.csv`
-- review map-update artifacts next to reviewed CSVs
-- `mappings/payee_map.csv`
+- `mappings/pilates/account_name_map.csv`
+- `mappings/pilates/fingerprint_map.csv`
+- `mappings/pilates/payee_map.csv`
+- `outputs/pilates/ynab_categories.csv`
+- `outputs/pilates/fingerprint_groups.csv`
+- `data/derived/family/ynab_api_norm.csv`
+- `data/derived/pilates/ynab_api_norm.csv`
+- `data/derived/pilates_bootstrap/*_norm.csv`
+- `data/paired/pilates_bootstrap/matched_pairs.csv`
+- `data/paired/pilates_bootstrap/proposed_transactions.csv`
+- `data/paired/pilates_live/proposed_transactions.csv`
+- `data/paired/pilates_live/uncleared_ynab_report_post_upload.csv`
+- `data/paired/pilates_live/bank_historical_fix_updates.csv`
+- `data/paired/pilates_live/*sync_report*.csv`
+- `data/paired/pilates_live/*reconcile_report*.csv`
+- `documents/pilates_workflow.md`
 - `documents/bank_reconciliation_lessons.md`
 - `documents/card_reconciliation_plan.md`

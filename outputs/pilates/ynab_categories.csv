@@ -1,0 +1,36 @@
+﻿category_group,category_group_id,category_name,category_id,hidden
+Internal Master Category,3db93eb3-01dc-491e-9a8c-4916c9ded2c0,Inflow: Ready to Assign,9de43092-90bb-481a-8153-bd1d61153329,False
+Internal Master Category,3db93eb3-01dc-491e-9a8c-4916c9ded2c0,Deferred Income SubCategory,6af0bdfe-10f5-428a-b0bc-5abed22d1cf9,False
+Internal Master Category,3db93eb3-01dc-491e-9a8c-4916c9ded2c0,Uncategorized,e9a7bf59-4ca7-464d-a584-87b327587c7b,False
+Fixed Expenses,4ef6ae3d-acc2-4b87-b11e-66bef921005c,Boostap 414.34 1st,c0595fc1-f2a3-498d-b596-47fab2976dc4,False
+Fixed Expenses,4ef6ae3d-acc2-4b87-b11e-66bef921005c,Running 1st,dd5fcbb3-3fda-4a23-bf6b-8702e1d2bf69,True
+Fixed Expenses,4ef6ae3d-acc2-4b87-b11e-66bef921005c,Rent/Mortgage 900 1st,d654d8ad-261a-4bf7-beb0-9d5f44830d90,False
+Fixed Expenses,4ef6ae3d-acc2-4b87-b11e-66bef921005c,Interest & Fees 1st,19e20b7e-7f20-4db9-b0a8-7be5542df97c,False
+Fixed Expenses,4ef6ae3d-acc2-4b87-b11e-66bef921005c,Leumi loan 1700 10th,5eb22732-d929-413f-94ed-ee410ec06ff4,True
+Fixed Expenses,4ef6ae3d-acc2-4b87-b11e-66bef921005c,Leumi loan 64370054,61192b6b-e8f0-4acc-b3f0-6b1fb0d65dc2,False
+Fixed Expenses,4ef6ae3d-acc2-4b87-b11e-66bef921005c,Pension 10th,f6a924fa-2c03-4c15-96c1-5fcbcffd858c,False
+Fixed Expenses,4ef6ae3d-acc2-4b87-b11e-66bef921005c,Accountant 125 NIS 10th,160edbb1-207b-4dad-9304-6c3d21ea149b,False
+Fixed Expenses,4ef6ae3d-acc2-4b87-b11e-66bef921005c,Subscriptions and memberships 14th,de9235ce-434f-4dae-9d70-462258ec41cb,True
+Fixed Expenses,4ef6ae3d-acc2-4b87-b11e-66bef921005c,Bituach Leumi 15th,045de3de-e359-4dac-a2b4-51b661b0c3d1,False
+Fixed Expenses,4ef6ae3d-acc2-4b87-b11e-66bef921005c,Adrian 570 NIS 28th,51897db1-1d3a-45b4-8853-e031f3c6bcd7,True
+Fixed Expenses,4ef6ae3d-acc2-4b87-b11e-66bef921005c,Loan from family 20th,091248ee-262c-4145-9e0a-ceaeff06890d,True
+Fixed Expenses,4ef6ae3d-acc2-4b87-b11e-66bef921005c,Boaz 28th,8a252c7d-0e57-4c53-b386-5b1ebe9b578f,False
+Fixed Expenses,4ef6ae3d-acc2-4b87-b11e-66bef921005c,Insurance 29th,ceb8e7d9-5133-4329-b4d4-623c6e1fa0d1,True
+Recurring expenses,caad8fab-14cc-4fff-95db-5182116c5062,Runkeeper 160 NIS 29/3,eba9169c-2248-4227-b491-4493962f87ea,False
+Recurring expenses,caad8fab-14cc-4fff-95db-5182116c5062,Insurance 1275 NIS 15/11,cc1ed143-0e89-47b0-a584-2f5d2307eb8f,False
+Recurring expenses,caad8fab-14cc-4fff-95db-5182116c5062,Google storage 75 NIS 20 Euro 30/11,410dc258-a74d-4a8c-99a1-2a3d9040c1ed,False
+Recurring expenses,caad8fab-14cc-4fff-95db-5182116c5062,First aid course 250 Dec 2025,ff771d8a-04e6-458c-b95d-6a9f279a3de8,False
+Salary,871219e0-c239-4df3-8620-0d593353e5d5,Taxes 7% of all income,a2a23758-06dd-4d99-91e2-b7e5935894b4,False
+Salary,871219e0-c239-4df3-8620-0d593353e5d5,Salary 20th,2e2cc82f-321d-41cf-bf52-c285dc0af0f3,False
+Training,a32259c5-c40d-4eb6-bfac-bf7f518e1069,Classes,4d953025-f114-4e8a-8f07-14a3c475edd1,False
+Training,a32259c5-c40d-4eb6-bfac-bf7f518e1069,Courses,9a81c033-b861-4afc-bf7c-c85a3c856204,False
+Training,a32259c5-c40d-4eb6-bfac-bf7f518e1069,Flystick,c24822ef-c823-46be-a2d3-27bf5eb339f2,True
+Varying expenses,1bbd9d9a-de1f-4bb1-904c-8c9eaa1efeb7,Clothing,e78f38c8-5995-448d-8b98-6bc9cb73851d,False
+Varying expenses,1bbd9d9a-de1f-4bb1-904c-8c9eaa1efeb7,Equipment,8e7b23c2-c37f-4072-a8c6-eda2fc5a8bf9,False
+Varying expenses,1bbd9d9a-de1f-4bb1-904c-8c9eaa1efeb7,Marketing,45a1b5df-6d17-4d6d-a58d-bf8bcfb610f8,False
+Varying expenses,1bbd9d9a-de1f-4bb1-904c-8c9eaa1efeb7,Gifts,c6532518-3876-4ac7-8830-59a0b678cc7b,False
+Varying expenses,1bbd9d9a-de1f-4bb1-904c-8c9eaa1efeb7,Computer Replacement,075327d3-f7a0-4caa-8e39-fc52bdfb7fbf,False
+Varying expenses,1bbd9d9a-de1f-4bb1-904c-8c9eaa1efeb7,Stuff I Forgot to Budget For,2a889ed2-5c85-45a6-8a57-06fc77667e7a,False
+Varying expenses,1bbd9d9a-de1f-4bb1-904c-8c9eaa1efeb7,Office supplies,692be5a9-dda3-4979-a5ff-96dd7cd709f9,False
+Savings,108455b8-64bf-4b64-af52-981bf70494c4,Reformers,3bd5d669-0304-42fb-9c54-e0a9184de714,True
+Savings,108455b8-64bf-4b64-af52-981bf70494c4,Rainy,8bc4dded-f994-4748-8aab-2905c9541a8a,False

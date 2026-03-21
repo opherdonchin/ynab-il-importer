@@ -203,6 +203,8 @@ def read_raw(
     *,
     use_fingerprint_map: bool = True,
     account_map_path: str | Path | None = None,
+    fingerprint_map_path: str | Path = fingerprint.DEFAULT_FINGERPRINT_MAP_PATH,
+    fingerprint_log_path: str | Path = fingerprint.DEFAULT_FINGERPRINT_LOG_PATH,
 ) -> pd.DataFrame:
     source_path = Path(path)
     decoded_lines = [
@@ -306,7 +308,10 @@ def read_raw(
             result, source="bank", account_map_path=account_map_path
         )
     result = fingerprint.apply_fingerprints(
-        result, use_fingerprint_map=use_fingerprint_map
+        result,
+        use_fingerprint_map=use_fingerprint_map,
+        fingerprint_map_path=fingerprint_map_path,
+        log_path=fingerprint_log_path,
     )
     return result[
         [
