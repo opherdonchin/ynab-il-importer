@@ -112,8 +112,9 @@ Notable current outputs:
 - `data/paired/pilates_live/proposed_transactions.csv`
 
 High-level data observations:
-- Live Pilates card rows in YNAB currently stop at `2025-12-01`.
-- 2026 card activity still needs to be reviewed/prepared/uploaded into the Pilates budget.
+- Live Pilates card rows in YNAB currently span `2025-01-01` through `2026-03-19` (refreshed from API on `2026-03-21`).
+- 2025 still contains legacy grouped/aggregated rows imported before card lineage markers existed.
+- Clean itemized lineage appears from late 2025 onward; the conservative exact-sync/reconcile boundary is `2026-01-01`.
 - Parts of the 2025 Pilates card history were imported into YNAB as aggregated summary rows rather than exact statement lines.
 
 ---
@@ -195,7 +196,7 @@ Current caveat:
 ### 8. Sync current card statement rows
 
 ```powershell
-pixi run python scripts/sync_card_matches.py --profile pilates --account "Credit card 0602" --source <normalized-card-file> --report-out data/paired/pilates_live/card_sync_report.csv
+pixi run python scripts/sync_card_matches.py --profile pilates --account "Credit card 0602" --source <normalized-card-file> --date-from 2026-01-01 --report-out data/paired/pilates_live/card_sync_report.csv
 ```
 
 Use this to stamp/clear already-existing YNAB rows when exact or billing-date fallback matches exist.
@@ -203,12 +204,12 @@ Use this to stamp/clear already-existing YNAB rows when exact or billing-date fa
 ### 9. Reconcile card cycle
 
 ```powershell
-pixi run python scripts/reconcile_card_cycle.py --profile pilates --account "Credit card 0602" --previous <previous-normalized-card-file> --source <current-normalized-card-file> --report-out data/paired/pilates_live/card_reconcile_report.csv
+pixi run python scripts/reconcile_card_cycle.py --profile pilates --account "Credit card 0602" --previous <previous-normalized-card-file> --source <current-normalized-card-file> --source-date-from 2026-01-01 --previous-date-from 2026-01-01 --report-out data/paired/pilates_live/card_reconcile_report.csv
 ```
 
 Use source-only mode only for mid-cycle validation:
 ```powershell
-pixi run python scripts/reconcile_card_cycle.py --profile pilates --account "Credit card 0602" --source <current-normalized-card-file>
+pixi run python scripts/reconcile_card_cycle.py --profile pilates --account "Credit card 0602" --source <current-normalized-card-file> --source-date-from 2026-01-01
 ```
 
 ---
@@ -230,16 +231,88 @@ Implication:
 
 ### 2. Missing 2026 card uploads in the Pilates budget
 
-The live Pilates credit-card account currently appears to stop at `2025-12-01`.
-That means much of the 2026 work is not sync/reconcile work yet; it is review/prepare/upload work.
+This was true earlier, but after the clean-forward upload and refresh the card account now includes rows through `2026-03-19`.
+Current focus is no longer "missing all 2026 rows"; it is keeping exact sync/reconcile constrained to the clean itemized boundary.
 
 ### 3. `In Family` cross-budget handling
 
 The Pilates budget references Family via `In Family`, and the Family-budget transaction snapshot is now available locally in `data/derived/family/ynab_api_norm.csv`.
 
-Next step:
-- identify the Family-budget account/category conventions that correspond to the Pilates-side `In Family` flow
-- decide how those rows should participate in bootstrap and steady-state processing
+This flow now has a dedicated cross-budget comparison/proposal pipeline.
+
+Working rule:
+- source side = Family budget category `Pilates`
+- target side = Pilates budget account `In Family`
+- history/bootstrap ends conservatively at `2025-11-05`
+- recurring update runs start a little early at `2025-11-01`
+- exact live dedupe stays strict
+- bootstrap may use a `+/- 1 day` window with text as a tie-breaker
+
+The comparison layer is separate from upload/review:
+- `matched_pairs.csv` = rows already represented in Pilates
+- `unmatched_source.csv` = Family-side rows missing in Pilates
+- `unmatched_target.csv` = Pilates-side manual/history rows with no current Family `Pilates` match
+- `ambiguous_matches.csv` = rows that need human interpretation because a safe automatic match is not unique
+
+### Cross-budget bootstrap
+
+Use the saved Family YNAB snapshot directly:
+```powershell
+pixi run python scripts/bootstrap_cross_budget_pairs.py --source data/derived/family/ynab_api_norm.csv --source-profile family --source-category Pilates --ynab data/derived/pilates/ynab_api_norm.csv --target-profile pilates --target-account "In Family" --since 2025-01-01 --until 2025-11-05 --date-tolerance-days 1
+```
+
+Current dry-run on the saved local snapshots produced:
+- matched pairs: `94`
+- unmatched Family source rows: `20`
+- unmatched Pilates target rows: `44`
+- ambiguous buckets: `3`
+
+Generated artifacts:
+- `data/paired/pilates_cross_budget_bootstrap/matched_pairs.csv`
+- `data/paired/pilates_cross_budget_bootstrap/unmatched_source.csv`
+- `data/paired/pilates_cross_budget_bootstrap/unmatched_target.csv`
+- `data/paired/pilates_cross_budget_bootstrap/ambiguous_matches.csv`
+
+To bootstrap payee-map candidates from those historical matches:
+```powershell
+pixi run python scripts/bootstrap_payee_map.py --pairs data/paired/pilates_cross_budget_bootstrap/matched_pairs.csv --out data/paired/pilates_cross_budget_bootstrap/payee_map_candidates.csv
+```
+
+### Cross-budget recurring proposals
+
+Build the reviewable proposal file from the overlapping live window:
+```powershell
+pixi run python scripts/build_cross_budget_proposed.py --source data/derived/family/ynab_api_norm.csv --source-profile family --source-category Pilates --ynab data/derived/pilates/ynab_api_norm.csv --target-profile pilates --target-account "In Family" --since 2025-11-01 --date-tolerance-days 0
+```
+
+Current dry-run on the saved local snapshots produced:
+- matched existing rows in Pilates: `14`
+- new proposal rows: `28`
+- unmatched target rows: `7`
+- ambiguous rows: `0`
+
+Generated artifacts:
+- `data/paired/pilates_cross_budget_live/proposed_transactions.csv`
+- `data/paired/pilates_cross_budget_live/matched_pairs.csv`
+- `data/paired/pilates_cross_budget_live/unmatched_source.csv`
+- `data/paired/pilates_cross_budget_live/unmatched_target.csv`
+- `data/paired/pilates_cross_budget_live/ambiguous_matches.csv`
+
+The proposal file uses:
+- `account_name = "In Family"` for upload/review
+- `source_account` to preserve the original Family-side account as audit context
+
+Review with the ordinary Pilates review flow:
+```powershell
+pixi run python scripts/review_app.py --profile pilates --in data/paired/pilates_cross_budget_live/proposed_transactions.csv
+```
+
+### Optional live category export
+
+When we want a fresh Family category export instead of reusing `data/derived/family/ynab_api_norm.csv`, use the profile-aware YNAB-as-source export and point it at the fingerprint map we want for this workflow:
+```powershell
+pixi run python scripts/io_ynab_as_source.py --profile family --category Pilates --fingerprint-map mappings/pilates/fingerprint_map.csv --out data/derived/family/ynab_category_business_pilates_live.csv
+```
 
 ---
 

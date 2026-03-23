@@ -1059,6 +1059,122 @@ def test_plan_card_match_sync_noops_on_exact_lineage(tmp_path: Path) -> None:
     assert report.loc[0, "action"] == "noop"
 
 
+def test_plan_card_match_sync_filters_source_rows_by_date(tmp_path: Path) -> None:
+    source_path = tmp_path / "current.xlsx"
+    _write_snapshot(
+        source_path,
+        period="04/2026",
+        billed_rows=[
+            _billed_row(
+                date="31-12-2025",
+                merchant="LEGACY ROW",
+                amount="50",
+                charge_date="10-04-2026",
+            ),
+            _billed_row(
+                date="09-03-2026",
+                merchant="MERCHANT A",
+                amount="100",
+                charge_date="10-04-2026",
+            ),
+        ],
+    )
+    source_df = card_reconciliation.load_card_source(source_path)
+    source_rows = card_reconciliation._target_source_rows(source_df, "Opher x9922")
+    current_row = source_rows[source_rows["description_raw"] == "MERCHANT A"].iloc[0]
+
+    transactions = [
+        _txn_manual(
+            txn_id="txn-1",
+            date=str(current_row["date"]),
+            amount_ils=100.0,
+            payee_name="Canonical Payee",
+            cleared="uncleared",
+        )
+    ]
+
+    result = card_reconciliation.plan_card_match_sync(
+        account_name="Opher x9922",
+        source_df=source_df,
+        accounts=_accounts(),
+        transactions=transactions,
+        source_date_from="2026-01-01",
+    )
+
+    assert result["source_filtered_out_count"] == 1
+    assert result["source_row_count"] == 1
+    assert result["update_count"] == 1
+    report = result["report"]
+    assert len(report) == 1
+    assert report.loc[0, "date"] == "2026-03-09"
+    assert report.loc[0, "description_raw"] == "MERCHANT A"
+
+
+def test_transition_filters_previous_rows_by_date(tmp_path: Path) -> None:
+    previous_path = tmp_path / "previous.xlsx"
+    current_path = tmp_path / "current.xlsx"
+    _write_snapshot(
+        previous_path,
+        period="03/2026",
+        billed_rows=[
+            _billed_row(
+                date="20-12-2025",
+                merchant="LEGACY ROW",
+                amount="40",
+                charge_date="10-03-2026",
+            ),
+            _billed_row(
+                date="10-02-2026",
+                merchant="MERCHANT B",
+                amount="80",
+                charge_date="10-03-2026",
+            ),
+        ],
+    )
+    _write_snapshot(
+        current_path,
+        period="04/2026",
+        billed_rows=[
+            _billed_row(
+                date="09-03-2026",
+                merchant="MERCHANT C",
+                amount="120",
+                charge_date="10-04-2026",
+            ),
+        ],
+    )
+
+    previous_df = card_reconciliation.load_card_source(previous_path)
+    current_df = card_reconciliation.load_card_source(current_path)
+    previous_rows = card_reconciliation._target_source_rows(previous_df, "Opher x9922")
+    current_rows = card_reconciliation._target_source_rows(current_df, "Opher x9922")
+    keep_previous = previous_rows[previous_rows["description_raw"] == "MERCHANT B"].iloc[
+        0
+    ]
+
+    transactions = [
+        _txn_from_source(keep_previous, txn_id="prev-keep", cleared="cleared"),
+        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="uncleared"),
+    ] + _transfer_pair(transfer_id="payment-mar", date="2026-03-10", amount_ils=80.0)
+
+    result = card_reconciliation.plan_card_cycle_reconciliation(
+        account_name="Opher x9922",
+        source_df=current_df,
+        previous_df=previous_df,
+        accounts=_accounts(),
+        transactions=transactions,
+        previous_date_from="2026-01-01",
+    )
+
+    assert result["ok"] is True
+    assert result["previous_filtered_out_count"] == 1
+    assert result["previous_row_count"] == 1
+    assert result["payment_transfer_card_amount_ils"] == 80.0
+    previous_report = result["report"][result["report"]["snapshot_role"] == "previous"]
+    assert len(previous_report) == 1
+    assert previous_report.iloc[0]["description_raw"] == "MERCHANT B"
+
+
 def test_source_only_clears_secondary_date_memo_exact_match(tmp_path: Path) -> None:
     source_path = tmp_path / "current.xlsx"
     _write_snapshot(

@@ -23,6 +23,8 @@ def _print_summary(result: dict[str, object], report_path: Path, execute: bool) 
     report = result["report"]
     print(export.wrote_message(report_path, len(report)))
     print(f"Account: {result['account_name']} ({result['account_id']})")
+    if int(result.get("source_filtered_out_count", 0) or 0) > 0:
+        print(f"Filtered source rows: {result['source_filtered_out_count']}")
     print(f"Matched rows: {result['matched_count']}")
     print(f"Updates planned: {result['update_count']}")
     if not report.empty:
@@ -67,6 +69,16 @@ def main() -> None:
         action="store_true",
         help="PATCH YNAB transactions after writing the dry-run report.",
     )
+    parser.add_argument(
+        "--date-from",
+        default="",
+        help="Filter source rows by date >= YYYY-MM-DD (inclusive).",
+    )
+    parser.add_argument(
+        "--date-to",
+        default="",
+        help="Filter source rows by date <= YYYY-MM-DD (inclusive).",
+    )
     parser.add_argument("--profile", default="", help="Workflow profile (for budget defaults).")
     parser.add_argument("--budget-id", dest="budget_id", default="", help="Override YNAB budget/plan id.")
     args = parser.parse_args()
@@ -88,6 +100,8 @@ def main() -> None:
         source_df=source_df,
         accounts=accounts,
         transactions=transactions,
+        source_date_from=args.date_from or None,
+        source_date_to=args.date_to or None,
     )
     export.write_dataframe(result["report"], report_path)
     _print_summary(result, report_path, execute=args.execute)

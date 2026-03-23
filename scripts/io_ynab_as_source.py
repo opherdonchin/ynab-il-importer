@@ -46,6 +46,7 @@ if str(SRC) not in sys.path:
 import ynab_il_importer.export as export
 import ynab_il_importer.fingerprint as fingerprint_mod
 import ynab_il_importer.normalize as normalize
+import ynab_il_importer.workflow_profiles as workflow_profiles
 import ynab_il_importer.ynab_api as ynab_api
 from ynab_il_importer.io_ynab import _infer_txn_kind
 
@@ -116,6 +117,9 @@ def _build_source_dataframe(
     category_display_name: str,
     since: str | None,
     until: str | None,
+    *,
+    fingerprint_map_path: Path,
+    fingerprint_log_path: Path,
 ) -> pd.DataFrame:
     account_name_map = {acc.get("id"): acc.get("name") for acc in accounts}
 
@@ -187,7 +191,12 @@ def _build_source_dataframe(
     )
 
     # Apply fingerprint pipeline (description_clean_norm + fingerprint)
-    df = fingerprint_mod.apply_fingerprints(df, use_fingerprint_map=True)
+    df = fingerprint_mod.apply_fingerprints(
+        df,
+        use_fingerprint_map=True,
+        fingerprint_map_path=fingerprint_map_path,
+        log_path=fingerprint_log_path,
+    )
 
     # Running category balance: sort ascending by date then ynab_id for stability
     df = df.sort_values(["date", "ynab_id"], kind="stable").reset_index(drop=True)
@@ -232,7 +241,10 @@ def _build_source_dataframe(
 
 
 def _default_out_path(
-    category_display_name: str, since: str | None, until: str | None
+    profile_name: str,
+    category_display_name: str,
+    since: str | None,
+    until: str | None,
 ) -> Path:
     slug = re.sub(r"[^\w]+", "_", category_display_name).strip("_").lower()
     parts = [slug]
@@ -240,12 +252,27 @@ def _default_out_path(
         parts.append(since.replace("-", ""))
     if until:
         parts.append(until.replace("-", ""))
-    return Path("data/derived") / f"ynab_category_{'-'.join(parts)}.csv"
+    return (
+        Path("data/derived")
+        / profile_name
+        / f"ynab_category_{'-'.join(parts)}.csv"
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Download YNAB transactions for a category as a normalised source CSV."
+    )
+    parser.add_argument(
+        "--profile",
+        default="",
+        help="Workflow profile used for default budget and fingerprint paths.",
+    )
+    parser.add_argument(
+        "--budget-id",
+        dest="budget_id",
+        default="",
+        help="Override YNAB budget/plan id.",
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
@@ -276,13 +303,37 @@ def main() -> None:
             "data/derived/ynab_category_<slug>[-since][-until].csv"
         ),
     )
+    parser.add_argument(
+        "--fingerprint-map",
+        dest="fingerprint_map_path",
+        type=Path,
+        default=None,
+        help="Override fingerprint map path used when deriving source fingerprints.",
+    )
+    parser.add_argument(
+        "--fingerprint-log",
+        dest="fingerprint_log_path",
+        type=Path,
+        default=None,
+        help="Override fingerprint log output path.",
+    )
     args = parser.parse_args()
 
     if not args.category and not args.category_id:
         parser.error("Either --category or --category-id is required.")
 
+    profile = workflow_profiles.resolve_profile(args.profile or None)
+    plan_id = workflow_profiles.resolve_budget_id(
+        profile=profile.name,
+        budget_id=args.budget_id,
+    )
+    fingerprint_map_path = args.fingerprint_map_path or profile.fingerprint_map_path
+    fingerprint_log_path = args.fingerprint_log_path or (
+        Path("outputs") / profile.name / "fingerprint_log.csv"
+    )
+
     print("Fetching categories…")
-    groups = ynab_api.fetch_categories()
+    groups = ynab_api.fetch_categories(plan_id=plan_id or None)
 
     category_id, category_display_name = _resolve_category(
         groups,
@@ -293,11 +344,14 @@ def main() -> None:
 
     print("Fetching transactions…")
     # Pass since_date to reduce API payload when possible
-    txns = ynab_api.fetch_transactions(since_date=args.since or None)
+    txns = ynab_api.fetch_transactions(
+        plan_id=plan_id or None,
+        since_date=args.since or None,
+    )
     print(f"  {len(txns)} transactions returned from API")
 
     print("Fetching accounts…")
-    accounts = ynab_api.fetch_accounts()
+    accounts = ynab_api.fetch_accounts(plan_id=plan_id or None)
 
     df = _build_source_dataframe(
         txns,
@@ -306,6 +360,8 @@ def main() -> None:
         category_display_name=category_display_name,
         since=args.since or None,
         until=args.until or None,
+        fingerprint_map_path=fingerprint_map_path,
+        fingerprint_log_path=fingerprint_log_path,
     )
 
     if df.empty:
@@ -313,7 +369,10 @@ def main() -> None:
         return
 
     out_path = args.out_path or _default_out_path(
-        category_display_name, args.since or None, args.until or None
+        profile.name,
+        category_display_name,
+        args.since or None,
+        args.until or None,
     )
     export.write_dataframe(df, out_path)
     print(export.wrote_message(out_path, len(df)))

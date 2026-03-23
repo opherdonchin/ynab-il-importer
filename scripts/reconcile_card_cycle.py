@@ -23,6 +23,10 @@ def _print_summary(result: dict[str, object], report_path: Path, execute: bool) 
     print(export.wrote_message(report_path, len(result["report"])))
     print(f"Account: {result['account_name']} ({result['account_id']})")
     print(f"Mode: {result['mode']}")
+    if int(result.get("source_filtered_out_count", 0) or 0) > 0:
+        print(f"Filtered source rows: {result['source_filtered_out_count']}")
+    if int(result.get("previous_filtered_out_count", 0) or 0) > 0:
+        print(f"Filtered previous rows: {result['previous_filtered_out_count']}")
     if result.get("previous_total_ils"):
         print(f"Previous total: {result['previous_total_ils']:.2f} ILS")
         print(
@@ -96,6 +100,26 @@ def main() -> None:
         dest="allow_reconciled_source",
         help="Skip the block when source rows are already reconciled (e.g. a later cycle ran first).",
     )
+    parser.add_argument(
+        "--source-date-from",
+        default="",
+        help="Filter source rows by date >= YYYY-MM-DD (inclusive).",
+    )
+    parser.add_argument(
+        "--source-date-to",
+        default="",
+        help="Filter source rows by date <= YYYY-MM-DD (inclusive).",
+    )
+    parser.add_argument(
+        "--previous-date-from",
+        default="",
+        help="Filter previous rows by date >= YYYY-MM-DD (inclusive).",
+    )
+    parser.add_argument(
+        "--previous-date-to",
+        default="",
+        help="Filter previous rows by date <= YYYY-MM-DD (inclusive).",
+    )
     parser.add_argument("--profile", default="", help="Workflow profile (for budget defaults).")
     parser.add_argument("--budget-id", dest="budget_id", default="", help="Override YNAB budget/plan id.")
     args = parser.parse_args()
@@ -124,6 +148,10 @@ def main() -> None:
         accounts=accounts,
         transactions=transactions,
         allow_reconciled_source=args.allow_reconciled_source,
+        source_date_from=args.source_date_from or None,
+        source_date_to=args.source_date_to or None,
+        previous_date_from=args.previous_date_from or None,
+        previous_date_to=args.previous_date_to or None,
     )
     export.write_dataframe(result["report"], report_path)
     _print_summary(result, report_path, execute=args.execute)
