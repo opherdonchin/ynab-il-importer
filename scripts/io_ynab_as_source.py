@@ -121,57 +121,31 @@ def _build_source_dataframe(
     fingerprint_map_path: Path,
     fingerprint_log_path: Path,
 ) -> pd.DataFrame:
-    account_name_map = {acc.get("id"): acc.get("name") for acc in accounts}
-
-    rows: list[dict[str, Any]] = []
-    for txn in transactions:
-        cid = txn.get("category_id", "") or ""
-        if cid != category_id:
-            continue
-        amount_millis = float(txn.get("amount", 0))
-        amount = amount_millis / 1000.0
-        outflow = round(abs(amount), 2) if amount < 0 else 0.0
-        inflow = round(amount, 2) if amount > 0 else 0.0
-
-        account_id = txn.get("account_id", "") or ""
-        account_name = account_name_map.get(account_id, account_id)
-        payee = txn.get("payee_name", "") or ""
-        memo = txn.get("memo", "") or ""
-
-        rows.append(
-            {
-                "source": "ynab",
-                "ynab_id": txn.get("id", "") or "",
-                "account_id": account_id,
-                "account_name": account_name,
-                "source_account": account_name,
-                "date": txn.get("date", ""),
-                "secondary_date": None,
-                "payee_raw": payee,
-                "category_raw": category_display_name,
-                "category_id": category_id,
-                "outflow_ils": outflow,
-                "inflow_ils": inflow,
-                "currency": "ILS",
-                "amount_bucket": "",
-                # Source-format description fields
-                "merchant_raw": payee,
-                "description_raw": memo if memo else payee,
-                "description_clean": payee,
-                "description_clean_norm": "",
-                "fingerprint": "",
-                # YNAB lineage
-                "memo": memo,
-                "import_id": txn.get("import_id", "") or "",
-                "matched_transaction_id": txn.get("matched_transaction_id", "") or "",
-                "cleared": txn.get("cleared", "") or "",
-                "approved": bool(txn.get("approved", False)),
-            }
-        )
-
-    df = pd.DataFrame(rows)
+    category_name = category_display_name.split(":")[-1].strip()
+    df = ynab_api.category_transactions_to_dataframe(transactions, accounts)
     if df.empty:
         return df
+    if "category_id" not in df.columns:
+        raise ValueError("Category-source dataframe is missing category_id.")
+
+    df = df.loc[
+        df["category_id"].astype("string").fillna("").str.strip() == str(category_id).strip()
+    ].copy()
+    if df.empty:
+        return df
+
+    df["source_account"] = df["account_name"].astype("string").fillna("").str.strip()
+    df["secondary_date"] = pd.NaT
+    df["merchant_raw"] = df["payee_raw"].astype("string").fillna("")
+    memo_series = df["memo"].astype("string").fillna("")
+    payee_series = df["payee_raw"].astype("string").fillna("")
+    df["description_raw"] = memo_series.where(memo_series.str.strip() != "", payee_series)
+    df["description_clean"] = payee_series
+    df["description_clean_norm"] = ""
+    df["fingerprint"] = ""
+    df["category_raw"] = category_name
+    df["category_display_name"] = category_display_name
+    df["category_id"] = str(category_id).strip()
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
 
@@ -214,6 +188,7 @@ def _build_source_dataframe(
             "secondary_date",
             "payee_raw",
             "category_raw",
+            "category_display_name",
             "category_id",
             "txn_kind",
             "merchant_raw",

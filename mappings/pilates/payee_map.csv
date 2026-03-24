@@ -41,3 +41,8 @@ loan_pilates_cross_budget_39,True,10,,loan pilates,,,,outflow,,,Transfer : Leumi
 transfer_pilates_leumi_cross_budget_40,True,10,,transfer pilates leumi,,,,,,,Transfer : Bank Leumi 225237,,cross-budget transfer mapping merged 2026-03-22,
 google_one_dublin_cross_budget_41,True,10,,google one dublin,,,,outflow,,,Google One,Google storage 75 NIS 20 Euro 30/11,cross-budget live google storage mapping merged 2026-03-23,
 הפקדות_קופג_cross_budget_42,True,10,,הפקדות קופג,,,,outflow,,,Excellence,Pension 10th,cross-budget live excellence pension mapping merged 2026-03-23,
+adva_shtainberg_cross_budget_43,True,10,,adva shtainberg,,,,outflow,,,Adva Shtainberg,Accountant 125 NIS 10th,cross-budget live split mapping merged 2026-03-24,
+שטיינברג_cross_budget_44,True,10,,שטיינברג,,,,outflow,,,Adva Shtainberg,Accountant 125 NIS 10th,cross-budget live split mapping merged 2026-03-24,
+way_of_noam_cross_budget_45,True,10,,way of noam,,,,outflow,,,Way of Noam,Courses,cross-budget historical pre-window rule merged 2026-03-24,
+gidgis_cross_budget_46,True,10,,gidgis,,,,outflow,,,Gidgis,Clothing,cross-budget historical pre-window rule merged 2026-03-24,
+דרכי_נעם_cross_budget_47,True,10,,דרכי נעם,,,,outflow,,,Way of Noam,Courses,cross-budget historical pre-window Hebrew alias merged 2026-03-24,

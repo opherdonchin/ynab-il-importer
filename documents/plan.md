@@ -192,6 +192,8 @@ Important findings:
   - unmatched target rows = `0`
   - ambiguous rows = `0`
   - executed reconcile updates = `45`
+- The current cross-budget/profile/card-boundary checkpoint is committed on branch `feature/pilates-workflow`:
+  - commit = `efc47ca` (`Add cross-budget Pilates sync workflow`)
 - Full cross-budget balance parity is still not complete:
   - current Family `Pilates` category balance = `15704.26`
   - current Pilates `In Family` cleared balance = `16334.26`

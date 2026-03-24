@@ -1,0 +1,2 @@
+﻿source,ynab_id,account_id,account_name,date,payee_raw,category_raw,outflow_ils,inflow_ils,txn_kind,fingerprint,memo,import_id,matched_transaction_id,cleared,approved
+ynab,target-existing,acc-target-existing,In Family,2025-11-01,Existing Client,Pilates Expense,0.0,100.0,credit,existing client,Existing Client,,,uncleared,False

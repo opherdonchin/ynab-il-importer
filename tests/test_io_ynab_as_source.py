@@ -172,3 +172,77 @@ def test_main_explicit_budget_id_overrides_profile_budget(monkeypatch) -> None:
         pass
 
     assert seen_plan_ids == ["override-budget"]
+
+
+def test_build_source_dataframe_uses_category_subtransactions(monkeypatch) -> None:
+    def fake_apply_fingerprints(
+        df: pd.DataFrame,
+        *,
+        use_fingerprint_map: bool,
+        fingerprint_map_path: Path,
+        log_path: Path,
+    ) -> pd.DataFrame:
+        out = df.copy()
+        out["description_clean_norm"] = out["description_clean"].astype("string").str.lower()
+        out["fingerprint"] = out["description_clean_norm"]
+        return out
+
+    monkeypatch.setattr(
+        io_ynab_as_source.fingerprint_mod,
+        "apply_fingerprints",
+        fake_apply_fingerprints,
+    )
+
+    df = io_ynab_as_source._build_source_dataframe(
+        transactions=[
+            {
+                "id": "parent-1",
+                "account_id": "acc-1",
+                "date": "2025-11-06",
+                "payee_name": "Salary Liya",
+                "category_id": "",
+                "category_name": "Split",
+                "amount": 0,
+                "memo": "",
+                "import_id": "parent-import",
+                "matched_transaction_id": "",
+                "cleared": "cleared",
+                "approved": True,
+                "subtransactions": [
+                    {
+                        "id": "sub-1",
+                        "amount": -3000000,
+                        "memo": "",
+                        "payee_name": "",
+                        "category_id": "cat-pilates",
+                        "category_name": "Pilates",
+                        "deleted": False,
+                    },
+                    {
+                        "id": "sub-2",
+                        "amount": 3000000,
+                        "memo": "",
+                        "payee_name": "",
+                        "category_id": "cat-rta",
+                        "category_name": "Inflow: Ready to Assign",
+                        "deleted": False,
+                    },
+                ],
+            }
+        ],
+        accounts=[{"id": "acc-1", "name": "Family Leumi"}],
+        category_id="cat-pilates",
+        category_display_name="Business: Pilates",
+        since=None,
+        until=None,
+        fingerprint_map_path=Path("mappings/family/fingerprint_map.csv"),
+        fingerprint_log_path=Path("outputs/family/fingerprint_log.csv"),
+    )
+
+    assert len(df) == 1
+    assert df.loc[0, "ynab_id"] == "sub-1"
+    assert df.loc[0, "account_name"] == "Family Leumi"
+    assert df.loc[0, "payee_raw"] == "Salary Liya"
+    assert df.loc[0, "category_raw"] == "Pilates"
+    assert df.loc[0, "category_display_name"] == "Business: Pilates"
+    assert pd.to_numeric(df.loc[0, "outflow_ils"]) == 3000.0

@@ -48,6 +48,18 @@ def test_update_transactions_reads_bulk_patch_response(monkeypatch) -> None:
     assert response["server_knowledge"] == 456
 
 
+def test_delete_transaction_calls_item_delete_endpoint(monkeypatch) -> None:
+    def fake_delete(path: str) -> dict:
+        assert path == "/plans/test-plan/transactions/txn-1"
+        return {"data": {"transaction": {"id": "txn-1", "deleted": True}}}
+
+    monkeypatch.setattr(ynab_api, "_ynab_delete", fake_delete)
+
+    response = ynab_api.delete_transaction("txn-1", plan_id="test-plan")
+
+    assert response == {"transaction": {"id": "txn-1", "deleted": True}}
+
+
 def test_transactions_to_dataframe_preserves_lineage_fields() -> None:
     transactions = [
         {
@@ -76,3 +88,54 @@ def test_transactions_to_dataframe_preserves_lineage_fields() -> None:
     assert bool(df.loc[0, "approved"]) is True
     assert df.loc[0, "fingerprint"] == "merchant"
     assert pd.to_numeric(df.loc[0, "outflow_ils"]) == 12.34
+
+
+def test_category_transactions_to_dataframe_explodes_subtransactions() -> None:
+    transactions = [
+        {
+            "id": "parent-1",
+            "account_id": "acc-1",
+            "date": "2026-03-01",
+            "payee_name": "Salary Liya",
+            "category_name": "Split",
+            "category_id": "",
+            "amount": 0,
+            "memo": "",
+            "import_id": "parent-import",
+            "matched_transaction_id": "",
+            "cleared": "cleared",
+            "approved": True,
+            "subtransactions": [
+                {
+                    "id": "sub-1",
+                    "amount": -3000000,
+                    "memo": "",
+                    "payee_name": "",
+                    "category_id": "cat-pilates",
+                    "category_name": "Pilates",
+                    "deleted": False,
+                },
+                {
+                    "id": "sub-2",
+                    "amount": 3000000,
+                    "memo": "",
+                    "payee_name": "",
+                    "category_id": "cat-rta",
+                    "category_name": "Inflow: Ready to Assign",
+                    "deleted": False,
+                },
+            ],
+        }
+    ]
+    accounts = [{"id": "acc-1", "name": "Family Leumi"}]
+
+    df = ynab_api.category_transactions_to_dataframe(transactions, accounts)
+
+    assert df["ynab_id"].tolist() == ["sub-1", "sub-2"]
+    assert df["parent_ynab_id"].tolist() == ["parent-1", "parent-1"]
+    assert df["is_subtransaction"].tolist() == [True, True]
+    assert df["category_raw"].tolist() == ["Pilates", "Inflow: Ready to Assign"]
+    assert df["payee_raw"].tolist() == ["Salary Liya", "Salary Liya"]
+    assert df["account_name"].tolist() == ["Family Leumi", "Family Leumi"]
+    assert pd.to_numeric(df.loc[0, "outflow_ils"]) == 3000.0
+    assert pd.to_numeric(df.loc[1, "inflow_ils"]) == 3000.0

@@ -1,0 +1,3 @@
+﻿source,ynab_id,account_name,date,payee_raw,category_raw,outflow_ils,inflow_ils,txn_kind,fingerprint,memo
+ynab,source-existing,Family Leumi,2025-11-01,Existing Client,Pilates,0.0,100.0,credit,existing client,Existing Client
+ynab,source-new,Family Leumi,2025-11-02,Office Rent,Pilates,100.0,0.0,expense,office rent,Office Rent

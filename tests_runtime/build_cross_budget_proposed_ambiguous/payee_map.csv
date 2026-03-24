@@ -1,0 +1,2 @@
+﻿rule_id,is_active,priority,txn_kind,fingerprint,description_clean_norm,account_name,source,direction,currency,amount_bucket,payee_canonical,category_target,notes,card_suffix
+rent_1,True,0,,office rent,,,,,,,Office Rent,Pilates Expenses,,

@@ -1,0 +1,3 @@
+﻿source,ynab_id,account_id,account_name,date,payee_raw,category_raw,outflow_ils,inflow_ils,txn_kind,fingerprint,memo,import_id,matched_transaction_id,cleared,approved
+ynab,target-1,acc-target-1,In Family,2025-11-01,Office Rent,Pilates Expense,100.0,0.0,expense,office rent,Office Rent,,,uncleared,False
+ynab,target-2,acc-target-2,In Family,2025-11-01,Office Rent Duplicate,Pilates Expense,100.0,0.0,expense,office rent duplicate,Office Rent Duplicate,,,uncleared,False

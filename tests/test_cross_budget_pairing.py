@@ -204,12 +204,57 @@ def test_loan_source_row_matches_transfer_target() -> None:
     assert result.matched_pairs_df.loc[0, "row_kind"] == "transfer_like"
 
 
+def test_bank_leumi_loan_memo_target_is_treated_as_transfer_like() -> None:
+    source_df = pd.DataFrame(
+        [
+            _source_row(
+                row_id="source-loan",
+                payee_raw="Loan Pilates",
+                category_raw="Pilates",
+                date="2024-05-27",
+                inflow_ils=60000.0,
+                outflow_ils=0.0,
+                txn_kind="income",
+                fingerprint="loan pilates",
+                memo="Reformers",
+            )
+        ]
+    )
+    target_df = pd.DataFrame(
+        [
+            _target_row(
+                row_id="target-loan",
+                payee_raw="Bank Leumi",
+                category_raw="Leumi loan 64370054",
+                date="2024-05-27",
+                inflow_ils=60000.0,
+                outflow_ils=0.0,
+                txn_kind="income",
+                fingerprint="bank leumi",
+                memo="Loan 64370054",
+            )
+        ]
+    )
+
+    result = cross_budget_pairing.match_cross_budget_rows(
+        source_df,
+        target_df,
+        target_account="In Family",
+        source_category="Pilates",
+    )
+
+    assert len(result.matched_pairs_df) == 1
+    assert result.unmatched_source_df.empty
+    assert result.unmatched_target_df.empty
+    assert result.matched_pairs_df.loc[0, "row_kind"] == "transfer_like"
+
+
 def test_ambiguous_same_bucket_is_left_unresolved() -> None:
     source_df = pd.DataFrame([_source_row(row_id="source-1")])
     target_df = pd.DataFrame(
         [
             _target_row(row_id="target-1"),
-            _target_row(row_id="target-2", payee_raw="Another Row"),
+            _target_row(row_id="target-2"),
         ]
     )
 
@@ -224,7 +269,35 @@ def test_ambiguous_same_bucket_is_left_unresolved() -> None:
     assert result.unmatched_source_df.empty
     assert result.unmatched_target_df.empty
     assert len(result.ambiguous_matches_df) == 1
-    assert result.ambiguous_matches_df.loc[0, "reason"] == "same_date_amount_bucket_not_unique"
+    assert result.ambiguous_matches_df.loc[0, "reason"] == "date_window_candidates_not_unique"
+
+
+def test_equal_count_repeated_bucket_auto_matches() -> None:
+    source_df = pd.DataFrame(
+        [
+            _source_row(row_id="source-1", payee_raw="Liya Pilates", memo="Cash A", inflow_ils=30.0),
+            _source_row(row_id="source-2", payee_raw="Liya Pilates", memo="Cash B", inflow_ils=30.0),
+        ]
+    )
+    target_df = pd.DataFrame(
+        [
+            _target_row(row_id="target-1", payee_raw="ליה פילאטיס: קבוצתי", memo="Cash A", inflow_ils=30.0),
+            _target_row(row_id="target-2", payee_raw="ליה פילאטיס: קבוצתי", memo="Cash B", inflow_ils=30.0),
+        ]
+    )
+
+    result = cross_budget_pairing.match_cross_budget_rows(
+        source_df,
+        target_df,
+        target_account="In Family",
+        source_category="Pilates",
+    )
+
+    assert len(result.matched_pairs_df) == 2
+    assert result.unmatched_source_df.empty
+    assert result.unmatched_target_df.empty
+    assert result.ambiguous_matches_df.empty
+    assert set(result.matched_pairs_df["match_type"].tolist()) == {"exact_equal_count_bucket"}
 
 
 def test_date_window_text_tiebreak_resolves_bootstrap_candidate() -> None:
@@ -275,6 +348,64 @@ def test_date_window_text_tiebreak_resolves_bootstrap_candidate() -> None:
     assert len(result.matched_pairs_df) == 1
     assert result.matched_pairs_df.loc[0, "target_row_id"] == "target-right"
     assert result.matched_pairs_df.loc[0, "match_type"] == "date_window_text_tiebreak"
+
+
+def test_date_window_can_resolve_after_same_day_count_mismatch() -> None:
+    source_df = pd.DataFrame(
+        [
+            _source_row(
+                row_id="source-a",
+                date="2025-07-07",
+                payee_raw="Pilates",
+                memo="כאמלה",
+                inflow_ils=800.0,
+                fingerprint="pilates",
+            ),
+            _source_row(
+                row_id="source-b",
+                date="2025-07-07",
+                payee_raw="Pilates",
+                memo="אהוד מזומן",
+                inflow_ils=800.0,
+                fingerprint="pilates",
+            ),
+        ]
+    )
+    target_df = pd.DataFrame(
+        [
+            _target_row(
+                row_id="target-a",
+                date="2025-07-06",
+                payee_raw="ליה פילאטיס: פרטי",
+                memo="כאמלה",
+                inflow_ils=800.0,
+                fingerprint="liya pilates",
+            ),
+            _target_row(
+                row_id="target-b",
+                date="2025-07-07",
+                payee_raw="ליה פילאטיס: קבוצתי",
+                memo="אהוד מזומן",
+                inflow_ils=800.0,
+                fingerprint="liya pilates",
+            ),
+        ]
+    )
+
+    result = cross_budget_pairing.match_cross_budget_rows(
+        source_df,
+        target_df,
+        target_account="In Family",
+        source_category="Pilates",
+        date_tolerance_days=1,
+    )
+
+    assert len(result.matched_pairs_df) == 2
+    assert result.unmatched_source_df.empty
+    assert result.unmatched_target_df.empty
+    assert result.ambiguous_matches_df.empty
+    assert set(result.matched_pairs_df["target_row_id"].tolist()) == {"target-a", "target-b"}
+    assert set(result.matched_pairs_df["match_type"].tolist()) == {"date_window_text_tiebreak"}
 
 
 def test_manual_target_row_remains_unmatched_when_source_category_missing() -> None:

@@ -52,6 +52,14 @@ def _merged_series_or_default(
     return pd.Series([default] * len(df), index=df.index)
 
 
+def _target_series(df: pd.DataFrame, suffixed: str, plain: str, default: str | float = "") -> pd.Series:
+    if suffixed in df.columns:
+        return df[suffixed]
+    if plain in df.columns:
+        return df[plain]
+    return pd.Series([default] * len(df), index=df.index)
+
+
 def _signed_amount(values: pd.DataFrame | pd.Series) -> pd.Series | float:
     if isinstance(values, pd.Series):
         inflow = float(pd.to_numeric(pd.Series([values.get("inflow_ils", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
@@ -63,14 +71,32 @@ def _signed_amount(values: pd.DataFrame | pd.Series) -> pd.Series | float:
     return (inflow - outflow).round(2)
 
 
-def _classify_row_kind(payee_text: str, txn_kind: str) -> str:
+def _classify_row_kind(
+    payee_text: str,
+    txn_kind: str,
+    *,
+    memo_text: str = "",
+    category_text: str = "",
+    fingerprint_text: str = "",
+) -> str:
     payee = str(payee_text or "").strip().lower()
     kind = str(txn_kind or "").strip().lower()
+    memo = str(memo_text or "").strip().lower()
+    category = str(category_text or "").strip().lower()
+    fingerprint = str(fingerprint_text or "").strip().lower()
     if kind == "transfer":
         return "transfer_like"
     if payee.startswith("transfer :") or payee.startswith("transfer:"):
         return "transfer_like"
     if payee.startswith("loan "):
+        return "transfer_like"
+    if memo.startswith("loan ") or category.startswith("loan "):
+        return "transfer_like"
+    if category.startswith("leumi loan"):
+        return "transfer_like"
+    if payee == "bank leumi" and (memo.startswith("loan ") or category.startswith("leumi loan")):
+        return "transfer_like"
+    if fingerprint.startswith("loan "):
         return "transfer_like"
     return "ordinary"
 
@@ -79,6 +105,9 @@ def _classify_source_row_kind(row: pd.Series) -> str:
     return _classify_row_kind(
         payee_text=row.get("payee_raw", ""),
         txn_kind=row.get("txn_kind", ""),
+        memo_text=row.get("memo", ""),
+        category_text=row.get("category_raw", ""),
+        fingerprint_text=row.get("fingerprint", ""),
     )
 
 
@@ -86,6 +115,9 @@ def _classify_target_row_kind(row: pd.Series) -> str:
     return _classify_row_kind(
         payee_text=row.get("payee_raw", ""),
         txn_kind=row.get("txn_kind", ""),
+        memo_text=row.get("memo", ""),
+        category_text=row.get("category_raw", ""),
+        fingerprint_text=row.get("fingerprint", ""),
     )
 
 
@@ -93,12 +125,12 @@ def _text_key(df: pd.DataFrame) -> pd.Series:
     preferred = _pick_text(
         df,
         [
-            "fingerprint",
             "description_clean_norm",
             "description_clean",
             "description_raw",
             "memo",
             "payee_raw",
+            "fingerprint",
         ],
     )
     return preferred.map(normalize.normalize_text)
@@ -250,13 +282,13 @@ def _pairs_from_edges(edges: pd.DataFrame, *, match_type: str) -> pd.DataFrame:
             "ynab_payee_raw": _merged_series_or_default(pairs, "payee_raw_target"),
             "ynab_category_raw": _merged_series_or_default(pairs, "category_raw_target"),
             "ynab_fingerprint": _merged_series_or_default(pairs, "fingerprint_target"),
-            "ynab_id": _merged_series_or_default(pairs, "ynab_id_target"),
-            "ynab_import_id": _merged_series_or_default(pairs, "import_id_target"),
-            "ynab_matched_transaction_id": _merged_series_or_default(
-                pairs, "matched_transaction_id_target"
+            "ynab_id": _target_series(pairs, "ynab_id_target", "ynab_id"),
+            "ynab_import_id": _target_series(pairs, "import_id_target", "import_id"),
+            "ynab_matched_transaction_id": _target_series(
+                pairs, "matched_transaction_id_target", "matched_transaction_id"
             ),
-            "ynab_cleared": _merged_series_or_default(pairs, "cleared_target"),
-            "ynab_approved": _merged_series_or_default(pairs, "approved_target"),
+            "ynab_cleared": _target_series(pairs, "cleared_target", "cleared"),
+            "ynab_approved": _target_series(pairs, "approved_target", "approved"),
             "ambiguous_key": False,
             "match_type": match_type,
             "date_gap_days": _merged_series_or_default(pairs, "date_gap_days", 0),
@@ -402,6 +434,45 @@ def _match_unique_edges(edges: pd.DataFrame) -> pd.DataFrame:
     ].copy()
 
 
+def _pair_equal_count_buckets(
+    source_df: pd.DataFrame,
+    target_df: pd.DataFrame,
+    bucket_keys: pd.DataFrame,
+    *,
+    match_type: str,
+) -> pd.DataFrame:
+    if source_df.empty or target_df.empty or bucket_keys.empty:
+        return pd.DataFrame()
+
+    key_cols = ["date_key", "signed_amount", "row_kind"]
+    source_bucket = source_df.merge(bucket_keys[key_cols], on=key_cols, how="inner").copy()
+    target_bucket = target_df.merge(bucket_keys[key_cols], on=key_cols, how="inner").copy()
+    if source_bucket.empty or target_bucket.empty:
+        return pd.DataFrame()
+
+    source_bucket = source_bucket.sort_values(
+        key_cols + ["text_key", "payee_raw", "memo", "source_row_id"],
+        kind="stable",
+    ).copy()
+    target_bucket = target_bucket.sort_values(
+        key_cols + ["text_key", "payee_raw", "memo", "target_row_id"],
+        kind="stable",
+    ).copy()
+    source_bucket["_bucket_pos"] = source_bucket.groupby(key_cols, dropna=False).cumcount()
+    target_bucket["_bucket_pos"] = target_bucket.groupby(key_cols, dropna=False).cumcount()
+
+    edges = source_bucket.merge(
+        target_bucket,
+        on=key_cols + ["_bucket_pos"],
+        suffixes=("_source", "_target"),
+        how="inner",
+    )
+    if edges.empty:
+        return pd.DataFrame()
+    edges["date_gap_days"] = 0
+    return _pairs_from_edges(edges, match_type=match_type)
+
+
 def _drop_matched_edges(edges: pd.DataFrame, matched_edges: pd.DataFrame) -> pd.DataFrame:
     if edges.empty or matched_edges.empty:
         return edges
@@ -477,11 +548,9 @@ def match_cross_budget_rows(
         & (bucket_counts["target_row_id_count"] == 1),
         ["date_key", "signed_amount", "row_kind"],
     ].copy()
-    exact_ambiguous_keys = bucket_counts.loc[
-        ~(
-            (bucket_counts["source_row_id_count"] == 1)
-            & (bucket_counts["target_row_id_count"] == 1)
-        ),
+    exact_equal_count_keys = bucket_counts.loc[
+        (bucket_counts["source_row_id_count"] == bucket_counts["target_row_id_count"])
+        & (bucket_counts["source_row_id_count"] > 1),
         ["date_key", "signed_amount", "row_kind"],
     ].copy()
 
@@ -517,39 +586,30 @@ def match_cross_budget_rows(
         matched_source_ids.update(source_exact["source_row_id"].astype("string").tolist())
         matched_target_ids.update(target_exact["target_row_id"].astype("string").tolist())
 
-    if not exact_ambiguous_keys.empty:
-        source_ambiguous = prepared_source.merge(
-            exact_ambiguous_keys,
-            on=["date_key", "signed_amount", "row_kind"],
-            how="inner",
+    if not exact_equal_count_keys.empty:
+        equal_pairs = _pair_equal_count_buckets(
+            prepared_source,
+            prepared_target,
+            exact_equal_count_keys,
+            match_type="exact_equal_count_bucket",
         )
-        target_ambiguous = prepared_target.merge(
-            exact_ambiguous_keys,
-            on=["date_key", "signed_amount", "row_kind"],
-            how="inner",
-        )
-        ambiguous_frames.append(
-            _build_ambiguous_bucket_rows(
-                source_ambiguous,
-                target_ambiguous,
-                reason="same_date_amount_bucket_not_unique",
-            )
-        )
-        ambiguous_source_ids.update(source_ambiguous["source_row_id"].astype("string").tolist())
-        ambiguous_target_ids.update(target_ambiguous["target_row_id"].astype("string").tolist())
+        if not equal_pairs.empty:
+            matched_pairs.append(equal_pairs)
+            matched_source_ids.update(equal_pairs["source_row_id"].astype("string").tolist())
+            matched_target_ids.update(equal_pairs["target_row_id"].astype("string").tolist())
 
     remaining_source = prepared_source.loc[
-        ~prepared_source["source_row_id"].astype("string").isin(matched_source_ids | ambiguous_source_ids)
+        ~prepared_source["source_row_id"].astype("string").isin(matched_source_ids)
     ].copy()
     remaining_target = prepared_target.loc[
-        ~prepared_target["target_row_id"].astype("string").isin(matched_target_ids | ambiguous_target_ids)
+        ~prepared_target["target_row_id"].astype("string").isin(matched_target_ids)
     ].copy()
 
-    if int(date_tolerance_days) > 0 and not remaining_source.empty and not remaining_target.empty:
+    if not remaining_source.empty and not remaining_target.empty:
         edges = _candidate_edges(
             remaining_source,
             remaining_target,
-            date_tolerance_days=int(date_tolerance_days),
+            date_tolerance_days=max(int(date_tolerance_days), 0),
         )
         if not edges.empty:
             unique_window_edges = _match_unique_edges(edges)
