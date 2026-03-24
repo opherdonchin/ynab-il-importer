@@ -314,6 +314,57 @@ When we want a fresh Family category export instead of reusing `data/derived/fam
 pixi run python scripts/io_ynab_as_source.py --profile family --category Pilates --fingerprint-map mappings/pilates/fingerprint_map.csv --out data/derived/family/ynab_category_business_pilates_live.csv
 ```
 
+### Saved run packets
+
+Use a packet when we want a dated, reproducible snapshot of a full cross-budget run.
+
+The packet should usually include:
+- the Family category export
+- the Pilates YNAB snapshot
+- the cached Family month report
+- matched/unmatched/ambiguous artifacts
+- reviewed proposals
+- upload-prep artifacts
+- reconcile reports
+
+The packet now also writes:
+- `packet_manifest.json`
+- `packet_summary.md`
+
+Prefer the explicit input flags:
+- `--input-human` for in-person statement downloads
+- `--input-agent` for YNAB exports/downloads
+- `--input-derived` for normalized files and cached month reports
+
+Example:
+```powershell
+pixi run python scripts/package_reconciliation_packet.py `
+  --kind cross_budget `
+  --source-profile family `
+  --source-category Pilates `
+  --target-profile pilates `
+  --target-account "In Family" `
+  --window-start 2025-11-01 `
+  --window-end 2026-03-24 `
+  --input-agent source_ynab_snapshot=data/derived/family/ynab_api_norm.csv `
+  --input-agent target_ynab_snapshot=data/derived/pilates/ynab_api_norm.csv `
+  --input-derived source_month_report=data/paired/pilates_cross_budget_live/anchored_reconcile_after_history_upload_month_report.csv `
+  --artifact reconcile_summary=data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_report.csv `
+  --artifact reconcile_month_report=data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_month_report.csv `
+  --artifact reconcile_source_report=data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_source_report.csv `
+  --artifact reconcile_target_report=data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_target_report.csv `
+  --artifact matched_pairs=data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_matched_pairs.csv `
+  --artifact unmatched_source=data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_unmatched_source.csv `
+  --artifact unmatched_target=data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_unmatched_target.csv `
+  --artifact ambiguous_matches=data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_ambiguous_matches.csv `
+  --command "pixi run python scripts/reconcile_cross_budget_balance.py --source-profile family --source-category Pilates --target-profile pilates --target-account \"In Family\" --since 2025-11-01 --source-month-report-in data/paired/pilates_cross_budget_live/anchored_reconcile_after_history_upload_month_report.csv --out data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_report.csv" `
+  --note "Use the ignore-target-id only when we explicitly accept that base exception in the packet." `
+  --ignore-target-id 6ffe9b1f-9f09-4bd9-bfec-2db1a895c40c
+```
+
+More general packet conventions now live in:
+- `documents/reconciliation_packets.md`
+
 ---
 
 ## Recommended Next Generalizations
