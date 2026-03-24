@@ -424,3 +424,71 @@ def test_plan_cross_budget_reconciliation_accepts_cached_source_month_report() -
 
     assert result["ok"] is True
     assert result["updates"] == [{"id": "t-3", "cleared": "reconciled"}]
+
+
+def test_month_report_surfaces_source_other_balance_change() -> None:
+    source_month_report = pd.DataFrame(
+        [
+            {
+                "month": "2026-01-01",
+                "month_end": "2026-01-31",
+                "source_category_group": "Business",
+                "source_category_balance_ils": 100.0,
+                "source_category_activity_ils": 100.0,
+                "source_category_budgeted_ils": 0.0,
+            },
+            {
+                "month": "2026-02-01",
+                "month_end": "2026-02-28",
+                "source_category_group": "Business",
+                "source_category_balance_ils": 240.0,
+                "source_category_activity_ils": 90.0,
+                "source_category_budgeted_ils": 0.0,
+            },
+        ]
+    )
+    target_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "t-1",
+                "account_name": "In Family",
+                "date": "2026-01-15",
+                "payee_raw": "A",
+                "category_raw": "",
+                "fingerprint": "a",
+                "outflow_ils": 0.0,
+                "inflow_ils": 100.0,
+                "memo": "",
+                "cleared": "reconciled",
+            },
+            {
+                "ynab_id": "t-2",
+                "account_name": "In Family",
+                "date": "2026-02-10",
+                "payee_raw": "B",
+                "category_raw": "",
+                "fingerprint": "b",
+                "outflow_ils": 0.0,
+                "inflow_ils": 90.0,
+                "memo": "",
+                "cleared": "reconciled",
+            },
+        ]
+    )
+
+    report = cross_budget_reconciliation.build_cross_budget_month_report_from_source_history(
+        source_month_report_df=source_month_report,
+        target_transactions_df=target_df,
+        target_account_name="In Family",
+    )
+
+    january = report.iloc[0]
+    february = report.iloc[1]
+    assert january["target_cleared_activity_ils"] == 100.0
+    assert january["source_other_balance_change_ils"] == 0.0
+    assert february["target_cleared_activity_ils"] == 90.0
+    assert february["source_balance_change_ils"] == 140.0
+    assert february["target_cleared_balance_change_ils"] == 90.0
+    assert february["difference_change_ils"] == 50.0
+    assert february["source_other_balance_change_ils"] == 50.0
+    assert february["target_other_balance_change_ils"] == 0.0

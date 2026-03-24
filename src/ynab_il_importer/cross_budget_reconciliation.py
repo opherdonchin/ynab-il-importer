@@ -20,6 +20,12 @@ MONTH_REPORT_COLUMNS = [
     "target_reconciled_count",
     "target_cleared_count",
     "target_uncleared_count",
+    "target_cleared_activity_ils",
+    "source_balance_change_ils",
+    "target_cleared_balance_change_ils",
+    "difference_change_ils",
+    "source_other_balance_change_ils",
+    "target_other_balance_change_ils",
     "difference_ils",
     "is_exact_balance_anchor",
 ]
@@ -606,9 +612,21 @@ def build_cross_budget_month_report_from_source_history(
             if not target_txns.empty
             else target_txns.copy()
         )
+        within_month = (
+            target_txns.loc[
+                (target_txns["date_ts"] >= _to_timestamp(month_value))
+                & (target_txns["date_ts"] <= month_end)
+            ].copy()
+            if not target_txns.empty
+            else target_txns.copy()
+        )
         cleared_like_mask = upto.get(
             "status_bucket",
             pd.Series([""] * len(upto), index=upto.index),
+        ).isin(CLEARED_LIKE)
+        month_cleared_like_mask = within_month.get(
+            "status_bucket",
+            pd.Series([""] * len(within_month), index=within_month.index),
         ).isin(CLEARED_LIKE)
         rows.append(
             {
@@ -627,11 +645,25 @@ def build_cross_budget_month_report_from_source_history(
                 "target_reconciled_count": int((upto.get("status_bucket", "") == "reconciled").sum()) if not upto.empty else 0,
                 "target_cleared_count": int((upto.get("status_bucket", "") == "cleared").sum()) if not upto.empty else 0,
                 "target_uncleared_count": int((upto.get("status_bucket", "") == "uncleared").sum()) if not upto.empty else 0,
+                "target_cleared_activity_ils": round(float(within_month.loc[month_cleared_like_mask, "signed_amount_ils"].sum()), 2)
+                if not within_month.empty
+                else 0.0,
             }
         )
     report = pd.DataFrame(rows)
     if report.empty:
         return pd.DataFrame(columns=MONTH_REPORT_COLUMNS)
+    report["source_balance_change_ils"] = report["source_category_balance_ils"].diff().fillna(report["source_category_balance_ils"]).round(2)
+    report["target_cleared_balance_change_ils"] = report["target_cleared_balance_ils"].diff().fillna(report["target_cleared_balance_ils"]).round(2)
+    report["difference_change_ils"] = (
+        report["source_balance_change_ils"] - report["target_cleared_balance_change_ils"]
+    ).round(2)
+    report["source_other_balance_change_ils"] = (
+        report["source_balance_change_ils"] - report["source_category_activity_ils"]
+    ).round(2)
+    report["target_other_balance_change_ils"] = (
+        report["target_cleared_balance_change_ils"] - report["target_cleared_activity_ils"]
+    ).round(2)
     report["difference_ils"] = (
         report["source_category_balance_ils"] - report["target_cleared_balance_ils"]
     ).round(2)
