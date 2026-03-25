@@ -225,6 +225,23 @@ def test_ready_mask_treats_transfer_without_category_as_ready() -> None:
     assert upload_prep.ready_mask(reviewed).tolist() == [True, False]
 
 
+def test_ready_mask_excludes_uncategorized_placeholder_rows() -> None:
+    reviewed = pd.DataFrame(
+        {
+            "transaction_id": ["t1", "t2"],
+            "account_name": ["Bank Leumi", "Bank Leumi"],
+            "date": ["2026-03-01", "2026-03-02"],
+            "outflow_ils": ["10.00", "5.00"],
+            "inflow_ils": ["0", "0"],
+            "memo": ["pending", "ready"],
+            "payee_selected": ["Cafe", "Cafe"],
+            "category_selected": ["Uncategorized", "Groceries"],
+        }
+    )
+
+    assert upload_prep.ready_mask(reviewed).tolist() == [False, True]
+
+
 def test_ready_mask_excludes_zero_amount_rows_even_if_other_fields_are_ready() -> None:
     reviewed = pd.DataFrame(
         {
@@ -240,6 +257,28 @@ def test_ready_mask_excludes_zero_amount_rows_even_if_other_fields_are_ready() -
     )
 
     assert upload_prep.ready_mask(reviewed).tolist() == [False, True]
+
+
+def test_prepare_upload_transactions_rejects_uncategorized_placeholder_rows() -> None:
+    reviewed = pd.DataFrame(
+        {
+            "transaction_id": ["t1"],
+            "account_name": ["Bank Leumi"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["10.00"],
+            "inflow_ils": ["0"],
+            "memo": ["pending"],
+            "payee_selected": ["Bit"],
+            "category_selected": ["Uncategorized"],
+        }
+    )
+
+    with pytest.raises(ValueError, match="missing category"):
+        upload_prep.prepare_upload_transactions(
+            reviewed,
+            accounts=_accounts(),
+            categories_df=_categories(),
+        )
 
 
 def test_prepare_upload_transactions_rejects_zero_amount_rows() -> None:

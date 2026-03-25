@@ -22,6 +22,7 @@ REQUIRED_REVIEW_COLUMNS = [
     "category_selected",
 ]
 _LEADING_SYMBOL_RE = re.compile(r"^[^\w\u0590-\u05FF]+")
+_UNCATEGORIZED_PLACEHOLDER = "uncategorized"
 
 
 def _normalize_text(value: Any) -> str:
@@ -30,6 +31,13 @@ def _normalize_text(value: Any) -> str:
 
 def _normalize_text_series(series: pd.Series) -> pd.Series:
     return series.astype("string").fillna("").str.strip()
+
+
+def _is_selected_category(value: Any) -> bool:
+    text = _normalize_text(value)
+    if not text:
+        return False
+    return text.casefold() != _UNCATEGORIZED_PLACEHOLDER
 
 
 def _amount_milliunits(row: pd.Series) -> int:
@@ -164,10 +172,11 @@ def validate_ready_for_upload(df: pd.DataFrame) -> None:
     payee = _normalize_text_series(df["payee_selected"])
     category = _normalize_text_series(df["category_selected"])
     transfer = payee.map(review_model.is_transfer_payee)
+    category_selected = category.map(_is_selected_category)
     nonzero_amount = _nonzero_amount_mask(df)
 
     missing_payee = df.index[payee == ""].tolist()
-    missing_category = df.index[(category == "") & ~transfer].tolist()
+    missing_category = df.index[(~category_selected) & ~transfer].tolist()
     zero_amount = df.index[~nonzero_amount].tolist()
     if missing_payee or missing_category or zero_amount:
         raise ValueError(
@@ -183,8 +192,9 @@ def ready_mask(df: pd.DataFrame) -> pd.Series:
     payee = _normalize_text_series(df["payee_selected"])
     category = _normalize_text_series(df["category_selected"])
     transfer = payee.map(review_model.is_transfer_payee)
+    category_selected = category.map(_is_selected_category)
     nonzero_amount = _nonzero_amount_mask(df)
-    return (payee != "") & ((category != "") | transfer) & nonzero_amount
+    return (payee != "") & (category_selected | transfer) & nonzero_amount
 
 
 def prepare_upload_transactions(
