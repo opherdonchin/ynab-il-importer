@@ -1,4 +1,4 @@
-﻿rule_id,is_active,priority,pattern,canonical_text,notes
+rule_id,is_active,priority,pattern,canonical_text,notes
 paybox,TRUE,0,paybox,paybox,Consolidate PayBox transfers
 סופרפארם,TRUE,0,סופר פארם|סופרפארם,Superpharm,Consolidate Super-Pharm variants
 דור_אלון,TRUE,0,דור אלון,Dor Alon,Consolidate Dor Alon variants
@@ -79,7 +79,7 @@ rexail,TRUE,0,rexail,rexail,Consolidate Rexail variants
 פוקס,TRUE,0,פוקס ביג,Fox,Consolidate Fox variants (Big)
 פוקס_2,TRUE,0,פוקס הום,Fox,Consolidate Fox Home variants
 פוקס_3,TRUE,0,פוקס נמל,Fox,Consolidate Fox variants (Port)
-כביש,TRUE,0,כביש 6,Kvish 6,Consolidate Kvish 6 variants
+כביש,TRUE,0,כביש 6,כביש,Consolidate Kvish 6 variants to Hebrew form
 שייק_בקטר,TRUE,0,שייק בקטר,Shake Bakatar,Consolidate Shake Bakatar variants
 שייק_בקטר_2,TRUE,0,שייח בקטר,Shake Bakatar,Consolidate Shake Bakatar variants (typo)
 שייק_בקטר_3,TRUE,0,שמואל חגג שייק בקטר,Shake Bakatar,Consolidate Shake Bakatar variants (name prefix)
@@ -98,3 +98,4 @@ iherb,TRUE,0,iherb,iHerb,Any iherb pruchase
 lime,TRUE,0,lime,lime,any lime rental anywhere
 mr pretzels,TRUE,0,mr pretzels,mr pretzels,
 pilates_leumi_transfer_225237,TRUE,20,225237,transfer pilates leumi,Split Pilates Leumi transfers by account number 225237
+manual_20260324_jessica_hebrew,TRUE,20,ג['׳]?סיקה|סיקה,ג'סיקה,manual 2026-03-24: canonicalize Jessica with Hebrew gimel

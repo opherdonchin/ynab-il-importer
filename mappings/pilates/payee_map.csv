@@ -46,3 +46,5 @@ adva_shtainberg_cross_budget_43,True,10,,adva shtainberg,,,,outflow,,,Adva Shtai
 way_of_noam_cross_budget_45,True,10,,way of noam,,,,outflow,,,Way of Noam,Courses,cross-budget historical pre-window rule merged 2026-03-24,
 gidgis_cross_budget_46,True,10,,gidgis,,,,outflow,,,Gidgis,Clothing,cross-budget historical pre-window rule merged 2026-03-24,
 דרכי_נעם_cross_budget_47,True,10,,דרכי נעם,,,,outflow,,,Way of Noam,Courses,cross-budget historical pre-window Hebrew alias merged 2026-03-24,
+candidate_facebk_3d48d899,True,0,,facebk,,Credit card 0602,card,outflow,ILS,,Facebook,Marketing,review-log count=4 update_map=TRUE example=FACEBK *N3JY9JD9C2,0602
+candidate_rule_528fc247,True,0,,ביטוח לאומי,,Bank Leumi 225237,bank,outflow,ILS,,Bituach Leumi,Bituach Leumi 15th,review-log count=1 update_map=TRUE example=ביטוח לאומי-י,

@@ -1294,10 +1294,9 @@ def _find_anchor_window(
         ):
             best_start = start
             best_count = eligible_count
-        elif eligible_count > best_count:
-            best_start = start
-            best_count = eligible_count
-        if eligible_count == anchor_streak:
+        # Keep the first fully eligible streak as the anchor. Choosing a later
+        # streak can silently skip unresolved historical rows as pre-anchor.
+        if eligible_count == anchor_streak and found_start is None:
             found_start = start
 
     return found_start, best_start, best_count

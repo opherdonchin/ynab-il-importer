@@ -1397,17 +1397,6 @@ def plan_card_cycle_reconciliation(
     previous_reconciled = previous_report[
         previous_report["prior_cleared"] == "reconciled"
     ].copy()
-    if not previous_reconciled.empty and len(previous_reconciled) != len(
-        previous_report
-    ):
-        result["ok"] = False
-        first = previous_reconciled.iloc[0]
-        result["reason"] = (
-            "Previous file has a mixed reconciled state; "
-            f"first already-reconciled previous row is {int(first['row_index'])}. "
-            "Clean up the account manually before retrying."
-        )
-        return result
 
     previous_total = round(float(previous_rows["signed_ils"].sum()), 2)
     current_total = round(float(source_rows["signed_ils"].sum()), 2)
@@ -1452,19 +1441,33 @@ def plan_card_cycle_reconciliation(
     source_to_clear = source_report[
         source_report["prior_cleared"] == "uncleared"
     ].copy()
-    if previous_all_reconciled:
+    if previous_report.empty:
+        pass
+    elif previous_all_reconciled:
         result["warning"] = "All previous-file transactions are already reconciled."
         report.loc[report["snapshot_role"] == "previous", "action"] = (
             "already_reconciled"
         )
     else:
         report.loc[report["snapshot_role"] == "previous", "action"] = "reconcile"
+        if not previous_reconciled.empty:
+            report.loc[
+                (report["snapshot_role"] == "previous")
+                & (report["prior_cleared"] == "reconciled"),
+                "action",
+            ] = "already_reconciled"
+            result["warning"] = (
+                f"{len(previous_reconciled)} previous-file rows are already reconciled; "
+                f"reconciling remaining {len(previous_to_reconcile)} rows."
+            )
         if not sep_previous_rows.empty:
             sep_date_strs = set(
                 str(d) for d in sep_previous_rows["secondary_date"].unique()
             )
-            sep_mask = (report["snapshot_role"] == "previous") & (
-                report["secondary_date"].isin(sep_date_strs)
+            sep_mask = (
+                (report["snapshot_role"] == "previous")
+                & (report["action"] == "reconcile")
+                & (report["secondary_date"].isin(sep_date_strs))
             )
             report.loc[sep_mask, "action"] = "reconcile_separate"
     report.loc[

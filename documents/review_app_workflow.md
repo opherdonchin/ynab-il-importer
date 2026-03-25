@@ -1,6 +1,7 @@
 # Review App Workflow
 
 This document describes the intended workflow for using the Streamlit review UI and updating mapping rules.
+For the full dated Family+Pilates update sequence, use `documents/update_workflow.md`.
 
 ## 1) Prepare Inputs
 

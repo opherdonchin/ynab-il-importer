@@ -1026,14 +1026,20 @@ def plan_cross_budget_reconciliation(
 
     source_active_net = round(float(chosen_active_source.get("signed_amount_ils", pd.Series(dtype="float64")).sum()), 2)
     target_active_net = round(float(chosen_active_target.get("signed_amount_ils", pd.Series(dtype="float64")).sum()), 2)
+    matched_inflow = (
+        active_match.matched_pairs_df["ynab_inflow_ils"]
+        if "ynab_inflow_ils" in active_match.matched_pairs_df.columns
+        else pd.Series(dtype="float64")
+    )
+    matched_outflow = (
+        active_match.matched_pairs_df["ynab_outflow_ils"]
+        if "ynab_outflow_ils" in active_match.matched_pairs_df.columns
+        else pd.Series(dtype="float64")
+    )
     matched_active_net = round(
         float(
-            pd.to_numeric(active_match.matched_pairs_df.get("ynab_inflow_ils", 0.0), errors="coerce")
-            .fillna(0.0)
-            .sum()
-            - pd.to_numeric(active_match.matched_pairs_df.get("ynab_outflow_ils", 0.0), errors="coerce")
-            .fillna(0.0)
-            .sum()
+            pd.to_numeric(matched_inflow, errors="coerce").fillna(0.0).sum()
+            - pd.to_numeric(matched_outflow, errors="coerce").fillna(0.0).sum()
         ),
         2,
     )

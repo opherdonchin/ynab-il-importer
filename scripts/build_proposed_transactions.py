@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+import re
 import sys
 import warnings
 from collections.abc import Iterable
@@ -17,6 +18,9 @@ import ynab_il_importer.pairing as pairing
 import ynab_il_importer.proposed_defaults as proposed_defaults
 import ynab_il_importer.rules as rules_mod
 import ynab_il_importer.workflow_profiles as workflow_profiles
+
+_CARD_SUFFIX_DIGITS_RE = re.compile(r"\D+")
+_CARD_SUFFIX_MEMO_TAG_RE = re.compile(r"\[card x\d{4}\]", flags=re.IGNORECASE)
 
 
 def _load_csvs(paths: list[Path]) -> pd.DataFrame:
@@ -383,6 +387,44 @@ def _make_transaction_id(row: pd.Series) -> str:
     return f"txn_{digest}"
 
 
+def _normalize_card_suffix(value: object) -> str:
+    text = _optional_text(value)
+    if not text:
+        return ""
+    digits = _CARD_SUFFIX_DIGITS_RE.sub("", text)
+    if not digits:
+        return ""
+    return digits[-4:]
+
+
+def _annotate_bank_debit_card_memo(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    memo = (
+        out.get("memo", pd.Series([""] * len(out), index=out.index))
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
+    source = (
+        out.get("source", pd.Series([""] * len(out), index=out.index))
+        .astype("string")
+        .fillna("")
+        .str.strip()
+        .str.lower()
+    )
+    suffix = (
+        out.get("card_suffix", pd.Series([""] * len(out), index=out.index))
+        .astype("string")
+        .fillna("")
+        .map(_normalize_card_suffix)
+    )
+    tag = suffix.map(lambda value: f"[card x{value}]" if value else "")
+    has_tag = memo.str.contains(_CARD_SUFFIX_MEMO_TAG_RE)
+    needs_tag = source.eq("bank") & tag.ne("") & ~has_tag
+    out["memo"] = memo.where(~needs_tag, (memo + " " + tag).str.strip())
+    return out
+
+
 def _candidate_import_ids(source_df: pd.DataFrame) -> pd.Series:
     if source_df.empty:
         return pd.Series(dtype="string")
@@ -527,6 +569,7 @@ def main() -> None:
     out = deduped.copy()
     out["transaction_id"] = out.apply(_make_transaction_id, axis=1)
     out["memo"] = out.get("raw_text", out.get("description_raw", ""))
+    out = _annotate_bank_debit_card_memo(out)
     if _rules_are_simple(rules):
         out = _fast_apply_rules(out, rules)
     else:

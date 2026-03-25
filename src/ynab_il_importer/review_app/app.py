@@ -304,7 +304,9 @@ def _format_option_summary(
     return summary
 
 
-def _render_status_badges(*, unsaved: bool, changed: bool, reviewed: bool) -> None:
+def _render_status_badges(
+    *, unsaved: bool, changed: bool, reviewed: bool, uncategorized: bool = False
+) -> None:
     badges: list[str] = []
     if unsaved:
         badges.append(
@@ -317,6 +319,10 @@ def _render_status_badges(*, unsaved: bool, changed: bool, reviewed: bool) -> No
     if reviewed:
         badges.append(
             "<span style='color:#15803d;font-weight:600;'>Reviewed</span>"
+        )
+    if uncategorized:
+        badges.append(
+            "<span style='color:#b91c1c;font-weight:700;'>Uncategorized</span>"
         )
     if badges:
         st.markdown(" ".join(badges), unsafe_allow_html=True)
@@ -497,6 +503,11 @@ def _required_category_missing_mask(df: pd.DataFrame) -> pd.Series:
     category = review_state.series_or_default(df, "category_selected").str.strip()
     transfer = payee.map(review_model.is_transfer_payee)
     return category.eq("") & ~transfer
+
+
+def _uncategorized_mask(df: pd.DataFrame) -> pd.Series:
+    category = review_state.series_or_default(df, "category_selected").str.strip().str.casefold()
+    return category.str.contains("uncategorized", regex=False)
 
 
 def _ready_mask(df: pd.DataFrame) -> pd.Series:
@@ -780,7 +791,10 @@ def _render_row_controls(
                 reviewed=True,
                 eligible_mask=untouched_mask,
             )
-            st.success("Applied to untouched rows with this fingerprint.")
+            st.success(
+                "Applied to untouched rows with this fingerprint in memory. "
+                "Click Save to persist."
+            )
         st.session_state["df"] = df
         # Recompute counters/badges from the updated dataframe in the same interaction.
         st.rerun()
@@ -830,6 +844,7 @@ def main() -> None:
     updated_mask = (changed_mask | reviewed_mask).astype(bool)
     inconsistent = review_validation.inconsistent_fingerprints(df)
     ready_mask_series = _ready_mask(df)
+    uncategorized_mask = _uncategorized_mask(df)
     readiness_state = pd.Series(
         ["Ready" if bool(value) else "Not ready" for value in ready_mask_series],
         index=df.index,
@@ -851,6 +866,7 @@ def main() -> None:
     base_count = len(base) if isinstance(base, pd.DataFrame) and not base.empty else len(df)
     updated_confirmed_count = int(updated_mask.sum())
     saved_reviewed_count = int(saved_mask.sum())
+    uncategorized_count = int(uncategorized_mask.sum())
 
     with st.sidebar:
         st.header("Files")
@@ -930,7 +946,9 @@ def main() -> None:
         st.markdown(
             f"**Rows to review:** {base_count}\n"
             f"**Updated:** {updated_confirmed_count}\n"
-            f"**Saved:** {saved_reviewed_count}"
+            f"**Saved:** {saved_reviewed_count}\n"
+            f"**Uncategorized:** <span style='color:#b91c1c;font-weight:700;'>{uncategorized_count}</span>",
+            unsafe_allow_html=True,
         )
 
         st.header("View")
@@ -1016,6 +1034,7 @@ def main() -> None:
         f"**Total:** {counts['total']} | "
         f"**Missing payee:** {counts['missing_payee']} | "
         f"**Missing category:** {counts['missing_category']} | "
+        f"**Uncategorized:** {uncategorized_count} | "
         f"**Unresolved:** {counts['unresolved']} | "
         f"**update_map:** {counts['update_map']} | "
         f"**Changed vs original:** {changed_count} | "
@@ -1033,6 +1052,8 @@ def main() -> None:
         st.success("Ready for upload: payee and category are filled for all rows.")
     else:
         st.warning("Not ready: some rows are missing payee and/or category.")
+    if uncategorized_count > 0:
+        st.warning(f"Uncategorized still selected in {uncategorized_count} rows.")
 
     if not inconsistent.empty:
         st.warning(f"Inconsistent fingerprints: {len(inconsistent)}")
@@ -1105,6 +1126,7 @@ def main() -> None:
                     unsaved=bool(unsaved_mask.loc[idx]),
                     changed=bool(changed_mask.loc[idx]),
                     reviewed=bool(reviewed_mask.loc[idx]),
+                    uncategorized=bool(uncategorized_mask.loc[idx]),
                 )
                 _render_secondary_tag_badges(
                     inference=str(inference_tag.loc[idx] or ""),
@@ -1205,7 +1227,8 @@ def main() -> None:
                 group_unsaved = int(unsaved_mask.loc[group.index].sum())
                 group_changed = int(changed_mask.loc[group.index].sum())
                 group_saved = int(saved_mask.loc[group.index].sum())
-                if group_unsaved or group_changed or group_saved:
+                group_uncategorized = int(uncategorized_mask.loc[group.index].sum())
+                if group_unsaved or group_changed or group_saved or group_uncategorized:
                     st.markdown(
                         " ".join(
                             [
@@ -1217,6 +1240,12 @@ def main() -> None:
                                 else "",
                                 f"<span style='color:#15803d;font-weight:600;'>Saved: {group_saved}</span>"
                                 if group_saved
+                                else "",
+                                (
+                                    f"<span style='color:#b91c1c;font-weight:700;'>Uncategorized: "
+                                    f"{group_uncategorized}</span>"
+                                )
+                                if group_uncategorized
                                 else "",
                             ]
                         ).strip(),
@@ -1365,7 +1394,10 @@ def main() -> None:
                     st.session_state["expanded_group_fp"] = fp
                     st.session_state["expanded_group_row_id"] = None
                     st.session_state["df"] = df
-                    st.success("Applied group values to untouched rows.")
+                    st.success(
+                        "Applied group values to untouched rows in memory. "
+                        "Click Save to persist."
+                    )
                     # Recompute counters/badges from the updated dataframe in the same interaction.
                     st.rerun()
 
@@ -1421,6 +1453,7 @@ def main() -> None:
                             unsaved=bool(unsaved_mask.loc[idx]),
                             changed=bool(changed_mask.loc[idx]),
                             reviewed=bool(reviewed_mask.loc[idx]),
+                            uncategorized=bool(uncategorized_mask.loc[idx]),
                         )
                         _render_secondary_tag_badges(
                             inference=str(inference_tag.loc[idx] or ""),
