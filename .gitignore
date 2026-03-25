@@ -184,3 +184,26 @@ cython_debug/
 
 data/
 outputs/fingerprint_log.csv
+
+# Generated outputs and scratch space
+outputs/**/*.csv
+outputs/**/*.json
+outputs/**/*.log
+outputs/**/*.txt
+outputs/review_app_sessions/**
+!outputs/review_app_sessions/
+!outputs/review_app_sessions/.gitkeep
+!outputs/**/.gitkeep
+tests_runtime/*
+!tests_runtime/.gitkeep
+tmp/*
+!tmp/.gitkeep
+.pip-cache/
+.tmp/
+.pytest*/
+pytest-cache-files-*/
+pytest-crossbudget-temp/
+tmpe*/
+tmpg*/
+documents/handoffs/**/*.zip
+tmp_card_snapshot.xlsx

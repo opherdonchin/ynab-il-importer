@@ -1,2 +1,0 @@
-﻿source,ynab_id,account_name,date,payee_raw,category_raw,outflow_ils,inflow_ils,txn_kind,fingerprint,memo,source_file,date_key,signed_amount,row_kind,source_account,raw_text,text_key,source_row_id,status
-ynab,source-new,Family Leumi,2025-11-02,Office Rent,Pilates,100.0,0.0,expense,office rent,Office Rent,family.csv,2025-11-02,-100.0,ordinary,Family Leumi,Office Rent,office rent,source-new,unmatched_source

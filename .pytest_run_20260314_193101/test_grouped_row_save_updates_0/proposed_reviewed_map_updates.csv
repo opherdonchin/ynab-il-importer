@@ -1,2 +1,0 @@
-﻿rule_id,is_active,priority,txn_kind,fingerprint,description_clean_norm,account_name,source,direction,currency,amount_bucket,payee_canonical,category_target,notes,card_suffix,count
-candidate_fp1_2a988edc,True,0,,fp1,,Account 1,,outflow,ILS,,A,D,review-log count=1 example=memo1,,1

@@ -1,3 +1,0 @@
-﻿transaction_id,date,payee_options,category_options,payee_selected,category_selected,match_status,update_map,fingerprint,reviewed
-t1,2024-01-01,A;B,C,A,C,unique,TRUE,fp1,
-t2,2024-01-02,fp2,Uncategorized,fp2,Uncategorized,none,,fp2,

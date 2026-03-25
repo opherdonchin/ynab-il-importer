@@ -3,12 +3,18 @@
 Minimal ETL scaffold for importing Israeli bank/card exports into YNAB by learning payee/category hints from historical YNAB register data.
 
 Directory convention:
-- `data/derived/`: parsed/normalized snapshots of raw files (treated as local, not for commit).
-- `outputs/`: generated review/labeling artifacts that are intended to be shared/committed.
+- `documents/project_context.md`: durable project orientation for agents and collaborators.
+- `documents/plan.md`: current execution plan.
+- `documents/drafts/`: active in-progress design notes.
+- `documents/handoffs/`: packaged review packets and handoff notes.
+- `mappings/`: versioned source-of-truth mapping tables.
+- `data/`: local operational inputs, normalized snapshots, paired artifacts, and packets (ignored by git).
+- `outputs/`: generated review/build outputs and session state (ignored by git apart from placeholders).
+- `tmp/` and `tests_runtime/`: scratch/runtime space (ignored by git).
 
-- `documents/project_context.md` contains the file used as context for AI agents.
-- `documents/plan.md` contains the current plan of action.
-- `documents/review_app_workflow.md` documents the review app workflow.
+`documents/review_app_workflow.md` documents the review app workflow.
+
+See `REPOSITORY_LAYOUT.md` for the detailed retention policy and layout rules.
 
 ## Workflow Overview
 

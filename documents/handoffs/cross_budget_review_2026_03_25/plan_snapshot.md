@@ -1,0 +1,552 @@
+# ynab-il-importer - Execution Plan (current)
+
+## Goal (Milestone 2)
+
+Extend the working Family import pipeline into a profile-aware workflow so Family, Pilates, and later Aikido can share the same code while keeping budgets, mappings, outputs, and reconciliation state separate.
+
+Success criteria:
+1. Each business/profile can resolve its own YNAB budget and file locations cleanly.
+2. Bank + card normalization reuse the same core schema and downstream tooling.
+3. Mapping bootstrap stays profile-scoped (`payee_map`, `fingerprint_map`, logs, categories, outputs).
+4. Review and upload workflows work for non-Family profiles without manual path juggling.
+5. Sync/reconcile remain safe and exact where historical data allows it.
+6. Legacy oddities are isolated as explicit bootstrap exceptions rather than leaking into steady-state code.
+
+---
+
+## Current State
+
+Completed:
+- Family steady-state workflow remains in place.
+- A new profile layer exists in `src/ynab_il_importer/workflow_profiles.py`.
+- Profile-aware budget resolution now supports Family, Pilates, and Aikido via `config/ynab.local.toml` and env overrides.
+- Non-Family profiles default to isolated state under `mappings/<profile>/...` and `outputs/<profile>/...`.
+- Fingerprint application now accepts profile-specific map/log paths instead of assuming the Family defaults.
+- Normalization CLI now supports `--profile`, explicit mapping overrides, and profile-based output defaults.
+- YNAB export normalization now reads `.zip` exports directly.
+- Pilates credit-card HTML exports now normalize through `src/ynab_il_importer/io_leumi_card_html.py` into the shared card schema.
+- Card sync/reconcile code now understands Pilates HTML card sources.
+- Card matching now supports billing-date fallback (`secondary_date`) and stamps lineage for both same-date and billing-date fallback matches.
+- Review app now supports `--profile` so non-Family workflows can use the correct categories file by default.
+- Pilates account mapping bootstrap exists in `mappings/pilates/account_name_map.csv`.
+- Pilates fingerprint map was forked from the current shared baseline into `mappings/pilates/fingerprint_map.csv`.
+- Pilates bootstrap runs were completed:
+  - raw bank/card/YNAB export files normalized
+  - historical matched pairs generated
+  - `mappings/pilates/payee_map.csv` bootstrapped and validated
+  - `outputs/pilates/fingerprint_groups.csv` generated
+  - live Pilates categories downloaded to `outputs/pilates/ynab_categories.csv`
+  - live Pilates transactions downloaded to `data/derived/pilates/ynab_api_norm.csv`
+  - live proposed transactions built in `data/paired/pilates_live/proposed_transactions.csv`
+- The Pilates review/upload pass for the clean forward batch is complete:
+  - reviewed transactions were split into clean-forward vs legacy-card bootstrap batches
+  - the clean-forward batch was prepared and uploaded
+  - the legacy-card bootstrap batch was intentionally not uploaded
+- Bank sync now emits an uncleared-YNAB triage report in addition to the normal sync report.
+- Uncleared-YNAB triage logic now classifies rows as `recent_pending`, `candidate_source_match`, or `stale_orphan`.
+- Pilates bank cleanup was completed against the live budget:
+  - historical bank date mismatches were corrected in YNAB
+  - the remaining bank-side memo lineage stamps were applied
+  - the full normalized bank file now reconciles cleanly in dry-run and execute modes
+- Live Pilates YNAB transactions were refreshed on `2026-03-21` into `data/derived/pilates/ynab_api_norm.csv`.
+- YNAB category-as-source export is now profile-aware:
+  - `scripts/io_ynab_as_source.py` now accepts `--profile`, `--budget-id`, and explicit fingerprint-path overrides
+  - default category-source exports now land under `data/derived/<profile>/...`
+- A generic cross-budget comparison/proposal flow now exists for Pilates and future Aikido work:
+  - `src/ynab_il_importer/cross_budget_pairing.py`
+  - `scripts/bootstrap_cross_budget_pairs.py`
+  - `scripts/build_cross_budget_proposed.py`
+  - new tests cover profile-aware export, cross-budget matching, and proposal building
+- Card sync/reconcile now support explicit source/previous date boundaries:
+  - `scripts/sync_card_matches.py`: `--date-from`, `--date-to`
+  - `scripts/reconcile_card_cycle.py`: `--source-date-from`, `--source-date-to`, `--previous-date-from`, `--previous-date-to`
+  - core planning functions now expose matching filter parameters and report filtered-row counts.
+- Pilates card boundary verification artifacts were generated:
+  - `data/paired/pilates_live/card_bootstrap_boundary_verification.csv`
+  - `data/paired/pilates_live/card_2026_04_sync_report_boundary.csv`
+  - `data/paired/pilates_live/card_2026_03_to_2026_04_reconcile_report_boundary.csv`
+- Boundary-forward Pilates card execution is now running in live YNAB:
+  - `card_2026_01` sync execute patched 1 lineage/clear update
+  - manual safe patch reconciled 4 December card rows that were uniformly in the same paid cycle
+  - transition reconcile execute succeeded for:
+    - `2026_01 -> 2026_02` (1 update)
+    - `2026_02 -> 2026_03` (6 updates)
+    - `2026_03 -> 2026_04` (16 updates)
+  - the previously open `2025-12-07` card row is now reconciled in live YNAB.
+- Targeted tests covering the new Pilates/profile work are passing.
+- Cross-budget dry-run artifacts were generated from the saved local Family/Pilates snapshots:
+  - bootstrap/history (`2025-01-01` through `2025-11-05`):
+    - matched pairs = `94`
+    - unmatched Family source rows = `20`
+    - unmatched Pilates target rows = `44`
+    - ambiguous buckets = `3`
+    - bootstrap payee-map candidates = `24`
+  - live/update overlap (`2025-11-01+`):
+    - matched existing Pilates rows = `14`
+    - proposed new Pilates rows = `28`
+    - unmatched Pilates target rows = `7`
+    - ambiguous rows = `0`
+- The bootstrap cross-budget ambiguity now has an explicit reviewed resolution:
+  - `data/paired/pilates_cross_budget_bootstrap/ambiguous_matches_reviewed.csv`
+  - `data/paired/pilates_cross_budget_bootstrap/manual_resolved_pairs.csv`
+  - regenerated bootstrap candidates in `data/paired/pilates_cross_budget_bootstrap/payee_map_candidates_resolved.csv`
+  - reviewed rule: unless otherwise indicated, ambiguous Pilates income is treated as `ליה פילאטיס: קבוצתי`
+- Selected cross-budget bootstrap income rules were merged into `mappings/pilates/payee_map.csv`:
+  - `liya_pilates_group_income_30`
+  - `pilates_group_income_31`
+  - `liya_pilates_he_group_income_32`
+  - all three are inflow-only defaults to `ליה פילאטיס: קבוצתי` / `Ready to Assign`
+- Family/Pilates cross-budget map hardening is now in place without new workflow code:
+  - root `mappings/fingerprint_map.csv` now splits Leumi account `225237` transfers to `transfer pilates leumi`
+  - root `mappings/payee_map.csv` now has explicit Family-side rules for:
+    - `bank leumi` fees
+    - `bit fees`
+    - `bituach leumi` inflow vs outflow
+    - `transfer pilates leumi`
+    - `google one dublin` on `Liya X7195`
+  - `mappings/pilates/payee_map.csv` now has explicit Pilates-side rules for:
+    - `altshuler shaham`
+    - `bit fees`
+    - `bituach leumi`
+    - `excellence`
+    - `income tax`
+    - `taxes`
+    - `loan pilates`
+    - `transfer pilates leumi`
+- Live cross-budget fix manifests and corrected local rerun artifacts were generated:
+  - Family direct-fix manifest:
+    - `data/paired/pilates_cross_budget_live/family_direct_fix_candidates.csv`
+  - Pilates direct-fix manifest:
+    - `data/paired/pilates_cross_budget_live/pilates_direct_fix_candidates.csv`
+  - corrected local snapshots:
+    - `data/paired/pilates_cross_budget_live/family_ynab_api_norm_curated.csv`
+    - `data/paired/pilates_cross_budget_live/pilates_ynab_api_norm_curated.csv`
+  - curated rerun:
+    - matched existing Pilates rows = `20`
+    - proposed new Pilates rows = `25`
+    - unmatched Pilates target rows = `0`
+    - ambiguous rows = `0`
+    - proposal mapping quality = `25 unique`, `0 none`
+- After the user applied the Family/Pilates direct fixes in live YNAB, the curated rerun was completed and reviewed locally:
+  - added Pilates-side defaults for:
+    - `google one dublin` -> `Google One` / `Google storage 75 NIS 20 Euro 30/11`
+    - `הפקדות קופג` -> `Excellence` / `Pension 10th`
+  - reviewed artifact:
+    - `data/paired/pilates_cross_budget_live_curated/proposed_transactions_reviewed.csv`
+  - upload-prep dry run artifacts:
+    - `data/paired/pilates_cross_budget_live_curated/proposed_transactions_reviewed_upload.csv`
+    - `data/paired/pilates_cross_budget_live_curated/proposed_transactions_reviewed_upload.json`
+  - upload-prep summary:
+    - prepared rows = `25`
+    - transfer rows = `5`
+    - duplicate payload keys = `0`
+    - existing import_id hits = `0`
+    - possible manual matches = `0`
+    - transfer payload issues = `0`
+
+Important findings:
+- Pilates YNAB budget/accounts were identified successfully.
+- Pilates bank account maps cleanly to the Pilates budget.
+- Pilates card statements can be normalized with the new parser.
+- Part of the historical Pilates card history in YNAB was imported in aggregated chunks (for example date-range rows such as `01.11-06.11`) instead of statement line items.
+- Because of those historical aggregates, exact line-by-line card reconciliation is not possible for all 2025 Pilates cycles with the existing exact-lineage algorithm.
+- Refreshed live card state now spans `2025-01-01` to `2026-03-19` for `Credit card 0602`:
+  - pre-2026 is mostly legacy (77 rows; 73 blank import IDs, including grouped memo rows)
+  - `2026-01-01+` is clean for exact sync/reconcile (37 rows; 34 CARD import IDs, 3 expected transfer rows)
+  - an optional earlier clean boundary exists at `2025-12-07`, but `2026-01-01` is the conservative boundary rule.
+- Current card live status for `2025-12-01+` after execution:
+  - `reconciled = 29`
+  - `cleared = 14`
+  - `uncleared = 0`
+- Existing YNAB bank transactions can be recognized by source-vs-YNAB pairing without being cleared/reconciled yet; source pairing and YNAB mutation are separate stages.
+- The Family `Pilates` category and Pilates `In Family` account need a separate comparison layer because the source and target accounts are intentionally different.
+- For this cross-budget flow, reconciliation is an explicit artifact/reporting step:
+  - `matched_pairs.csv`
+  - `unmatched_source.csv`
+  - `unmatched_target.csv`
+  - `ambiguous_matches.csv`
+  - `proposed_transactions.csv`
+- New cross-budget proposals must be rewritten to upload into Pilates account `In Family`, while preserving the original Family-side account in `source_account`.
+- The reviewed bootstrap ambiguity does not imply exact row-for-row historical pairing in every case:
+  - two buckets were memo-swapped `2 -> 2` group-income cases
+  - one bucket was `2 -> 1`, so the reviewed resolution is a mapping/bootstrap decision rather than a claim of exact historical target parity
+- The current saved-snapshot cross-budget state is now fully classified for the historical round:
+  - matched existing Pilates rows = `20`
+  - proposed missing Pilates rows = `25`
+  - unmatched Pilates target rows = `0`
+  - ambiguous rows = `0`
+  - reviewed proposal rows = `25`
+- The curated historical Family->Pilates upload has now been executed in live YNAB:
+  - prepared/reviewed upload rows = `25`
+  - YNAB save count = `30` (because transfer rows created paired transfer-side saves)
+  - upload verification confirmed all `25` intended Pilates-side rows
+- A first live cross-budget reconciliation command now exists:
+  - `src/ynab_il_importer/cross_budget_reconciliation.py`
+  - `scripts/reconcile_cross_budget_balance.py`
+  - current implementation can validate a matched activity window and patch matched target rows to `reconciled`
+- Cross-budget reconciliation hardening continued:
+  - live cleanup removed one stray Pilates-only `2024-09-15` `+250` row
+  - live date fixes corrected the misplaced Pilates cash rows for:
+    - `2025-02-10` `מזומן רוברטו`
+    - `2025-04-03` `אהוד מזומן`
+  - historical October 2025 cross-budget proposals were rebuilt and executed:
+    - uploaded rows = `2`
+    - `Way of Noam` / `Courses`
+    - `Gidgis` / `Clothing`
+  - the two current Adva rows were uploaded and patched to `reconciled`
+  - current live row-matching state for `2025-11-01+` is now clean:
+    - matched rows = `47`
+    - unmatched source rows = `0`
+    - unmatched target rows = `0`
+    - ambiguous rows = `0`
+    - current-window target statuses = `reconciled 47 / cleared 0 / uncleared 0`
+- Cross-budget matcher/generalization updates now in place:
+  - equal-count repeated buckets auto-match deterministically
+  - date-window matching can continue after same-day count mismatches
+  - Bank Leumi loan-style target rows classify as `transfer_like`
+  - `ynab_api.delete_transaction(...)` now exists for explicit rare cleanup rows
+- Pilates cross-budget mapping now includes historical aliases for:
+  - `way of noam`
+  - `דרכי נעם`
+  - `gidgis`
+- Cross-budget reconcile reruns now support cheaper verification:
+  - `scripts/reconcile_cross_budget_balance.py` accepts `--source-month-report-in`
+  - `src/ynab_il_importer/cross_budget_reconciliation.py` can rebuild the live target side from a cached Family-side month report instead of refetching every month detail
+- Cross-budget month reports now surface balance-shift diagnostics:
+  - `target_cleared_activity_ils`
+  - `source_balance_change_ils`
+  - `target_cleared_balance_change_ils`
+  - `difference_change_ils`
+  - `source_other_balance_change_ils`
+  - `target_other_balance_change_ils`
+  - this makes it easier to separate real transaction drift from Family-side category-balance effects
+- Reconciliation packet tooling now exists:
+  - `src/ynab_il_importer/reconciliation_packets.py`
+  - `scripts/package_reconciliation_packet.py`
+  - packet format documentation in `documents/reconciliation_packets.md`
+  - packets now record:
+    - acquisition method per file (`human_download`, `agent_download`, `derived_input`, `agent_generated`, `human_reviewed`, `upload_payload`)
+    - saved command history
+    - short handoff notes
+    - `packet_summary.md` alongside `packet_manifest.json`
+  - saved packet examples now exist for:
+    - bank:
+      - `data/packets/bank/pilates/bank_leumi_225237/2025-11-01_to_2026-03-19`
+    - card:
+      - `data/packets/card/pilates/credit_card_0602/2026-01-01_to_2026-03-19`
+    - cross-budget verified state:
+      - `data/packets/cross_budget/pilates/family__pilates__in_family/overnight_verified_state`
+    - focused cross-budget gap review:
+      - `data/packets/cross_budget/pilates/family__pilates__in_family/2024_12_base_exception_review`
+      - `data/packets/cross_budget/pilates/family__pilates__in_family/2025_10_balance_shift_review`
+  - first saved cross-budget working packet:
+    - `data/packets/cross_budget/pilates/family__pilates__in_family/overnight_working_state`
+- The current cross-budget/profile/card-boundary checkpoint is committed on branch `feature/pilates-workflow`:
+  - commit = `efc47ca` (`Add cross-budget Pilates sync workflow`)
+- Aikido cross-budget bootstrap groundwork is now in place on branch `aikido-workflow`:
+  - `mappings/aikido/account_name_map.csv` initialized for target account `Personal In Leumi` (`20eeb986-be29-4710-95d0-56a49869db09`)
+  - `mappings/aikido/fingerprint_map.csv` seeded from shared baseline
+  - `data/paired/aikido_bootstrap/*` historical Family->Aikido matching artifacts generated:
+    - matched `61`
+    - unmatched source `69`
+    - unmatched target `11`
+    - ambiguous `0`
+  - `mappings/aikido/payee_map.csv` bootstrapped from Aikido matched pairs (`17` rules)
+  - `documents/update_workflow.md` now includes Aikido sections (`7-9`) for cross-budget-only operation
+  - new helper scripts added for profile/cross-budget ergonomics:
+    - `scripts/init_profile_bootstrap.py`
+    - `scripts/build_categories_from_ynab_snapshot.py`
+  - `scripts/prepare_ynab_upload.py` now falls back to category IDs inferred from existing transactions when YNAB categories API returns empty
+  - `src/ynab_il_importer/upload_prep.py` now treats the review placeholder `Uncategorized` as not-ready for upload instead of attempting to resolve it as a real YNAB category
+  - `mappings/aikido/payee_map.csv` is now hardened with Aikido-specific aliases and named-student defaults for the current Family->Aikido backlog:
+    - `paypal facebook עסקת חו`
+    - `paypal facebook`
+    - `adva steinberg`
+    - `harel health insurance`
+    - `isshin aikido` `=50`
+    - `isshin aikido` `=275`
+    - named introductory / dues rows for:
+      - `דניאל קראוס`
+      - `נאור נסימיאן`
+      - `מאור דהן`
+      - `מידן קפלן`
+      - `יאיר ביליה`
+      - `טטיאנה סידלר`
+      - `שרון כץ`
+      - `גל מינה`
+      - `ניר ארז`
+      - `רוברט בוקינג`
+    - later Aikido-side user rules now also cover:
+      - `wodify aikido` -> `San Diego Aikido` / `*8* Seminars`
+      - `lyft` -> `Lyft` / `*8* Seminars`
+      - `lee office` -> `Lee Office` / `*10* Equipment`
+      - `yaara yodfat` -> `Yaara Yodfat` / `*8* Seminars`
+      - `ups שינוע בינלאומי` -> `UPS` / `*10* Equipment`
+      - `sp tozando internati kiyoutoshi ka jp` -> `Tozando` / `*10* Equipment`
+      - `the integral dojo theintegr עסקת חו` -> `Integral Dojo` / `*8* Seminars`
+      - `anatim meiron` -> `Anati Meiron` / `*8* Seminars`
+      - `קבוצת נקר` -> `Nakar Medic` / `*5* Certification`
+      - `רונן סרוסי` -> `Inflow: Ready to Assign`
+      - `יערה בן נחום` -> `Yaara Yodfat` / `*8* Seminars`
+      - `reuven mordechai` outflow `=275` -> `Unexpected expenses`
+  - root Family payee-map rules now also correct two source-side false positives that should not feed Aikido:
+    - `גיא כהן` -> `Gai Cohen Shuk Hakarmel Tel Aviv` / `Clothing`
+    - `בן וקנין` -> `Makolet` / `🛍️Groceries`
+  - MAX normalization now ignores the weak-signal pending sheet `עסקאות שאושרו וטרם נקלטו` entirely:
+    - `src/ynab_il_importer/io_max.py` skips the sheet instead of emitting zero-amount placeholders
+    - `tests/test_io_max.py` covers both mixed-workbook and pending-only workbook cases
+  - live Family cleanup removed the previously uploaded zero-amount `CARD:V1` bug rows (`9` total), and the rebuilt proposal artifacts are now clean:
+    - `data/paired/2026_03_24/family_proposed_transactions.csv` has `0` zero-amount rows
+    - `data/paired/2026_03_25_aikido/aikido_full_backlog_to_current_proposed_transactions.csv` has `0` zero-amount rows
+  - Aikido proposal and upload-dry-run artifacts are now in a real reviewable state:
+    - current-only (`2026-03-01`..`2026-03-25`):
+      - proposed rows = `16`
+      - unique mapped rows = `15`
+      - remaining `Uncategorized` rows = `1`
+      - ready-only upload dry-run rows = `15`
+    - backlog-only (`2025-11-01`..`2026-02-28`):
+      - proposed rows = `49`
+      - unique mapped rows = `47`
+      - remaining `Uncategorized` rows = `2`
+      - ready-only upload dry-run rows = `47`
+    - combined backlog-to-current (`2025-11-01`..`2026-03-25`):
+      - proposed rows = `65`
+      - unique mapped rows = `62`
+      - remaining `Uncategorized` rows = `3`
+      - ready-only upload dry-run rows = `62`
+- Full cross-budget balance parity is now complete in live YNAB:
+  - the user deleted the `2024-12-30` target-only `+300` row
+  - the user added paired Family-side category balance adjustments across `2025-09` and `2025-10` to preserve the true running balance while neutralizing the YNAB month-boundary negative-category rollover effect
+  - current live Family `Pilates` category balance = `15154.26`
+  - current live Pilates `In Family` cleared balance = `15154.26`
+  - current live Pilates `In Family` uncleared balance = `0.00`
+  - full-balance difference = `0.00`
+  - current full verify succeeds without ignored IDs:
+    - anchor month = `2025-08-01`
+    - anchor balance = `3098.55`
+    - settled base rows before the active window = `29`
+    - active source net = `7196.46`
+    - active target net = `7196.46`
+    - active matched net = `7196.46`
+    - active matched rows = `47`
+    - active unmatched source/target/ambiguous = `0 / 0 / 0`
+    - updates planned = `0`
+    - target status summary = `reconciled 2241 / cleared 0 / uncleared 0`
+  - final live reconcile artifacts were written to:
+    - `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_report.csv`
+    - `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_month_report.csv`
+    - `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_source_report.csv`
+    - `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_target_report.csv`
+    - `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_matched_pairs.csv`
+    - `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_unmatched_source.csv`
+    - `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_unmatched_target.csv`
+    - `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_ambiguous_matches.csv`
+- Cross-budget month-boundary category rollovers are now a known reconciliation concern:
+  - YNAB can auto-move money so categories do not start a month negative
+  - this can create category-balance changes that are not represented as ordinary transaction rows
+  - the reconciliation month report should continue to flag these explicitly via `source_other_balance_change_ils`
+  - when needed, paired balancing adjustments may be cleaner than silent category-only drift, but the current Pilates historical state is already reconciled and does not need further mutation right now
+- A conservative overlapping cutoff works on the current local snapshots:
+  - bootstrap/history through `2025-11-05`
+  - live/update runs from `2025-11-01`
+- Current Pilates bank live status:
+  - no uncleared bank rows remain in the active `2025-11-01` to `2026-03-19` working window
+  - reconciliation verification on the normalized bank file reports `Updates planned: 0`
+  - the working bank balance now replays cleanly to the statement ending balance
+
+In progress:
+- Pilates boundary-forward card sequence is executed through `2026_04`; older pre-`2025-12-01` legacy card history remains intentionally outside exact reconcile.
+- Bank reconciliation anchor selection is still too permissive in the general code path.
+- The cross-budget Pilates flow has reached a clean reconciled checkpoint:
+  - the historical upload is live
+  - the anchor-based reconciliation logic is live
+  - October 2025 historical fixes and the current Adva rows are uploaded and reconciled
+  - the active `2025-11-01+` row state is clean
+  - full Family-category vs Pilates-account balance parity is now exact
+  - the next work is to package this checkpoint cleanly and then start a fresh dated update window from the last Family reconciliation through the current date
+- A future workflow wrapper/automation pass is desirable, but it is intentionally deferred until Pilates conventions settle.
+- Aikido first end-to-end dry-run is no longer blocked by an upload-prep code gap:
+  - run folder: `data/derived/2026_03_25_aikido` + `data/paired/2026_03_25_aikido`
+  - the main combined review artifact is now:
+    - `data/paired/2026_03_25_aikido/aikido_full_backlog_to_current_proposed_transactions.csv`
+  - upload-prep dry-run succeeds on the currently ready subset:
+    - `62` prepared rows from the combined file
+    - `0` duplicate payload keys
+    - `0` existing import-id hits
+    - `0` possible manual matches
+  - cross-budget reconcile remains blocked because the historical Aikido backlog still needs review and upload before the target side is settled enough to anchor into March 2026
+  - after the latest Aikido-side rules, the remaining review-needed rows are concentrated in true one-offs / locally ambiguous categories:
+    - historical pre-March rows still unresolved = `2`
+    - current-window rows still unresolved = `1`
+    - combined backlog-to-current rows still unresolved = `3`
+    - the historical unresolved pair (`בן וקנין`, `גיא כהן`) are now identified as Family-side false positives rather than true missing Aikido target rows
+    - the current unresolved row is:
+      - `bit` outflow `-50`
+
+---
+
+## Immediate Next Steps
+
+1. Pilates card wrap-up
+- Keep pre-2026 aggregated card history as legacy bootstrap territory.
+- Use `2026-01-01` as the exact sync/reconcile boundary for steady-state commands.
+- Continue monthly transition reconcile (`previous -> source`) as new statements arrive.
+- Decide whether to permanently include `2025-12-01` in the exact boundary or treat it as a one-time bootstrap exception.
+
+2. Bank reconciliation hardening
+- Constrain anchor selection so it cannot anchor after unreconciled matched rows.
+- Reconcile per mapped account when a source file contains multiple accounts.
+- Warn and skip unmapped accounts instead of failing the whole run.
+
+3. Family/Pilates cross-plan handling
+- Keep the reviewed group-income ambiguity resolution as the current bootstrap rule.
+- Keep the applied live fixes represented by:
+  - `data/paired/pilates_cross_budget_live/family_direct_fix_candidates.csv`
+  - `data/paired/pilates_cross_budget_live/pilates_direct_fix_candidates.csv`
+- Treat the current curated historical round as executed and extended:
+  - original historical upload = `25`
+  - additional October 2025 historical upload = `2`
+  - current Adva upload = `2`
+  - current active-window row reconciliation is clean
+  - full Family `Pilates` vs Pilates `In Family` balance parity is now exact
+- Use cached Family month reports for repeat cross-budget verification reruns whenever the Family source side has not changed.
+- Use focused month packets when a mismatch is historical and localized instead of re-pulling the whole history:
+  - `2024_12_base_exception_review`
+  - `2025_10_balance_shift_review`
+- Keep reconciliation packets as the saved run artifact for future work across bank, card, and cross-budget:
+  - human statement downloads should stay explicit via `--input-human`
+  - YNAB downloads/exports should stay explicit via `--input-agent`
+  - normalized files and cached month reports should stay explicit via `--input-derived`
+  - every packet should preserve the main run commands plus a short note about exceptions or special handling
+  - cross-budget packets should keep the source snapshot, target snapshot, cached source month report, reconcile artifacts, and notes about any month-boundary category-balance adjustments or rollover effects
+- Next cross-budget task:
+  - start a new dated Family/Pilates snapshot window from the last Family reconciliation through the current date
+  - run the same cross-budget compare -> propose -> review -> upload -> reconcile loop on that fresh window
+  - carry forward the rule that month-boundary category rollovers should be flagged explicitly in the reconcile artifacts instead of being mistaken for missing transaction activity
+- Keep the current overlap rule unless live review shows a better cutoff:
+  - bootstrap/history through `2025-11-05`
+  - live/update from `2025-11-01`
+
+4. Later workflow automation
+- Once Pilates steady-state conventions are stable, build a higher-level wrapper that runs:
+  - normalize
+  - sync dry-run + uncleared triage
+  - sync execute for safe exact matches
+  - proposed transaction build/review/upload
+  - post-upload sync if needed
+  - reconcile
+- Keep this as a later ergonomics pass rather than mixing hidden YNAB mutations into the proposal-building step.
+
+5. Aikido preparation
+- Aikido profile bootstrap baseline now exists and should be treated as the starting point:
+  - `mappings/aikido/account_name_map.csv`
+  - `mappings/aikido/fingerprint_map.csv`
+  - `mappings/aikido/payee_map.csv`
+  - `outputs/aikido/ynab_categories.csv` (transaction-inferred fallback)
+- Next Aikido execution steps:
+  - review the main combined Aikido file:
+    - `data/paired/2026_03_25_aikido/aikido_full_backlog_to_current_proposed_transactions.csv`
+  - keep the current zero-row rule in place:
+    - ignore MAX `עסקאות שאושרו וטרם נקלטו` during normalization
+    - delete any pre-existing zero-amount importer artifacts in live YNAB rather than trying to reconcile them
+  - upload the reviewed ready subset so the historical Family->Aikido backlog starts landing in the target budget
+  - rerun full Aikido cross-budget reconcile after upload to see how much of the `2025-11-01+` blocker disappears
+  - fix the two Family-side false positives in live Family YNAB so they disappear from the Aikido source stream:
+    - `בן וקנין`
+    - `גיא כהן`
+  - review the remaining `3` unresolved rows in the combined file
+  - merge any confirmed review decisions back into `mappings/aikido/payee_map.csv`
+
+---
+
+## Deliverables to Watch
+
+- `mappings/pilates/account_name_map.csv`
+- `mappings/pilates/fingerprint_map.csv`
+- `mappings/pilates/payee_map.csv`
+- `outputs/pilates/ynab_categories.csv`
+- `outputs/pilates/fingerprint_groups.csv`
+- `data/derived/family/ynab_api_norm.csv`
+- `data/derived/pilates/ynab_api_norm.csv`
+- `data/derived/pilates_bootstrap/*_norm.csv`
+- `data/paired/pilates_bootstrap/matched_pairs.csv`
+- `data/paired/pilates_bootstrap/proposed_transactions.csv`
+- `data/paired/pilates_live/proposed_transactions.csv`
+- `data/paired/pilates_live/uncleared_ynab_report_post_upload.csv`
+- `data/paired/pilates_live/bank_historical_fix_updates.csv`
+- `data/paired/pilates_live/*sync_report*.csv`
+- `data/paired/pilates_live/*reconcile_report*.csv`
+- `data/paired/pilates_live/card_bootstrap_boundary_verification.csv`
+- `data/paired/pilates_live/card_2026_01_sync_report_boundary.csv`
+- `data/paired/pilates_live/card_2026_01_to_2026_02_reconcile_report_boundary.csv`
+- `data/paired/pilates_live/card_2026_02_to_2026_03_reconcile_report_boundary.csv`
+- `data/paired/pilates_live/card_2026_04_sync_report_boundary.csv`
+- `data/paired/pilates_live/card_2026_03_to_2026_04_reconcile_report_boundary.csv`
+- `data/paired/pilates_cross_budget_bootstrap/matched_pairs.csv`
+- `data/paired/pilates_cross_budget_bootstrap/unmatched_source.csv`
+- `data/paired/pilates_cross_budget_bootstrap/unmatched_target.csv`
+- `data/paired/pilates_cross_budget_bootstrap/ambiguous_matches.csv`
+- `data/paired/pilates_cross_budget_bootstrap/payee_map_candidates.csv`
+- `data/paired/pilates_cross_budget_bootstrap/ambiguous_matches_reviewed.csv`
+- `data/paired/pilates_cross_budget_bootstrap/manual_resolved_pairs.csv`
+- `data/paired/pilates_cross_budget_bootstrap/payee_map_candidates_resolved.csv`
+- `data/paired/pilates_cross_budget_live/proposed_transactions.csv`
+- `data/paired/pilates_cross_budget_live/matched_pairs.csv`
+- `data/paired/pilates_cross_budget_live/unmatched_source.csv`
+- `data/paired/pilates_cross_budget_live/unmatched_target.csv`
+- `data/paired/pilates_cross_budget_live/ambiguous_matches.csv`
+- `data/paired/pilates_cross_budget_live/family_direct_fix_candidates.csv`
+- `data/paired/pilates_cross_budget_live/pilates_direct_fix_candidates.csv`
+- `data/paired/pilates_cross_budget_live/family_ynab_api_norm_curated.csv`
+- `data/paired/pilates_cross_budget_live/pilates_ynab_api_norm_curated.csv`
+- `data/paired/pilates_cross_budget_live/history_fix_202510_proposed_transactions.csv`
+- `data/paired/pilates_cross_budget_live/history_fix_202510_proposed_transactions_reviewed.csv`
+- `data/paired/pilates_cross_budget_live/history_fix_202510_proposed_transactions_reviewed_upload.csv`
+- `data/paired/pilates_cross_budget_live/history_fix_202510_proposed_transactions_reviewed_upload.json`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_report.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_month_report.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_source_report.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_target_report.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_matched_pairs.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_unmatched_source.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_unmatched_target.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_cached_ambiguous_matches.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_ignore300_report.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_ignore300_month_report.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_ignore300_source_report.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_ignore300_target_report.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_ignore300_matched_pairs.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_ignore300_unmatched_source.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_ignore300_unmatched_target.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_ignore300_ambiguous_matches.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_ignore300_month_report_diagnostic.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_report.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_month_report.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_source_report.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_target_report.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_matched_pairs.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_unmatched_source.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_unmatched_target.csv`
+- `data/paired/pilates_cross_budget_live/final_cross_budget_reconcile_post_user_fix_ambiguous_matches.csv`
+- `data/derived/gap_review_2026_03_24/*`
+- `data/paired/gap_review_2026_03_24/*`
+- `data/derived/gap_review_2026_03_24_post_fix/*`
+- `data/paired/gap_review_2026_03_24_post_fix/*`
+- `data/packets/bank/pilates/bank_leumi_225237/2025-11-01_to_2026-03-19/*`
+- `data/packets/card/pilates/credit_card_0602/2026-01-01_to_2026-03-19/*`
+- `data/packets/cross_budget/pilates/family__pilates__in_family/overnight_working_state/*`
+- `data/packets/cross_budget/pilates/family__pilates__in_family/overnight_verified_state/*`
+- `data/packets/cross_budget/pilates/family__pilates__in_family/2024_12_base_exception_review/*`
+- `data/packets/cross_budget/pilates/family__pilates__in_family/2025_10_balance_shift_review/*`
+- `data/paired/pilates_cross_budget_live_curated/proposed_transactions.csv`
+- `data/paired/pilates_cross_budget_live_curated/proposed_transactions_reviewed.csv`
+- `data/paired/pilates_cross_budget_live_curated/proposed_transactions_reviewed_upload.csv`
+- `data/paired/pilates_cross_budget_live_curated/proposed_transactions_reviewed_upload.json`
+- `data/paired/pilates_cross_budget_live_curated/matched_pairs.csv`
+- `data/paired/pilates_cross_budget_live_curated/unmatched_source.csv`
+- `data/paired/pilates_cross_budget_live_curated/unmatched_target.csv`
+- `data/paired/pilates_cross_budget_live_curated/ambiguous_matches.csv`
+- `documents/pilates_workflow.md`
+- `documents/reconciliation_packets.md`
+- `documents/bank_reconciliation_lessons.md`
+- `documents/card_reconciliation_plan.md`

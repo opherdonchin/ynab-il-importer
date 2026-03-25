@@ -1,2 +1,0 @@
-﻿status,reason,date,signed_amount,row_kind,source_count,target_count,source_row_ids,target_row_ids,source_payees,target_payees
-ambiguous,same_date_amount_bucket_not_unique,2025-11-01,-100.0,ordinary,1,2,source-1,target-1; target-2,Office Rent,Office Rent; Office Rent Duplicate
