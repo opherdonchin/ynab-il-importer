@@ -1023,3 +1023,5 @@ manual_20260324_facebook_x9922_aikido,TRUE,10,,paypal facebook עסקת חו,,Op
 manual_20260324_jessica,TRUE,10,,ג'סיקה,,,bank,outflow,,,Jessica,Birthdays,manual 2026-03-24: keep gimel in Jessica fingerprint mapping,
 manual_20260324_kvish6_default,TRUE,10,,כביש,,,,,,,Kvish 6,Transportation,manual 2026-03-24: Kvish 6 payee default,
 manual_20260324_bit_bank_default,TRUE,10,,bit,,Bank Leumi,bank,outflow,,,Bit,,manual 2026-03-24: BIT bank rows use Bit payee (not Subject),
+manual_20260325_gai_cohen_family,TRUE,10,,גיא כהן,,Bank Leumi,bank,outflow,,,Gai Cohen Shuk Hakarmel Tel Aviv,Clothing,manual 2026-03-25: not Aikido, Family clothing,
+manual_20260325_ben_vaknin_family,TRUE,10,,בן וקנין,,Bank Leumi,bank,outflow,,,Makolet,🛍️Groceries,manual 2026-03-25: not Aikido, Family groceries,
