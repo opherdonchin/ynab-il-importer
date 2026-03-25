@@ -8,6 +8,9 @@ This runbook covers the full update in this exact order:
 4. Pilates bank, card, and cross-budget matching
 5. Pilates review
 6. Pilates update and reconciliation (including within-month or new-month card reconciliation)
+7. Aikido cross-budget matching (no external bank/card files)
+8. Aikido review
+9. Aikido update and reconciliation
 
 ## Command Style Standard
 
@@ -40,6 +43,8 @@ For this run, use these literal values directly in commands:
 - Pilates previous card statements root: `data/raw/previous_leumi_card/x0602/`
 - cross-budget since date: `2026-03-19` (adjust only if the Family reconciliation anchor changed)
 - cross-budget until date: `2026-03-24`
+- Aikido source category in Family budget: `Aikido`
+- Aikido target account in Aikido budget: `Personal In Leumi`
 
 Default bounded-window policy:
 
@@ -296,6 +301,75 @@ python scripts/reconcile_cross_budget_balance.py --source-profile family --sourc
 python scripts/reconcile_cross_budget_balance.py --source-profile family --source-category Pilates --target-profile pilates --target-account "In Family" --since 2026-03-19 --date-tolerance-days 0 --out "data/paired/2026_03_24/pilates_cross_budget_reconcile_report.csv" --month-report-out "data/paired/2026_03_24/pilates_cross_budget_reconcile_month_report.csv" --source-report-out "data/paired/2026_03_24/pilates_cross_budget_reconcile_source_report.csv" --status-out "data/paired/2026_03_24/pilates_cross_budget_reconcile_status_report.csv" --target-report-out "data/paired/2026_03_24/pilates_cross_budget_reconcile_target_report.csv" --pairs-out "data/paired/2026_03_24/pilates_cross_budget_reconcile_matched_pairs.csv" --unmatched-source-out "data/paired/2026_03_24/pilates_cross_budget_reconcile_unmatched_source.csv" --unmatched-target-out "data/paired/2026_03_24/pilates_cross_budget_reconcile_unmatched_target.csv" --ambiguous-out "data/paired/2026_03_24/pilates_cross_budget_reconcile_ambiguous_matches.csv" --execute
 ```
 
+## 7) Aikido Cross-Budget Matching (No External Bank/Card Sources)
+
+Initialize profile files once (or rerun with `--overwrite` if needed):
+
+```bash
+python scripts/init_profile_bootstrap.py --profile aikido --account-name "Personal In Leumi" --account-id "20eeb986-be29-4710-95d0-56a49869db09"
+```
+
+For first-time bootstrap of Aikido payee rules from historical cross-budget matches:
+
+```bash
+python scripts/bootstrap_cross_budget_pairs.py --source "data/derived/aikido/family_ynab_api_norm_for_aikido.csv" --source-profile family --source-category Aikido --ynab "data/derived/aikido/ynab_api_norm.csv" --target-profile aikido --target-account "Personal In Leumi" --since 2025-01-01 --until 2026-03-25 --date-tolerance-days 0 --pairs-out "data/paired/aikido_bootstrap/matched_pairs.csv" --unmatched-source-out "data/paired/aikido_bootstrap/unmatched_source.csv" --unmatched-target-out "data/paired/aikido_bootstrap/unmatched_target.csv" --ambiguous-out "data/paired/aikido_bootstrap/ambiguous_matches.csv"
+python scripts/bootstrap_payee_map.py --pairs "data/paired/aikido_bootstrap/matched_pairs.csv" --out "mappings/aikido/payee_map.csv"
+```
+
+Prepare dated run folder for Aikido cross-budget update:
+
+```bash
+python scripts/init_update_run.py --run-tag 2026_03_25_aikido
+```
+
+Download source/target YNAB snapshots for the run window:
+
+```bash
+python scripts/download_ynab_api.py --profile family --since 2026-03-01 --until 2026-03-25 --out "data/derived/2026_03_25_aikido/family_ynab_api_norm.csv"
+python scripts/download_ynab_api.py --profile aikido --since 2026-03-01 --until 2026-03-25 --out "data/derived/2026_03_25_aikido/aikido_ynab_api_norm.csv"
+```
+
+Download Aikido categories. If YNAB categories API returns empty for this budget, generate a fallback categories file from the snapshot:
+
+```bash
+python scripts/download_ynab_categories.py --profile aikido --out "outputs/aikido/ynab_categories.csv"
+python scripts/build_categories_from_ynab_snapshot.py --ynab "data/derived/2026_03_25_aikido/aikido_ynab_api_norm.csv" --out "outputs/aikido/ynab_categories.csv"
+```
+
+Build cross-budget proposed transactions for Family category `Aikido` to Aikido account `Personal In Leumi`:
+
+```bash
+python scripts/build_cross_budget_proposed.py --source "data/derived/2026_03_25_aikido/family_ynab_api_norm.csv" --source-profile family --source-category Aikido --ynab "data/derived/2026_03_25_aikido/aikido_ynab_api_norm.csv" --target-profile aikido --target-account "Personal In Leumi" --since 2026-03-01 --until 2026-03-25 --date-tolerance-days 0 --out "data/paired/2026_03_25_aikido/aikido_cross_budget_proposed_transactions.csv" --pairs-out "data/paired/2026_03_25_aikido/aikido_cross_budget_matched_pairs.csv" --unmatched-source-out "data/paired/2026_03_25_aikido/aikido_cross_budget_unmatched_source.csv" --unmatched-target-out "data/paired/2026_03_25_aikido/aikido_cross_budget_unmatched_target.csv" --ambiguous-out "data/paired/2026_03_25_aikido/aikido_cross_budget_ambiguous_matches.csv"
+```
+
+## 8) Aikido Review
+
+Review Aikido cross-budget proposals:
+
+```bash
+python scripts/review_app.py --profile aikido --in "data/paired/2026_03_25_aikido/aikido_cross_budget_proposed_transactions.csv"
+```
+
+Save as:
+
+- `data/paired/2026_03_25_aikido/aikido_cross_budget_proposed_transactions_reviewed.csv`
+
+## 9) Aikido Update And Reconciliation
+
+Prepare Aikido upload from reviewed cross-budget proposals:
+
+```bash
+python scripts/prepare_ynab_upload.py --profile aikido --in "data/paired/2026_03_25_aikido/aikido_cross_budget_proposed_transactions_reviewed.csv" --out "data/paired/2026_03_25_aikido/aikido_cross_budget_upload.csv" --json-out "data/paired/2026_03_25_aikido/aikido_cross_budget_upload.json" --ready-only --reviewed-only --skip-missing-accounts
+python scripts/prepare_ynab_upload.py --profile aikido --in "data/paired/2026_03_25_aikido/aikido_cross_budget_proposed_transactions_reviewed.csv" --out "data/paired/2026_03_25_aikido/aikido_cross_budget_upload.csv" --json-out "data/paired/2026_03_25_aikido/aikido_cross_budget_upload.json" --ready-only --reviewed-only --skip-missing-accounts --execute
+```
+
+Cross-budget reconciliation (dry-run then execute):
+
+```bash
+python scripts/reconcile_cross_budget_balance.py --source-profile family --source-category Aikido --target-profile aikido --target-account "Personal In Leumi" --since 2026-03-01 --date-tolerance-days 0 --out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_report.csv" --month-report-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_month_report.csv" --source-report-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_source_report.csv" --status-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_status_report.csv" --target-report-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_target_report.csv" --pairs-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_matched_pairs.csv" --unmatched-source-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_unmatched_source.csv" --unmatched-target-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_unmatched_target.csv" --ambiguous-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_ambiguous_matches.csv"
+python scripts/reconcile_cross_budget_balance.py --source-profile family --source-category Aikido --target-profile aikido --target-account "Personal In Leumi" --since 2026-03-01 --date-tolerance-days 0 --out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_report.csv" --month-report-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_month_report.csv" --source-report-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_source_report.csv" --status-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_status_report.csv" --target-report-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_target_report.csv" --pairs-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_matched_pairs.csv" --unmatched-source-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_unmatched_source.csv" --unmatched-target-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_unmatched_target.csv" --ambiguous-out "data/paired/2026_03_25_aikido/aikido_cross_budget_reconcile_ambiguous_matches.csv" --execute
+```
+
 ## End Of Run Checks
 
 - Confirm upload artifacts exist:
@@ -305,6 +379,8 @@ python scripts/reconcile_cross_budget_balance.py --source-profile family --sourc
   - `data/paired/2026_03_24/pilates_upload.json`
   - `data/paired/2026_03_24/pilates_cross_budget_upload.csv`
   - `data/paired/2026_03_24/pilates_cross_budget_upload.json`
+  - `data/paired/2026_03_25_aikido/aikido_cross_budget_upload.csv`
+  - `data/paired/2026_03_25_aikido/aikido_cross_budget_upload.json`
 - Confirm sync/reconcile reports have no unexpected blockers before execute.
-- Keep all run artifacts under `data/derived/2026_03_24/` and `data/paired/2026_03_24/`.
+- Keep all run artifacts under their run-tag folders (for example `data/derived/2026_03_24/`, `data/paired/2026_03_24/`, `data/derived/2026_03_25_aikido/`, `data/paired/2026_03_25_aikido/`).
 

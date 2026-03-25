@@ -396,3 +396,45 @@ def categories_to_dataframe(
             )
     df = pd.DataFrame(rows)
     return df
+
+
+def categories_from_transactions_to_dataframe(
+    transactions: list[dict[str, Any]],
+) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _add(name: str, category_id: str) -> None:
+        normalized_name = str(name or "").strip()
+        normalized_id = str(category_id or "").strip()
+        if not normalized_name:
+            return
+        key = (normalized_name, normalized_id)
+        if key in seen:
+            return
+        seen.add(key)
+        rows.append(
+            {
+                "category_group": "",
+                "category_group_id": "",
+                "category_name": normalized_name,
+                "category_id": normalized_id,
+                "hidden": False,
+            }
+        )
+
+    for txn in transactions or []:
+        if bool(txn.get("deleted", False)):
+            continue
+        subtransactions = txn.get("subtransactions") or []
+        emitted_sub = False
+        for subtxn in subtransactions:
+            if bool(subtxn.get("deleted", False)):
+                continue
+            _add(subtxn.get("category_name", ""), subtxn.get("category_id", ""))
+            emitted_sub = True
+        if emitted_sub:
+            continue
+        _add(txn.get("category_name", ""), txn.get("category_id", ""))
+
+    return pd.DataFrame(rows)

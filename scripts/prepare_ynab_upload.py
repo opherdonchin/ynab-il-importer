@@ -120,10 +120,17 @@ def main() -> None:
         reviewed = reviewed[account_mask].copy()
     if reviewed.empty:
         raise ValueError("No rows remain after applying the selected upload filters.")
-    categories = ynab_api.categories_to_dataframe(
-        ynab_api.fetch_categories(plan_id=plan_id or None)
-    )
     existing_transactions = ynab_api.fetch_transactions(plan_id=plan_id or None)
+    category_groups = ynab_api.fetch_categories(plan_id=plan_id or None)
+    categories = ynab_api.categories_to_dataframe(category_groups)
+    if categories.empty:
+        categories = ynab_api.categories_from_transactions_to_dataframe(
+            existing_transactions
+        )
+        if not categories.empty:
+            print(
+                "YNAB categories API returned no rows; using category ids inferred from existing transactions."
+            )
 
     prepared = upload_prep.prepare_upload_transactions(
         reviewed,
