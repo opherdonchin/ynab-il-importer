@@ -12,6 +12,17 @@ This runbook covers the full update in this exact order:
 8. Aikido review
 9. Aikido update and reconciliation
 
+## Category Policy For A Run
+
+Treat categories as fixed for the duration of a single budget/plan run.
+
+- Refresh categories once per profile section, before review.
+- The review app does not create, rename, move, or reload categories during a run.
+- If a needed category or category group does not yet exist in YNAB, do one of these:
+  - leave the row as `Uncategorized` and fix it later in YNAB post-sync review
+  - add or fix the category structure in YNAB, refresh categories, and restart that profile's workflow section from the beginning
+- Do not continue a run with a half-updated category structure for the same profile.
+
 ## Command Style Standard
 
 We use one shell style on both Linux and Windows:
@@ -80,6 +91,11 @@ python scripts/download_ynab_api.py --profile family --since "<family_ynab_since
 python scripts/download_ynab_categories.py --profile family --out "outputs/family/ynab_categories.csv"
 ```
 
+Family category note:
+
+- Run `download_ynab_categories.py` once here, before review.
+- If you later change Family categories in YNAB during this run, restart the Family section from this refresh step.
+
 Build Family proposals:
 
 ```bash
@@ -102,6 +118,11 @@ python scripts/sync_card_matches.py --profile family --account "Opher X5898" --s
 ```
 
 ## 2) Family Review
+
+Family review note:
+
+- The app uses the category file downloaded earlier in this Family section.
+- If a required category is missing, leave the row `Uncategorized` or stop, fix the Family category structure in YNAB, refresh categories, and restart Family review/build steps.
 
 ```bash
 python scripts/review_app.py --profile family --in "data/paired/2026_03_24/family_proposed_transactions.csv"
@@ -210,6 +231,11 @@ python scripts/download_ynab_api.py --profile pilates --since "<pilates_ynab_sin
 python scripts/download_ynab_categories.py --profile pilates --out "outputs/pilates/ynab_categories.csv"
 ```
 
+Pilates category note:
+
+- Run `download_ynab_categories.py` once here, before review.
+- If you later change Pilates categories in YNAB during this run, restart the Pilates section from this refresh step.
+
 Build Pilates bank/card proposals:
 
 ```bash
@@ -230,6 +256,11 @@ python scripts/build_cross_budget_proposed.py --source "data/derived/2026_03_24/
 ```
 
 ## 5) Pilates Review
+
+Pilates review note:
+
+- The app uses the category file downloaded earlier in this Pilates section.
+- If a required category is missing, leave the row `Uncategorized` or stop, fix the Pilates category structure in YNAB, refresh categories, and restart Pilates review/build steps.
 
 Review Pilates bank/card proposals:
 
@@ -329,12 +360,18 @@ python scripts/download_ynab_api.py --profile family --since 2026-03-01 --until 
 python scripts/download_ynab_api.py --profile aikido --since 2026-03-01 --until 2026-03-25 --out "data/derived/2026_03_25_aikido/aikido_ynab_api_norm.csv"
 ```
 
-Download Aikido categories. If YNAB categories API returns empty for this budget, generate a fallback categories file from the snapshot:
+Download Aikido categories. Only use the snapshot fallback if the YNAB categories API truly returns empty for this budget:
 
 ```bash
 python scripts/download_ynab_categories.py --profile aikido --out "outputs/aikido/ynab_categories.csv"
 python scripts/build_categories_from_ynab_snapshot.py --ynab "data/derived/2026_03_25_aikido/aikido_ynab_api_norm.csv" --out "outputs/aikido/ynab_categories.csv"
 ```
+
+Aikido category note:
+
+- Normally the live categories download should be the file used by review.
+- The snapshot fallback is only an exception path; its group labels may be synthetic and should not be preferred when live categories are available.
+- If you later change Aikido categories in YNAB during this run, restart the Aikido section from this refresh step.
 
 Build cross-budget proposed transactions for Family category `Aikido` to Aikido account `Personal In Leumi`:
 
@@ -343,6 +380,11 @@ python scripts/build_cross_budget_proposed.py --source "data/derived/2026_03_25_
 ```
 
 ## 8) Aikido Review
+
+Aikido review note:
+
+- The app uses the category file downloaded earlier in this Aikido section.
+- If a required category is missing, leave the row `Uncategorized` or stop, fix the Aikido category structure in YNAB, refresh categories, and restart Aikido review/build steps.
 
 Review Aikido cross-budget proposals:
 

@@ -446,3 +446,64 @@ def test_manual_target_row_remains_unmatched_when_source_category_missing() -> N
     assert result.unmatched_source_df.empty
     assert len(result.unmatched_target_df) == 1
     assert result.unmatched_target_df.loc[0, "target_row_id"] == "target-manual"
+
+
+def test_zero_amount_rows_are_ignored_for_cross_budget_matching() -> None:
+    source_df = pd.DataFrame(
+        [
+            _source_row(
+                row_id="source-zero",
+                date="2026-03-13",
+                payee_raw="paypal facebook",
+                fingerprint="paypal facebook",
+                inflow_ils=0.0,
+                outflow_ils=0.0,
+                txn_kind="expense",
+            ),
+            _source_row(
+                row_id="source-real",
+                date="2026-03-14",
+                payee_raw="Office Rent",
+                fingerprint="office rent",
+                inflow_ils=0.0,
+                outflow_ils=100.0,
+                txn_kind="expense",
+            ),
+        ]
+    )
+    target_df = pd.DataFrame(
+        [
+            _target_row(
+                row_id="target-zero",
+                date="2026-03-13",
+                payee_raw="paypal facebook",
+                fingerprint="paypal facebook",
+                inflow_ils=0.0,
+                outflow_ils=0.0,
+                txn_kind="expense",
+            ),
+            _target_row(
+                row_id="target-real",
+                date="2026-03-14",
+                payee_raw="Office Rent",
+                fingerprint="office rent",
+                inflow_ils=0.0,
+                outflow_ils=100.0,
+                txn_kind="expense",
+            ),
+        ]
+    )
+
+    result = cross_budget_pairing.match_cross_budget_rows(
+        source_df,
+        target_df,
+        target_account="In Family",
+        source_category="Pilates",
+    )
+
+    assert len(result.matched_pairs_df) == 1
+    assert result.matched_pairs_df.loc[0, "source_row_id"] == "source-real"
+    assert result.matched_pairs_df.loc[0, "target_row_id"] == "target-real"
+    assert result.unmatched_source_df.empty
+    assert result.unmatched_target_df.empty
+    assert result.ambiguous_matches_df.empty

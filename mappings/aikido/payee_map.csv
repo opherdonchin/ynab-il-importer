@@ -40,7 +40,7 @@ ups_equipment_38,True,10,,ups שינוע בינלאומי,,,ynab,outflow,,,UPS,*
 tozando_39,True,10,,sp tozando internati kiyoutoshi ka jp,,,ynab,outflow,,,Tozando,*10* Equipment,manual 2026-03-25 user rule,
 integral_dojo_foreign_40,True,10,,the integral dojo theintegr עסקת חו,,,ynab,outflow,,,Integral Dojo,*8* Seminars,manual 2026-03-25 user rule,
 anati_meiron_41,True,10,,anatim meiron,,,ynab,outflow,,,Anati Meiron,*8* Seminars,manual 2026-03-25 user rule,
-nakar_group_42,True,10,,קבוצת נקר,,,ynab,outflow,,,Makar Medic,*5* Certification,manual 2026-03-25 user rule,
+nakar_group_42,True,10,,קבוצת נקר,,,ynab,outflow,,,Nakar Medic,*5* Certification,manual 2026-03-25 user rule,
 ronen_sarusi_43,True,10,,רונן סרוסי,,,ynab,inflow,,=50,רונן סרוסי,Inflow: Ready to Assign,manual 2026-03-25 user rule,
 yaara_ben_nachum_alias_44,True,10,,יערה בן נחום,,,ynab,inflow,,=200,Yaara Yodfat,*8* Seminars,manual 2026-03-25 user rule,
 reuven_mordechai_refund_45,True,10,,reuven mordechai,,,ynab,outflow,,=275,Reuven Mordechai,Unexpected expenses,manual 2026-03-25 user rule,

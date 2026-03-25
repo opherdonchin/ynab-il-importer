@@ -225,8 +225,8 @@ def test_ambiguous_rows_are_not_proposed(monkeypatch) -> None:
             _target_row(
                 row_id="target-2",
                 date="2025-11-01",
-                payee_raw="Office Rent Duplicate",
-                fingerprint="office rent duplicate",
+                payee_raw="Office Rent",
+                fingerprint="office rent",
             ),
         ]
     ).to_csv(target_path, index=False, encoding="utf-8-sig")
@@ -261,3 +261,116 @@ def test_ambiguous_rows_are_not_proposed(monkeypatch) -> None:
 
     assert proposed.empty
     assert len(ambiguous) == 1
+
+
+def test_zero_amount_source_rows_are_not_proposed(monkeypatch) -> None:
+    tmp_path = _runtime_dir("build_cross_budget_proposed_zero_amount")
+    source_path = tmp_path / "family.csv"
+    target_path = tmp_path / "aikido.csv"
+    map_path = tmp_path / "payee_map.csv"
+    out_path = tmp_path / "proposed.csv"
+
+    pd.DataFrame(
+        [
+            _source_row(
+                row_id="source-zero",
+                date="2026-03-13",
+                payee_raw="paypal facebook",
+                fingerprint="paypal facebook",
+                inflow_ils=0.0,
+                outflow_ils=0.0,
+            ),
+            _source_row(
+                row_id="source-real",
+                date="2026-03-14",
+                payee_raw="Office Rent",
+                fingerprint="office rent",
+                inflow_ils=0.0,
+                outflow_ils=100.0,
+            ),
+        ]
+    ).to_csv(source_path, index=False, encoding="utf-8-sig")
+    pd.DataFrame(columns=list(_target_row(row_id="unused", date="2026-03-13", payee_raw="unused", fingerprint="unused").keys())).to_csv(
+        target_path,
+        index=False,
+        encoding="utf-8-sig",
+    )
+    _write_payee_map(map_path)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "build_cross_budget_proposed.py",
+            "--source",
+            str(source_path),
+            "--ynab",
+            str(target_path),
+            "--source-category",
+            "Pilates",
+            "--target-account",
+            "In Family",
+            "--map",
+            str(map_path),
+            "--out",
+            str(out_path),
+        ],
+    )
+
+    build_cross_budget_proposed.main()
+
+    proposed = pd.read_csv(out_path).fillna("")
+
+    assert len(proposed) == 1
+    assert proposed.loc[0, "payee_selected"] == "Office Rent"
+    assert proposed.loc[0, "outflow_ils"] == 100.0
+
+
+def test_main_handles_truly_empty_target_file(monkeypatch) -> None:
+    tmp_path = _runtime_dir("build_cross_budget_proposed_empty_target")
+    source_path = tmp_path / "family.csv"
+    target_path = tmp_path / "aikido.csv"
+    map_path = tmp_path / "payee_map.csv"
+    out_path = tmp_path / "proposed.csv"
+
+    pd.DataFrame(
+        [
+            _source_row(
+                row_id="source-real",
+                date="2026-03-14",
+                payee_raw="Office Rent",
+                fingerprint="office rent",
+                inflow_ils=0.0,
+                outflow_ils=100.0,
+            ),
+        ]
+    ).to_csv(source_path, index=False, encoding="utf-8-sig")
+    target_path.write_text("", encoding="utf-8")
+    _write_payee_map(map_path)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "build_cross_budget_proposed.py",
+            "--source",
+            str(source_path),
+            "--ynab",
+            str(target_path),
+            "--source-category",
+            "Pilates",
+            "--target-account",
+            "In Family",
+            "--map",
+            str(map_path),
+            "--out",
+            str(out_path),
+        ],
+    )
+
+    build_cross_budget_proposed.main()
+
+    proposed = pd.read_csv(out_path).fillna("")
+
+    assert len(proposed) == 1
+    assert proposed.loc[0, "payee_selected"] == "Office Rent"

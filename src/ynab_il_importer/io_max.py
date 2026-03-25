@@ -9,10 +9,45 @@ import ynab_il_importer.fingerprint as fingerprint
 
 
 HEADER_MARKER = "תאריך עסקה"
+SKIPPED_SHEET_NAMES = {"עסקאות שאושרו וטרם נקלטו"}
 _NON_DIGIT_RE = re.compile(r"\D+")
 _DIGITS_ONLY_RE = re.compile(r"^\d+$")
 _DECIMAL_ZERO_RE = re.compile(r"^\d+\.0+$")
 _WHITESPACE_RE = re.compile(r"\s+")
+
+OUTPUT_COLUMNS = [
+    "source",
+    "account_name",
+    "source_account",
+    "card_suffix",
+    "card_txn_id",
+    "date",
+    "secondary_date",
+    "txn_kind",
+    "merchant_raw",
+    "description_raw",
+    "description_clean",
+    "description_clean_norm",
+    "fingerprint",
+    "outflow_ils",
+    "inflow_ils",
+    "currency",
+    "amount_bucket",
+    "max_sheet",
+    "max_report_owner",
+    "max_report_scope",
+    "max_report_period",
+    "max_txn_type",
+    "max_category",
+    "max_original_amount",
+    "max_original_currency",
+    "max_comments",
+    "max_tags",
+    "max_discount_club",
+    "max_discount_key",
+    "max_execution_method",
+    "max_exchange_rate",
+]
 
 
 def _clean_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -285,6 +320,10 @@ def _build_sheet_result(
     )
 
 
+def _empty_output_frame() -> pd.DataFrame:
+    return pd.DataFrame(columns=OUTPUT_COLUMNS)
+
+
 def is_proper_format(path: str | Path) -> bool:
     source_path = Path(path)
     suffix = source_path.suffix.lower()
@@ -323,6 +362,10 @@ def read_raw(
     sheet_headers = _find_headers(workbook, path)
     frames = []
     for sheet_name, header_row in sheet_headers:
+        if str(sheet_name).strip() in SKIPPED_SHEET_NAMES:
+            # These rows are not yet posted and have proven too unstable to
+            # normalize safely. We wait for the cleared rows in a later run.
+            continue
         sheet_df = workbook[sheet_name]
         raw = _extract_sheet_table(sheet_df, header_row)
         report_owner = _sheet_preface_value(sheet_df, 0)
@@ -338,7 +381,10 @@ def read_raw(
             )
         )
 
-    result = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    if not frames:
+        return _empty_output_frame()
+
+    result = pd.concat(frames, ignore_index=True)
 
     # Drop pure empty noise rows often present in report footers.
     result = result[
@@ -381,38 +427,4 @@ def read_raw(
         log_path=fingerprint_log_path,
     )
 
-    return result[
-        [
-            "source",
-            "account_name",
-            "source_account",
-            "card_suffix",
-            "card_txn_id",
-            "date",
-            "secondary_date",
-            "txn_kind",
-            "merchant_raw",
-            "description_raw",
-            "description_clean",
-            "description_clean_norm",
-            "fingerprint",
-            "outflow_ils",
-            "inflow_ils",
-            "currency",
-            "amount_bucket",
-            "max_sheet",
-            "max_report_owner",
-            "max_report_scope",
-            "max_report_period",
-            "max_txn_type",
-            "max_category",
-            "max_original_amount",
-            "max_original_currency",
-            "max_comments",
-            "max_tags",
-            "max_discount_club",
-            "max_discount_key",
-            "max_execution_method",
-            "max_exchange_rate",
-        ]
-    ]
+    return result[OUTPUT_COLUMNS]

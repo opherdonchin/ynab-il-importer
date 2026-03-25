@@ -198,6 +198,130 @@ def test_read_card_combines_max_sections_and_preserves_source_fields(
     ]
 
 
+def test_read_card_ignores_pending_not_posted_sheet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    billed_raw = pd.DataFrame(
+        [
+            {
+                "תאריך עסקה": "10-02-2026",
+                "שם בית העסק": "REAL MERCHANT",
+                "קטגוריה": "שונות",
+                "4 ספרות אחרונות של כרטיס האשראי": "9922",
+                "סוג עסקה": "רגילה",
+                "סכום חיוב": "100.00",
+                "מטבע חיוב": "₪",
+                "סכום עסקה מקורי": "100.00",
+                "מטבע עסקה מקורי": "₪",
+                "תאריך חיוב": "10-03-2026",
+                "הערות": "",
+                "תיוגים": "",
+                "מועדון הנחות": "",
+                "מפתח דיסקונט": "",
+                "אופן ביצוע ההעסקה": "טלפוני",
+                'שער המרה ממטבע מקור/התחשבנות לש"ח': "",
+            }
+        ],
+        dtype="string",
+    ).fillna("")
+    pending_raw = pd.DataFrame(
+        [
+            {
+                "תאריך עסקה": "13-03-2026",
+                "שם בית העסק": "PAYPAL *FACEBOOK",
+                "קטגוריה": "שונות",
+                "4 ספרות אחרונות של כרטיס האשראי": "9922",
+                "סוג עסקה": "רגילה",
+                "סכום חיוב": "",
+                "מטבע חיוב": "",
+                "סכום עסקה מקורי": "735",
+                "מטבע עסקה מקורי": "₪",
+                "תאריך חיוב": "",
+                "הערות": "",
+                "תיוגים": "",
+                "מועדון הנחות": "",
+                "מפתח דיסקונט": "",
+                "אופן ביצוע ההעסקה": "",
+                'שער המרה ממטבע מקור/התחשבנות לש"ח': "",
+            }
+        ],
+        dtype="string",
+    ).fillna("")
+
+    workbook = {
+        "עסקאות במועד החיוב": _mock_card_sheet_df(billed_raw),
+        "עסקאות שאושרו וטרם נקלטו": _mock_card_sheet_df(pending_raw),
+    }
+
+    def _fake_read_excel(path: Path, sheet_name=None, header=None, dtype=None, nrows=None):  # noqa: ANN001
+        if sheet_name is None and header is None:
+            return workbook
+        raise AssertionError("Unexpected read_excel invocation")
+
+    monkeypatch.setattr("ynab_il_importer.io_max.pd.read_excel", _fake_read_excel)
+    monkeypatch.setattr(
+        "ynab_il_importer.io_max.account_map.apply_account_name_map",
+        lambda df, source, account_map_path=None: df,
+    )
+    monkeypatch.setattr(
+        "ynab_il_importer.io_max.fingerprint.apply_fingerprints",
+        lambda df, use_fingerprint_map=True, **kwargs: df.assign(
+            description_clean_norm=df["description_clean"].astype("string").fillna(""),
+            fingerprint=df["description_clean"].astype("string").fillna(""),
+        ),
+    )
+
+    actual = maxio.read_raw("tests/fixtures/card/pending_sheet_ignored.xlsx", use_fingerprint_map=False)
+
+    assert len(actual) == 1
+    assert actual.loc[0, "description_raw"] == "REAL MERCHANT"
+    assert "PAYPAL *FACEBOOK" not in actual["description_raw"].tolist()
+
+
+def test_read_card_returns_empty_when_only_pending_sheet_is_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pending_raw = pd.DataFrame(
+        [
+            {
+                "תאריך עסקה": "13-03-2026",
+                "שם בית העסק": "PAYPAL *FACEBOOK",
+                "קטגוריה": "שונות",
+                "4 ספרות אחרונות של כרטיס האשראי": "9922",
+                "סוג עסקה": "רגילה",
+                "סכום חיוב": "",
+                "מטבע חיוב": "",
+                "סכום עסקה מקורי": "735",
+                "מטבע עסקה מקורי": "₪",
+                "תאריך חיוב": "",
+                "הערות": "",
+                "תיוגים": "",
+                "מועדון הנחות": "",
+                "מפתח דיסקונט": "",
+                "אופן ביצוע ההעסקה": "",
+                'שער המרה ממטבע מקור/התחשבנות לש"ח': "",
+            }
+        ],
+        dtype="string",
+    ).fillna("")
+
+    workbook = {
+        "עסקאות שאושרו וטרם נקלטו": _mock_card_sheet_df(pending_raw),
+    }
+
+    def _fake_read_excel(path: Path, sheet_name=None, header=None, dtype=None, nrows=None):  # noqa: ANN001
+        if sheet_name is None and header is None:
+            return workbook
+        raise AssertionError("Unexpected read_excel invocation")
+
+    monkeypatch.setattr("ynab_il_importer.io_max.pd.read_excel", _fake_read_excel)
+
+    actual = maxio.read_raw("tests/fixtures/card/pending_only.xlsx", use_fingerprint_map=False)
+
+    assert list(actual.columns) == maxio.OUTPUT_COLUMNS
+    assert actual.empty
+
+
 def test_read_card_zero_pads_three_digit_card_suffixes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

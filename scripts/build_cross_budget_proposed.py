@@ -17,6 +17,13 @@ import ynab_il_importer.rules as rules_mod
 import ynab_il_importer.workflow_profiles as workflow_profiles
 
 
+def _read_csv_or_empty(path: Path) -> pd.DataFrame:
+    try:
+        return pd.read_csv(path).fillna("")
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()
+
+
 def _filter_by_date(df: pd.DataFrame, since: str | None, until: str | None) -> pd.DataFrame:
     if df.empty:
         return df
@@ -219,8 +226,8 @@ def main() -> None:
 
     source_path = Path(args.source)
     target_path = Path(args.ynab)
-    source_df = pd.read_csv(source_path).fillna("")
-    target_df = pd.read_csv(target_path).fillna("")
+    source_df = _read_csv_or_empty(source_path)
+    target_df = _read_csv_or_empty(target_path)
     source_df["source_file"] = source_path.name
     target_df["target_file"] = target_path.name
 

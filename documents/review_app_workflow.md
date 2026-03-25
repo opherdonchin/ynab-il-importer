@@ -31,6 +31,12 @@ pixi run python scripts/download_ynab_api.py --since 2025-01-01 --until 2025-02-
 pixi run python scripts/download_ynab_categories.py --out outputs/ynab_categories.csv
 ```
 
+Policy:
+- Refresh categories once before starting review for a given budget/plan run.
+- The review app treats that categories file as fixed for the session.
+- If you add, rename, move, or regroup categories in YNAB, close the app, refresh categories, and restart that budget's workflow section.
+- If a needed category does not exist yet, either leave the row `Uncategorized` and fix it later in YNAB, or add the category in YNAB and restart from the category refresh step.
+
 ### D) Build proposed transactions
 
 ```bash
@@ -70,6 +76,7 @@ Notes:
 - Category labels are shown as `Category Group / Category` in YNAB order.
 - In grouped view, the category control has a `Show all` checkbox next to it.
 - Categories are loaded once at startup from the configured categories CSV; there is no manual reload button.
+- The app does not create or edit category groups/categories in YNAB.
 - Payee selection allows free-text overrides.
 - Defaults may be prefilled. Clicking **Save row** uses the currently shown payee/category values.
 - **Apply to all with this fingerprint** only updates rows that are still untouched (not already updated/reviewed).

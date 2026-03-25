@@ -71,6 +71,12 @@ def _signed_amount(values: pd.DataFrame | pd.Series) -> pd.Series | float:
     return (inflow - outflow).round(2)
 
 
+def _nonzero_amount_mask(df: pd.DataFrame) -> pd.Series:
+    inflow = pd.to_numeric(_series_or_default(df, "inflow_ils", 0.0), errors="coerce").fillna(0.0)
+    outflow = pd.to_numeric(_series_or_default(df, "outflow_ils", 0.0), errors="coerce").fillna(0.0)
+    return (inflow != 0.0) | (outflow != 0.0)
+
+
 def _classify_row_kind(
     payee_text: str,
     txn_kind: str,
@@ -178,6 +184,9 @@ def prepare_cross_budget_source(
 
     prepared["date_key"] = pd.to_datetime(_series_or_default(prepared, "date"), errors="coerce").dt.normalize()
     prepared["signed_amount"] = _signed_amount(prepared)
+    prepared = prepared.loc[_nonzero_amount_mask(prepared)].copy()
+    if prepared.empty:
+        return prepared
     prepared["row_kind"] = prepared.apply(_classify_source_row_kind, axis=1)
     prepared["source_account"] = (
         _series_or_default(prepared, "source_account")
@@ -236,6 +245,9 @@ def prepare_cross_budget_target(
 
     prepared["date_key"] = pd.to_datetime(_series_or_default(prepared, "date"), errors="coerce").dt.normalize()
     prepared["signed_amount"] = _signed_amount(prepared)
+    prepared = prepared.loc[_nonzero_amount_mask(prepared)].copy()
+    if prepared.empty:
+        return prepared
     prepared["row_kind"] = prepared.apply(_classify_target_row_kind, axis=1)
     prepared["raw_text"] = _pick_text(
         prepared,
