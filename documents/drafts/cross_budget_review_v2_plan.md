@@ -1,10 +1,10 @@
-# ynab-il-importer - Next Implementation Plan
+# ynab-il-importer - Cross-Budget Review Refactor Plan
 
 ## Goal
 
 Replace the current split proposal logic with one review model that treats every workflow as a source-vs-target comparison.
 
-This new model must cover:
+This unified model must cover:
 1. Institutional import review:
    - source = normalized bank/card transaction
    - target = existing YNAB transaction in the same budget/account
@@ -12,153 +12,101 @@ This new model must cover:
    - source = source-budget YNAB transaction
    - target = target-budget YNAB transaction
 
-The review artifact must support both directions of work:
-1. recognize existing matches
-2. propose missing target rows
-3. propose missing source rows
-4. surface ambiguous cases
-5. support deletion and recategorization decisions on either side
+The review artifact must support:
+1. existing automatic matches
+2. source-only rows
+3. target-only rows
+4. ambiguous candidate relations
+5. source-side recategorization/removal from the cross-budget stream
+6. target-side creation or deletion when explicitly reviewed
 
 ---
 
-## Why This Is The Next Priority
+## Why This Refactor Is Next
 
-The current Family/Pilates/Aikido work exposed a structural limit in the existing proposal format.
+The current Family/Pilates/Aikido work exposed a structural limit in the old proposal format.
 
 Current behavior:
 1. `scripts/build_cross_budget_proposed.py` only turns `unmatched_source` rows into proposed review rows.
-2. `unmatched_target` and `ambiguous` rows are emitted as diagnostics, not as first-class review rows.
-3. The app is built around a single transaction plus suggestions, not a source/target pair.
-4. Pilates was made to work through extra fix manifests and manual live cleanup, not through one coherent bidirectional review workflow.
-5. Aikido made the missing capabilities obvious:
-   - target-only/manual rows can be real and need to propagate back
-   - Family-side false positives need source-side recategorization so they leave the cross-budget stream
-   - some rows need deletion, not upload
+2. `unmatched_target` and `ambiguous` rows are emitted as diagnostics, not first-class review rows.
+3. The review app is built around a single transaction plus suggestions, not an explicit source/target relation.
+4. Pilates was made to work through sidecar fix manifests and manual cleanup, not one coherent bidirectional review workflow.
+5. Aikido exposed the remaining gap more clearly:
+   - target-only/manual rows can be real
+   - source-side false positives need recategorization so they leave the cross-budget stream
+   - some rows need deletion rather than upload
 
-So the current code is not wrong, but it is incomplete for the workflow we actually want.
+So the current code is not wrong. It is incomplete for the workflow we now know we need.
 
 ---
 
-## Working Decisions Already Agreed
+## Decisions Already Settled
 
-1. Pilates and Aikido should use the same cross-budget workflow.
+Keep these decisions:
+1. Pilates and Aikido should use one cross-budget workflow.
 2. Neither side is the sole source of truth.
-3. We want one proposal format, centered on stable `source_*` and `target_*` meanings.
-4. We do not need backward compatibility with the old review format.
-5. We should reuse existing scripts and tests where that is convenient, but not preserve old structure for its own sake.
-6. The work should proceed in this order:
-   - schema for proposed matches
-   - cross-budget matching function with tests
-   - institutional matching update with tests
-   - review app update
-   - apply/update layer
-7. For the first pass, matcher statuses should stay neutral and simple:
+3. `source_*` and `target_*` keep stable meanings across workflows.
+4. We do not need backward compatibility with the old review CSV shape.
+5. The phase order remains:
+   - schema and matcher
+   - app
+   - apply
+6. Matcher statuses stay simple in the first pass:
    - `matched_auto`
    - `source_only`
    - `target_only`
    - `ambiguous`
-8. The app must eventually support:
-   - deletion of source and/or target rows
-   - source-side payee/category override
-   - target-side payee/category override
-   - clearer display of source, target, fingerprint, and current decision state
+7. Nothing should be deleted or rewritten automatically outside an explicit reviewed action.
+8. Validation must use both Pilates and Aikido.
 
 ---
 
-## Current Limits In The Code
+## Scope Boundaries For This Refactor
 
-Primary files:
-1. [scripts/build_cross_budget_proposed.py](/d:/Repositories/ynab-il-importer/scripts/build_cross_budget_proposed.py)
-2. [src/ynab_il_importer/cross_budget_pairing.py](/d:/Repositories/ynab-il-importer/src/ynab_il_importer/cross_budget_pairing.py)
-3. [scripts/build_proposed_transactions.py](/d:/Repositories/ynab-il-importer/scripts/build_proposed_transactions.py)
-4. [src/ynab_il_importer/pairing.py](/d:/Repositories/ynab-il-importer/src/ynab_il_importer/pairing.py)
-5. [src/ynab_il_importer/review_app/io.py](/d:/Repositories/ynab-il-importer/src/ynab_il_importer/review_app/io.py)
-6. [src/ynab_il_importer/review_app/app.py](/d:/Repositories/ynab-il-importer/src/ynab_il_importer/review_app/app.py)
+Out of scope for this pass:
+1. reconciliation redesign
+2. stale/live drift protection beyond current normal safeguards
+3. a persisted generic grouping taxonomy
+4. speculative heuristics like `likely_duplicate` or `likely_mistake`
+5. broad transaction mutation such as:
+   - date edits
+   - amount edits
+   - account reassignment
+   - transfer surgery
 
-Observed limitations:
-1. Cross-budget proposals only contain `unmatched_source` candidates.
-2. Institutional proposals contain only source rows that survived dedupe against YNAB.
-3. The review CSV does not model source and target as explicit peers.
-4. The app cannot represent delete/backfill/link decisions as first-class actions.
-5. The app shows source/target context inconsistently across row and grouped views.
+Mutable fields in v1 should stay narrow:
+1. payee
+2. category
+3. limited memo handling if needed
+4. create/delete/link decisions
 
 ---
 
-## Target Design
+## Canonical Model
 
-### 1. One Review Row Model
+### 1. Row Grain
 
-Every review row should represent a comparison bucket with explicit source and target fields.
+Every review row represents one candidate source/target relation or singleton.
 
-Suggested column groups:
+A row may contain:
+1. source only
+2. target only
+3. source + target
 
-1. Identity and status
-   - `proposal_id`
-   - `workflow_type`
-   - `match_status`
-   - `match_method`
-   - `group_key`
-   - `signed_amount`
-   - `reviewed`
-   - `decision_action`
+The same source transaction may appear in multiple rows.
+The same target transaction may appear in multiple rows.
+Each row still needs its own unique row/proposal ID.
 
-2. Source side
-   - `source_present`
-   - `source_row_id`
-   - `source_budget`
-   - `source_account`
-   - `source_date`
-   - `source_payee_current`
-   - `source_category_current`
-   - `source_memo`
-   - `source_fingerprint`
-   - `source_import_id`
-
-3. Target side
-   - `target_present`
-   - `target_row_id`
-   - `target_budget`
-   - `target_account`
-   - `target_date`
-   - `target_payee_current`
-   - `target_category_current`
-   - `target_memo`
-   - `target_fingerprint`
-   - `target_import_id`
-
-4. Review decisions
-   - `source_payee_mode`
-   - `source_payee_selected`
-   - `source_payee_override`
-   - `source_category_mode`
-   - `source_category_selected`
-   - `source_category_override`
-   - `target_payee_mode`
-   - `target_payee_selected`
-   - `target_payee_override`
-   - `target_category_mode`
-   - `target_category_selected`
-   - `target_category_override`
-   - `delete_source`
-   - `delete_target`
-   - `manual_link_key`
-   - `update_map_source`
-   - `update_map_target`
-
-Mode fields should support the app behavior we discussed:
-1. `selection`
-2. `override`
-3. `blank`
-
-If needed, `uncategorized` can stay a value rather than a separate mode.
+Do not describe this as a generic "comparison bucket". That wording is too vague and leads to confusion between:
+1. transaction grain
+2. relation grain
+3. UI grouping
 
 ### 2. Stable Meaning Of Source And Target
 
-Source and target must keep the same meaning across workflows.
-
 Institutional review:
 1. source = imported source row
-2. target = existing YNAB row in the same budget
+2. target = matched/current YNAB row in the same budget
 
 Cross-budget review:
 1. source = source-budget YNAB row
@@ -166,22 +114,166 @@ Cross-budget review:
 
 This is the main unification rule.
 
-### 3. Action Model
+### 3. Transaction-Local Vs Row-Local State
 
-The matcher should stay descriptive. The reviewer chooses the action.
+This distinction is mandatory.
 
-Expected first-pass actions:
-1. `keep_match`
-2. `create_target`
-3. `create_source`
-4. `update_target`
-5. `update_source`
-6. `delete_target`
-7. `delete_source`
-8. `link_manual`
-9. `ignore`
+Transaction-local state:
+1. applies to a specific transaction ID on one side
+2. propagates across every row containing that same source or target ID
+3. must remain value-consistent after save/reload
 
-We can rename these after the schema draft if a cleaner vocabulary appears.
+Row-local state:
+1. applies only to one candidate relation row
+2. does not propagate
+3. can differ between rows that share a source or target transaction
+
+### 4. Invariants
+
+These invariants must be explicit before we finalize columns:
+1. repeated source IDs across rows are allowed
+2. repeated target IDs across rows are allowed
+3. transaction-local edits propagate across all rows containing that ID
+4. row-local decisions do not propagate
+5. repeated IDs must remain value-consistent after save
+6. grouped views are derived from row data, not stored as a separate persistent structure
+
+### 5. Logical State To Persist
+
+The persisted schema should carry these logical pieces of information.
+Exact final column names are still to be finalized after the grain/invariant pass.
+
+Identity and relation status:
+1. row/proposal ID
+2. workflow type
+3. match status
+4. match method
+
+Source-side snapshot:
+1. source-present flag
+2. source transaction ID
+3. source budget/account/date
+4. source payee/category/memo/fingerprint/import ID
+
+Target-side snapshot:
+1. target-present flag
+2. target transaction ID
+3. target budget/account/date
+4. target payee/category/memo/fingerprint/import ID
+
+Transaction-local final values per side:
+1. final source payee
+2. final source category
+3. final target payee
+4. final target category
+5. optional memo append / limited memo field if needed
+
+Row-local decisions:
+1. keep this relation
+2. ignore this relation
+3. create source
+4. create target
+5. delete source
+6. delete target
+7. manual-link this source and target
+
+### 6. Decision Model
+
+The old draft overloaded the decision block.
+That should be treated as rejected/provisional, not as the schema to implement.
+
+Guiding principle:
+1. compact row action field(s)
+2. compact transaction-local final values per side
+3. no multiple competing ways to express the same final state
+
+Open design question:
+1. whether `mode` fields survive into the persisted schema, or whether we store only final values plus a compact basis/source-of-choice field
+
+Do not lock the CSV columns until the above is resolved.
+
+### 7. Manual Linking
+
+Manual linking in v1 should be pairwise only.
+
+Expected behavior:
+1. the user explicitly links one source transaction ID to one target transaction ID
+2. this creates or marks a manual relation row
+3. the app does not try to collapse all surrounding ambiguity automatically
+4. rerun/manual review handles the aftermath
+
+### 8. Rerun / Rematch
+
+Rerun must be a first-class workflow step.
+
+It is especially important after:
+1. source-side recategorization
+2. payee-map changes
+3. fingerprint-map changes
+4. manual linking
+
+It is acceptable for rerun to rebuild relations and leave some rows unresolved again.
+
+### 9. Source-Side Recategorization
+
+This is a core behavior, not a side effect.
+
+Source-side payee/category correction may:
+1. keep the row in the cross-budget stream with different values
+2. remove the row from the cross-budget stream on rerun
+
+It should not be modeled as automatically implying target creation or deletion.
+
+---
+
+## UI Direction
+
+Grouped views should be UI-generated from row data rather than persisted structurally.
+
+Useful dynamic views:
+1. rows sharing a source ID
+2. rows sharing a target ID
+3. ambiguous rows
+4. source-only rows
+5. target-only rows
+6. rows sharing a fingerprint
+7. reviewed vs unreviewed
+
+App capabilities needed in v1:
+1. side-by-side source/target display
+2. same transaction card structure in row and grouped views
+3. side-specific payee/category editing
+4. explicit delete-source and delete-target actions
+5. explicit manual-link action
+6. consistency enforcement when repeated source/target IDs appear across rows
+
+Collapsed summary should at least show:
+1. date
+2. amount
+3. fingerprint
+4. source payee
+5. target payee
+6. match status
+7. current decision
+
+---
+
+## Apply Architecture
+
+The review artifact is unified.
+The mutation engine does not need to be one monolithic two-sided executor.
+
+Apply should operate one side at a time.
+
+Institutional review:
+1. target-side apply only
+
+Cross-budget review:
+1. source-side apply when needed
+2. target-side apply when needed
+3. each side can be planned and executed separately
+
+This is simpler and safer than forcing one simultaneous two-sided mutation function.
 
 ---
 
@@ -191,24 +283,34 @@ We can rename these after the schema draft if a cleaner vocabulary appears.
 
 ### Objective
 
-Make the proposal format and matching engines real before changing the app.
+Define the row grain and propagation model first, then implement unified matcher outputs.
 
 ### Deliverables
 
-1. Define the new review-row schema in code and in one short document/example fixture.
-2. Refactor cross-budget matching to emit the new row format directly.
-3. Refactor institutional matching/build-proposed logic to emit the same row format.
-4. Add tests that cover:
+1. Define row grain precisely:
+   - relation/singleton row
+   - repeated IDs allowed
+2. Define transaction-local vs row-local state.
+3. Define propagation invariants for repeated IDs.
+4. Only then finalize the persisted columns.
+5. Refactor cross-budget matching to emit the new row format directly.
+6. Refactor institutional matching/build-proposed logic to emit the same row format.
+7. Add tests that cover:
    - matched rows
    - source-only rows
    - target-only rows
    - ambiguous rows
-   - source/target overrides carried in the row format
-5. Run the new builders on current Pilates and Aikido artifacts and compare counts against the known current outputs.
+   - repeated source IDs
+   - repeated target IDs
+   - propagation invariants
+8. Add rerun/rematch fixtures showing:
+   - source-side recategorization
+   - pairwise manual linking
+9. Run the new builders on current Pilates and Aikido artifacts and compare counts against known current outputs.
 
 ### Notes
 
-1. Do not start with heuristics like "likely duplicate" or "likely mistake".
+1. Do not start with heuristics.
 2. Do not move raw directories yet.
 3. Do not change the review app in this phase.
 
@@ -216,40 +318,34 @@ Make the proposal format and matching engines real before changing the app.
 
 ### Objective
 
-Make the app understand only the new schema and present source/target information clearly.
+Make the app support only the new schema and enforce repeated-ID consistency.
 
 ### Deliverables
 
-1. Replace the current single-row mental model with a side-by-side source/target display.
-2. Use the same transaction card layout in grouped and row display modes.
-3. Show collapsed summary with:
-   - date
-   - amount
-   - fingerprint
-   - source payee
-   - target payee
-   - match status
-   - current decision
-4. Add side-specific payee/category controls with mode switches.
-5. Add delete-source and delete-target controls.
-6. Preserve the current save/reopen workflow with CSV as the source of truth.
+1. Replace the current single-row mental model with side-by-side source/target display.
+2. Use the same transaction card layout in grouped and row views.
+3. Generate grouped views dynamically from row data.
+4. Add side-specific transaction-local final value editing.
+5. Add row-local decision controls.
+6. Add explicit delete-source/delete-target/manual-link actions.
+7. Enforce consistency when the same source or target ID appears across multiple rows.
+8. Preserve the current save/reopen CSV workflow.
 
 ## Phase 3 - Apply Layer
 
 ### Objective
 
-Turn reviewed decisions into concrete changes safely.
+Turn reviewed decisions into concrete changes safely, one side at a time.
 
 ### Deliverables
 
-1. Institutional apply path:
-   - create target transactions
+1. Institutional target-side apply:
+   - create target rows
    - patch target metadata where needed
-2. Cross-budget apply path:
-   - create missing rows on either side
-   - patch payee/category on either side
-   - delete rows on either side when explicitly approved
-3. Verification reports after apply.
+2. Cross-budget source-side apply when needed.
+3. Cross-budget target-side apply when needed.
+4. Verification reports after apply.
+5. Rerun/rematch after apply as a standard workflow step when source/target state changed materially.
 
 ### Safety Rule
 
@@ -259,7 +355,7 @@ Nothing should be deleted or rewritten automatically outside an explicit reviewe
 
 ## Validation Strategy
 
-We should validate against both live problem cases, not just one.
+Validate against both live problem cases.
 
 ### Pilates
 
@@ -298,23 +394,26 @@ Key artifacts:
 
 ---
 
-## Questions For Review
+## Questions To Pressure-Test
 
-These are the questions we want another agent to pressure-test:
-
-1. Is the proposed source/target schema the right abstraction for both institutional and cross-budget workflows?
-2. Are the phase boundaries sensible, especially delaying app work until matcher outputs are stable?
-3. Are the proposed action types sufficient without becoming too complicated too early?
-4. Are there hidden risks in unifying institutional and cross-budget proposal building under one row model?
-5. Is there a cleaner way to represent source-side recategorization and deletion without overloading the review CSV?
-6. What is the safest path from reviewed CSV decisions to concrete YNAB mutations?
+1. Is the relation/singleton row grain correct for both institutional and cross-budget workflows?
+2. Are the transaction-local vs row-local invariants sufficient and enforceable?
+3. Should persisted schema keep `mode` fields, or only final values plus a compact basis field?
+4. Is pairwise manual linking enough for v1?
+5. Are there hidden risks in making rerun/rematch a normal workflow step?
+6. Is any important case missing from the one-side-at-a-time apply model?
+7. Are we missing any critical fields while still keeping v1 narrow?
 
 ---
 
 ## Immediate Next Step
 
-Start Phase 1 by drafting the exact review-row schema and building fixture-driven tests for both:
-1. cross-budget pairing output
-2. institutional pairing output
+Do not start by finalizing column names in the abstract.
 
-Only after those outputs look right should we touch the review app.
+Start Phase 1 with:
+1. row grain
+2. transaction-local vs row-local state
+3. propagation invariants for repeated IDs
+4. rerun/rematch expectations
+
+Only after those are explicit should we finalize the CSV columns and matcher outputs.

@@ -42,14 +42,14 @@ def accept_defaults_mask(df: pd.DataFrame) -> pd.Series:
 def modified_mask(df: pd.DataFrame, original: pd.DataFrame | None) -> pd.Series:
     if original is None or original.empty:
         return pd.Series([False] * len(df), index=df.index)
-    cols = ["payee_selected", "category_selected", "update_map"]
-    for col in cols:
-        if col not in df.columns or col not in original.columns:
-            return pd.Series([False] * len(df), index=df.index)
+    cols = [col for col in ["payee_selected", "category_selected", "update_map", "decision_action"] if col in df.columns and col in original.columns]
+    if not cols:
+        return pd.Series([False] * len(df), index=df.index)
     current = df[cols].copy()
     base = original[cols].copy()
-    base["update_map"] = base["update_map"].astype(bool)
-    current["update_map"] = current["update_map"].astype(bool)
+    if "update_map" in cols:
+        base["update_map"] = base["update_map"].astype(bool)
+        current["update_map"] = current["update_map"].astype(bool)
     return (current != base).any(axis=1)
 
 
@@ -60,10 +60,9 @@ def modified_count(df: pd.DataFrame, original: pd.DataFrame | None) -> int:
 def changed_mask(df: pd.DataFrame, base: pd.DataFrame | None) -> pd.Series:
     if base is None or base.empty:
         return pd.Series([False] * len(df), index=df.index)
-    cols = ["payee_selected", "category_selected"]
-    for col in cols:
-        if col not in df.columns or col not in base.columns:
-            return pd.Series([False] * len(df), index=df.index)
+    cols = [col for col in ["payee_selected", "category_selected", "decision_action"] if col in df.columns and col in base.columns]
+    if not cols:
+        return pd.Series([False] * len(df), index=df.index)
     if "transaction_id" in df.columns and "transaction_id" in base.columns:
         df_ids = df["transaction_id"].astype("string").fillna("")
         base_ids = base["transaction_id"].astype("string").fillna("")
@@ -201,10 +200,14 @@ def apply_row_edit(
     category: str,
     update_map: bool,
     reviewed: bool = True,
+    decision_action: str | None = None,
 ) -> pd.DataFrame:
     df.at[idx, "payee_selected"] = payee
     df.at[idx, "category_selected"] = category
     df.at[idx, "update_map"] = bool(update_map)
+    if decision_action is not None and "decision_action" in df.columns:
+        df.at[idx, "decision_action"] = str(decision_action).strip()
     if "reviewed" in df.columns:
         df.at[idx, "reviewed"] = bool(reviewed)
     return df
+
