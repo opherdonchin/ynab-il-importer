@@ -15,6 +15,31 @@ sys.modules["build_proposed_transactions"] = build_proposed_transactions
 SPEC.loader.exec_module(build_proposed_transactions)
 
 
+def _write_payee_map(path: Path) -> None:
+    rows = [
+        {
+            "rule_id": "coffee_1",
+            "is_active": True,
+            "priority": 0,
+            "txn_kind": "",
+            "fingerprint": "coffee shop",
+            "description_clean_norm": "",
+            "account_name": "",
+            "source": "",
+            "direction": "",
+            "currency": "",
+            "amount_bucket": "",
+            "payee_canonical": "Coffee Shop",
+            "category_target": "Eating Out",
+            "notes": "",
+            "card_suffix": "",
+        }
+    ]
+    pd.DataFrame(rows, columns=build_proposed_transactions.rules_mod.PAYEE_MAP_COLUMNS).to_csv(
+        path, index=False, encoding="utf-8-sig"
+    )
+
+
 def test_dedupe_source_overlaps_drops_matching_card_rows() -> None:
     source_df = pd.DataFrame(
         [
@@ -497,3 +522,161 @@ def test_apply_default_selections_preserves_existing_choices() -> None:
     assert actual.loc[0, "payee_options"] == "Cafe A; Cafe B"
     assert actual.loc[0, "category_selected"] == ""
     assert actual.loc[0, "category_options"] == "Eating Out"
+
+
+def test_build_review_rows_emits_institutional_statuses(tmp_path: Path) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "source": "bank",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "groceries",
+                "description_raw": "Groceries",
+            },
+            {
+                "source": "bank",
+                "account_name": "Checking",
+                "date": "2025-01-02",
+                "outflow_ils": 12.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "coffee shop",
+                "description_raw": "Coffee Shop",
+            },
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-match",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Groceries",
+                "category_raw": "Food",
+                "fingerprint": "groceries",
+                "memo": "existing",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "cleared",
+                "approved": True,
+            },
+            {
+                "ynab_id": "ynab-target-only",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-03",
+                "outflow_ils": 20.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Manual Cash",
+                "category_raw": "Cash",
+                "fingerprint": "manual cash",
+                "memo": "manual",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": False,
+            },
+        ]
+    )
+
+    review_rows, pairs = build_proposed_transactions.build_review_rows(
+        source_df,
+        ynab_df,
+        map_path=map_path,
+    )
+
+    assert len(pairs) == 1
+    assert set(review_rows["match_status"].tolist()) == {
+        "matched_auto",
+        "source_only",
+        "target_only",
+    }
+
+    source_only = review_rows.loc[review_rows["match_status"] == "source_only"].iloc[0]
+    assert source_only["payee_selected"] == "Coffee Shop"
+    assert source_only["category_selected"] == "Eating Out"
+    assert source_only["workflow_type"] == "institutional"
+
+    matched = review_rows.loc[review_rows["match_status"] == "matched_auto"].iloc[0]
+    assert bool(matched["reviewed"]) is True
+    assert matched["target_payee_current"] == "Groceries"
+
+    target_only = review_rows.loc[review_rows["match_status"] == "target_only"].iloc[0]
+    assert target_only["target_payee_current"] == "Manual Cash"
+    assert target_only["source"] == "ynab"
+
+
+def test_build_review_rows_emits_institutional_ambiguous_candidates(tmp_path: Path) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "source": "bank",
+                "account_name": "Checking",
+                "date": "2025-01-02",
+                "outflow_ils": 12.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "coffee shop",
+                "description_raw": "Coffee Shop",
+            }
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-a",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-02",
+                "outflow_ils": 12.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Cafe A",
+                "category_raw": "Eating Out",
+                "fingerprint": "coffee shop",
+                "memo": "a",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": False,
+            },
+            {
+                "ynab_id": "ynab-b",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-02",
+                "outflow_ils": 12.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Cafe B",
+                "category_raw": "Eating Out",
+                "fingerprint": "coffee shop",
+                "memo": "b",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": False,
+            },
+        ]
+    )
+
+    review_rows, pairs = build_proposed_transactions.build_review_rows(
+        source_df,
+        ynab_df,
+        map_path=map_path,
+    )
+
+    assert len(pairs) == 2
+    ambiguous = review_rows.loc[review_rows["match_status"] == "ambiguous"].copy()
+    assert len(ambiguous) == 2
+    assert set(ambiguous["relation_kind"].tolist()) == {"ambiguous_candidate"}
+    assert len(set(ambiguous["source_row_id"].tolist())) == 1
+    assert set(ambiguous["target_payee_current"].tolist()) == {"Cafe A", "Cafe B"}
