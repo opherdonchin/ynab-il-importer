@@ -116,7 +116,7 @@ def _find_multiselect_by_label(container, label: str):
 
 
 def _show_all_primary_states(app: AppTest) -> None:
-    _find_multiselect_by_label(app.sidebar, "Readiness").set_value(["Not ready", "Ready"])
+    _find_multiselect_by_label(app.sidebar, "State").set_value(["Fix", "Decide", "Settled"])
     _find_multiselect_by_label(app.sidebar, "Save state").set_value(["Unsaved", "Saved"])
 
 

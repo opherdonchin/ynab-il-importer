@@ -323,11 +323,11 @@ def _render_status_badges(
         )
     if changed:
         badges.append(
-            "<span style='color:#2563eb;font-weight:600;'>Changed vs original</span>"
+            "<span style='color:#2563eb;font-weight:600;'>Edited</span>"
         )
     if reviewed:
         badges.append(
-            "<span style='color:#15803d;font-weight:600;'>Reviewed</span>"
+            "<span style='color:#15803d;font-weight:600;'>Settled</span>"
         )
     if uncategorized:
         badges.append(
@@ -338,33 +338,47 @@ def _render_status_badges(
 
 
 _PRIMARY_STATE_META: dict[tuple[str, str], dict[str, str]] = {
-    ("Not ready", "Unsaved"): {
-        "short": "NR/US",
-        "label": "Not ready • Unsaved",
+    ("Fix", "Unsaved"): {
+        "short": "Fix",
+        "label": "Fix • Unsaved",
         "color": "#b91c1c",
         "bg": "#fef2f2",
-        "css": "txn-pri-nr-us",
+        "css": "txn-pri-fix-us",
     },
-    ("Not ready", "Saved"): {
-        "short": "NR/S",
-        "label": "Not ready • Saved",
-        "color": "#6d28d9",
-        "bg": "#f5f3ff",
-        "css": "txn-pri-nr-s",
+    ("Fix", "Saved"): {
+        "short": "Fix",
+        "label": "Fix • Saved",
+        "color": "#b91c1c",
+        "bg": "#fef2f2",
+        "css": "txn-pri-fix-s",
     },
-    ("Ready", "Unsaved"): {
-        "short": "R/US",
-        "label": "Ready • Unsaved",
+    ("Decide", "Unsaved"): {
+        "short": "Decide",
+        "label": "Decide • Unsaved",
         "color": "#b45309",
         "bg": "#fffbeb",
-        "css": "txn-pri-r-us",
+        "css": "txn-pri-decide-us",
     },
-    ("Ready", "Saved"): {
-        "short": "R/S",
-        "label": "Ready • Saved",
+    ("Decide", "Saved"): {
+        "short": "Decide",
+        "label": "Decide • Saved",
+        "color": "#b45309",
+        "bg": "#fffbeb",
+        "css": "txn-pri-decide-s",
+    },
+    ("Settled", "Unsaved"): {
+        "short": "Settled",
+        "label": "Settled • Unsaved",
         "color": "#15803d",
         "bg": "#f0fdf4",
-        "css": "txn-pri-r-s",
+        "css": "txn-pri-settled-us",
+    },
+    ("Settled", "Saved"): {
+        "short": "Settled",
+        "label": "Settled • Saved",
+        "color": "#15803d",
+        "bg": "#f0fdf4",
+        "css": "txn-pri-settled-s",
     },
 }
 
@@ -389,19 +403,27 @@ def _inject_primary_state_css() -> None:
         """
 <style>
 .txn-state-anchor { display: none; }
-.txn-state-anchor.txn-pri-nr-us + div[data-testid="stExpander"] {
+.txn-state-anchor.txn-pri-fix-us + div[data-testid="stExpander"] {
   border: 2px solid #b91c1c;
   border-radius: 0.5rem;
 }
-.txn-state-anchor.txn-pri-nr-s + div[data-testid="stExpander"] {
-  border: 2px solid #6d28d9;
+.txn-state-anchor.txn-pri-fix-s + div[data-testid="stExpander"] {
+  border: 2px solid #b91c1c;
   border-radius: 0.5rem;
 }
-.txn-state-anchor.txn-pri-r-us + div[data-testid="stExpander"] {
+.txn-state-anchor.txn-pri-decide-us + div[data-testid="stExpander"] {
   border: 2px solid #b45309;
   border-radius: 0.5rem;
 }
-.txn-state-anchor.txn-pri-r-s + div[data-testid="stExpander"] {
+.txn-state-anchor.txn-pri-decide-s + div[data-testid="stExpander"] {
+  border: 2px solid #b45309;
+  border-radius: 0.5rem;
+}
+.txn-state-anchor.txn-pri-settled-us + div[data-testid="stExpander"] {
+  border: 2px solid #15803d;
+  border-radius: 0.5rem;
+}
+.txn-state-anchor.txn-pri-settled-s + div[data-testid="stExpander"] {
   border: 2px solid #15803d;
   border-radius: 0.5rem;
 }
@@ -452,16 +474,38 @@ def _dominant_group_primary_state(
     readiness: pd.Series, save_state: pd.Series
 ) -> tuple[str, str]:
     priority = [
-        ("Not ready", "Unsaved"),
-        ("Not ready", "Saved"),
-        ("Ready", "Unsaved"),
-        ("Ready", "Saved"),
+        ("Fix", "Unsaved"),
+        ("Fix", "Saved"),
+        ("Decide", "Unsaved"),
+        ("Decide", "Saved"),
+        ("Settled", "Unsaved"),
+        ("Settled", "Saved"),
     ]
     for ready_value, save_value in priority:
         mask = readiness.eq(ready_value) & save_state.eq(save_value)
         if bool(mask.any()):
             return ready_value, save_value
-    return "Ready", "Unsaved"
+    return "Decide", "Unsaved"
+
+
+def _render_primary_state_legend() -> None:
+    items = [
+        ("Fix", "#b91c1c", "#fef2f2"),
+        ("Decide", "#b45309", "#fffbeb"),
+        ("Settled", "#15803d", "#f0fdf4"),
+    ]
+    chips = []
+    for label, color, bg in items:
+        chips.append(
+            "<span style='"
+            f"display:inline-block;margin-right:0.45rem;margin-bottom:0.25rem;"
+            f"padding:0.2rem 0.55rem;border-radius:999px;border:1px solid {color};"
+            f"background:{bg};color:{color};font-weight:700;"
+            "'>"
+            f"{label}"
+            "</span>"
+        )
+    st.markdown(" ".join(chips), unsafe_allow_html=True)
 
 
 def _render_secondary_tag_badges(
@@ -519,9 +563,19 @@ def _uncategorized_mask(df: pd.DataFrame) -> pd.Series:
     return category.str.contains("uncategorized", regex=False)
 
 
-def _ready_mask(df: pd.DataFrame) -> pd.Series:
-    payee = review_state.series_or_default(df, "payee_selected").str.strip()
-    return payee.ne("") & ~_required_category_missing_mask(df)
+def _primary_state_series(df: pd.DataFrame) -> pd.Series:
+    reviewed = df.get("reviewed", pd.Series([False] * len(df), index=df.index)).astype(bool)
+    uncategorized = _uncategorized_mask(df)
+    states: list[str] = []
+    for idx, row in df.iterrows():
+        row_errors, _ = review_validation.validate_row(row)
+        if bool(uncategorized.loc[idx]) or row_errors:
+            states.append("Fix")
+        elif bool(reviewed.loc[idx]):
+            states.append("Settled")
+        else:
+            states.append("Decide")
+    return pd.Series(states, index=df.index, dtype="string")
 
 
 def _derive_inference_tags(df: pd.DataFrame) -> pd.Series:
@@ -560,12 +614,12 @@ def _initial_inference_tags(df: pd.DataFrame, base: pd.DataFrame | None) -> pd.S
 def _apply_row_filters(
     df: pd.DataFrame,
     *,
-    primary_ready: list[str],
+    primary_state: list[str],
     primary_save: list[str],
     tag_inference: list[str],
     tag_progress: list[str],
     tag_persistence: list[str],
-    readiness_state: pd.Series,
+    primary_state_series: pd.Series,
     save_state: pd.Series,
     inference_tag: pd.Series,
     progress_tag: pd.Series,
@@ -577,7 +631,7 @@ def _apply_row_filters(
     account_query: str,
 ) -> pd.DataFrame:
     mask = pd.Series([True] * len(df), index=df.index)
-    mask &= readiness_state.isin(primary_ready)
+    mask &= primary_state_series.isin(primary_state)
     mask &= save_state.isin(primary_save)
     mask &= inference_tag.isin(tag_inference)
     mask &= progress_tag.isin(tag_progress)
@@ -1027,13 +1081,8 @@ def main() -> None:
     saved_mask = review_state.saved_mask(original, base, df.index)
     updated_mask = (changed_mask | reviewed_mask).astype(bool)
     inconsistent = review_validation.inconsistent_fingerprints(df)
-    ready_mask_series = _ready_mask(df)
     uncategorized_mask = _uncategorized_mask(df)
-    readiness_state = pd.Series(
-        ["Ready" if bool(value) else "Not ready" for value in ready_mask_series],
-        index=df.index,
-        dtype="string",
-    )
+    primary_state_series = _primary_state_series(df)
     save_state = pd.Series(
         ["Saved" if bool(value) else "Unsaved" for value in saved_mask],
         index=df.index,
@@ -1126,11 +1175,11 @@ def main() -> None:
 
         st.header("Filters")
         st.caption("Primary dimensions")
-        primary_ready = st.multiselect(
-            "Readiness",
-            ["Not ready", "Ready"],
-            default=["Not ready"],
-            key="filter_primary_ready",
+        primary_state = st.multiselect(
+            "State",
+            ["Fix", "Decide", "Settled"],
+            default=["Fix", "Decide", "Settled"],
+            key="filter_primary_state",
         )
         primary_save = st.multiselect(
             "Save state",
@@ -1186,13 +1235,15 @@ def main() -> None:
         st.warning(f"Category list not loaded: {category_error}")
     elif not category_list:
         st.warning("Category list is empty; category dropdowns will be limited.")
+    st.caption("Legend")
+    _render_primary_state_legend()
 
     changed_count = int(changed_mask.sum())
     reviewed_count = int(reviewed_mask.sum())
     matrix_counts = (
         pd.Series(
             [
-                f"{str(readiness_state.loc[idx])} / {str(save_state.loc[idx])}"
+                f"{str(primary_state_series.loc[idx])} / {str(save_state.loc[idx])}"
                 for idx in df.index
             ],
             index=df.index,
@@ -1208,20 +1259,22 @@ def main() -> None:
         f"**Unresolved:** {counts['unresolved']} | "
         f"**update_maps:** {counts['update_maps']} | "
         f"**Changed vs original:** {changed_count} | "
-        f"**Reviewed:** {reviewed_count} | "
+        f"**Settled:** {reviewed_count} | "
         f"**Unsaved:** {modified}"
     )
     st.markdown(
-        "**Primary Matrix:** "
-        f"NR/US={matrix_counts.get('Not ready / Unsaved', 0)} | "
-        f"NR/S={matrix_counts.get('Not ready / Saved', 0)} | "
-        f"R/US={matrix_counts.get('Ready / Unsaved', 0)} | "
-        f"R/S={matrix_counts.get('Ready / Saved', 0)}"
+        "**State Matrix:** "
+        f"Fix/Unsaved={matrix_counts.get('Fix / Unsaved', 0)} | "
+        f"Fix/Saved={matrix_counts.get('Fix / Saved', 0)} | "
+        f"Decide/Unsaved={matrix_counts.get('Decide / Unsaved', 0)} | "
+        f"Decide/Saved={matrix_counts.get('Decide / Saved', 0)} | "
+        f"Settled/Unsaved={matrix_counts.get('Settled / Unsaved', 0)} | "
+        f"Settled/Saved={matrix_counts.get('Settled / Saved', 0)}"
     )
     if counts["missing_payee"] == 0 and counts["missing_category"] == 0:
         st.success("Ready for upload: payee and category are filled for all rows.")
     else:
-        st.warning("Not ready: some rows are missing payee and/or category.")
+        st.warning("Some rows still need decisions or fixes before upload.")
     if uncategorized_count > 0:
         st.warning(f"Uncategorized still selected in {uncategorized_count} rows.")
 
@@ -1230,12 +1283,12 @@ def main() -> None:
 
     filtered = _apply_row_filters(
         df,
-        primary_ready=primary_ready,
+        primary_state=primary_state,
         primary_save=primary_save,
         tag_inference=selected_inference,
         tag_progress=selected_progress,
         tag_persistence=selected_persistence,
-        readiness_state=readiness_state,
+        primary_state_series=primary_state_series,
         save_state=save_state,
         inference_tag=inference_tag,
         progress_tag=progress_tag,
@@ -1268,7 +1321,7 @@ def main() -> None:
         end = start + page_size
         for idx in indices[start:end]:
             row = df.loc[idx]
-            row_readiness = str(readiness_state.loc[idx] or "")
+            row_readiness = str(primary_state_series.loc[idx] or "")
             row_save_state = str(save_state.loc[idx] or "")
             primary_meta = _primary_state_meta(row_readiness, row_save_state)
             summary_text = _pick_summary_text(row)
@@ -1313,7 +1366,7 @@ def main() -> None:
                         "inference_tag_initial": str(inference_tag.loc[idx] or ""),
                         "progress_tag": str(progress_tag.loc[idx] or ""),
                         "persistence_tag": str(persistence_tag.loc[idx] or ""),
-                        "ready_state": str(readiness_state.loc[idx] or ""),
+                        "primary_state": str(primary_state_series.loc[idx] or ""),
                         "source": row.get("source", ""),
                         "account": row.get("account_name", ""),
                     }
@@ -1378,7 +1431,7 @@ def main() -> None:
                 limit=3,
             )
             header_fp = fp if len(fp) <= 80 else fp[:77] + "…"
-            group_ready = readiness_state.loc[group.index].astype("string")
+            group_ready = primary_state_series.loc[group.index].astype("string")
             group_save = save_state.loc[group.index].astype("string")
             group_ready_value, group_save_value = _dominant_group_primary_state(
                 group_ready, group_save
@@ -1580,7 +1633,7 @@ def main() -> None:
                 row_end = row_start + group_row_page_size
                 for idx in row_indices[row_start:row_end]:
                     row = df.loc[idx]
-                    row_readiness = str(readiness_state.loc[idx] or "")
+                    row_readiness = str(primary_state_series.loc[idx] or "")
                     row_save_state = str(save_state.loc[idx] or "")
                     primary_meta = _primary_state_meta(row_readiness, row_save_state)
                     summary_text = _pick_summary_text(row)
