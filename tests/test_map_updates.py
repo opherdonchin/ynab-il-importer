@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pandas as pd
 
 import ynab_il_importer.map_updates as map_updates
@@ -9,14 +11,16 @@ def test_build_map_update_candidates_dedupes_changed_reviewed_rows() -> None:
             {
                 "transaction_id": "t1",
                 "fingerprint": "coffee",
-                "payee_selected": "Coffee Shop",
-                "category_selected": "Eating Out",
+                "target_payee_selected": "Coffee Shop",
+                "target_category_selected": "Eating Out",
+                "source_present": True,
             },
             {
                 "transaction_id": "t2",
                 "fingerprint": "coffee",
-                "payee_selected": "Coffee Shop",
-                "category_selected": "Eating Out",
+                "target_payee_selected": "Coffee Shop",
+                "target_category_selected": "Eating Out",
+                "source_present": True,
             },
         ]
     )
@@ -25,10 +29,10 @@ def test_build_map_update_candidates_dedupes_changed_reviewed_rows() -> None:
             {
                 "transaction_id": "t1",
                 "fingerprint": "coffee",
-                "payee_selected": "Cafe",
-                "category_selected": "Dining",
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Dining",
                 "reviewed": True,
-                "update_map": False,
+                "update_maps": "",
                 "memo": "row one",
                 "account_name": "Bank Leumi",
                 "source": "bank",
@@ -36,14 +40,15 @@ def test_build_map_update_candidates_dedupes_changed_reviewed_rows() -> None:
                 "outflow_ils": 10.0,
                 "inflow_ils": 0.0,
                 "currency": "ILS",
+                "source_present": True,
             },
             {
                 "transaction_id": "t2",
                 "fingerprint": "coffee",
-                "payee_selected": "Cafe",
-                "category_selected": "Dining",
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Dining",
                 "reviewed": True,
-                "update_map": False,
+                "update_maps": "",
                 "memo": "row two",
                 "account_name": "Bank Leumi",
                 "source": "bank",
@@ -51,6 +56,7 @@ def test_build_map_update_candidates_dedupes_changed_reviewed_rows() -> None:
                 "outflow_ils": 12.0,
                 "inflow_ils": 0.0,
                 "currency": "ILS",
+                "source_present": True,
             },
         ]
     )
@@ -65,14 +71,15 @@ def test_build_map_update_candidates_dedupes_changed_reviewed_rows() -> None:
     assert actual.loc[0, "rule_id"].startswith("candidate_")
 
 
-def test_build_map_update_candidates_includes_update_map_even_if_unchanged() -> None:
+def test_build_map_update_candidates_includes_explicit_update_maps_even_if_unchanged() -> None:
     base = pd.DataFrame(
         [
             {
                 "transaction_id": "t1",
                 "fingerprint": "cash move",
-                "payee_selected": "Transfer : Cash",
-                "category_selected": "",
+                "target_payee_selected": "Transfer : Cash",
+                "target_category_selected": "",
+                "source_present": True,
             }
         ]
     )
@@ -81,10 +88,10 @@ def test_build_map_update_candidates_includes_update_map_even_if_unchanged() -> 
             {
                 "transaction_id": "t1",
                 "fingerprint": "cash move",
-                "payee_selected": "Transfer : Cash",
-                "category_selected": "",
+                "target_payee_selected": "Transfer : Cash",
+                "target_category_selected": "",
                 "reviewed": True,
-                "update_map": True,
+                "update_maps": "fingerprint_add_source;payee_limit_fingerprint",
                 "memo": "transfer row",
                 "account_name": "Bank Leumi",
                 "source": "bank",
@@ -92,6 +99,7 @@ def test_build_map_update_candidates_includes_update_map_even_if_unchanged() -> 
                 "outflow_ils": 50.0,
                 "inflow_ils": 0.0,
                 "currency": "ILS",
+                "source_present": True,
             }
         ]
     )
@@ -101,4 +109,4 @@ def test_build_map_update_candidates_includes_update_map_even_if_unchanged() -> 
     assert len(actual) == 1
     assert actual.loc[0, "payee_canonical"] == "Transfer : Cash"
     assert actual.loc[0, "category_target"] == ""
-    assert "update_map=TRUE" in actual.loc[0, "notes"]
+    assert "update_maps=fingerprint_add_source;payee_limit_fingerprint" in actual.loc[0, "notes"]

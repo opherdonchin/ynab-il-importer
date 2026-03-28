@@ -33,8 +33,20 @@ def _api_like_categories() -> pd.DataFrame:
     )
 
 
+def _reviewed_df(columns: dict[str, list[object]]) -> pd.DataFrame:
+    data = dict(columns)
+    row_count = len(next(iter(data.values()))) if data else 0
+    payee_selected = data.pop("payee_selected", [""] * row_count)
+    category_selected = data.pop("category_selected", [""] * row_count)
+    data.setdefault("target_payee_selected", payee_selected)
+    data.setdefault("target_category_selected", category_selected)
+    data.setdefault("decision_action", ["create_target"] * row_count)
+    data.setdefault("reviewed", [True] * row_count)
+    return pd.DataFrame(data)
+
+
 def test_prepare_upload_transactions_maps_regular_and_transfer_rows() -> None:
-    reviewed = pd.DataFrame(
+    reviewed = _reviewed_df(
         {
             "transaction_id": ["t1", "t2"],
             "account_name": ["Bank Leumi", "Bank Leumi"],
@@ -70,7 +82,7 @@ def test_prepare_upload_transactions_maps_regular_and_transfer_rows() -> None:
 
 
 def test_prepare_upload_transactions_generates_stable_occurrence_import_ids() -> None:
-    reviewed = pd.DataFrame(
+    reviewed = _reviewed_df(
         {
             "transaction_id": ["t1", "t2"],
             "account_name": ["Bank Leumi", "Bank Leumi"],
@@ -106,7 +118,7 @@ def test_prepare_upload_transactions_uses_bank_txn_id_for_bank_rows() -> None:
         ref="0042",
         description_raw="groceries",
     )
-    reviewed = pd.DataFrame(
+    reviewed = _reviewed_df(
         {
             "transaction_id": ["t1", "t2"],
             "source": ["bank", "card"],
@@ -157,7 +169,7 @@ def test_prepare_upload_transactions_uses_card_txn_id_for_card_rows() -> None:
         max_original_amount=120,
         max_original_currency="ILS",
     )
-    reviewed = pd.DataFrame(
+    reviewed = _reviewed_df(
         {
             "transaction_id": ["t1", "t2"],
             "source": ["card", "card"],
@@ -187,7 +199,7 @@ def test_prepare_upload_transactions_uses_card_txn_id_for_card_rows() -> None:
 
 
 def test_prepare_upload_transactions_requires_category_for_non_transfer() -> None:
-    reviewed = pd.DataFrame(
+    reviewed = _reviewed_df(
         {
             "transaction_id": ["t1"],
             "account_name": ["Bank Leumi"],
@@ -209,7 +221,7 @@ def test_prepare_upload_transactions_requires_category_for_non_transfer() -> Non
 
 
 def test_ready_mask_treats_transfer_without_category_as_ready() -> None:
-    reviewed = pd.DataFrame(
+    reviewed = _reviewed_df(
         {
             "transaction_id": ["t1", "t2"],
             "account_name": ["Bank Leumi", "Bank Leumi"],
@@ -226,7 +238,7 @@ def test_ready_mask_treats_transfer_without_category_as_ready() -> None:
 
 
 def test_ready_mask_excludes_uncategorized_placeholder_rows() -> None:
-    reviewed = pd.DataFrame(
+    reviewed = _reviewed_df(
         {
             "transaction_id": ["t1", "t2"],
             "account_name": ["Bank Leumi", "Bank Leumi"],
@@ -243,7 +255,7 @@ def test_ready_mask_excludes_uncategorized_placeholder_rows() -> None:
 
 
 def test_ready_mask_excludes_zero_amount_rows_even_if_other_fields_are_ready() -> None:
-    reviewed = pd.DataFrame(
+    reviewed = _reviewed_df(
         {
             "transaction_id": ["t1", "t2"],
             "account_name": ["Bank Leumi", "Bank Leumi"],
@@ -260,7 +272,7 @@ def test_ready_mask_excludes_zero_amount_rows_even_if_other_fields_are_ready() -
 
 
 def test_prepare_upload_transactions_rejects_uncategorized_placeholder_rows() -> None:
-    reviewed = pd.DataFrame(
+    reviewed = _reviewed_df(
         {
             "transaction_id": ["t1"],
             "account_name": ["Bank Leumi"],
@@ -282,7 +294,7 @@ def test_prepare_upload_transactions_rejects_uncategorized_placeholder_rows() ->
 
 
 def test_prepare_upload_transactions_rejects_zero_amount_rows() -> None:
-    reviewed = pd.DataFrame(
+    reviewed = _reviewed_df(
         {
             "transaction_id": ["t1"],
             "account_name": ["Bank Leumi"],
@@ -304,7 +316,7 @@ def test_prepare_upload_transactions_rejects_zero_amount_rows() -> None:
 
 
 def test_uploadable_account_mask_marks_unknown_accounts() -> None:
-    reviewed = pd.DataFrame(
+    reviewed = _reviewed_df(
         {
             "transaction_id": ["t1", "t2"],
             "account_name": ["Bank Leumi", ""],
@@ -321,7 +333,7 @@ def test_uploadable_account_mask_marks_unknown_accounts() -> None:
 
 
 def test_prepare_upload_transactions_resolves_simplified_category_aliases() -> None:
-    reviewed = pd.DataFrame(
+    reviewed = _reviewed_df(
         {
             "transaction_id": ["t1", "t2"],
             "account_name": ["Bank Leumi", "Bank Leumi"],
@@ -576,7 +588,7 @@ def test_verify_upload_response_accepts_uncategorized_name_without_category_id()
             "amount_milliunits": [-1000],
             "upload_kind": ["regular"],
             "category_id": ["cat-uncat"],
-            "category_selected": ["Uncategorized"],
+            "target_category_selected": ["Uncategorized"],
             "transfer_target_account_id": [""],
         }
     )

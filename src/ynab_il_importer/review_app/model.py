@@ -39,7 +39,7 @@ def apply_to_same_fingerprint(
     fingerprint: str,
     payee: str | None = None,
     category: str | None = None,
-    update_map: bool | None = None,
+    update_maps: str | None = None,
     reviewed: bool | None = None,
     eligible_mask: pd.Series | None = None,
 ) -> pd.DataFrame:
@@ -49,10 +49,14 @@ def apply_to_same_fingerprint(
         mask = mask & eligible
     if payee is not None:
         df.loc[mask, "payee_selected"] = payee
+        if "target_payee_selected" in df.columns:
+            df.loc[mask, "target_payee_selected"] = payee
     if category is not None:
         df.loc[mask, "category_selected"] = category
-    if update_map is not None:
-        df.loc[mask, "update_map"] = bool(update_map)
+        if "target_category_selected" in df.columns:
+            df.loc[mask, "target_category_selected"] = category
+    if update_maps is not None and "update_maps" in df.columns:
+        df.loc[mask, "update_maps"] = str(update_maps).strip()
     if reviewed is not None:
         df.loc[mask, "reviewed"] = bool(reviewed)
     return df

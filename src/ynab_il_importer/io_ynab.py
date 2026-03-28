@@ -4,6 +4,8 @@ import zipfile
 
 import pandas as pd
 
+import ynab_il_importer.fingerprint as fingerprint
+
 
 def _read_ynab_csv(path: Path) -> pd.DataFrame:
     if path.suffix.lower() == ".zip":
@@ -116,6 +118,7 @@ def read_raw(
     outflow_col = _find_column(raw, ["Outflow", "הוצאה", "חיוב"])
     inflow_col = _find_column(raw, ["Inflow", "הכנסה", "זיכוי"])
     memo_col = _find_column(raw, ["Memo", "הערה", "הערות"])
+    cleared_col = _find_column(raw, ["Cleared", "פיוס"])
     account_col = _find_column(raw, ["Account", "account"])
 
     if category_col:
@@ -128,16 +131,25 @@ def read_raw(
     outflow_ils = _parse_amount(_series_or_default(raw, outflow_col, "0")).round(2)
     inflow_ils = _parse_amount(_series_or_default(raw, inflow_col, "0")).round(2)
 
+    memo = _series_or_default(raw, memo_col).astype("string").fillna("")
+    payee_raw = _series_or_default(raw, payee_col).astype("string").fillna("")
+    account_name = _series_or_default(raw, account_col).astype("string").fillna("").str.strip()
+
     result = pd.DataFrame(
         {
             "source": "ynab",
-            "account_name": _series_or_default(raw, account_col).astype("string").fillna("").str.strip(),
+            "account_name": account_name,
+            "source_account": account_name,
             "date": pd.to_datetime(raw[date_col], errors="coerce", dayfirst=True).dt.date,
-            "payee_raw": _series_or_default(raw, payee_col).astype("string").fillna(""),
+            "payee_raw": payee_raw,
             "category_raw": category,
+            "merchant_raw": payee_raw,
+            "description_clean": payee_raw,
+            "description_raw": memo.where(memo.str.strip() != "", payee_raw),
             "outflow_ils": outflow_ils,
             "inflow_ils": inflow_ils,
-            "memo": _series_or_default(raw, memo_col).astype("string").fillna(""),
+            "memo": memo,
+            "cleared": _series_or_default(raw, cleared_col).astype("string").fillna(""),
             "currency": "ILS",
             "amount_bucket": "",
         }
@@ -148,17 +160,30 @@ def read_raw(
         result["payee_raw"],
         result["category_raw"],
     )
+    result = fingerprint.apply_fingerprints(
+        result,
+        use_fingerprint_map=use_fingerprint_map,
+        fingerprint_map_path=fingerprint_map_path or fingerprint.DEFAULT_FINGERPRINT_MAP_PATH,
+        log_path=fingerprint_log_path or fingerprint.DEFAULT_FINGERPRINT_LOG_PATH,
+    )
 
     return result[
         [
             "source",
             "account_name",
+            "source_account",
             "date",
             "payee_raw",
             "category_raw",
+            "merchant_raw",
+            "description_clean",
+            "description_raw",
+            "description_clean_norm",
+            "fingerprint",
             "outflow_ils",
             "inflow_ils",
             "txn_kind",
+            "cleared",
             "currency",
             "amount_bucket",
             "memo",

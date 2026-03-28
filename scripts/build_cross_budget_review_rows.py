@@ -15,56 +15,16 @@ import ynab_il_importer.cross_budget_pairing as cross_budget_pairing
 import ynab_il_importer.export as export
 import ynab_il_importer.workflow_profiles as workflow_profiles
 
-LEGACY_SPEC = importlib.util.spec_from_file_location(
-    "build_cross_budget_proposed_script",
-    ROOT / "scripts" / "build_cross_budget_proposed.py",
+REVIEW_BUILDER_SPEC = importlib.util.spec_from_file_location(
+    "build_proposed_transactions_script",
+    ROOT / "scripts" / "build_proposed_transactions.py",
 )
-assert LEGACY_SPEC is not None and LEGACY_SPEC.loader is not None
-legacy_builder = importlib.util.module_from_spec(LEGACY_SPEC)
-sys.modules["build_cross_budget_proposed_script"] = legacy_builder
-LEGACY_SPEC.loader.exec_module(legacy_builder)
+assert REVIEW_BUILDER_SPEC is not None and REVIEW_BUILDER_SPEC.loader is not None
+review_builder = importlib.util.module_from_spec(REVIEW_BUILDER_SPEC)
+sys.modules["build_proposed_transactions_script"] = review_builder
+REVIEW_BUILDER_SPEC.loader.exec_module(review_builder)
 
-BASE_COLUMNS = [
-    "transaction_id",
-    "source",
-    "account_name",
-    "date",
-    "outflow_ils",
-    "inflow_ils",
-    "memo",
-    "fingerprint",
-    "payee_options",
-    "category_options",
-    "payee_selected",
-    "category_selected",
-    "match_status",
-    "update_map",
-    "decision_action",
-    "reviewed",
-    "workflow_type",
-    "relation_kind",
-    "match_method",
-    "source_present",
-    "target_present",
-    "source_row_id",
-    "target_row_id",
-    "source_account",
-    "target_account",
-    "source_date",
-    "target_date",
-    "source_payee_current",
-    "target_payee_current",
-    "source_category_current",
-    "target_category_current",
-    "source_memo",
-    "target_memo",
-    "source_fingerprint",
-    "target_fingerprint",
-    "source_payee_selected",
-    "source_category_selected",
-    "target_payee_selected",
-    "target_category_selected",
-]
+BASE_COLUMNS = review_builder.REVIEW_ROW_COLUMNS
 
 
 def _read_csv_or_empty(path: Path) -> pd.DataFrame:
@@ -231,11 +191,9 @@ def _expand_ambiguous_relation_rows(
                         "fingerprint": source_fingerprint or target_fingerprint or source_payee or target_payee,
                         "payee_options": target_payee,
                         "category_options": target_category,
-                        "payee_selected": target_payee,
-                        "category_selected": target_category,
                         "match_status": "ambiguous",
-                        "update_map": "",
-                        "decision_action": "",
+                        "update_maps": "",
+                        "decision_action": "No decision",
                         "reviewed": False,
                         "workflow_type": "cross_budget",
                         "relation_kind": "ambiguous_candidate",
@@ -302,12 +260,10 @@ def _relation_rows(
                 "fingerprint": source_fingerprint or target_fingerprint,
                 "payee_options": target_payee,
                 "category_options": target_category,
-                "payee_selected": target_payee,
-                "category_selected": target_category,
                 "match_status": "matched_auto",
-                "update_map": "",
+                "update_maps": "",
                 "decision_action": "keep_match",
-                "reviewed": True,
+                "reviewed": False,
                 "workflow_type": "cross_budget",
                 "relation_kind": "matched_pair",
                 "match_method": _text(row.get("match_type")),
@@ -353,10 +309,8 @@ def _relation_rows(
                 "fingerprint": source_fingerprint,
                 "payee_options": "",
                 "category_options": "",
-                "payee_selected": "",
-                "category_selected": "",
                 "match_status": "source_only",
-                "update_map": "",
+                "update_maps": "",
                 "decision_action": "create_target",
                 "reviewed": False,
                 "workflow_type": "cross_budget",
@@ -404,11 +358,9 @@ def _relation_rows(
                 "fingerprint": target_fingerprint,
                 "payee_options": target_payee,
                 "category_options": target_category,
-                "payee_selected": target_payee,
-                "category_selected": target_category,
                 "match_status": "target_only",
-                "update_map": "",
-                "decision_action": "",
+                "update_maps": "",
+                "decision_action": "create_source",
                 "reviewed": False,
                 "workflow_type": "cross_budget",
                 "relation_kind": "target_only",
@@ -478,7 +430,7 @@ def _apply_target_suggestions(relations: pd.DataFrame, *, map_path: Path) -> pd.
             ]
         )
     else:
-        suggested = legacy_builder.build_proposed_output(candidates, map_path=map_path)
+        suggested = review_builder.build_target_suggestions(candidates, map_path=map_path)
     suggested = suggested.rename(
         columns={
             "payee_options": "suggested_payee_options",
@@ -526,10 +478,14 @@ def _apply_target_suggestions(relations: pd.DataFrame, *, map_path: Path) -> pd.
         _join_options(current, suggested)
         for current, suggested in zip(current_target_category, merged.get("suggested_category_options", pd.Series([""] * len(merged))))
     ]
-    merged["payee_selected"] = current_target_payee.where(has_target & current_target_payee.ne(""), suggested_payee)
-    merged["category_selected"] = current_target_category.where(has_target & current_target_category.ne(""), suggested_category)
-    merged["target_payee_selected"] = merged["payee_selected"]
-    merged["target_category_selected"] = merged["category_selected"]
+    merged["target_payee_selected"] = current_target_payee.where(
+        has_target & current_target_payee.ne(""),
+        suggested_payee,
+    )
+    merged["target_category_selected"] = current_target_category.where(
+        has_target & current_target_category.ne(""),
+        suggested_category,
+    )
 
     return merged.drop(columns=[col for col in [
         "suggested_payee_options",
@@ -574,7 +530,7 @@ def build_review_rows(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build first-pass v2 cross-budget review rows.")
+    parser = argparse.ArgumentParser(description="Build cross-budget source-vs-target review rows.")
     parser.add_argument("--source", required=True)
     parser.add_argument("--ynab", required=True)
     parser.add_argument("--source-category", default="")
@@ -613,7 +569,7 @@ def main() -> None:
     )
 
     artifact_root = _default_artifact_root(target_profile.name, "live")
-    out_path = Path(args.out_path) if args.out_path else artifact_root / "proposed_transactions_v2.csv"
+    out_path = Path(args.out_path) if args.out_path else artifact_root / "proposed_transactions.csv"
     pairs_out = Path(args.pairs_out) if args.pairs_out else artifact_root / "matched_pairs.csv"
     unmatched_source_out = Path(args.unmatched_source_out) if args.unmatched_source_out else artifact_root / "unmatched_source.csv"
     unmatched_target_out = Path(args.unmatched_target_out) if args.unmatched_target_out else artifact_root / "unmatched_target.csv"

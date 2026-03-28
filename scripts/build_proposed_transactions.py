@@ -15,13 +15,12 @@ if str(SRC) not in sys.path:
 
 import ynab_il_importer.export as export
 import ynab_il_importer.pairing as pairing
-import ynab_il_importer.proposed_defaults as proposed_defaults
 import ynab_il_importer.rules as rules_mod
 import ynab_il_importer.workflow_profiles as workflow_profiles
 
 _CARD_SUFFIX_DIGITS_RE = re.compile(r"\D+")
 _CARD_SUFFIX_MEMO_TAG_RE = re.compile(r"\[card x\d{4}\]", flags=re.IGNORECASE)
-LEGACY_PROPOSED_COLUMNS = [
+TARGET_SUGGESTION_COLUMNS = [
     "transaction_id",
     "source",
     "account_name",
@@ -34,10 +33,21 @@ LEGACY_PROPOSED_COLUMNS = [
     "category_options",
     "payee_selected",
     "category_selected",
-    "match_status",
-    "update_map",
 ]
-REVIEW_ROW_COLUMNS = LEGACY_PROPOSED_COLUMNS + [
+REVIEW_ROW_COLUMNS = [
+    "transaction_id",
+    "source",
+    "account_name",
+    "date",
+    "outflow_ils",
+    "inflow_ils",
+    "memo",
+    "fingerprint",
+    "payee_options",
+    "category_options",
+    "match_status",
+    "update_maps",
+    "decision_action",
     "reviewed",
     "workflow_type",
     "relation_kind",
@@ -564,6 +574,8 @@ def _optional_text(value: object) -> str:
     if not isinstance(value, (str, bytes)) and pd.isna(value):
         return ""
     return str(value).strip()
+
+
 def _account_key_candidates(row: pd.Series, *, id_col: str, name_col: str) -> list[str]:
     candidates: list[str] = []
     account_id = str(row.get(id_col, "")).strip()
@@ -575,9 +587,9 @@ def _account_key_candidates(row: pd.Series, *, id_col: str, name_col: str) -> li
     return candidates
 
 
-def build_proposed_output(transactions: pd.DataFrame, *, map_path: Path) -> pd.DataFrame:
+def build_target_suggestions(transactions: pd.DataFrame, *, map_path: Path) -> pd.DataFrame:
     if transactions.empty:
-        return pd.DataFrame(columns=LEGACY_PROPOSED_COLUMNS)
+        return pd.DataFrame(columns=TARGET_SUGGESTION_COLUMNS)
 
     rules = rules_mod.load_payee_map(map_path)
     out = transactions.copy()
@@ -597,9 +609,6 @@ def build_proposed_output(transactions: pd.DataFrame, *, map_path: Path) -> pd.D
         out["category_selected"] = out["category_target_suggested"].where(
             out["match_status"] == "unique", ""
         )
-    out = proposed_defaults.apply_default_selections(out, only_unreviewed=False)
-    out["update_map"] = ""
-
     optional_columns = [
         "source_account",
         "source_row_id",
@@ -617,7 +626,7 @@ def build_proposed_output(transactions: pd.DataFrame, *, map_path: Path) -> pd.D
         "max_report_period",
         "max_report_scope",
     ]
-    columns = LEGACY_PROPOSED_COLUMNS + [col for col in optional_columns if col in out.columns]
+    columns = TARGET_SUGGESTION_COLUMNS + [col for col in optional_columns if col in out.columns]
     return out[columns].copy()
 
 
@@ -823,7 +832,7 @@ def _apply_review_target_suggestions(relations: pd.DataFrame, *, map_path: Path)
             ]
         )
     else:
-        suggested = build_proposed_output(candidates, map_path=map_path)
+        suggested = build_target_suggestions(candidates, map_path=map_path)
     suggested = suggested.rename(
         columns={
             "payee_options": "suggested_payee_options",
@@ -893,16 +902,14 @@ def _apply_review_target_suggestions(relations: pd.DataFrame, *, map_path: Path)
             merged.get("suggested_category_options", pd.Series([""] * len(merged))),
         )
     ]
-    merged["payee_selected"] = current_target_payee.where(
+    merged["target_payee_selected"] = current_target_payee.where(
         has_target & current_target_payee.ne(""),
         suggested_payee,
     )
-    merged["category_selected"] = current_target_category.where(
+    merged["target_category_selected"] = current_target_category.where(
         has_target & current_target_category.ne(""),
         suggested_category,
     )
-    merged["target_payee_selected"] = merged["payee_selected"]
-    merged["target_category_selected"] = merged["category_selected"]
 
     return merged.drop(
         columns=[
@@ -962,11 +969,10 @@ def build_review_rows(
                 "fingerprint": _optional_text(row.get("fingerprint") or row.get("ynab_fingerprint")),
                 "payee_options": target_payee,
                 "category_options": target_category,
-                "payee_selected": target_payee,
-                "category_selected": target_category,
                 "match_status": "ambiguous" if is_ambiguous else "matched_auto",
-                "update_map": "",
-                "reviewed": not is_ambiguous,
+                "update_maps": "",
+                "decision_action": "No decision" if is_ambiguous else "keep_match",
+                "reviewed": False,
                 "workflow_type": "institutional",
                 "relation_kind": "ambiguous_candidate" if is_ambiguous else "matched_pair",
                 "match_method": "exact_date_amount_not_unique" if is_ambiguous else "exact_date_amount",
@@ -1022,10 +1028,9 @@ def build_review_rows(
                 "fingerprint": _optional_text(row.get("fingerprint")),
                 "payee_options": "",
                 "category_options": "",
-                "payee_selected": "",
-                "category_selected": "",
                 "match_status": "source_only",
-                "update_map": "",
+                "update_maps": "",
+                "decision_action": "create_target",
                 "reviewed": False,
                 "workflow_type": "institutional",
                 "relation_kind": "source_only",
@@ -1082,10 +1087,9 @@ def build_review_rows(
                 "fingerprint": _optional_text(row.get("ynab_fingerprint")),
                 "payee_options": target_payee,
                 "category_options": target_category,
-                "payee_selected": target_payee,
-                "category_selected": target_category,
                 "match_status": "target_only",
-                "update_map": "",
+                "update_maps": "",
+                "decision_action": "create_source",
                 "reviewed": False,
                 "workflow_type": "institutional",
                 "relation_kind": "target_only",
@@ -1119,7 +1123,9 @@ def build_review_rows(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build proposed_transactions.csv")
+    parser = argparse.ArgumentParser(
+        description="Build institutional source-vs-target review rows."
+    )
     parser.add_argument("--profile", default="", help="Workflow profile (for default map paths).")
     parser.add_argument("--source", action="append", default=[])
     parser.add_argument("--source-dir", action="append", default=[])
@@ -1127,12 +1133,6 @@ def main() -> None:
     parser.add_argument("--map", dest="map_path", type=Path, default=None)
     parser.add_argument("--out", dest="out_path", default="outputs/proposed_transactions.csv")
     parser.add_argument("--pairs-out", dest="pairs_out", default="")
-    parser.add_argument(
-        "--out-v2",
-        dest="out_v2_path",
-        default="",
-        help="Optional path to also write v2 source/target review rows.",
-    )
     args = parser.parse_args()
 
     profile = workflow_profiles.resolve_profile(args.profile or None)
@@ -1151,16 +1151,10 @@ def main() -> None:
     if ynab_df.empty:
         raise ValueError("No rows found in YNAB input.")
 
-    deduped, pairs = _dedupe_sources(source_df, ynab_df)
+    out, pairs = build_review_rows(source_df, ynab_df, map_path=map_path)
     if args.pairs_out:
         export.write_dataframe(pairs, args.pairs_out)
         print(export.wrote_message(args.pairs_out, len(pairs)))
-
-    out = build_proposed_output(deduped, map_path=map_path)
-    if args.out_v2_path:
-        review_rows, _ = build_review_rows(deduped, ynab_df, map_path=map_path)
-        export.write_dataframe(review_rows, args.out_v2_path)
-        print(export.wrote_message(args.out_v2_path, len(review_rows)))
 
     export.write_dataframe(out, args.out_path)
     print(export.wrote_message(args.out_path, len(out)))

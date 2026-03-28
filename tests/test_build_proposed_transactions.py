@@ -475,55 +475,6 @@ def test_dedupe_source_overlaps_matches_immediate_debit_on_secondary_date() -> N
     assert deduped["memo"].tolist() == ["bank row"]
 
 
-def test_apply_default_selections_defaults_unmatched_rows() -> None:
-    tx = pd.DataFrame(
-        [
-            {
-                "fingerprint": "local cafe",
-                "payee_options": "",
-                "payee_selected": "",
-                "category_options": "",
-                "category_selected": "",
-                "match_status": "none",
-            }
-        ]
-    )
-
-    actual = build_proposed_transactions.proposed_defaults.apply_default_selections(
-        tx, only_unreviewed=False
-    )
-
-    assert actual.loc[0, "payee_selected"] == "local cafe"
-    assert actual.loc[0, "payee_options"] == "local cafe"
-    assert actual.loc[0, "category_selected"] == "Uncategorized"
-    assert actual.loc[0, "category_options"] == "Uncategorized"
-    assert actual.loc[0, "match_status"] == "none"
-
-
-def test_apply_default_selections_preserves_existing_choices() -> None:
-    tx = pd.DataFrame(
-        [
-            {
-                "fingerprint": "local cafe",
-                "payee_options": "Cafe A; Cafe B",
-                "payee_selected": "",
-                "category_options": "Eating Out",
-                "category_selected": "",
-                "match_status": "ambiguous",
-            }
-        ]
-    )
-
-    actual = build_proposed_transactions.proposed_defaults.apply_default_selections(
-        tx, only_unreviewed=False
-    )
-
-    assert actual.loc[0, "payee_selected"] == ""
-    assert actual.loc[0, "payee_options"] == "Cafe A; Cafe B"
-    assert actual.loc[0, "category_selected"] == ""
-    assert actual.loc[0, "category_options"] == "Eating Out"
-
-
 def test_build_review_rows_emits_institutional_statuses(tmp_path: Path) -> None:
     map_path = tmp_path / "payee_map.csv"
     _write_payee_map(map_path)
@@ -601,17 +552,20 @@ def test_build_review_rows_emits_institutional_statuses(tmp_path: Path) -> None:
     }
 
     source_only = review_rows.loc[review_rows["match_status"] == "source_only"].iloc[0]
-    assert source_only["payee_selected"] == "Coffee Shop"
-    assert source_only["category_selected"] == "Eating Out"
+    assert source_only["target_payee_selected"] == "Coffee Shop"
+    assert source_only["target_category_selected"] == "Eating Out"
+    assert source_only["decision_action"] == "create_target"
     assert source_only["workflow_type"] == "institutional"
 
     matched = review_rows.loc[review_rows["match_status"] == "matched_auto"].iloc[0]
-    assert bool(matched["reviewed"]) is True
+    assert bool(matched["reviewed"]) is False
     assert matched["target_payee_current"] == "Groceries"
+    assert matched["decision_action"] == "keep_match"
 
     target_only = review_rows.loc[review_rows["match_status"] == "target_only"].iloc[0]
     assert target_only["target_payee_current"] == "Manual Cash"
     assert target_only["source"] == "ynab"
+    assert target_only["decision_action"] == "create_source"
 
 
 def test_build_review_rows_emits_institutional_ambiguous_candidates(tmp_path: Path) -> None:

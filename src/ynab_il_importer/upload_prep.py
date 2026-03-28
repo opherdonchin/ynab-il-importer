@@ -18,11 +18,14 @@ REQUIRED_REVIEW_COLUMNS = [
     "outflow_ils",
     "inflow_ils",
     "memo",
-    "payee_selected",
-    "category_selected",
+    "target_payee_selected",
+    "target_category_selected",
+    "decision_action",
+    "reviewed",
 ]
 _LEADING_SYMBOL_RE = re.compile(r"^[^\w\u0590-\u05FF]+")
 _UNCATEGORIZED_PLACEHOLDER = "uncategorized"
+_CREATE_TARGET_ACTION = "create_target"
 
 
 def _normalize_text(value: Any) -> str:
@@ -50,6 +53,25 @@ def _nonzero_amount_mask(df: pd.DataFrame) -> pd.Series:
     outflow = pd.to_numeric(df["outflow_ils"], errors="coerce").fillna(0.0)
     inflow = pd.to_numeric(df["inflow_ils"], errors="coerce").fillna(0.0)
     return (outflow != 0.0) | (inflow != 0.0)
+
+
+def _decision_action_mask(df: pd.DataFrame) -> pd.Series:
+    _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
+    action = _normalize_text_series(df["decision_action"]).str.casefold()
+    reviewed = df["reviewed"].astype(bool).fillna(False)
+    return action.eq(_CREATE_TARGET_ACTION) & reviewed
+
+
+def _target_payee_series(df: pd.DataFrame) -> pd.Series:
+    if "target_payee_selected" in df.columns:
+        return _normalize_text_series(df["target_payee_selected"])
+    return _normalize_text_series(df["payee_selected"])
+
+
+def _target_category_series(df: pd.DataFrame) -> pd.Series:
+    if "target_category_selected" in df.columns:
+        return _normalize_text_series(df["target_category_selected"])
+    return _normalize_text_series(df["category_selected"])
 
 
 def _transfer_target(payee: str) -> str:
@@ -107,7 +129,9 @@ def uploadable_account_mask(
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
     account_ids, _ = _account_lookup(accounts)
     account_names = _normalize_text_series(df["account_name"])
-    return account_names.isin(set(account_ids.keys()))
+    upload_mask = _decision_action_mask(df)
+    account_ok = account_names.isin(set(account_ids.keys()))
+    return (~upload_mask) | account_ok
 
 
 def _category_lookup(categories_df: pd.DataFrame) -> dict[str, str]:
@@ -168,19 +192,22 @@ def _category_alias_lookup(categories_df: pd.DataFrame) -> dict[str, str]:
 
 def validate_ready_for_upload(df: pd.DataFrame) -> None:
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
+    upload_df = df.loc[_decision_action_mask(df)].copy()
+    if upload_df.empty:
+        return
 
-    payee = _normalize_text_series(df["payee_selected"])
-    category = _normalize_text_series(df["category_selected"])
+    payee = _target_payee_series(upload_df)
+    category = _target_category_series(upload_df)
     transfer = payee.map(review_model.is_transfer_payee)
     category_selected = category.map(_is_selected_category)
-    nonzero_amount = _nonzero_amount_mask(df)
+    nonzero_amount = _nonzero_amount_mask(upload_df)
 
-    missing_payee = df.index[payee == ""].tolist()
-    missing_category = df.index[(~category_selected) & ~transfer].tolist()
-    zero_amount = df.index[~nonzero_amount].tolist()
+    missing_payee = upload_df.index[payee == ""].tolist()
+    missing_category = upload_df.index[(~category_selected) & ~transfer].tolist()
+    zero_amount = upload_df.index[~nonzero_amount].tolist()
     if missing_payee or missing_category or zero_amount:
         raise ValueError(
-            "Reviewed file is not ready for upload: "
+            "Rows selected for create_target are not ready for upload: "
             f"{len(missing_payee)} rows missing payee, "
             f"{len(missing_category)} rows missing category, "
             f"{len(zero_amount)} rows with zero amount."
@@ -189,12 +216,13 @@ def validate_ready_for_upload(df: pd.DataFrame) -> None:
 
 def ready_mask(df: pd.DataFrame) -> pd.Series:
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
-    payee = _normalize_text_series(df["payee_selected"])
-    category = _normalize_text_series(df["category_selected"])
+    upload_mask = _decision_action_mask(df)
+    payee = _target_payee_series(df)
+    category = _target_category_series(df)
     transfer = payee.map(review_model.is_transfer_payee)
     category_selected = category.map(_is_selected_category)
     nonzero_amount = _nonzero_amount_mask(df)
-    return (payee != "") & (category_selected | transfer) & nonzero_amount
+    return upload_mask & (payee != "") & (category_selected | transfer) & nonzero_amount
 
 
 def prepare_upload_transactions(
@@ -207,14 +235,15 @@ def prepare_upload_transactions(
 ) -> pd.DataFrame:
     validate_ready_for_upload(reviewed_df)
 
-    df = reviewed_df.copy()
+    df = reviewed_df.loc[_decision_action_mask(reviewed_df)].copy()
     for col in [
         "transaction_id",
         "account_name",
         "date",
         "memo",
-        "payee_selected",
-        "category_selected",
+        "target_payee_selected",
+        "target_category_selected",
+        "decision_action",
     ]:
         df[col] = _normalize_text_series(df[col])
     for col in ["outflow_ils", "inflow_ils"]:
@@ -233,8 +262,8 @@ def prepare_upload_transactions(
             f"Missing YNAB account ids for account_name values: {missing_accounts}"
         )
 
-    df["transfer_target"] = df["payee_selected"].map(_transfer_target)
-    is_transfer = df["payee_selected"].map(review_model.is_transfer_payee)
+    df["transfer_target"] = df["target_payee_selected"].map(_transfer_target)
+    is_transfer = df["target_payee_selected"].map(review_model.is_transfer_payee)
 
     transfer_target_ids = (
         df["transfer_target"].map(transfer_payees).astype("string").fillna("")
@@ -253,27 +282,27 @@ def prepare_upload_transactions(
         )
 
     df["category_id"] = (
-        df["category_selected"].map(category_ids).astype("string").fillna("")
+        df["target_category_selected"].map(category_ids).astype("string").fillna("")
     )
     unresolved_category = (~is_transfer) & (df["category_id"] == "")
     if unresolved_category.any():
-        aliases = df.loc[unresolved_category, "category_selected"].map(_category_alias)
+        aliases = df.loc[unresolved_category, "target_category_selected"].map(_category_alias)
         df.loc[unresolved_category, "category_id"] = (
             aliases.map(category_alias_ids).astype("string").fillna("")
         )
     missing_categories = sorted(
-        df.loc[~is_transfer & (df["category_id"] == ""), "category_selected"]
+        df.loc[~is_transfer & (df["category_id"] == ""), "target_category_selected"]
         .unique()
         .tolist()
     )
     if missing_categories:
         raise ValueError(
-            f"Missing YNAB category ids for category_selected values: {missing_categories}"
+            f"Missing YNAB category ids for target_category_selected values: {missing_categories}"
         )
 
     df["payee_id"] = ""
     df.loc[is_transfer, "payee_id"] = transfer_target_ids.loc[is_transfer]
-    df["payee_name_upload"] = df["payee_selected"].where(~is_transfer, "")
+    df["payee_name_upload"] = df["target_payee_selected"].where(~is_transfer, "")
     df.loc[is_transfer, "category_id"] = ""
     df["transfer_target_account_id"] = ""
     df.loc[is_transfer, "transfer_target_account_id"] = transfer_target_account_ids.loc[
@@ -324,6 +353,7 @@ def prepare_upload_transactions(
     df.loc[is_transfer, "upload_kind"] = "transfer"
     columns = [
         "transaction_id",
+        "decision_action",
         "account_name",
         "account_id",
         "date",
@@ -331,12 +361,12 @@ def prepare_upload_transactions(
         "inflow_ils",
         "amount_milliunits",
         "memo",
-        "payee_selected",
+        "target_payee_selected",
         "payee_name_upload",
         "payee_id",
         "transfer_target",
         "transfer_target_account_id",
-        "category_selected",
+        "target_category_selected",
         "category_id",
         "cleared",
         "approved",
@@ -353,6 +383,8 @@ def prepare_upload_transactions(
         "ynab_account_id",
         "bank_txn_id",
         "card_txn_id",
+        "workflow_type",
+        "match_status",
         "max_sheet",
         "max_txn_type",
         "max_original_amount",
@@ -656,7 +688,7 @@ def verify_upload_response(
         prepared_category_id = str(prepared_row.get("category_id", "") or "")
         response_category_id = str(response_row.get("category_id", "") or "")
         response_category_name = str(response_row.get("category_name", "") or "")
-        prepared_category_name = str(prepared_row.get("category_selected", "") or "")
+        prepared_category_name = str(prepared_row.get("target_category_selected", "") or "")
         category_matches = prepared_category_id == response_category_id
         if (
             not category_matches
@@ -681,3 +713,10 @@ def verify_upload_response(
         "transfer_mismatches": sorted(transfer_mismatches),
         "category_mismatches": sorted(category_mismatches),
     }
+
+
+
+
+
+
+

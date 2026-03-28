@@ -139,6 +139,10 @@ def main() -> None:
         cleared=args.cleared,
         approved=args.approved,
     )
+    if prepared.empty:
+        raise ValueError(
+            "No create_target rows remain after applying the selected upload filters."
+        )
     payload = upload_prep.upload_payload_records(prepared)
     preflight = upload_prep.upload_preflight(prepared, existing_transactions)
 
@@ -256,3 +260,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

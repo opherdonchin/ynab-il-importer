@@ -123,17 +123,18 @@ def test_build_review_rows_emits_matched_source_only_and_target_only() -> None:
 
     source_only = review_rows.loc[review_rows["match_status"] == "source_only"].iloc[0]
     assert source_only["decision_action"] == "create_target"
-    assert source_only["payee_selected"] == "Office Rent"
-    assert source_only["category_selected"] == "Pilates Expenses"
+    assert source_only["target_payee_selected"] == "Office Rent"
+    assert source_only["target_category_selected"] == "Pilates Expenses"
     assert source_only["target_account"] == "In Family"
 
     matched = review_rows.loc[review_rows["match_status"] == "matched_auto"].iloc[0]
-    assert bool(matched["reviewed"]) is True
-    assert matched["payee_selected"] == "Existing Client"
+    assert bool(matched["reviewed"]) is False
+    assert matched["decision_action"] == "keep_match"
+    assert matched["target_payee_selected"] == "Existing Client"
 
     target_only = review_rows.loc[review_rows["match_status"] == "target_only"].iloc[0]
     assert target_only["target_payee_current"] == "Manual Pilates"
-    assert target_only["decision_action"] == ""
+    assert target_only["decision_action"] == "create_source"
 
 
 def test_build_review_rows_ignores_zero_amount_source_rows() -> None:
@@ -159,7 +160,7 @@ def test_build_review_rows_ignores_zero_amount_source_rows() -> None:
     )
 
     assert len(review_rows) == 1
-    assert review_rows.loc[0, "payee_selected"] == "Office Rent"
+    assert review_rows.loc[0, "target_payee_selected"] == "Office Rent"
     assert review_rows.loc[0, "match_status"] == "source_only"
 
 
@@ -191,8 +192,8 @@ def test_build_review_rows_skips_suggestions_for_blank_fingerprint() -> None:
 
     assert len(review_rows) == 1
     assert review_rows.loc[0, "match_status"] == "source_only"
-    assert review_rows.loc[0, "payee_selected"] == ""
-    assert review_rows.loc[0, "category_selected"] == ""
+    assert review_rows.loc[0, "target_payee_selected"] == ""
+    assert review_rows.loc[0, "target_category_selected"] == ""
 
 
 def test_build_review_rows_expands_ambiguous_rows_into_candidate_relations() -> None:

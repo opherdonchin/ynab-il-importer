@@ -8,52 +8,57 @@ from streamlit.testing.v1 import AppTest
 import ynab_il_importer.review_app.app as review_app
 import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.review_app.state as review_state
+import ynab_il_importer.review_app.validation as review_validation
 
 
-def _make_rows(*, category_selected: str) -> list[dict[str, str]]:
-    return [
-        {
-            "transaction_id": "t1",
-            "date": "2025-01-01",
-            "account_name": "Account 1",
-            "outflow_ils": "10",
-            "inflow_ils": "0",
-            "memo": "memo1",
-            "fingerprint": "fp1",
-            "payee_options": "A;B",
-            "category_options": "C;D",
-            "payee_selected": "A",
-            "category_selected": category_selected,
-            "match_status": "ambiguous",
-            "update_map": "",
-        },
-        {
-            "transaction_id": "t2",
-            "date": "2025-01-02",
-            "account_name": "Account 1",
-            "outflow_ils": "11",
-            "inflow_ils": "0",
-            "memo": "memo2",
-            "fingerprint": "fp1",
-            "payee_options": "A;B",
-            "category_options": "C;D",
-            "payee_selected": "A",
-            "category_selected": category_selected,
-            "match_status": "ambiguous",
-            "update_map": "",
-        },
-    ]
+def _row(
+    *,
+    transaction_id: str,
+    fingerprint: str = "fp1",
+    source_row_id: str = "s1",
+    target_row_id: str = "t1",
+    source_present: bool = True,
+    target_present: bool = True,
+    decision_action: str = "No decision",
+    reviewed: bool = False,
+    workflow_type: str = "cross_budget",
+    target_category: str = "Food",
+) -> dict[str, object]:
+    return {
+        "transaction_id": transaction_id,
+        "date": "2026-03-01",
+        "account_name": "Account 1",
+        "outflow_ils": "10",
+        "inflow_ils": "0",
+        "memo": f"memo-{transaction_id}",
+        "fingerprint": fingerprint,
+        "payee_options": "Cafe;Grocer",
+        "category_options": "Food;Dining",
+        "match_status": "ambiguous",
+        "workflow_type": workflow_type,
+        "source_row_id": source_row_id,
+        "target_row_id": target_row_id,
+        "source_present": "TRUE" if source_present else "",
+        "target_present": "TRUE" if target_present else "",
+        "source_payee_selected": "Cafe",
+        "source_category_selected": "Food",
+        "target_payee_selected": "Cafe",
+        "target_category_selected": target_category,
+        "decision_action": decision_action,
+        "update_maps": "",
+        "reviewed": "TRUE" if reviewed else "",
+    }
 
 
-def _write_proposed(path: Path, rows: list[dict[str, str]]) -> None:
+def _write_review_rows(path: Path, rows: list[dict[str, object]]) -> None:
     pd.DataFrame(rows).to_csv(path, index=False, encoding="utf-8-sig")
 
 
 def _write_categories(path: Path) -> None:
     pd.DataFrame(
         [
-            {"category_group": "G", "category_name": "C"},
-            {"category_group": "G", "category_name": "D"},
+            {"category_group": "Living", "category_name": "Food"},
+            {"category_group": "Living", "category_name": "Dining"},
             {"category_group": "Internal Master Category", "category_name": "Uncategorized"},
         ]
     ).to_csv(path, index=False, encoding="utf-8-sig")
@@ -62,23 +67,20 @@ def _write_categories(path: Path) -> None:
 def _build_app_test(
     tmp_path: Path,
     *,
-    proposed_rows: list[dict[str, str]],
-    reviewed_rows: list[dict[str, str]] | None = None,
+    proposed_rows: list[dict[str, object]],
+    reviewed_rows: list[dict[str, object]] | None = None,
     resume: bool = False,
-    control_dir: Path | None = None,
-) -> tuple[AppTest, Path, Path]:
+) -> tuple[AppTest, Path]:
     proposed = tmp_path / "proposed.csv"
     reviewed = tmp_path / "proposed_reviewed.csv"
     categories = tmp_path / "categories.csv"
 
-    _write_proposed(proposed, proposed_rows)
+    _write_review_rows(proposed, proposed_rows)
     _write_categories(categories)
     if reviewed_rows is not None:
-        _write_proposed(reviewed, reviewed_rows)
+        _write_review_rows(reviewed, reviewed_rows)
 
     argv = ["app.py", "--in", str(proposed), "--categories", str(categories)]
-    if control_dir is not None:
-        argv.extend(["--control-dir", str(control_dir)])
     if resume:
         argv.append("--resume")
 
@@ -90,25 +92,23 @@ def _build_app_test(
         "main()\n"
     )
     app = AppTest.from_string(script, default_timeout=30)
-    return app, proposed, reviewed
+    return app, reviewed
 
 
-def _find_selectbox(container, key: str):
-    return next(
-        widget for widget in container.selectbox if str(widget.key).startswith(key)
-    )
+def _find_selectbox(container, prefix: str):
+    return next(widget for widget in container.selectbox if str(widget.key).startswith(prefix))
 
 
-def _find_button(container, key: str):
-    return next(widget for widget in container.button if key in str(widget.key))
+def _find_checkbox(container, prefix: str):
+    return next(widget for widget in container.checkbox if str(widget.key).startswith(prefix))
+
+
+def _find_button(container, key_fragment: str):
+    return next(widget for widget in container.button if key_fragment in str(widget.key))
 
 
 def _find_button_by_label(container, label: str):
     return next(widget for widget in container.button if widget.label == label)
-
-
-def _find_button_by_prefix(container, prefix: str):
-    return next(widget for widget in container.button if widget.label.startswith(prefix))
 
 
 def _find_multiselect_by_label(container, label: str):
@@ -120,21 +120,13 @@ def _show_all_primary_states(app: AppTest) -> None:
     _find_multiselect_by_label(app.sidebar, "Save state").set_value(["Unsaved", "Saved"])
 
 
-def _sidebar_markdown_text(app: AppTest) -> str:
-    return "\n".join(markdown.value for markdown in app.sidebar.markdown)
-
-
-def _group_markdown_text(app: AppTest, index: int = 0) -> str:
-    return "\n".join(markdown.value for markdown in app.expander[index].markdown)
-
-
 def test_apply_to_same_fingerprint_respects_eligible_mask() -> None:
     df = pd.DataFrame(
         {
             "fingerprint": ["fp1", "fp1", "fp2"],
-            "payee_selected": ["A", "A", "B"],
-            "category_selected": ["C", "C", "D"],
-            "update_map": [False, False, False],
+            "target_payee_selected": ["A", "A", "B"],
+            "target_category_selected": ["C", "C", "D"],
+            "update_maps": ["", "", ""],
             "reviewed": [False, False, False],
         }
     )
@@ -145,61 +137,34 @@ def test_apply_to_same_fingerprint_respects_eligible_mask() -> None:
         "fp1",
         payee="X",
         category="Y",
-        update_map=True,
-        reviewed=True,
         eligible_mask=eligible_mask,
     )
 
-    assert df.loc[0, "payee_selected"] == "X"
-    assert df.loc[0, "category_selected"] == "Y"
-    assert bool(df.loc[0, "reviewed"]) is True
-    assert df.loc[1, "payee_selected"] == "A"
-    assert df.loc[1, "category_selected"] == "C"
-    assert bool(df.loc[1, "reviewed"]) is False
-
-
-def test_format_category_label_uses_group_slash_name() -> None:
-    assert (
-        review_app._format_category_label("Uncategorized", {"Uncategorized": "Internal"})
-        == "Internal / Uncategorized"
-    )
-
-
-def test_effective_categories_path_uses_profile_default_when_flag_missing() -> None:
-    actual = review_app._effective_categories_path(
-        categories_path=str(review_app.DEFAULT_CATEGORIES),
-        profile="pilates",
-        categories_flag=False,
-    )
-
-    assert actual == Path("outputs/pilates/ynab_categories.csv")
-
-
-def test_effective_categories_path_keeps_explicit_categories_override() -> None:
-    custom = Path("tmp/custom_categories.csv")
-
-    actual = review_app._effective_categories_path(
-        categories_path=str(custom),
-        profile="pilates",
-        categories_flag=True,
-    )
-
-    assert actual == custom
+    assert df.loc[0, "target_payee_selected"] == "X"
+    assert df.loc[0, "target_category_selected"] == "Y"
+    assert df.loc[1, "target_payee_selected"] == "A"
+    assert df.loc[1, "target_category_selected"] == "C"
 
 
 def test_changed_mask_aligns_duplicate_transaction_ids() -> None:
     base = pd.DataFrame(
         {
             "transaction_id": ["dup", "dup"],
-            "payee_selected": ["A", "A"],
-            "category_selected": ["C", "C"],
+            "target_payee_selected": ["A", "A"],
+            "target_category_selected": ["C", "C"],
+            "decision_action": ["keep_match", "keep_match"],
+            "update_maps": ["", ""],
+            "reviewed": [False, False],
         }
     )
     current = pd.DataFrame(
         {
             "transaction_id": ["dup", "dup"],
-            "payee_selected": ["A", "A"],
-            "category_selected": ["C", "D"],
+            "target_payee_selected": ["A", "A"],
+            "target_category_selected": ["C", "D"],
+            "decision_action": ["keep_match", "keep_match"],
+            "update_maps": ["", ""],
+            "reviewed": [False, False],
         }
     )
 
@@ -208,84 +173,24 @@ def test_changed_mask_aligns_duplicate_transaction_ids() -> None:
     assert changed.tolist() == [False, True]
 
 
-def test_grouped_row_save_updates_counts_and_persists_to_file(tmp_path: Path) -> None:
-    app, _, reviewed = _build_app_test(
-        tmp_path,
-        proposed_rows=_make_rows(category_selected="C"),
+def test_allowed_decision_actions_block_source_mutation_for_institutional() -> None:
+    actions = review_app._allowed_decision_actions(
+        pd.Series(
+            {
+                "workflow_type": "institutional",
+                "source_present": False,
+                "target_present": True,
+            }
+        )
     )
 
-    app.run()
-    _show_all_primary_states(app)
-    app.run()
-
-    assert any("Account 1" in expander.label for expander in app.expander)
-    group = app.expander[0]
-    _find_selectbox(group, "category_select_0").set_value("D")
-    _find_button(group, "FormSubmitter:row_form_0").click()
-    app.run()
-
-    session_df = app.session_state["df"]
-    assert session_df.loc[0, "category_selected"] == "D"
-    assert bool(session_df.loc[0, "reviewed"]) is True
-    assert "**Updated:** 1" in _sidebar_markdown_text(app)
-    assert "Unsaved: 1" in _group_markdown_text(app)
-    assert "Changed: 1" in _group_markdown_text(app)
-
-    _find_button_by_label(app.sidebar, "Save").click()
-    app.run()
-
-    saved = pd.read_csv(reviewed, dtype="string").fillna("")
-    assert saved.loc[0, "category_selected"] == "D"
-    assert saved.loc[0, "reviewed"] == "TRUE"
-    assert "**Saved:** 1" in _sidebar_markdown_text(app)
-    _show_all_primary_states(app)
-    app.run()
-    assert "Saved: 1" in _group_markdown_text(app)
-    assert "Unsaved: 1" not in _group_markdown_text(app)
+    assert actions == [review_validation.NO_DECISION, "delete_target", "ignore_row"]
 
 
-def test_group_apply_does_not_overwrite_reviewed_rows(tmp_path: Path) -> None:
-    app, _, reviewed = _build_app_test(
+def test_app_row_save_persists_side_specific_fields_and_review_state(tmp_path: Path) -> None:
+    app, reviewed_path = _build_app_test(
         tmp_path,
-        proposed_rows=_make_rows(category_selected="C"),
-    )
-
-    app.run()
-    _show_all_primary_states(app)
-    app.run()
-
-    group = app.expander[0]
-    assert any(str(widget.key).startswith("group_payee_override_") for widget in group.text_input)
-    assert not any(
-        str(widget.key).startswith("group_payee_override_") for widget in group.selectbox
-    )
-    _find_selectbox(group, "category_select_0").set_value("D")
-    _find_button(group, "FormSubmitter:row_form_0").click()
-    app.run()
-
-    group = app.expander[0]
-    _find_selectbox(group, "group_category_fp1").set_value("C")
-    _find_button(group, "group_apply_fp1").click()
-    app.run()
-
-    session_df = app.session_state["df"]
-    assert session_df.loc[0, "category_selected"] == "D"
-    assert session_df.loc[1, "category_selected"] == "C"
-    assert bool(session_df.loc[0, "reviewed"]) is True
-    assert bool(session_df.loc[1, "reviewed"]) is True
-
-    _find_button_by_label(app.sidebar, "Save").click()
-    app.run()
-
-    saved = pd.read_csv(reviewed, dtype="string").fillna("")
-    assert saved.loc[0, "category_selected"] == "D"
-    assert saved.loc[1, "category_selected"] == "C"
-
-
-def test_category_toggle_exposes_all_categories(tmp_path: Path) -> None:
-    app, _, _ = _build_app_test(
-        tmp_path,
-        proposed_rows=_make_rows(category_selected=""),
+        proposed_rows=[_row(transaction_id="t1", decision_action="keep_match")],
     )
 
     app.run()
@@ -295,330 +200,76 @@ def test_category_toggle_exposes_all_categories(tmp_path: Path) -> None:
     app.run()
 
     row = app.expander[0]
-    category_select = _find_selectbox(row, "category_select_0")
-    assert "Uncategorized" not in category_select.options
-
-    show_all = next(
-        widget for widget in row.checkbox if str(widget.key).startswith("show_all_categories_0")
-    )
-    show_all.check()
-    app.run()
-
-    row = app.expander[0]
-    category_select = _find_selectbox(row, "category_select_0")
-    assert "Internal Master Category / Uncategorized" in category_select.options
-
-
-def test_group_category_toggle_exposes_all_categories(tmp_path: Path) -> None:
-    app, _, _ = _build_app_test(
-        tmp_path,
-        proposed_rows=_make_rows(category_selected=""),
-    )
-
-    app.run()
-    _show_all_primary_states(app)
-    app.run()
-
-    group = app.expander[0]
-    group_category = _find_selectbox(group, "group_category_fp1")
-    assert "Internal Master Category / Uncategorized" not in group_category.options
-
-    show_all = next(
-        widget
-        for widget in group.checkbox
-        if str(widget.key).startswith("group_show_all_categories_fp1")
-    )
-    show_all.check()
-    app.run()
-
-    group = app.expander[0]
-    group_category = _find_selectbox(group, "group_category_fp1")
-    assert "Internal Master Category / Uncategorized" in group_category.options
-
-
-def test_sidebar_save_action_defaults_to_save(tmp_path: Path) -> None:
-    app, _, _ = _build_app_test(
-        tmp_path,
-        proposed_rows=_make_rows(category_selected="C"),
-    )
-
-    app.run()
-
-    assert app.sidebar.selectbox[0].value == "Save"
-    assert _find_button_by_label(app.sidebar, "Save").label == "Save"
-
-
-def test_categories_load_on_startup_when_resuming(tmp_path: Path) -> None:
-    reviewed_rows = _make_rows(category_selected="C")
-    app, _, _ = _build_app_test(
-        tmp_path,
-        proposed_rows=_make_rows(category_selected="C"),
-        reviewed_rows=reviewed_rows,
-        resume=True,
-    )
-
-    app.run()
-
-    assert "Uncategorized" in app.session_state["category_list"]
-
-
-def test_resume_keeps_original_source_path(tmp_path: Path) -> None:
-    reviewed_rows = _make_rows(category_selected="D")
-    app, proposed, _ = _build_app_test(
-        tmp_path,
-        proposed_rows=_make_rows(category_selected="C"),
-        reviewed_rows=reviewed_rows,
-        resume=True,
-    )
-
-    app.run()
-
-    assert Path(app.session_state["source_path"]) == proposed
-    assert app.session_state["df"].loc[0, "category_selected"] == "D"
-
-
-def test_grouped_row_save_works_while_resumed(tmp_path: Path) -> None:
-    reviewed_rows = _make_rows(category_selected="")
-    app, _, reviewed = _build_app_test(
-        tmp_path,
-        proposed_rows=_make_rows(category_selected="C"),
-        reviewed_rows=reviewed_rows,
-        resume=True,
-    )
-
-    app.run()
-    _show_all_primary_states(app)
-    app.run()
-
-    group = app.expander[0]
-    _find_selectbox(group, "category_select_0").set_value("D")
-    _find_button(group, "FormSubmitter:row_form_0").click()
+    _find_selectbox(row, "target_category_select_0").set_value("Dining")
+    _find_checkbox(row, "reviewed_0").check()
+    _find_button(row, "FormSubmitter:row_form_0").click()
     app.run()
 
     session_df = app.session_state["df"]
-    assert session_df.loc[0, "category_selected"] == "D"
+    assert session_df.loc[0, "target_category_selected"] == "Dining"
+    assert session_df.loc[0, "category_selected"] == "Dining"
+    assert session_df.loc[0, "decision_action"] == "keep_match"
     assert bool(session_df.loc[0, "reviewed"]) is True
 
     _find_button_by_label(app.sidebar, "Save").click()
     app.run()
 
-    saved = pd.read_csv(reviewed, dtype="string").fillna("")
-    assert saved.loc[0, "category_selected"] == "D"
+    saved = pd.read_csv(reviewed_path, dtype="string").fillna("")
+    assert saved.loc[0, "target_category_selected"] == "Dining"
+    assert saved.loc[0, "decision_action"] == "keep_match"
     assert saved.loc[0, "reviewed"] == "TRUE"
+    assert "category_selected" not in saved.columns
+    assert "payee_selected" not in saved.columns
 
 
-def test_reload_original_clears_stale_widget_state(tmp_path: Path) -> None:
-    app, proposed, _ = _build_app_test(
-        tmp_path,
-        proposed_rows=_make_rows(category_selected="C"),
-    )
-
-    app.run()
-    _show_all_primary_states(app)
-    app.run()
-
-    group = app.expander[0]
-    _find_selectbox(group, "category_select_0").set_value("D")
-    _find_button(group, "FormSubmitter:row_form_0").click()
-    app.run()
-
-    _find_button_by_label(app.sidebar, "Reload original").click()
-    app.run()
-
-    assert Path(app.session_state["source_path"]) == proposed
-    assert app.session_state["df"].loc[0, "category_selected"] == "C"
-    _show_all_primary_states(app)
-    app.run()
-    group = app.expander[0]
-    assert _find_selectbox(group, "category_select_0").value == "C"
-
-
-def test_unmatched_rows_load_with_default_payee_and_uncategorized(tmp_path: Path) -> None:
-    app, _, _ = _build_app_test(
+def test_app_review_blocked_for_component_with_no_decision_rows(tmp_path: Path) -> None:
+    app, _ = _build_app_test(
         tmp_path,
         proposed_rows=[
-            {
-                "transaction_id": "t1",
-                "date": "2025-01-01",
-                "account_name": "Account 1",
-                "outflow_ils": "10",
-                "inflow_ils": "0",
-                "memo": "memo1",
-                "fingerprint": "fp1",
-                "payee_options": "",
-                "category_options": "",
-                "payee_selected": "",
-                "category_selected": "",
-                "match_status": "none",
-                "update_map": "",
-            }
+            _row(transaction_id="t1", source_row_id="s1", target_row_id="t1", decision_action="No decision"),
+            _row(transaction_id="t2", source_row_id="s1", target_row_id="t2", decision_action="No decision"),
         ],
     )
 
     app.run()
+    app.sidebar.radio[0].set_value("Row")
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    row = app.expander[0]
+    _find_selectbox(row, "decision_action_0").set_value("keep_match")
+    _find_checkbox(row, "reviewed_0").check()
+    _find_button(row, "FormSubmitter:row_form_0").click()
+    app.run()
 
     session_df = app.session_state["df"]
-    assert session_df.loc[0, "payee_selected"] == "fp1"
-    assert session_df.loc[0, "category_selected"] == "Uncategorized"
+    assert session_df.loc[0, "decision_action"] == "keep_match"
     assert bool(session_df.loc[0, "reviewed"]) is False
+    assert bool(session_df.loc[1, "reviewed"]) is False
 
 
-def test_accept_remaining_defaults_marks_unreviewed_default_rows(tmp_path: Path) -> None:
-    app, _, _ = _build_app_test(
+def test_app_propagates_action_to_same_source_rows(tmp_path: Path) -> None:
+    app, _ = _build_app_test(
         tmp_path,
         proposed_rows=[
-            {
-                "transaction_id": "t1",
-                "date": "2025-01-01",
-                "account_name": "Account 1",
-                "outflow_ils": "10",
-                "inflow_ils": "0",
-                "memo": "memo1",
-                "fingerprint": "fp1",
-                "payee_options": "",
-                "category_options": "",
-                "payee_selected": "",
-                "category_selected": "",
-                "match_status": "none",
-                "update_map": "",
-            }
+            _row(transaction_id="t1", source_row_id="s1", target_row_id="t1"),
+            _row(transaction_id="t2", source_row_id="s1", target_row_id="t2"),
         ],
     )
 
     app.run()
-    _find_button_by_prefix(app.sidebar, "Accept remaining defaults").click()
+    app.sidebar.radio[0].set_value("Row")
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    row = app.expander[0]
+    _find_selectbox(row, "decision_action_0").set_value("delete_target")
+    _find_checkbox(row, "propagate_action_source_0").check()
+    _find_button(row, "FormSubmitter:row_form_0").click()
     app.run()
 
     session_df = app.session_state["df"]
-    assert bool(session_df.loc[0, "reviewed"]) is True
-
-
-def test_defaulted_unique_rows_can_be_shown_for_review(tmp_path: Path) -> None:
-    app, _, _ = _build_app_test(
-        tmp_path,
-        proposed_rows=[
-            {
-                "transaction_id": "t1",
-                "date": "2025-01-01",
-                "account_name": "Account 1",
-                "outflow_ils": "10",
-                "inflow_ils": "0",
-                "memo": "memo1",
-                "fingerprint": "fp1",
-                "payee_options": "Cafe",
-                "category_options": "Uncategorized",
-                "payee_selected": "Cafe",
-                "category_selected": "Uncategorized",
-                "match_status": "unique",
-                "update_map": "",
-                "reviewed": "",
-            }
-        ],
-    )
-
-    app.run()
-
-    assert len(app.expander) == 0
-    app.sidebar.radio[0].set_value("Row")
-    app.run()
-    _show_all_primary_states(app)
-    app.run()
-
-    assert len(app.expander) == 1
-    assert "Account 1" in app.expander[0].label
-
-
-def test_reviewed_only_filter_can_show_reviewed_rows(tmp_path: Path) -> None:
-    app, _, _ = _build_app_test(
-        tmp_path,
-        proposed_rows=[
-            {
-                "transaction_id": "t1",
-                "date": "2025-01-01",
-                "account_name": "Account 1",
-                "outflow_ils": "10",
-                "inflow_ils": "0",
-                "memo": "memo1",
-                "fingerprint": "fp1",
-                "payee_options": "Cafe",
-                "category_options": "Food",
-                "payee_selected": "Cafe",
-                "category_selected": "Food",
-                "match_status": "unique",
-                "update_map": "",
-                "reviewed": "TRUE",
-            },
-            {
-                "transaction_id": "t2",
-                "date": "2025-01-02",
-                "account_name": "Account 1",
-                "outflow_ils": "11",
-                "inflow_ils": "0",
-                "memo": "memo2",
-                "fingerprint": "fp2",
-                "payee_options": "Cafe",
-                "category_options": "Food",
-                "payee_selected": "Cafe",
-                "category_selected": "Food",
-                "match_status": "unique",
-                "update_map": "",
-                "reviewed": "",
-            },
-        ],
-    )
-
-    app.run()
-    app.sidebar.radio[0].set_value("Row")
-    app.run()
-    _show_all_primary_states(app)
-    app.run()
-    _find_multiselect_by_label(app.sidebar, "Progress tag").set_value(["resolved"])
-    app.run()
-
-    assert len(app.expander) == 1
-    assert "memo1" in app.expander[0].label
-
-
-def test_save_writes_map_updates_artifact(tmp_path: Path) -> None:
-    app, _, reviewed = _build_app_test(
-        tmp_path,
-        proposed_rows=_make_rows(category_selected="C"),
-    )
-
-    app.run()
-    _show_all_primary_states(app)
-    app.run()
-
-    group = app.expander[0]
-    _find_selectbox(group, "category_select_0").set_value("D")
-    _find_button(group, "FormSubmitter:row_form_0").click()
-    app.run()
-
-    _find_button_by_label(app.sidebar, "Save").click()
-    app.run()
-
-    map_updates = reviewed.with_name(f"{reviewed.stem}_map_updates{reviewed.suffix}")
-    saved = pd.read_csv(map_updates, dtype="string").fillna("")
-    assert "fingerprint" in saved.columns
-    assert saved.loc[0, "fingerprint"] == "fp1"
-    assert saved.loc[0, "category_target"] == "D"
-
-
-def test_save_and_quit_writes_quit_request(tmp_path: Path) -> None:
-    control_dir = tmp_path / "control"
-    app, _, reviewed = _build_app_test(
-        tmp_path,
-        proposed_rows=_make_rows(category_selected="C"),
-        control_dir=control_dir,
-    )
-
-    app.run()
-    app.sidebar.selectbox[0].set_value("Save and quit")
-    app.run()
-    _find_button_by_label(app.sidebar, "Save and quit").click()
-    app.run()
-
-    quit_path = control_dir / review_app.QUIT_REQUEST_FILENAME
-    assert quit_path.exists()
-    saved = pd.read_csv(reviewed, dtype="string").fillna("")
-    assert not saved.empty
+    assert session_df["decision_action"].tolist() == ["delete_target", "delete_target"]
+    assert session_df["reviewed"].tolist() == [False, False]

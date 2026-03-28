@@ -13,9 +13,12 @@ def test_reconcile_reviewed_transactions_matches_by_transaction_id() -> None:
             "outflow_ils": ["10"],
             "inflow_ils": ["0"],
             "fingerprint": ["fp1"],
-            "payee_selected": ["Payee A"],
-            "category_selected": ["Cat A"],
-            "update_map": ["TRUE"],
+            "source_payee_selected": ["Source A"],
+            "source_category_selected": ["Cat Source"],
+            "target_payee_selected": ["Payee A"],
+            "target_category_selected": ["Cat A"],
+            "decision_action": ["keep_match"],
+            "update_maps": ["fingerprint_add_source"],
             "reviewed": ["TRUE"],
         }
     )
@@ -26,17 +29,23 @@ def test_reconcile_reviewed_transactions_matches_by_transaction_id() -> None:
             "outflow_ils": ["10", "12"],
             "inflow_ils": ["0", "0"],
             "fingerprint": ["fp1", "fp2"],
-            "payee_selected": ["", ""],
-            "category_selected": ["", ""],
-            "update_map": ["", ""],
+            "source_payee_selected": ["", ""],
+            "source_category_selected": ["", ""],
+            "target_payee_selected": ["", ""],
+            "target_category_selected": ["", ""],
+            "decision_action": ["", ""],
+            "update_maps": ["", ""],
             "reviewed": ["", ""],
         }
     )
 
     merged, stats = review_reconcile.reconcile_reviewed_transactions(old, new)
 
-    assert merged.loc[0, "payee_selected"] == "Payee A"
-    assert merged.loc[0, "category_selected"] == "Cat A"
+    assert merged.loc[0, "source_payee_selected"] == "Source A"
+    assert merged.loc[0, "target_payee_selected"] == "Payee A"
+    assert merged.loc[0, "target_category_selected"] == "Cat A"
+    assert merged.loc[0, "decision_action"] == "keep_match"
+    assert merged.loc[0, "update_maps"] == "fingerprint_add_source"
     assert bool(merged.loc[0, "reviewed"]) is True
     assert stats["direct_matches"] == 1
     assert stats["fallback_matches"] == 0
@@ -50,9 +59,12 @@ def test_reconcile_reviewed_transactions_falls_back_on_unique_key() -> None:
             "outflow_ils": ["18.9"],
             "inflow_ils": ["0"],
             "fingerprint": ["park"],
-            "payee_selected": ["Park Cafe"],
-            "category_selected": ["Eating Out"],
-            "update_map": [""],
+            "source_payee_selected": ["Source Cafe"],
+            "source_category_selected": ["Eating Out"],
+            "target_payee_selected": ["Park Cafe"],
+            "target_category_selected": ["Eating Out"],
+            "decision_action": ["create_target"],
+            "update_maps": ["payee_add_fingerprint"],
             "reviewed": ["TRUE"],
         }
     )
@@ -63,17 +75,23 @@ def test_reconcile_reviewed_transactions_falls_back_on_unique_key() -> None:
             "outflow_ils": ["18.9"],
             "inflow_ils": ["0"],
             "fingerprint": ["park"],
-            "payee_selected": [""],
-            "category_selected": [""],
-            "update_map": [""],
+            "source_payee_selected": [""],
+            "source_category_selected": [""],
+            "target_payee_selected": [""],
+            "target_category_selected": [""],
+            "decision_action": [""],
+            "update_maps": [""],
             "reviewed": [""],
         }
     )
 
     merged, stats = review_reconcile.reconcile_reviewed_transactions(old, new)
 
-    assert merged.loc[0, "payee_selected"] == "Park Cafe"
-    assert merged.loc[0, "category_selected"] == "Eating Out"
+    assert merged.loc[0, "source_payee_selected"] == "Source Cafe"
+    assert merged.loc[0, "target_payee_selected"] == "Park Cafe"
+    assert merged.loc[0, "target_category_selected"] == "Eating Out"
+    assert merged.loc[0, "decision_action"] == "create_target"
+    assert merged.loc[0, "update_maps"] == "payee_add_fingerprint"
     assert bool(merged.loc[0, "reviewed"]) is True
     assert stats["direct_matches"] == 0
     assert stats["fallback_matches"] == 1

@@ -29,14 +29,23 @@ QUIT_REQUEST_FILENAME = "quit_requested.json"
 EDITOR_STATE_PREFIXES = (
     "payee_override_",
     "payee_select_",
+    "source_payee_",
+    "source_category_",
+    "target_payee_override_",
+    "target_payee_select_",
+    "target_category_select_",
+    "decision_action_",
+    "reviewed_",
+    "propagate_action_source_",
+    "propagate_action_target_",
+    "update_maps_",
     "category_select_",
     "show_all_categories_",
-    "update_map_",
     "group_payee_select_",
     "group_payee_override_",
     "group_category_",
     "group_show_all_categories_",
-    "group_update_",
+    "group_update_maps_",
     "group_row_page_",
     "group_page",
     "row_page",
@@ -650,6 +659,56 @@ def _category_choice_list(
     return options
 
 
+def _selected_side_value(row: pd.Series, *, side: str, field: str) -> str:
+    column = f"{side}_{field}_selected"
+    return str(row.get(column, "") or "").strip()
+
+
+def _allowed_decision_actions(row: pd.Series) -> list[str]:
+    workflow_type = str(row.get("workflow_type", "") or "").strip().casefold()
+    source_present = bool(row.get("source_present", False))
+    target_present = bool(row.get("target_present", False))
+
+    actions = [review_validation.NO_DECISION, "ignore_row"]
+    if source_present and target_present:
+        actions = [review_validation.NO_DECISION, "keep_match", "delete_source", "delete_target", "delete_both", "ignore_row"]
+    elif source_present and not target_present:
+        actions = [review_validation.NO_DECISION, "create_target", "delete_source", "ignore_row"]
+    elif target_present and not source_present:
+        actions = [review_validation.NO_DECISION, "create_source", "delete_target", "ignore_row"]
+
+    if workflow_type == "institutional":
+        actions = [
+            action
+            for action in actions
+            if action not in review_validation.SOURCE_MUTATION_ACTIONS
+        ]
+
+    ordered: list[str] = []
+    for action in actions:
+        if action not in ordered:
+            ordered.append(action)
+    return ordered
+
+
+def _apply_action_propagation(
+    df: pd.DataFrame,
+    idx: Any,
+    *,
+    decision_action: str,
+    include_source: bool,
+    include_target: bool,
+) -> None:
+    mask = review_state.related_rows_mask(
+        df,
+        idx,
+        include_source=include_source,
+        include_target=include_target,
+    )
+    if "decision_action" in df.columns:
+        df.loc[mask, "decision_action"] = str(decision_action).strip()
+
+
 def _render_row_controls(
     df: pd.DataFrame,
     idx: Any,
@@ -666,13 +725,15 @@ def _render_row_controls(
     payee_options = review_model.parse_option_string(row.get("payee_options", ""))
     category_options = review_model.parse_option_string(row.get("category_options", ""))
 
-    payee_selected = str(row.get("payee_selected", "") or "").strip()
-    category_selected = str(row.get("category_selected", "") or "").strip()
-    payee_default = payee_selected or payee_defaults.get(fingerprint, "") or (
+    source_payee_selected = _selected_side_value(row, side="source", field="payee")
+    source_category_selected = _selected_side_value(row, side="source", field="category")
+    target_payee_selected = _selected_side_value(row, side="target", field="payee")
+    target_category_selected = _selected_side_value(row, side="target", field="category")
+    target_payee_default = target_payee_selected or payee_defaults.get(fingerprint, "") or (
         payee_options[0] if payee_options else ""
     )
-    category_default = (
-        category_selected
+    target_category_default = (
+        target_category_selected
         or category_defaults.get(fingerprint, "")
         or (category_options[0] if category_options else "")
     )
@@ -682,7 +743,7 @@ def _render_row_controls(
         category_choices
         and (
             not category_options
-            or (category_selected and category_selected not in category_options)
+            or (target_category_selected and target_category_selected not in category_options)
         )
     )
     _ensure_widget_state(show_all_categories_key, show_all_categories_default)
@@ -693,71 +754,163 @@ def _render_row_controls(
     )
 
     with st.form(key=_editor_key(f"row_form_{idx}")):
-        payee_override_key = _editor_key(f"payee_override_{idx}")
-        _ensure_widget_state(payee_override_key, "")
-        payee_override = st.text_input(
-            "Payee override",
-            value=st.session_state.get(payee_override_key, ""),
-            key=payee_override_key,
+        st.markdown("**Source**")
+        source_payee_key = _editor_key(f"source_payee_{idx}")
+        source_category_key = _editor_key(f"source_category_{idx}")
+        _ensure_widget_state(source_payee_key, source_payee_selected)
+        _ensure_widget_state(source_category_key, source_category_selected)
+
+        source_payee_input = st.text_input(
+            "Source payee",
+            value=str(st.session_state.get(source_payee_key, source_payee_selected) or ""),
+            key=source_payee_key,
+        )
+        source_category_choices = _category_choice_list(
+            category_options=[],
+            category_choices=category_choices,
+            selected_value=source_category_selected,
+            default_value=source_category_selected,
+            show_all=True,
+        )
+        source_category_select = st.selectbox(
+            "Source category",
+            options=source_category_choices,
+            index=source_category_choices.index(source_category_selected)
+            if source_category_selected in source_category_choices
+            else 0,
+            format_func=lambda value: _format_category_label(value, category_group_map),
+            key=source_category_key,
+        )
+
+        st.markdown("**Target**")
+        target_payee_override_key = _editor_key(f"target_payee_override_{idx}")
+        _ensure_widget_state(target_payee_override_key, "")
+        target_payee_override = st.text_input(
+            "Target payee override",
+            value=st.session_state.get(target_payee_override_key, ""),
+            key=target_payee_override_key,
         )
 
         payee_choices = [""] + payee_options
-        if payee_selected and payee_selected not in payee_choices:
-            payee_choices = [payee_selected] + payee_choices
-        if payee_override and payee_override not in payee_choices:
-            payee_choices = [payee_override] + payee_choices
-        if payee_default and payee_default not in payee_choices:
-            payee_choices = [payee_default] + payee_choices
+        if target_payee_selected and target_payee_selected not in payee_choices:
+            payee_choices = [target_payee_selected] + payee_choices
+        if target_payee_override and target_payee_override not in payee_choices:
+            payee_choices = [target_payee_override] + payee_choices
+        if target_payee_default and target_payee_default not in payee_choices:
+            payee_choices = [target_payee_default] + payee_choices
 
-        payee_current = payee_selected or payee_default
-        category_current = category_selected or category_default
+        payee_current = target_payee_selected or target_payee_default
+        category_current = target_category_selected or target_category_default
         category_full = _category_choice_list(
             category_options=category_options,
             category_choices=category_choices,
-            selected_value=category_selected,
-            default_value=category_default,
+            selected_value=target_category_selected,
+            default_value=target_category_default,
             show_all=bool(show_all_categories),
         )
-        payee_select_key = _editor_key(f"payee_select_{idx}")
-        category_select_key = _editor_key(f"category_select_{idx}")
-        _ensure_widget_state(payee_select_key, payee_current)
-        _ensure_widget_state(category_select_key, category_current)
+        target_payee_select_key = _editor_key(f"target_payee_select_{idx}")
+        target_category_select_key = _editor_key(f"target_category_select_{idx}")
+        _ensure_widget_state(target_payee_select_key, payee_current)
+        _ensure_widget_state(target_category_select_key, category_current)
 
-        payee_select = st.selectbox(
-            "Payee option",
+        target_payee_select = st.selectbox(
+            "Target payee option",
             options=payee_choices,
             index=payee_choices.index(payee_current) if payee_current in payee_choices else 0,
-            key=payee_select_key,
+            key=target_payee_select_key,
         )
-        category_select = st.selectbox(
-            "Category option",
+        target_category_select = st.selectbox(
+            "Target category",
             options=category_full,
             index=category_full.index(category_current) if category_current in category_full else 0,
             format_func=lambda value: _format_category_label(value, category_group_map),
-            key=category_select_key,
+            key=target_category_select_key,
         )
 
-        update_key = _editor_key(f"update_map_{idx}")
-        _ensure_widget_state(update_key, bool(row.get("update_map", False)))
-        update_val = st.checkbox(
-            "Update map", value=bool(row.get("update_map", False)), key=update_key
+        st.markdown("**Decision**")
+        decision_action_key = _editor_key(f"decision_action_{idx}")
+        decision_options = _allowed_decision_actions(row)
+        current_action = str(row.get("decision_action", review_validation.NO_DECISION) or "").strip()
+        if not current_action:
+            current_action = review_validation.NO_DECISION
+        if current_action not in decision_options:
+            decision_options.append(current_action)
+        _ensure_widget_state(decision_action_key, current_action)
+        decision_action = st.selectbox(
+            "Decision",
+            options=decision_options,
+            index=decision_options.index(current_action),
+            key=decision_action_key,
         )
+
+        update_maps_key = _editor_key(f"update_maps_{idx}")
+        update_maps_default = review_validation.parse_update_maps(row.get("update_maps", ""))
+        _ensure_widget_state(update_maps_key, update_maps_default)
+        update_maps_value = st.multiselect(
+            "Update maps",
+            options=list(review_validation.UPDATE_MAP_TOKENS),
+            default=update_maps_default,
+            key=update_maps_key,
+        )
+
+        reviewed_key = _editor_key(f"reviewed_{idx}")
+        _ensure_widget_state(reviewed_key, bool(row.get("reviewed", False)))
+        reviewed_requested = st.checkbox(
+            "Reviewed",
+            value=bool(st.session_state.get(reviewed_key, row.get("reviewed", False))),
+            key=reviewed_key,
+        )
+
+        propagate_source_key = _editor_key(f"propagate_action_source_{idx}")
+        propagate_target_key = _editor_key(f"propagate_action_target_{idx}")
+        _ensure_widget_state(propagate_source_key, False)
+        _ensure_widget_state(propagate_target_key, False)
+        propagate_cols = st.columns(2)
+        with propagate_cols[0]:
+            propagate_source = st.checkbox(
+                "Propagate action to same source",
+                value=bool(st.session_state.get(propagate_source_key, False)),
+                key=propagate_source_key,
+            )
+        with propagate_cols[1]:
+            propagate_target = st.checkbox(
+                "Propagate action to same target",
+                value=bool(st.session_state.get(propagate_target_key, False)),
+                key=propagate_target_key,
+            )
 
         submitted = st.form_submit_button("Save row", use_container_width=True)
         if show_apply:
             apply_all = st.form_submit_button(
-                "Apply to all with this fingerprint", use_container_width=True
+                "Apply target values to untouched rows with this fingerprint",
+                use_container_width=True,
             )
         else:
             apply_all = False
 
-    payee_select_value = str(st.session_state.get(payee_select_key, payee_select) or "")
-    payee_override_value = str(st.session_state.get(payee_override_key, payee_override) or "")
-    category_select_value = str(st.session_state.get(category_select_key, category_select) or "")
-    update_value = bool(st.session_state.get(update_key, update_val))
+    source_payee_value = str(st.session_state.get(source_payee_key, source_payee_input) or "")
+    source_category_value = str(st.session_state.get(source_category_key, source_category_select) or "")
+    target_payee_select_value = str(
+        st.session_state.get(target_payee_select_key, target_payee_select) or ""
+    )
+    target_payee_override_value = str(
+        st.session_state.get(target_payee_override_key, target_payee_override) or ""
+    )
+    target_category_value = str(
+        st.session_state.get(target_category_select_key, target_category_select) or ""
+    )
+    update_maps_tokens = st.session_state.get(update_maps_key, update_maps_value) or []
+    decision_action_value = str(
+        st.session_state.get(decision_action_key, decision_action) or review_validation.NO_DECISION
+    )
+    reviewed_value = bool(st.session_state.get(reviewed_key, reviewed_requested))
+    propagate_source_value = bool(st.session_state.get(propagate_source_key, propagate_source))
+    propagate_target_value = bool(st.session_state.get(propagate_target_key, propagate_target))
 
-    final_payee = review_model.resolve_selected_value(payee_select_value, payee_override_value)
-    final_category = review_model.resolve_selected_value(category_select_value, "")
+    final_target_payee = review_model.resolve_selected_value(
+        target_payee_select_value, target_payee_override_value
+    )
+    final_update_maps = review_validation.join_update_maps(list(update_maps_tokens))
 
     if submitted or apply_all:
         if group_fingerprint:
@@ -765,37 +918,68 @@ def _render_row_controls(
             st.session_state["expanded_group_row_id"] = idx
         else:
             st.session_state["expanded_row_id"] = idx
+
+        working_df = df.copy()
         review_state.apply_row_edit(
-            df,
+            working_df,
             idx,
-            payee=final_payee,
-            category=final_category,
-            update_map=update_value,
-            reviewed=True,
+            source_payee=source_payee_value,
+            source_category=source_category_value,
+            target_payee=final_target_payee,
+            target_category=target_category_value,
+            update_maps=final_update_maps,
+            decision_action=decision_action_value,
         )
-        errors, warnings = review_validation.validate_row(df.loc[idx])
-        if errors:
-            st.error("Errors: " + ", ".join(errors))
-        if warnings:
-            st.warning("Warnings: " + ", ".join(warnings))
+
+        if propagate_source_value or propagate_target_value:
+            _apply_action_propagation(
+                working_df,
+                idx,
+                decision_action=decision_action_value,
+                include_source=propagate_source_value,
+                include_target=propagate_target_value,
+            )
+
         if apply_all and show_apply:
             untouched_mask = None
             if updated_mask is not None:
                 untouched_mask = ~updated_mask.astype(bool)
             review_model.apply_to_same_fingerprint(
-                df,
+                working_df,
                 row.get("fingerprint", ""),
-                payee=final_payee,
-                category=final_category,
-                update_map=update_value,
-                reviewed=True,
+                payee=final_target_payee,
+                category=target_category_value,
                 eligible_mask=untouched_mask,
             )
+
+        row_errors, warnings = review_validation.validate_row(working_df.loc[idx])
+        final_df = working_df
+        review_notice = ""
+        if reviewed_value:
+            reviewed_df = working_df.copy()
+            review_state.apply_row_edit(reviewed_df, idx, reviewed=True)
+            component_errors = review_validation.review_component_errors(reviewed_df, idx)
+            if component_errors:
+                final_df = working_df.copy()
+                review_state.apply_row_edit(final_df, idx, reviewed=False)
+                review_notice = "Review blocked: " + "; ".join(component_errors)
+            else:
+                final_df = reviewed_df
+        else:
+            review_state.apply_row_edit(final_df, idx, reviewed=False)
+
+        if review_notice:
+            st.error(review_notice)
+        elif row_errors:
+            st.warning("Pending issues: " + ", ".join(row_errors))
+        if warnings:
+            st.warning("Warnings: " + ", ".join(warnings))
+        if apply_all and show_apply:
             st.success(
-                "Applied to untouched rows with this fingerprint in memory. "
+                "Applied target values to untouched rows with this fingerprint in memory. "
                 "Click Save to persist."
             )
-        st.session_state["df"] = df
+        st.session_state["df"] = final_df
         # Recompute counters/badges from the updated dataframe in the same interaction.
         st.rerun()
 
@@ -927,20 +1111,6 @@ def main() -> None:
                     st.stop()
             st.rerun()
 
-        accept_defaults = review_state.accept_defaults_mask(df)
-        accept_count = int(accept_defaults.sum())
-        if st.button(
-            f"Accept remaining defaults ({accept_count})",
-            use_container_width=True,
-            disabled=accept_count == 0,
-        ):
-            df.loc[accept_defaults, "reviewed"] = True
-            st.session_state["df"] = df
-            st.session_state["save_notice"] = (
-                f"Accepted {accept_count} remaining default rows in memory. Save to persist."
-            )
-            st.rerun()
-
         st.caption(f"Map updates path: {map_updates_path}")
 
         st.markdown(
@@ -1036,7 +1206,7 @@ def main() -> None:
         f"**Missing category:** {counts['missing_category']} | "
         f"**Uncategorized:** {uncategorized_count} | "
         f"**Unresolved:** {counts['unresolved']} | "
-        f"**update_map:** {counts['update_map']} | "
+        f"**update_maps:** {counts['update_maps']} | "
         f"**Changed vs original:** {changed_count} | "
         f"**Reviewed:** {reviewed_count} | "
         f"**Unsaved:** {modified}"
@@ -1056,7 +1226,7 @@ def main() -> None:
         st.warning(f"Uncategorized still selected in {uncategorized_count} rows.")
 
     if not inconsistent.empty:
-        st.warning(f"Inconsistent fingerprints: {len(inconsistent)}")
+        st.warning(f"Inconsistent repeated transaction selections: {len(inconsistent)}")
 
     filtered = _apply_row_filters(
         df,
@@ -1284,7 +1454,6 @@ def main() -> None:
                 group_payee_override_key = _editor_key(f"group_payee_override_{fp}")
                 group_category_key = _editor_key(f"group_category_{fp}")
                 group_show_all_categories_key = _editor_key(f"group_show_all_categories_{fp}")
-                group_update_key = _editor_key(f"group_update_{fp}")
                 _ensure_widget_state(group_payee_key, group_payee_default)
                 _ensure_widget_state(group_payee_override_key, "")
                 group_show_all_categories_default = bool(
@@ -1301,7 +1470,6 @@ def main() -> None:
                     group_show_all_categories_key, group_show_all_categories_default
                 )
                 _ensure_widget_state(group_category_key, group_category_default)
-                _ensure_widget_state(group_update_key, False)
 
                 group_payee_select = st.selectbox(
                     "Group payee",
@@ -1348,9 +1516,6 @@ def main() -> None:
                         ),
                         key=group_category_key,
                     )
-                group_update = st.checkbox(
-                    "Set update_map for group", key=group_update_key
-                )
                 apply_group = st.button(
                     "Apply to all in group",
                     use_container_width=True,
@@ -1368,9 +1533,6 @@ def main() -> None:
                     group_category_select_value = str(
                         st.session_state.get(group_category_key, group_category_select) or ""
                     )
-                    group_update_value = bool(
-                        st.session_state.get(group_update_key, group_update)
-                    )
                     final_payee = (
                         group_payee_override_value.strip()
                         or group_payee_select_value.strip()
@@ -1387,8 +1549,6 @@ def main() -> None:
                         fp,
                         payee=payee_to_apply,
                         category=category_to_apply,
-                        update_map=group_update_value,
-                        reviewed=True,
                         eligible_mask=untouched_mask,
                     )
                     st.session_state["expanded_group_fp"] = fp

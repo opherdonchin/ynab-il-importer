@@ -7,9 +7,12 @@ import pandas as pd
 
 
 DECISION_COLUMNS = [
-    "payee_selected",
-    "category_selected",
-    "update_map",
+    "source_payee_selected",
+    "source_category_selected",
+    "target_payee_selected",
+    "target_category_selected",
+    "decision_action",
+    "update_maps",
     "reviewed",
 ]
 FALLBACK_KEY_COLUMNS = [
@@ -31,16 +34,38 @@ def _normalize_bool_series(series: pd.Series) -> pd.Series:
 
 
 def _decision_value_counts(row: pd.Series) -> int:
-    payee = str(row.get("payee_selected", "") or "").strip()
-    category = str(row.get("category_selected", "") or "").strip()
-    update_map = bool(row.get("update_map", False))
+    source_payee = str(row.get("source_payee_selected", "") or "").strip()
+    source_category = str(row.get("source_category_selected", "") or "").strip()
+    target_payee = str(row.get("target_payee_selected", "") or "").strip()
+    target_category = str(row.get("target_category_selected", "") or "").strip()
+    decision_action = str(row.get("decision_action", "") or "").strip()
+    update_maps = str(row.get("update_maps", "") or "").strip()
     reviewed = bool(row.get("reviewed", False))
-    return int(bool(payee or category or update_map or reviewed))
+    return int(
+        bool(
+            source_payee
+            or source_category
+            or target_payee
+            or target_category
+            or decision_action
+            or update_maps
+            or reviewed
+        )
+    )
 
 
 def _prepare(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
-    for col in ["transaction_id", "payee_selected", "category_selected", "fingerprint"]:
+    for col in [
+        "transaction_id",
+        "source_payee_selected",
+        "source_category_selected",
+        "target_payee_selected",
+        "target_category_selected",
+        "decision_action",
+        "update_maps",
+        "fingerprint",
+    ]:
         if col not in out.columns:
             out[col] = ""
         out[col] = out[col].astype("string").fillna("").str.strip()
@@ -54,11 +79,10 @@ def _prepare(df: pd.DataFrame) -> pd.DataFrame:
         out["date"] = ""
     out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
 
-    for col in ["update_map", "reviewed"]:
-        if col not in out.columns:
-            out[col] = False
-        else:
-            out[col] = _normalize_bool_series(out[col])
+    if "reviewed" not in out.columns:
+        out["reviewed"] = False
+    else:
+        out["reviewed"] = _normalize_bool_series(out["reviewed"])
     return out
 
 
@@ -78,6 +102,8 @@ def reconcile_reviewed_transactions(
 
     if "reviewed" not in result.columns:
         result["reviewed"] = False
+    if "decision_action" not in result.columns:
+        result["decision_action"] = ""
 
     direct_matches = 0
     fallback_matches = 0
@@ -105,9 +131,12 @@ def reconcile_reviewed_transactions(
         for key, group in remaining_old.groupby(FALLBACK_KEY_COLUMNS, dropna=False):
             tuples = {
                 (
-                    str(row.get("payee_selected", "") or "").strip(),
-                    str(row.get("category_selected", "") or "").strip(),
-                    bool(row.get("update_map", False)),
+                    str(row.get("source_payee_selected", "") or "").strip(),
+                    str(row.get("source_category_selected", "") or "").strip(),
+                    str(row.get("target_payee_selected", "") or "").strip(),
+                    str(row.get("target_category_selected", "") or "").strip(),
+                    str(row.get("decision_action", "") or "").strip(),
+                    str(row.get("update_maps", "") or "").strip(),
                     bool(row.get("reviewed", False)),
                 )
                 for _, row in group.iterrows()
@@ -129,10 +158,21 @@ def reconcile_reviewed_transactions(
                 continue
             if old_counts[key] < 1:
                 continue
-            payee, category, update_map, reviewed = decision_sets[key]
-            result.at[idx, "payee_selected"] = payee
-            result.at[idx, "category_selected"] = category
-            result.at[idx, "update_map"] = bool(update_map)
+            (
+                source_payee,
+                source_category,
+                target_payee,
+                target_category,
+                decision_action,
+                update_maps,
+                reviewed,
+            ) = decision_sets[key]
+            result.at[idx, "source_payee_selected"] = source_payee
+            result.at[idx, "source_category_selected"] = source_category
+            result.at[idx, "target_payee_selected"] = target_payee
+            result.at[idx, "target_category_selected"] = target_category
+            result.at[idx, "decision_action"] = decision_action
+            result.at[idx, "update_maps"] = update_maps
             result.at[idx, "reviewed"] = bool(reviewed)
             fallback_matches += 1
 
