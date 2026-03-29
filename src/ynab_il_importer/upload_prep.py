@@ -9,6 +9,7 @@ import pandas as pd
 import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.card_identity as card_identity
 import ynab_il_importer.review_app.model as review_model
+from ynab_il_importer.safe_types import normalize_flag_series
 
 
 REQUIRED_REVIEW_COLUMNS = [
@@ -55,7 +56,7 @@ def _nonzero_amount_mask(df: pd.DataFrame) -> pd.Series:
 def _decision_action_mask(df: pd.DataFrame) -> pd.Series:
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
     action = _normalize_text_series(df["decision_action"]).str.casefold()
-    reviewed = df["reviewed"].astype(bool).fillna(False)
+    reviewed = normalize_flag_series(df["reviewed"])
     return action.eq(_CREATE_TARGET_ACTION) & reviewed
 
 
@@ -151,7 +152,7 @@ def uploadable_account_mask(
 def _category_lookup(categories_df: pd.DataFrame) -> dict[str, str]:
     active = categories_df.copy()
     if "hidden" in active.columns:
-        active = active[~active["hidden"].astype(bool)]
+        active = active[~normalize_flag_series(active["hidden"])]
 
     names = _normalize_text_series(active["category_name"])
     name_counts = Counter(names.tolist())
@@ -182,7 +183,7 @@ def _category_alias(name: str) -> str:
 def _category_alias_lookup(categories_df: pd.DataFrame) -> dict[str, str]:
     active = categories_df.copy()
     if "hidden" in active.columns:
-        active = active[~active["hidden"].astype(bool)]
+        active = active[~normalize_flag_series(active["hidden"])]
 
     alias_to_id: dict[str, str] = {}
     duplicate_aliases: list[str] = []

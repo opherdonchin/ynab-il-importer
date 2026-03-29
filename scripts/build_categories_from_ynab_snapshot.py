@@ -48,7 +48,7 @@ def _categories_from_plan(plan_df: pd.DataFrame) -> pd.DataFrame:
             "category_group_id": [""] * len(categories),
             "category_name": categories["category_name"],
             "category_id": [""] * len(categories),
-            "hidden": ["False"] * len(categories),
+            "hidden": [False] * len(categories),
         }
     )
     return out
@@ -73,7 +73,7 @@ def _categories_from_snapshot(snapshot_df: pd.DataFrame, *, group_name: str) -> 
             "category_group_id": [""] * len(categories),
             "category_name": categories,
             "category_id": [""] * len(categories),
-            "hidden": ["False"] * len(categories),
+            "hidden": [False] * len(categories),
         }
     )
 

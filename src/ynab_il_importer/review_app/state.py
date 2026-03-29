@@ -5,6 +5,7 @@ from typing import Any
 import pandas as pd
 
 import ynab_il_importer.review_app.model as model
+from ynab_il_importer.safe_types import normalize_flag_series
 
 
 def series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
@@ -35,7 +36,7 @@ def _update_maps_series(df: pd.DataFrame) -> pd.Series:
 def _bool_series(df: pd.DataFrame, col: str) -> pd.Series:
     if col not in df.columns:
         return pd.Series([False] * len(df), index=df.index)
-    return df[col].astype(bool).fillna(False)
+    return normalize_flag_series(df[col])
 
 
 def _id_series(df: pd.DataFrame, col: str) -> pd.Series:
@@ -129,12 +130,14 @@ def changed_mask(df: pd.DataFrame, base: pd.DataFrame | None) -> pd.Series:
         current = df.assign(_key=df_keys).set_index("_key")[cols].copy()
         baseline = base.assign(_key=base_keys).set_index("_key")[cols].copy()
         aligned = baseline.reindex(current.index)
-        changed = (current != aligned).any(axis=1)
+        missing_in_base = aligned.isna().all(axis=1)
+        changed = (current != aligned).any(axis=1) | missing_in_base
         return pd.Series(changed.to_numpy(), index=df.index)
 
     current = df[cols].copy()
     baseline = base[cols].reindex(df.index)
-    return (current != baseline).any(axis=1)
+    missing_in_base = baseline.isna().all(axis=1)
+    return (current != baseline).any(axis=1) | missing_in_base
 
 
 def saved_mask(original: pd.DataFrame | None, base: pd.DataFrame | None, current_index: pd.Index) -> pd.Series:
@@ -223,34 +226,137 @@ def most_common_by_fingerprint(df: pd.DataFrame, column: str) -> dict[str, str]:
     return result
 
 
-def connected_component_mask(df: pd.DataFrame, start_idx: Any) -> pd.Series:
-    if start_idx not in df.index:
+def required_category_missing_mask(df: pd.DataFrame) -> pd.Series:
+    payee = series_or_default(df, "payee_selected").str.strip()
+    category = series_or_default(df, "category_selected").str.strip()
+    transfer = payee.map(model.is_transfer_payee)
+    return category.eq("") & ~transfer
+
+
+def uncategorized_mask(df: pd.DataFrame) -> pd.Series:
+    category = series_or_default(df, "category_selected").str.strip().str.casefold()
+    return category.str.contains("uncategorized", regex=False)
+
+
+def truthy_series(df: pd.DataFrame, column: str) -> pd.Series:
+    if column not in df.columns:
         return pd.Series([False] * len(df), index=df.index)
+    return normalize_flag_series(df[column])
 
-    source_ids = _id_series(df, "source_row_id")
-    target_ids = _id_series(df, "target_row_id")
-    component = pd.Series([False] * len(df), index=df.index)
-    pending_rows = {start_idx}
-    seen_sources: set[str] = set()
-    seen_targets: set[str] = set()
 
-    while pending_rows:
-        row_mask = pd.Series(df.index.isin(pending_rows), index=df.index)
-        new_rows = row_mask & ~component
-        if not new_rows.any():
-            break
-        component |= new_rows
-        current_sources = {value for value in source_ids.loc[new_rows].tolist() if value}
-        current_targets = {value for value in target_ids.loc[new_rows].tolist() if value}
-        seen_sources |= current_sources
-        seen_targets |= current_targets
-        pending_mask = (
-            source_ids.isin(seen_sources)
-            | target_ids.isin(seen_targets)
-        ) & ~component
-        pending_rows = set(df.index[pending_mask])
+def primary_state_series(df: pd.DataFrame, blocker_series: pd.Series) -> pd.Series:
+    import ynab_il_importer.review_app.validation as review_validation
 
-    return component
+    reviewed = truthy_series(df, "reviewed")
+    uncategorized = uncategorized_mask(df)
+    fix_blockers = {
+        "Contradiction in component",
+        "Institutional source mutation",
+        "Missing payee",
+        "Missing category",
+        "Uncategorized",
+    }
+    states: list[str] = []
+    for idx, row in df.iterrows():
+        row_errors, _ = review_validation.validate_row(row)
+        blocker = str(blocker_series.loc[idx] or "")
+        if bool(uncategorized.loc[idx]) or row_errors or blocker in fix_blockers:
+            states.append("Fix")
+        elif bool(reviewed.loc[idx]):
+            states.append("Settled")
+        else:
+            states.append("Decide")
+    return pd.Series(states, index=df.index, dtype="string")
+
+
+def row_kind_series(df: pd.DataFrame) -> pd.Series:
+    match_status = series_or_default(df, "match_status").str.strip().str.casefold()
+    labels = pd.Series(["Other"] * len(df), index=df.index, dtype="string")
+    labels = labels.where(~match_status.eq("matched_auto"), "Matched")
+    labels = labels.where(~match_status.eq("source_only"), "Source only")
+    labels = labels.where(~match_status.eq("target_only"), "Target only")
+    labels = labels.where(~match_status.eq("ambiguous"), "Ambiguous")
+    labels = labels.where(~match_status.eq("unrecognized"), "Unrecognized")
+    return labels
+
+
+def action_series(df: pd.DataFrame) -> pd.Series:
+    import ynab_il_importer.review_app.validation as review_validation
+
+    return review_validation.normalize_decision_actions(
+        series_or_default(df, "decision_action")
+    ).astype("string")
+
+
+def suggestion_series(df: pd.DataFrame) -> pd.Series:
+    source_present = truthy_series(df, "source_present")
+    target_present = truthy_series(df, "target_present")
+    source_payee_selected = series_or_default(df, "source_payee_selected").str.strip()
+    source_category_selected = series_or_default(df, "source_category_selected").str.strip()
+    target_payee_selected = series_or_default(df, "target_payee_selected").str.strip()
+    target_category_selected = series_or_default(df, "target_category_selected").str.strip()
+    payee_options = series_or_default(df, "payee_options").str.strip()
+    category_options = series_or_default(df, "category_options").str.strip()
+    has_missing_side_suggestions = (
+        ~source_present
+        & (
+            source_payee_selected.ne("")
+            | source_category_selected.ne("")
+        )
+    ) | (
+        ~target_present
+        & (
+            target_payee_selected.ne("")
+            | target_category_selected.ne("")
+            | payee_options.ne("")
+            | category_options.ne("")
+        )
+    )
+    return pd.Series(
+        ["Has suggestions" if bool(value) else "No suggestions" for value in has_missing_side_suggestions],
+        index=df.index,
+        dtype="string",
+    )
+
+
+def map_update_filter_series(df: pd.DataFrame) -> pd.Series:
+    has_updates = series_or_default(df, "update_maps").str.strip().ne("")
+    return pd.Series(
+        ["Has update_maps" if bool(value) else "No update_maps" for value in has_updates],
+        index=df.index,
+        dtype="string",
+    )
+
+
+def search_text_series(df: pd.DataFrame) -> pd.Series:
+    columns = [
+        "fingerprint",
+        "memo",
+        "memo_append",
+        "description_raw",
+        "description_clean",
+        "payee_options",
+        "category_options",
+        "source_payee_current",
+        "source_payee_selected",
+        "source_category_selected",
+        "target_payee_current",
+        "target_payee_selected",
+        "target_category_selected",
+        "source_memo",
+        "target_memo",
+        "source_account",
+        "target_account",
+        "account_name",
+        "source",
+        "decision_action",
+        "update_maps",
+    ]
+    parts = [series_or_default(df, column) for column in columns]
+    text = pd.Series([""] * len(df), index=df.index, dtype="string")
+    for part in parts:
+        text = text + " " + part.astype("string").fillna("")
+    return text.str.casefold()
 
 
 def related_rows_mask(
@@ -330,5 +436,7 @@ def apply_row_edit(
     if decision_action is not None and "decision_action" in df.columns:
         df.at[idx, "decision_action"] = str(decision_action).strip()
     if reviewed is not None and "reviewed" in df.columns:
+        from ynab_il_importer.review_app.validation import connected_component_mask
+
         df.loc[connected_component_mask(df, idx), "reviewed"] = bool(reviewed)
     return df

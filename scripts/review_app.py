@@ -152,7 +152,7 @@ def _build_streamlit_command(
     input_path: Path,
     output_path: Path,
     categories_path: Path,
-    profile: str,
+    profile: str = "",
     resume: str | None,
     control_dir: Path,
     port: int,

@@ -171,8 +171,35 @@ def test_changed_mask_aligns_duplicate_transaction_ids() -> None:
     assert changed.tolist() == [False, True]
 
 
+def test_changed_mask_marks_rows_missing_from_baseline() -> None:
+    base = pd.DataFrame(
+        {
+            "transaction_id": ["t1", "t2"],
+            "target_payee_selected": ["A", "B"],
+            "target_category_selected": ["C", "D"],
+            "decision_action": ["keep_match", "keep_match"],
+            "update_maps": ["", ""],
+            "reviewed": [False, False],
+        }
+    )
+    current = pd.DataFrame(
+        {
+            "transaction_id": ["t1", "t2", "t3"],
+            "target_payee_selected": ["A", "B", "C"],
+            "target_category_selected": ["C", "D", "E"],
+            "decision_action": ["keep_match", "keep_match", "create_target"],
+            "update_maps": ["", "", ""],
+            "reviewed": [False, False, False],
+        }
+    )
+
+    changed = review_state.changed_mask(current, base)
+
+    assert changed.tolist() == [False, False, True]
+
+
 def test_allowed_decision_actions_block_source_mutation_for_institutional() -> None:
-    actions = review_app._allowed_decision_actions(
+    actions = review_validation.allowed_decision_actions(
         pd.Series(
             {
                 "workflow_type": "institutional",
@@ -432,8 +459,8 @@ def test_primary_state_series_keeps_no_decision_open_and_component_conflicts_fix
     )
     df["reviewed"] = review_validation.normalize_flag_series(df["reviewed"])
 
-    blocker_series = review_app._blocker_series(df)
-    primary_state_series = review_app._primary_state_series(df, blocker_series)
+    blocker_series = review_validation.blocker_series(df)
+    primary_state_series = review_state.primary_state_series(df, blocker_series)
 
     assert blocker_series.tolist() == [
         "No decision",
@@ -462,14 +489,14 @@ def test_apply_row_filters_supports_action_blocker_suggestions_map_updates_and_s
     )
     df["reviewed"] = review_validation.normalize_flag_series(df["reviewed"])
 
-    blocker_series = review_app._blocker_series(df)
-    primary_state_series = review_app._primary_state_series(df, blocker_series)
-    row_kind_series = review_app._row_kind_series(df)
-    action_series = review_app._action_series(df)
+    blocker_series = review_validation.blocker_series(df)
+    primary_state_series = review_state.primary_state_series(df, blocker_series)
+    row_kind_series = review_state.row_kind_series(df)
+    action_series = review_state.action_series(df)
     save_state = pd.Series(["Unsaved", "Saved"], index=df.index, dtype="string")
-    suggestion_series = review_app._suggestion_series(df)
-    map_update_series = review_app._map_update_filter_series(df)
-    search_text = review_app._search_text_series(df)
+    suggestion_series = review_state.suggestion_series(df)
+    map_update_series = review_state.map_update_filter_series(df)
+    search_text = review_state.search_text_series(df)
 
     filtered = review_app._apply_row_filters(
         df,

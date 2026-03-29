@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 import ynab_il_importer.review_app.io as review_io
+import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.review_app.state as review_state
 import ynab_il_importer.review_app.validation as review_validation
 
@@ -80,6 +81,50 @@ def test_review_component_errors_catch_unresolved_and_conflicting_rows() -> None
     assert "connected rows still contain No decision" in errors
     assert "row 1: reviewed row cannot have No decision" in errors
     assert "source transaction s1 is both matched and deleted" in errors
+
+
+def test_blocker_series_marks_missing_reviewed_payee() -> None:
+    df = _review_rows(
+        [
+            {
+                "workflow_type": "cross_budget",
+                "decision_action": "create_target",
+                "reviewed": True,
+                "source_payee_selected": "Cafe",
+                "source_category_selected": "Food",
+                "target_payee_selected": "",
+                "target_category_selected": "Food",
+                "update_maps": "",
+            }
+        ]
+    )
+
+    blockers = review_validation.blocker_series(df)
+
+    assert blockers.tolist() == ["Missing payee"]
+
+
+def test_blocker_series_is_none_for_settled_consistent_rows() -> None:
+    df = _review_rows(
+        [
+            {
+                "source_row_id": "s1",
+                "target_row_id": "t1",
+                "workflow_type": "cross_budget",
+                "decision_action": "keep_match",
+                "reviewed": True,
+                "source_payee_selected": "Cafe",
+                "source_category_selected": "Food",
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+                "update_maps": "",
+            }
+        ]
+    )
+
+    blockers = review_validation.blocker_series(df)
+
+    assert blockers.tolist() == ["None"]
 
 
 def test_load_save_roundtrip_uses_side_specific_selected_fields(tmp_path) -> None:
@@ -180,6 +225,126 @@ def test_summary_counts_and_filters_follow_new_decision_action_rules() -> None:
     assert reviewed_only.index.tolist() == [2]
 
 
+def test_primary_state_series_maps_fix_decide_and_settled() -> None:
+    df = _review_rows(
+        [
+            {
+                "transaction_id": "fix",
+                "decision_action": "create_target",
+                "reviewed": True,
+                "target_payee_selected": "",
+                "target_category_selected": "Food",
+            },
+            {
+                "transaction_id": "decide",
+                "decision_action": review_validation.NO_DECISION,
+                "reviewed": False,
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+            },
+            {
+                "transaction_id": "settled",
+                "decision_action": "keep_match",
+                "reviewed": True,
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+            },
+        ]
+    )
+    blockers = review_validation.blocker_series(df)
+
+    states = review_state.primary_state_series(df, blockers)
+
+    assert states.tolist() == ["Fix", "Decide", "Settled"]
+
+
+def test_allowed_decision_actions_allow_source_mutation_for_cross_budget_target_only() -> None:
+    actions = review_validation.allowed_decision_actions(
+        pd.Series(
+            {
+                "workflow_type": "cross_budget",
+                "source_present": False,
+                "target_present": True,
+            }
+        )
+    )
+
+    assert actions == [review_validation.NO_DECISION, "create_source", "delete_target", "ignore_row"]
+
+
+def test_apply_review_state_rejects_reviewed_no_decision() -> None:
+    df = _review_rows(
+        [
+            {
+                "transaction_id": "t1",
+                "source_row_id": "s1",
+                "target_row_id": "t1",
+                "workflow_type": "cross_budget",
+                "decision_action": review_validation.NO_DECISION,
+                "reviewed": False,
+                "source_payee_selected": "Cafe",
+                "source_category_selected": "Food",
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+                "update_maps": "",
+            }
+        ]
+    )
+
+    updated, errors = review_validation.apply_review_state(df, [0], reviewed=True)
+
+    assert updated["reviewed"].tolist() == [False]
+    assert errors == [
+        "connected rows still contain No decision",
+        "row 0: reviewed row cannot have No decision",
+    ]
+
+
+def test_apply_competing_row_resolution_ignores_conflicts() -> None:
+    df = _review_rows(
+        [
+            {"source_row_id": "s1", "target_row_id": "t1", "decision_action": "keep_match"},
+            {"source_row_id": "s1", "target_row_id": "t2", "decision_action": review_validation.NO_DECISION},
+            {"source_row_id": "s3", "target_row_id": "t1", "decision_action": review_validation.NO_DECISION},
+        ]
+    )
+
+    touched = review_model.apply_competing_row_resolution(df, [0])
+
+    assert touched == [1, 2]
+    assert df["decision_action"].tolist() == ["keep_match", "ignore_row", "ignore_row"]
+
+
+def test_uncategorized_mask_detects_uncategorized_label() -> None:
+    df = _review_rows(
+        [
+            {"transaction_id": "t1", "target_category_selected": "Uncategorized"},
+            {"transaction_id": "t2", "target_category_selected": "Food"},
+        ]
+    )
+
+    mask = review_state.uncategorized_mask(df)
+
+    assert mask.tolist() == [True, False]
+
+
+def test_search_text_series_contains_payee_and_memo() -> None:
+    df = _review_rows(
+        [
+            {
+                "transaction_id": "t1",
+                "memo": "weekly groceries",
+                "target_payee_selected": "Cafe Roma",
+            }
+        ]
+    )
+
+    search_text = review_state.search_text_series(df)
+
+    assert "weekly groceries" in search_text.iloc[0]
+    assert "cafe roma" in search_text.iloc[0]
+
+
 def test_related_rows_mask_can_expand_by_source_and_target() -> None:
     df = _review_rows(
         [
@@ -193,3 +358,82 @@ def test_related_rows_mask_can_expand_by_source_and_target() -> None:
     mask = review_state.related_rows_mask(df, 0, include_source=True, include_target=True)
 
     assert mask.tolist() == [True, True, True, False]
+
+
+def test_precompute_components_single_component() -> None:
+    df = _review_rows(
+        [
+            {"source_row_id": "s1", "target_row_id": "t1"},
+            {"source_row_id": "s1", "target_row_id": "t2"},
+            {"source_row_id": "s3", "target_row_id": "t2"},
+        ]
+    )
+
+    component_map = review_validation.precompute_components(df)
+
+    assert set(component_map.values()) == {0}
+
+
+def test_precompute_components_two_components() -> None:
+    df = _review_rows(
+        [
+            {"source_row_id": "s1", "target_row_id": "t1"},
+            {"source_row_id": "s1", "target_row_id": "t2"},
+            {"source_row_id": "s3", "target_row_id": "t3"},
+        ]
+    )
+
+    component_map = review_validation.precompute_components(df)
+
+    assert component_map[0] == component_map[1]
+    assert component_map[2] != component_map[0]
+
+
+def test_precompute_component_errors_propagates() -> None:
+    df = _review_rows(
+        [
+            {
+                "source_row_id": "s1",
+                "target_row_id": "t1",
+                "workflow_type": "cross_budget",
+                "decision_action": "keep_match",
+                "reviewed": True,
+                "source_payee_selected": "Cafe",
+                "source_category_selected": "Food",
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+                "update_maps": "",
+            },
+            {
+                "source_row_id": "s1",
+                "target_row_id": "t2",
+                "workflow_type": "cross_budget",
+                "decision_action": review_validation.NO_DECISION,
+                "reviewed": True,
+                "source_payee_selected": "Cafe",
+                "source_category_selected": "Food",
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+                "update_maps": "",
+            },
+            {
+                "source_row_id": "s3",
+                "target_row_id": "t3",
+                "workflow_type": "cross_budget",
+                "decision_action": "keep_match",
+                "reviewed": True,
+                "source_payee_selected": "Cafe",
+                "source_category_selected": "Food",
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+                "update_maps": "",
+            },
+        ]
+    )
+
+    component_map = review_validation.precompute_components(df)
+    component_errors = review_validation.precompute_component_errors(df, component_map)
+
+    assert component_errors[component_map[0]] == component_errors[component_map[1]]
+    assert "connected rows still contain No decision" in component_errors[component_map[0]]
+    assert component_errors[component_map[2]] == []

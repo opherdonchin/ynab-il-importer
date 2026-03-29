@@ -9,6 +9,7 @@ import pandas as pd
 
 import ynab_il_importer.export as export
 import ynab_il_importer.rules as rules
+from ynab_il_importer.safe_types import normalize_flag_series
 
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -28,7 +29,7 @@ def _string_series(df: pd.DataFrame, column: str) -> pd.Series:
 def _bool_series(df: pd.DataFrame, column: str) -> pd.Series:
     if column not in df.columns:
         return pd.Series([False] * len(df), index=df.index)
-    return df[column].astype(bool).fillna(False)
+    return normalize_flag_series(df[column])
 
 
 def _selected_series(df: pd.DataFrame, *, side: str, field: str) -> pd.Series:

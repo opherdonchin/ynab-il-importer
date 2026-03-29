@@ -623,199 +623,6 @@ def _row_key_series(df: pd.DataFrame) -> pd.Series:
     return txn_id + "|" + occurrence
 
 
-def _required_category_missing_mask(df: pd.DataFrame) -> pd.Series:
-    payee = review_state.series_or_default(df, "payee_selected").str.strip()
-    category = review_state.series_or_default(df, "category_selected").str.strip()
-    transfer = payee.map(review_model.is_transfer_payee)
-    return category.eq("") & ~transfer
-
-
-def _uncategorized_mask(df: pd.DataFrame) -> pd.Series:
-    category = review_state.series_or_default(df, "category_selected").str.strip().str.casefold()
-    return category.str.contains("uncategorized", regex=False)
-
-
-def _truthy_series(df: pd.DataFrame, column: str) -> pd.Series:
-    if column not in df.columns:
-        return pd.Series([False] * len(df), index=df.index)
-    return (
-        df[column]
-        .astype("string")
-        .fillna("")
-        .str.strip()
-        .str.casefold()
-        .isin(review_validation.TRUE_VALUES)
-    )
-
-
-def _component_error_lookup(df: pd.DataFrame) -> dict[Any, list[str]]:
-    lookup: dict[Any, list[str]] = {}
-    seen: set[Any] = set()
-    for idx in df.index:
-        if idx in seen:
-            continue
-        component_mask = review_validation.connected_component_mask(df, idx)
-        component_indices = df.index[component_mask].tolist()
-        component_errors = review_validation.review_component_errors(df, idx)
-        for component_idx in component_indices:
-            lookup[component_idx] = component_errors
-        seen.update(component_indices)
-    return lookup
-
-
-def _blocker_label(row: pd.Series, *, component_errors: list[str], uncategorized: bool) -> str:
-    row_errors, _ = review_validation.validate_row(row)
-    action = review_validation.normalize_decision_actions(
-        pd.Series([row.get("decision_action", "")])
-    ).iloc[0]
-    combined_errors = list(row_errors) + list(component_errors)
-
-    if any(
-        ("multiple reviewed match outcomes" in error) or ("both matched and deleted" in error)
-        for error in combined_errors
-    ):
-        return "Contradiction in component"
-    if any(
-        ("institutional" in error.casefold()) and ("source" in error.casefold())
-        for error in combined_errors
-    ):
-        return "Institutional source mutation"
-    if action == review_validation.NO_DECISION or any("No decision" in error for error in combined_errors):
-        return "No decision"
-    if any("missing payee" in error for error in row_errors):
-        return "Missing payee"
-    if uncategorized:
-        return "Uncategorized"
-    if any("missing category" in error for error in row_errors):
-        return "Missing category"
-    return "None"
-
-
-def _blocker_series(df: pd.DataFrame) -> pd.Series:
-    uncategorized = _uncategorized_mask(df)
-    component_errors = _component_error_lookup(df)
-    values = [
-        _blocker_label(
-            row,
-            component_errors=component_errors.get(idx, []),
-            uncategorized=bool(uncategorized.loc[idx]),
-        )
-        for idx, row in df.iterrows()
-    ]
-    return pd.Series(values, index=df.index, dtype="string")
-
-
-def _primary_state_series(df: pd.DataFrame, blocker_series: pd.Series) -> pd.Series:
-    reviewed = _truthy_series(df, "reviewed")
-    uncategorized = _uncategorized_mask(df)
-    fix_blockers = {
-        "Contradiction in component",
-        "Institutional source mutation",
-        "Missing payee",
-        "Missing category",
-        "Uncategorized",
-    }
-    states: list[str] = []
-    for idx, row in df.iterrows():
-        row_errors, _ = review_validation.validate_row(row)
-        blocker = str(blocker_series.loc[idx] or "")
-        if bool(uncategorized.loc[idx]) or row_errors or blocker in fix_blockers:
-            states.append("Fix")
-        elif bool(reviewed.loc[idx]):
-            states.append("Settled")
-        else:
-            states.append("Decide")
-    return pd.Series(states, index=df.index, dtype="string")
-
-
-def _row_kind_series(df: pd.DataFrame) -> pd.Series:
-    match_status = review_state.series_or_default(df, "match_status").str.strip().str.casefold()
-    labels = pd.Series(["Other"] * len(df), index=df.index, dtype="string")
-    labels = labels.where(~match_status.eq("matched_auto"), "Matched")
-    labels = labels.where(~match_status.eq("source_only"), "Source only")
-    labels = labels.where(~match_status.eq("target_only"), "Target only")
-    labels = labels.where(~match_status.eq("ambiguous"), "Ambiguous")
-    labels = labels.where(~match_status.eq("unrecognized"), "Unrecognized")
-    return labels
-
-
-def _action_series(df: pd.DataFrame) -> pd.Series:
-    return review_validation.normalize_decision_actions(
-        review_state.series_or_default(df, "decision_action")
-    ).astype("string")
-
-
-def _suggestion_series(df: pd.DataFrame) -> pd.Series:
-    source_present = _truthy_series(df, "source_present")
-    target_present = _truthy_series(df, "target_present")
-    source_payee_selected = review_state.series_or_default(df, "source_payee_selected").str.strip()
-    source_category_selected = review_state.series_or_default(df, "source_category_selected").str.strip()
-    target_payee_selected = review_state.series_or_default(df, "target_payee_selected").str.strip()
-    target_category_selected = review_state.series_or_default(df, "target_category_selected").str.strip()
-    payee_options = review_state.series_or_default(df, "payee_options").str.strip()
-    category_options = review_state.series_or_default(df, "category_options").str.strip()
-    has_missing_side_suggestions = (
-        ~source_present
-        & (
-            source_payee_selected.ne("")
-            | source_category_selected.ne("")
-        )
-    ) | (
-        ~target_present
-        & (
-            target_payee_selected.ne("")
-            | target_category_selected.ne("")
-            | payee_options.ne("")
-            | category_options.ne("")
-        )
-    )
-    return pd.Series(
-        ["Has suggestions" if bool(value) else "No suggestions" for value in has_missing_side_suggestions],
-        index=df.index,
-        dtype="string",
-    )
-
-
-def _map_update_filter_series(df: pd.DataFrame) -> pd.Series:
-    has_updates = review_state.series_or_default(df, "update_maps").str.strip().ne("")
-    return pd.Series(
-        ["Has update_maps" if bool(value) else "No update_maps" for value in has_updates],
-        index=df.index,
-        dtype="string",
-    )
-
-
-def _search_text_series(df: pd.DataFrame) -> pd.Series:
-    columns = [
-        "fingerprint",
-        "memo",
-        "memo_append",
-        "description_raw",
-        "description_clean",
-        "payee_options",
-        "category_options",
-        "source_payee_current",
-        "source_payee_selected",
-        "source_category_selected",
-        "target_payee_current",
-        "target_payee_selected",
-        "target_category_selected",
-        "source_memo",
-        "target_memo",
-        "source_account",
-        "target_account",
-        "account_name",
-        "source",
-        "decision_action",
-        "update_maps",
-    ]
-    parts = [review_state.series_or_default(df, column) for column in columns]
-    text = pd.Series([""] * len(df), index=df.index, dtype="string")
-    for part in parts:
-        text = text + " " + part.astype("string").fillna("")
-    return text.str.casefold()
-
-
 def _ordered_filter_options(series: pd.Series, preferred: list[str]) -> list[str]:
     present = {str(value or "").strip() for value in series.astype("string").tolist() if str(value or "").strip()}
     ordered = [value for value in preferred if value in present]
@@ -823,46 +630,10 @@ def _ordered_filter_options(series: pd.Series, preferred: list[str]) -> list[str
     return ordered + extras
 
 
-def _apply_review_state(
-    edited_df: pd.DataFrame,
-    indices: list[Any],
-    *,
-    reviewed: bool,
-) -> tuple[pd.DataFrame, list[str]]:
-    touched = [idx for idx in dict.fromkeys(indices) if idx in edited_df.index]
-    if not touched:
-        return edited_df.copy(), []
-
-    updated = edited_df.copy()
-    for idx in touched:
-        review_state.apply_row_edit(updated, idx, reviewed=reviewed)
-
-    if not reviewed:
-        return updated, []
-
-    errors: list[str] = []
-    seen_components: set[tuple[Any, ...]] = set()
-    for idx in touched:
-        component_indices = tuple(updated.index[review_validation.connected_component_mask(updated, idx)].tolist())
-        if component_indices in seen_components:
-            continue
-        seen_components.add(component_indices)
-        errors.extend(review_validation.review_component_errors(updated, idx))
-
-    if errors:
-        reverted = edited_df.copy()
-        for idx in touched:
-            review_state.apply_row_edit(reverted, idx, reviewed=False)
-        unique_errors = list(dict.fromkeys(errors))
-        return reverted, unique_errors
-
-    return updated, []
-
-
 def _derive_inference_tags(df: pd.DataFrame) -> pd.Series:
     match_status = review_state.series_or_default(df, "match_status").str.strip().str.lower()
     payee = review_state.series_or_default(df, "payee_selected").str.strip()
-    missing_required = payee.eq("") | _required_category_missing_mask(df)
+    missing_required = payee.eq("") | review_state.required_category_missing_mask(df)
 
     inferred = pd.Series(["unique"] * len(df), index=df.index, dtype="string")
     inferred = inferred.where(~match_status.eq("none"), "unrecognized")
@@ -936,6 +707,19 @@ def _merge_category_choices(*values: str) -> list[str]:
             ordered.append(text)
             seen.add(text)
     return ordered
+
+
+def _option_list(series: pd.Series) -> list[str]:
+    parts = (
+        series.astype("string")
+        .fillna("")
+        .str.split(";")
+        .explode()
+    )
+    if parts.empty:
+        return []
+    clean = parts.astype("string").fillna("").str.strip()
+    return clean.loc[clean.ne("")].drop_duplicates().tolist()
 
 
 def _category_choice_list(
@@ -1047,77 +831,6 @@ def _render_row_details(
                 ("Memo", row.get("target_memo", "")),
             ],
         )
-
-
-def _allowed_decision_actions(row: pd.Series) -> list[str]:
-    workflow_type = str(row.get("workflow_type", "") or "").strip().casefold()
-    source_present = bool(row.get("source_present", False))
-    target_present = bool(row.get("target_present", False))
-
-    actions = [review_validation.NO_DECISION, "ignore_row"]
-    if source_present and target_present:
-        actions = [review_validation.NO_DECISION, "keep_match", "delete_source", "delete_target", "delete_both", "ignore_row"]
-    elif source_present and not target_present:
-        actions = [review_validation.NO_DECISION, "create_target", "delete_source", "ignore_row"]
-    elif target_present and not source_present:
-        actions = [review_validation.NO_DECISION, "create_source", "delete_target", "ignore_row"]
-
-    if workflow_type == "institutional":
-        actions = [
-            action
-            for action in actions
-            if action not in review_validation.SOURCE_MUTATION_ACTIONS
-        ]
-
-    ordered: list[str] = []
-    for action in actions:
-        if action not in ordered:
-            ordered.append(action)
-    return ordered
-
-
-def _competing_row_scope(decision_action: str) -> tuple[bool, bool]:
-    action = review_validation.normalize_decision_actions(pd.Series([decision_action])).iloc[0]
-    include_source = action in (
-        review_validation.SOURCE_MATCH_ACTIONS | review_validation.SOURCE_DELETE_ACTIONS
-    )
-    include_target = action in (
-        review_validation.TARGET_MATCH_ACTIONS | review_validation.TARGET_DELETE_ACTIONS
-    )
-    return include_source, include_target
-
-
-def _apply_competing_row_resolution(
-    df: pd.DataFrame,
-    indices: list[Any],
-) -> list[Any]:
-    touched: list[Any] = []
-    for idx in dict.fromkeys(indices):
-        if idx not in df.index:
-            continue
-        action = review_validation.normalize_decision_actions(
-            pd.Series([df.loc[idx, "decision_action"] if "decision_action" in df.columns else ""])
-        ).iloc[0]
-        if action in {review_validation.NO_DECISION, "ignore_row"}:
-            continue
-        include_source, include_target = _competing_row_scope(action)
-        if not include_source and not include_target:
-            continue
-        mask = review_state.related_rows_mask(
-            df,
-            idx,
-            include_source=include_source,
-            include_target=include_target,
-        )
-        if idx in mask.index:
-            mask.loc[idx] = False
-        competing_indices = df.index[mask].tolist()
-        if not competing_indices:
-            continue
-        if "decision_action" in df.columns:
-            df.loc[mask, "decision_action"] = "ignore_row"
-        touched.extend(competing_indices)
-    return list(dict.fromkeys(touched))
 
 
 def _render_row_controls(
@@ -1265,7 +978,7 @@ def _render_row_controls(
 
         st.markdown("**Decision**")
         decision_action_key = _editor_key(f"decision_action_{idx}")
-        decision_options = _allowed_decision_actions(row)
+        decision_options = review_validation.allowed_decision_actions(row)
         if current_action not in decision_options:
             decision_options.append(current_action)
         _ensure_widget_state(decision_action_key, current_action)
@@ -1352,7 +1065,7 @@ def _render_row_controls(
         )
 
         review_indices = [idx]
-        review_indices.extend(_apply_competing_row_resolution(working_df, [idx]))
+        review_indices.extend(review_model.apply_competing_row_resolution(working_df, [idx]))
 
         if apply_all and show_apply:
             untouched_mask = None
@@ -1375,10 +1088,10 @@ def _render_row_controls(
             )
             applied_indices = working_df.index[applied_mask].tolist()
             review_indices.extend(applied_indices)
-            review_indices.extend(_apply_competing_row_resolution(working_df, applied_indices))
+            review_indices.extend(review_model.apply_competing_row_resolution(working_df, applied_indices))
 
         row_errors, warnings = review_validation.validate_row(working_df.loc[idx])
-        final_df, review_errors = _apply_review_state(
+        final_df, review_errors = review_validation.apply_review_state(
             working_df,
             review_indices,
             reviewed=review_requested,
@@ -1446,20 +1159,20 @@ def main() -> None:
     modified = review_state.modified_count(df, original)
     unsaved_mask = review_state.modified_mask(df, original)
     changed_mask = review_state.changed_mask(df, base)
-    reviewed_mask = df.get("reviewed", pd.Series([False] * len(df), index=df.index)).astype(
-        bool
+    reviewed_mask = review_validation.normalize_flag_series(
+        df.get("reviewed", pd.Series([False] * len(df), index=df.index))
     )
     saved_mask = review_state.saved_mask(original, base, df.index)
     updated_mask = (changed_mask | reviewed_mask).astype(bool)
     inconsistent = review_validation.inconsistent_fingerprints(df)
-    uncategorized_mask = _uncategorized_mask(df)
-    blocker_series = _blocker_series(df)
-    primary_state_series = _primary_state_series(df, blocker_series)
-    row_kind_series = _row_kind_series(df)
-    action_series = _action_series(df)
-    suggestion_series = _suggestion_series(df)
-    map_update_series = _map_update_filter_series(df)
-    search_text = _search_text_series(df)
+    uncategorized_mask = review_state.uncategorized_mask(df)
+    blocker_series = review_validation.blocker_series(df)
+    primary_state_series = review_state.primary_state_series(df, blocker_series)
+    row_kind_series = review_state.row_kind_series(df)
+    action_series = review_state.action_series(df)
+    suggestion_series = review_state.suggestion_series(df)
+    map_update_series = review_state.map_update_filter_series(df)
+    search_text = review_state.search_text_series(df)
     save_state = pd.Series(
         ["Saved" if bool(value) else "Unsaved" for value in saved_mask],
         index=df.index,
@@ -1575,7 +1288,7 @@ def main() -> None:
             if not review_indices:
                 st.session_state["review_notice"] = "No rows have a decision to accept yet."
             else:
-                final_df, review_errors = _apply_review_state(
+                final_df, review_errors = review_validation.apply_review_state(
                     df.copy(),
                     review_indices,
                     reviewed=True,
@@ -1586,7 +1299,9 @@ def main() -> None:
                         "Accept all blocked: " + "; ".join(review_errors)
                     )
                 else:
-                    settled_count = int(final_df["reviewed"].astype(bool).sum())
+                    settled_count = int(
+                        review_validation.normalize_flag_series(final_df["reviewed"]).sum()
+                    )
                     st.session_state["review_notice"] = (
                         f"Marked {settled_count} rows reviewed in memory. Click Save to persist."
                     )
@@ -1836,13 +1551,14 @@ def main() -> None:
             "Rows per group", [10, 25, 50], index=0, key="group_row_page_size"
         )
 
-        filtered_fps = review_state.series_or_default(filtered, "fingerprint")
+        fingerprint_series = review_state.series_or_default(df, "fingerprint").str.strip()
+        fp_to_indices = {
+            fp: group.index.tolist()
+            for fp, group in fingerprint_series.groupby(fingerprint_series, sort=False)
+        }
+        filtered_fps = review_state.series_or_default(filtered, "fingerprint").str.strip()
         filtered_fp_set = set(filtered_fps.tolist())
-        all_sizes = (
-            review_state.series_or_default(df, "fingerprint")
-            .value_counts()
-            .sort_values(ascending=False)
-        )
+        all_sizes = fingerprint_series.value_counts().sort_values(ascending=False)
         fingerprints = [fp for fp in all_sizes.index.tolist() if fp in filtered_fp_set]
         total_pages = max(1, (len(fingerprints) + group_page_size - 1) // group_page_size)
         page_key = _editor_key("group_page")
@@ -1859,16 +1575,9 @@ def main() -> None:
         start = (page - 1) * group_page_size
         end = start + group_page_size
         for fp in fingerprints[start:end]:
-            group = df[df["fingerprint"].astype("string").fillna("") == fp]
-            group_payee_options: list[str] = []
-            group_category_options: list[str] = []
-            for _, row in group.iterrows():
-                for opt in review_model.parse_option_string(row.get("payee_options", "")):
-                    if opt not in group_payee_options:
-                        group_payee_options.append(opt)
-                for opt in review_model.parse_option_string(row.get("category_options", "")):
-                    if opt not in group_category_options:
-                        group_category_options.append(opt)
+            group = df.loc[fp_to_indices.get(fp, [])]
+            group_payee_options = _option_list(group["payee_options"])
+            group_category_options = _option_list(group["category_options"])
 
             group_payee_summary = _format_option_summary(group_payee_options, limit=3)
             group_category_summary = _format_option_summary(
@@ -1920,15 +1629,8 @@ def main() -> None:
                         ).strip(),
                         unsafe_allow_html=True,
                     )
-                payee_options: list[str] = []
-                category_options: list[str] = []
-                for _, row in group.iterrows():
-                    for opt in review_model.parse_option_string(row.get("payee_options", "")):
-                        if opt not in payee_options:
-                            payee_options.append(opt)
-                    for opt in review_model.parse_option_string(row.get("category_options", "")):
-                        if opt not in category_options:
-                            category_options.append(opt)
+                payee_options = group_payee_options
+                category_options = group_category_options
 
                 group_payee_default = review_state.most_common_value(group["payee_selected"])
                 if not group_payee_default:
@@ -1976,7 +1678,7 @@ def main() -> None:
                 _ensure_widget_state(group_category_key, group_category_default)
                 group_decision_options: list[str] = []
                 for _, group_row in group.iterrows():
-                    for action in _allowed_decision_actions(group_row):
+                    for action in review_validation.allowed_decision_actions(group_row):
                         if action not in group_decision_options:
                             group_decision_options.append(action)
                 group_decision_default = review_state.most_common_value(group["decision_action"])
@@ -2081,9 +1783,9 @@ def main() -> None:
                     )
                     affected_indices = working_df.index[applied_mask].tolist()
                     affected_indices.extend(
-                        _apply_competing_row_resolution(working_df, affected_indices)
+                        review_model.apply_competing_row_resolution(working_df, affected_indices)
                     )
-                    final_df, review_errors = _apply_review_state(
+                    final_df, review_errors = review_validation.apply_review_state(
                         working_df,
                         affected_indices,
                         reviewed=True,

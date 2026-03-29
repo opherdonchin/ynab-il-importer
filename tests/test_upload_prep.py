@@ -379,6 +379,29 @@ def test_prepare_upload_transactions_resolves_simplified_category_aliases() -> N
     assert prepared["category_id"].tolist() == ["cat-groceries", "cat-rta"]
 
 
+def test_category_lookup_keeps_visible_categories_when_hidden_is_string_false() -> None:
+    categories = pd.DataFrame(
+        [
+            {
+                "category_group": "Flexible expenses",
+                "category_name": "Groceries",
+                "category_id": "cat-groceries",
+                "hidden": "False",
+            },
+            {
+                "category_group": "Internal Master Category",
+                "category_name": "Uncategorized",
+                "category_id": "cat-uncat",
+                "hidden": "TRUE",
+            },
+        ]
+    )
+
+    category_lookup = upload_prep._category_lookup(categories)
+
+    assert category_lookup == {"Groceries": "cat-groceries"}
+
+
 def test_upload_preflight_reports_duplicate_and_match_risks() -> None:
     prepared = pd.DataFrame(
         {

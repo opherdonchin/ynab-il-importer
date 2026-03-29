@@ -13,6 +13,7 @@ import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.upload_prep as upload_prep
 import ynab_il_importer.workflow_profiles as workflow_profiles
 import ynab_il_importer.ynab_api as ynab_api
+from ynab_il_importer.safe_types import normalize_flag_series
 
 
 def _default_csv_out(input_path: Path) -> Path:
@@ -109,7 +110,7 @@ def main() -> None:
     reviewed = review_io.load_proposed_transactions(input_path)
     accounts = ynab_api.fetch_accounts(plan_id=plan_id or None)
     if args.reviewed_only:
-        reviewed = reviewed[reviewed["reviewed"].astype(bool)].copy()
+        reviewed = reviewed[normalize_flag_series(reviewed["reviewed"])].copy()
     if args.ready_only:
         reviewed = reviewed[upload_prep.ready_mask(reviewed)].copy()
     if args.skip_missing_accounts:

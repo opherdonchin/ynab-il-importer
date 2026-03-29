@@ -4,10 +4,12 @@ from typing import Any
 
 import pandas as pd
 
+import ynab_il_importer.review_app.state as review_state
+from ynab_il_importer.safe_types import TRUE_VALUES, normalize_flag_series
+
 import ynab_il_importer.review_app.model as model
 
 
-TRUE_VALUES = {"1", "true", "t", "yes", "y"}
 NO_DECISION = "No decision"
 UPDATE_MAP_TOKENS = (
     "fingerprint_add_source",
@@ -20,13 +22,6 @@ SOURCE_MATCH_ACTIONS = {"keep_match", "create_target"}
 TARGET_MATCH_ACTIONS = {"keep_match", "create_source"}
 SOURCE_DELETE_ACTIONS = {"delete_source", "delete_both"}
 TARGET_DELETE_ACTIONS = {"delete_target", "delete_both"}
-
-
-def normalize_flag_series(series: pd.Series) -> pd.Series:
-    text = series.astype("string").fillna("").str.strip().str.lower()
-    return text.isin(TRUE_VALUES)
-
-
 def normalize_update_maps(series: pd.Series) -> pd.Series:
     return series.astype("string").fillna("").str.strip()
 
@@ -120,6 +115,60 @@ def connected_component_mask(df: pd.DataFrame, start_idx: Any) -> pd.Series:
     return component
 
 
+def precompute_components(df: pd.DataFrame) -> dict[Any, int]:
+    component_map: dict[Any, int] = {}
+    seen: set[Any] = set()
+    component_id = 0
+
+    for idx in df.index:
+        if idx in seen:
+            continue
+        component_mask = connected_component_mask(df, idx)
+        component_indices = df.index[component_mask].tolist()
+        for component_idx in component_indices:
+            component_map[component_idx] = component_id
+        seen.update(component_indices)
+        component_id += 1
+
+    return component_map
+
+
+def precompute_component_errors(
+    df: pd.DataFrame,
+    component_map: dict[Any, int],
+) -> dict[int, list[str]]:
+    component_errors: dict[int, list[str]] = {}
+    if not component_map:
+        return component_errors
+
+    component_series = pd.Series(component_map).reindex(df.index)
+    first_index_by_component: dict[int, Any] = {}
+    for idx in df.index:
+        label = component_map.get(idx)
+        if label is None or label in first_index_by_component:
+            continue
+        first_index_by_component[label] = idx
+
+    for label, start_idx in first_index_by_component.items():
+        component_mask = component_series.eq(label).fillna(False)
+        component_errors[label] = review_component_errors(
+            df,
+            start_idx,
+            component_mask=component_mask,
+        )
+
+    return component_errors
+
+
+def component_error_lookup(df: pd.DataFrame) -> dict[Any, list[str]]:
+    component_map = precompute_components(df)
+    component_errors = precompute_component_errors(df, component_map)
+    return {
+        idx: component_errors.get(component_label, [])
+        for idx, component_label in component_map.items()
+    }
+
+
 def validate_row(row: pd.Series) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -168,8 +217,18 @@ def validate_row(row: pd.Series) -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
-def review_component_errors(df: pd.DataFrame, start_idx: Any) -> list[str]:
-    component = df.loc[connected_component_mask(df, start_idx)].copy()
+def review_component_errors(
+    df: pd.DataFrame,
+    start_idx: Any,
+    *,
+    component_mask: pd.Series | None = None,
+) -> list[str]:
+    if component_mask is None:
+        component_mask = connected_component_mask(df, start_idx)
+    else:
+        component_mask = component_mask.reindex(df.index, fill_value=False)
+
+    component = df.loc[component_mask].copy()
     if component.empty:
         return []
 
@@ -208,6 +267,116 @@ def review_component_errors(df: pd.DataFrame, start_idx: Any) -> list[str]:
             errors.append(f"target transaction {target_id} is both matched and deleted")
 
     return errors
+
+
+def blocker_label(row: pd.Series, *, component_errors: list[str], uncategorized: bool) -> str:
+    row_errors, _ = validate_row(row)
+    action = normalize_decision_actions(
+        pd.Series([row.get("decision_action", "")])
+    ).iloc[0]
+    combined_errors = list(row_errors) + list(component_errors)
+
+    if any(
+        ("multiple reviewed match outcomes" in error) or ("both matched and deleted" in error)
+        for error in combined_errors
+    ):
+        return "Contradiction in component"
+    if any(
+        ("institutional" in error.casefold()) and ("source" in error.casefold())
+        for error in combined_errors
+    ):
+        return "Institutional source mutation"
+    if action == NO_DECISION or any("No decision" in error for error in combined_errors):
+        return "No decision"
+    if any(("missing" in error) and ("payee" in error) for error in row_errors):
+        return "Missing payee"
+    if uncategorized:
+        return "Uncategorized"
+    if any(("missing" in error) and ("category" in error) for error in row_errors):
+        return "Missing category"
+    return "None"
+
+
+def blocker_series(df: pd.DataFrame) -> pd.Series:
+    uncategorized = review_state.uncategorized_mask(df)
+    component_errors = component_error_lookup(df)
+    values = [
+        blocker_label(
+            row,
+            component_errors=component_errors.get(idx, []),
+            uncategorized=bool(uncategorized.loc[idx]),
+        )
+        for idx, row in df.iterrows()
+    ]
+    return pd.Series(values, index=df.index, dtype="string")
+
+
+def allowed_decision_actions(row: pd.Series) -> list[str]:
+    workflow_type = str(row.get("workflow_type", "") or "").strip().casefold()
+    source_present = _truthy(row.get("source_present", False))
+    target_present = _truthy(row.get("target_present", False))
+
+    actions = [NO_DECISION, "ignore_row"]
+    if source_present and target_present:
+        actions = [NO_DECISION, "keep_match", "delete_source", "delete_target", "delete_both", "ignore_row"]
+    elif source_present and not target_present:
+        actions = [NO_DECISION, "create_target", "delete_source", "ignore_row"]
+    elif target_present and not source_present:
+        actions = [NO_DECISION, "create_source", "delete_target", "ignore_row"]
+
+    if workflow_type == "institutional":
+        actions = [
+            action
+            for action in actions
+            if action not in SOURCE_MUTATION_ACTIONS
+        ]
+
+    ordered: list[str] = []
+    for action in actions:
+        if action not in ordered:
+            ordered.append(action)
+    return ordered
+
+
+def apply_review_state(
+    edited_df: pd.DataFrame,
+    indices: list[Any],
+    *,
+    reviewed: bool,
+) -> tuple[pd.DataFrame, list[str]]:
+    touched = [idx for idx in dict.fromkeys(indices) if idx in edited_df.index]
+    if not touched:
+        return edited_df.copy(), []
+
+    updated = edited_df.copy()
+    for idx in touched:
+        review_state.apply_row_edit(updated, idx, reviewed=reviewed)
+
+    if not reviewed:
+        return updated, []
+
+    errors: list[str] = []
+    component_map = precompute_components(updated)
+    component_series = pd.Series(component_map).reindex(updated.index)
+    seen_components: set[int] = set()
+    for idx in touched:
+        component_label = component_map.get(idx)
+        if component_label is None or component_label in seen_components:
+            continue
+        seen_components.add(component_label)
+        component_mask = component_series.eq(component_label).fillna(False)
+        errors.extend(
+            review_component_errors(updated, idx, component_mask=component_mask)
+        )
+
+    if errors:
+        reverted = edited_df.copy()
+        for idx in touched:
+            review_state.apply_row_edit(reverted, idx, reviewed=False)
+        unique_errors = list(dict.fromkeys(errors))
+        return reverted, unique_errors
+
+    return updated, []
 
 
 def inconsistent_fingerprints(df: pd.DataFrame) -> pd.DataFrame:
