@@ -2,31 +2,19 @@
 
 ## Workstream
 
-Branch `code-review-refactor` off `main`.
+Merged onto branch `aikido-workflow`.
 
 Current focus:
-- address understandability and performance debt identified in the code review (`documents/code_review_prompt.md`)
-- all refactor work stays on this branch until validated; `main` remains operational
-
-Previous workstream (Aikido forward updates) is paused but ready to resume on `main`.
+- use the unified review-row model as the only persisted review format
+- bootstrap Aikido cleanly from fresh YNAB exports
+- move from reviewed Aikido backlog into upload, post-upload reconcile, and stable historical baselining
 
 ## Current Goal
 
-Execute the prioritized refactor plan from the code review:
-
-### Priority 1 (correctness + performance)
-- A. Refactor review app around a real state/model boundary — move review semantics out of `app.py`
-- B. Remove repeated whole-dataframe component traversals from the rerun path
-- C. Replace repeated per-fingerprint full scans in grouped mode
-- D. Audit every `astype(bool)` on string-backed review data
-
-### Priority 2 (maintainability)
-- E. Pull proposal-generation logic out of `scripts/build_proposed_transactions.py` into `src/`
-- F. Collapse duplicate helper families into shared utilities
-- G. Make the review-row column contract explicit and singular
-
-### Priority 3 (cleanup)
-- H. Reduce duplicated state derivations in the app
+Treat Aikido as ready for normal forward updates from a stable cached baseline:
+- the historical baseline has been settled and documented
+- the forward cached reconcile has been executed and verified clean
+- the next operational step is the next dated Aikido update cycle, reusing the anchored month report instead of rebuilding history
 
 ## Settled Product Decisions
 
@@ -173,31 +161,11 @@ Forward reconcile status:
 
 ## Next Steps
 
-1. Priority 1A: Extract review-semantic functions from `app.py` into `state.py`/`validation.py`/new modules
-2. Priority 1B: Precompute connected components once per load/edit instead of per-rerun
-3. Priority 1C: Build `fingerprint → row indices` mapping once for grouped mode
-4. Priority 1D: Replace all `astype(bool)` on string-backed columns with safe boolean parsing
-5. Run full test suite after each extraction to confirm no regressions
-6. Priority 2E–G and 3H after Priority 1 is validated
-
-## Code Review Findings Summary
-
-Verified file sizes (lines):
-- `review_app/app.py`: 2180 (61 functions, `main()` ~756 lines from L1421–L2177)
-- `card_reconciliation.py`: 1507
-- `bank_reconciliation.py`: 1741
-- `cross_budget_reconciliation.py`: 1116
-- `upload_prep.py`: 748
-- `scripts/build_proposed_transactions.py`: 1164
-- `scripts/build_cross_budget_review_rows.py`: 593
-
-Key confirmed issues:
-- `connected_component_mask` duplicated in `state.py` (L226) and `validation.py` (L93), both identical BFS
-- `_component_error_lookup` iterates all rows calling `connected_component_mask` per unseen row; `review_component_errors` calls it again internally — O(n²) graph traversals per rerun
-- Grouped mode rescans full df per fingerprint: `df[df["fingerprint"]... == fp]` in a loop, plus `iterrows()` to collect options
-- 18 occurrences of `astype(bool)` across 8 files, several on CSV string columns (`reviewed`, `hidden`, `source_present`, `target_present`)
-- No safe boolean parser exists anywhere in the codebase
-- `_normalize_text` redefined in `bank_identity.py`, `bank_reconciliation.py`; inline `.astype("string").fillna("").str.strip()` chains in 15+ locations
+1. Start the next dated Aikido update run from the anchored cached month report
+2. Refresh fresh Family and Aikido YNAB snapshots only for the new active window
+3. Build new Aikido review rows against the current live state and review only truly new unmatched activity
+4. Reuse the baseline packet and reference note when future history questions come up
+5. Revisit the standing historical comparison tolerance only if a future run exposes a real mismatch
 
 ## Deferred
 
