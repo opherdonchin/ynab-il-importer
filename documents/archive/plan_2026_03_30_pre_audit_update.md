@@ -12,35 +12,25 @@ Previous workstream (Aikido forward updates) is paused but ready to resume on `m
 
 ## Current Goal
 
-The hostile audit of the first cleanup pass is complete. The audit found that:
-- Phases 0–5 from the original cleanup plan were executed correctly
-- Boolean safety, deduplication, grouped-mode performance, and NaN bug fixes are done
-- **The gating issue is that `blocker_series()` still triggers O(n²) component graph recomputation on every Streamlit rerun because the `precompute_*` functions are invoked fresh each time, with no cross-rerun caching**
+The first serious cleanup pass on the review/upload path is committed.
 
 Current focus:
-- implement the 5 fix-list items from `documents/hostile_audit_report.md` via the updated `documents/cleanup_plan.md`
-- the critical item is Task 1 (generation-counter caching of derived series in session_state)
-- then re-audit to confirm the stop condition is met
+- validate the cleanup with a hostile audit against the new branch state
+- fix anything the audit finds that is real, user-facing, or materially increases maintenance risk
+- keep `main` untouched until the cleanup branch is judged reviewable
 
 Cleanup pass completed on `code-review-refactor`:
 
-### Priority 1 (correctness + performance) — FIRST PASS
-- A. Refactor review app around a real state/model boundary — completed
-- B. Remove repeated whole-dataframe component traversals from the rerun path — partially completed (per-call precomputation done, cross-rerun caching NOT done)
-- C. Replace repeated per-fingerprint full scans in grouped mode — completed
-- D. Audit every `astype(bool)` on string-backed review data — completed
-
-### Priority 1 (performance) — SECOND PASS (current)
-- E. Cache all derived series between non-mutation reruns via generation counter — **not started**
-- F. Pass cached component map to `apply_review_state` to avoid redundant traversal — **not started**
-- G. Add performance regression test with 500-row synthetic dataset — **not started**
+### Priority 1 (correctness + performance)
+- A. Refactor review app around a real state/model boundary — completed in first pass
+- B. Remove repeated whole-dataframe component traversals from the rerun path — completed in first pass
+- C. Replace repeated per-fingerprint full scans in grouped mode — completed in first pass
+- D. Audit every `astype(bool)` on string-backed review data — completed in first pass for the review/upload path
 
 ### Priority 2 (maintainability)
-- H. Pull proposal-generation logic out of `scripts/build_proposed_transactions.py` into `src/` — not started (out of scope this pass)
-- I. Collapse duplicate helper families into shared utilities — done for review/upload path
-- J. Make the review-row column contract explicit and singular — improved, not fully closed
-- K. Extract 3 remaining business logic functions from app.py to state.py — **not started**
-- L. Add targeted io.py tests — **not started**
+- E. Pull proposal-generation logic out of `scripts/build_proposed_transactions.py` into `src/` — not started
+- F. Collapse duplicate helper families into shared utilities — partial only where required for safety/clarity
+- G. Make the review-row column contract explicit and singular — improved in the review/upload path, not fully closed
 
 ### Priority 3 (cleanup)
 - H. Reduce duplicated state derivations in the app — partially improved, app still large and still carries rendering debt
