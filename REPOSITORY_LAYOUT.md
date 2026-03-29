@@ -3,6 +3,8 @@
 ## Source Of Truth
 
 - `src/`: application code.
+  - `src/ynab_il_importer/review_app/`: review-app package split into UI (`app.py`), state derivation (`state.py`), validation (`validation.py`), mutation helpers (`model.py`), and CSV I/O (`io.py`).
+  - `src/ynab_il_importer/safe_types.py`: shared safe coercion helpers for CSV-backed booleans and similar fields.
 - `scripts/`: command-line entry points and operational helpers.
 - `tests/`: automated tests and small fixture data.
 - `mappings/`: versioned mapping tables and profile-specific rule files.

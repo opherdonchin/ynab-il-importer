@@ -88,47 +88,73 @@ def _id_series(df: pd.DataFrame, column: str) -> pd.Series:
 def connected_component_mask(df: pd.DataFrame, start_idx: Any) -> pd.Series:
     if start_idx not in df.index:
         return pd.Series([False] * len(df), index=df.index)
-
-    source_ids = _id_series(df, "source_row_id")
-    target_ids = _id_series(df, "target_row_id")
-    component = pd.Series([False] * len(df), index=df.index)
-    pending_rows = {start_idx}
-    seen_sources: set[str] = set()
-    seen_targets: set[str] = set()
-
-    while pending_rows:
-        row_mask = pd.Series(df.index.isin(pending_rows), index=df.index)
-        new_rows = row_mask & ~component
-        if not new_rows.any():
-            break
-        component |= new_rows
-        current_sources = {value for value in source_ids.loc[new_rows].tolist() if value}
-        current_targets = {value for value in target_ids.loc[new_rows].tolist() if value}
-        seen_sources |= current_sources
-        seen_targets |= current_targets
-        pending_mask = (
-            source_ids.isin(seen_sources)
-            | target_ids.isin(seen_targets)
-        ) & ~component
-        pending_rows = set(df.index[pending_mask])
-
-    return component
+    component_map = precompute_components(df)
+    component_label = component_map.get(start_idx)
+    if component_label is None:
+        return pd.Series([False] * len(df), index=df.index)
+    return pd.Series(
+        [component_map.get(idx) == component_label for idx in df.index],
+        index=df.index,
+    )
 
 
 def precompute_components(df: pd.DataFrame) -> dict[Any, int]:
-    component_map: dict[Any, int] = {}
-    seen: set[Any] = set()
-    component_id = 0
+    if df.empty:
+        return {}
 
-    for idx in df.index:
-        if idx in seen:
-            continue
-        component_mask = connected_component_mask(df, idx)
-        component_indices = df.index[component_mask].tolist()
-        for component_idx in component_indices:
-            component_map[component_idx] = component_id
-        seen.update(component_indices)
-        component_id += 1
+    index_values = list(df.index)
+    source_ids = _id_series(df, "source_row_id").tolist()
+    target_ids = _id_series(df, "target_row_id").tolist()
+    parent = list(range(len(index_values)))
+    rank = [0] * len(index_values)
+
+    def find(pos: int) -> int:
+        while parent[pos] != pos:
+            parent[pos] = parent[parent[pos]]
+            pos = parent[pos]
+        return pos
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root == right_root:
+            return
+        if rank[left_root] < rank[right_root]:
+            parent[left_root] = right_root
+        elif rank[left_root] > rank[right_root]:
+            parent[right_root] = left_root
+        else:
+            parent[right_root] = left_root
+            rank[left_root] += 1
+
+    first_by_source: dict[str, int] = {}
+    first_by_target: dict[str, int] = {}
+
+    for pos, source_id in enumerate(source_ids):
+        if source_id:
+            prior = first_by_source.get(source_id)
+            if prior is None:
+                first_by_source[source_id] = pos
+            else:
+                union(pos, prior)
+
+    for pos, target_id in enumerate(target_ids):
+        if target_id:
+            prior = first_by_target.get(target_id)
+            if prior is None:
+                first_by_target[target_id] = pos
+            else:
+                union(pos, prior)
+
+    root_to_component: dict[int, int] = {}
+    component_map: dict[Any, int] = {}
+    next_component_id = 0
+    for pos, idx in enumerate(index_values):
+        root = find(pos)
+        if root not in root_to_component:
+            root_to_component[root] = next_component_id
+            next_component_id += 1
+        component_map[idx] = root_to_component[root]
 
     return component_map
 

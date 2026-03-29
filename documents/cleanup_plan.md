@@ -1,10 +1,10 @@
-# Cleanup Implementation Plan — Post-Second-Audit残余
+# Cleanup Implementation Plan — Post-Second-Audit Follow-Up
 
-Branch: `code-review-refactor` at commit `55adca5`
+Branch: `code-review-refactor` after commit `b12d2e3`
 Updated: 2026-03-30
 
-This plan covers only the remaining items from the second hostile audit.
-All prior tasks are complete.
+This plan covered the remaining items from the second hostile audit.
+That follow-up pass is now complete locally.
 
 ## What Is Done
 
@@ -18,40 +18,52 @@ All critical and moderate items from the original cleanup plan and both hostile 
 - ✅ 9 business logic functions extracted from `app.py`
 - ✅ Performance regression test (500-row blocker + cache verification)
 - ✅ IO round-trip tests
-- ✅ 208 tests passing
+- ✅ strict `--approved` CLI parsing with focused test coverage
+- ✅ live `documents/review_app_workflow.md` added for README workflow links
+- ✅ invalid/truncated rows removed from `mappings/account_name_map.csv`
+- ✅ `REPOSITORY_LAYOUT.md` updated for `review_app/` package structure and `safe_types.py`
+- ✅ component discovery rewritten from repeated BFS expansion to a union-find style pass
+- ✅ 210 tests passing
 - ✅ Stop condition for "repeated whole-dataframe work" is satisfied
 
-## Remaining Items (from Pass 2 FIX LIST)
+## What Changed In This Follow-Up Pass
 
-### Task A: Loosen perf test bound (LOW, quick)
+### Task A: Keep the perf bound and fix the algorithm instead
 
-Change `assert duration < 10` to `assert duration < 30` in `tests/test_review_perf.py::test_blocker_series_with_components_smoke_500_rows`. The test measures 8.6s on the development machine; a 10s bound will flake on slower CI runners. The test's value is catching order-of-magnitude regressions, not enforcing a precise wall-clock target.
+The original idea was to loosen the `< 10s` test bound. That was rejected in favor of reducing actual latency. `review_app/validation.py` now builds connected components with a union-find style pass keyed by shared `source_row_id` and `target_row_id`, which cuts the measured 500-row blocker time roughly in half while keeping the test bound at `< 10s`.
 
-### Task B: Fix or remove README dangling reference (MODERATE, quick)
+Measured focused timings after the rewrite:
+- `50` rows: about `0.47s`
+- `100` rows: about `0.87s`
+- `240` rows: about `1.99s`
+- `500` rows: about `4.00s`
 
-`README.md` references `documents/review_app_workflow.md` three times (lines 15, 134, 301). The file does not exist. Either create it with review-app workflow content drawn from the decisions docs and plan.md, or remove the references and link to existing docs.
+### Task B: Restore the missing workflow doc
 
-### Task C: Clean up `mappings/account_name_map.csv` (MODERATE, requires domain knowledge)
+`documents/review_app_workflow.md` now exists and captures the current review loop, inputs, views, guardrails, and downstream handoff to upload or reconcile flows.
 
-Row 9 (`bank,0005,,,`) has empty YNAB mapping fields. Row 10 (`card,1950`) has only 2 of 5 fields (truncated data). Determine whether these accounts are active, and either complete the mapping or remove the rows.
+### Task C: Clean up `mappings/account_name_map.csv`
 
-### Task D: Fix `--approved` CLI flag in `scripts/prepare_ynab_upload.py` (LOW, quick)
+The global account map had two unusable rows:
+- `bank,0005,,,`
+- `card,1950`
 
-Replace `type=lambda v: v.lower() not in {"false", "0", "no"}` with `choices=["true", "false"]` and explicit boolean mapping, or `action="store_true"`. Currently accepts any arbitrary string as True.
+There was no trustworthy repo-local mapping information to complete them, and the loader already discards rows with blank required fields. They were removed as dead data rather than filled with guessed account IDs.
 
-### Task E: Update `REPOSITORY_LAYOUT.md` (LOW, quick)
+### Task D: Tighten `--approved` parsing
 
-Add mention of `safe_types.py` and the `review_app/` subpackage structure (model.py, validation.py, state.py, io.py) to the `src/` section.
+`scripts/prepare_ynab_upload.py` now parses `--approved` through an explicit boolean parser and rejects invalid values instead of silently treating arbitrary strings as `True`.
 
-## Out of Scope
+### Task E: Refresh repository layout docs
 
-- `connected_component_mask` union-find optimization (future scaling improvement)
+`REPOSITORY_LAYOUT.md` now calls out the `review_app/` subpackage boundaries and `safe_types.py` as a shared coercion utility.
+
+## Remaining Follow-Up Ideas
+
+- further reduce mutation-time validation cost by cutting the per-row `iterrows()` blocker-label loop if future datasets get larger
 - `_render_row_controls` mutation/rendering split
 - `main()` view-mode decomposition
 - `scripts/build_proposed_transactions.py` library extraction
 - YNAB API rate limiting
 - New product features
-- `scripts/build_proposed_transactions.py` decomposition
-- YNAB API rate limiting
 - Broad deduplication outside the review/upload path
-- New product features or workflow changes

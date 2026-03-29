@@ -40,7 +40,18 @@ def _print_messages(title: str, messages: list[str]) -> None:
         print(f"  - {message}")
 
 
-def main() -> None:
+def _parse_bool_arg(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"true", "1", "yes"}:
+        return True
+    if normalized in {"false", "0", "no"}:
+        return False
+    raise argparse.ArgumentTypeError(
+        f"invalid boolean value: {value!r} (expected true/false)"
+    )
+
+
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Prepare reviewed transactions for YNAB upload"
     )
@@ -67,7 +78,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--approved",
-        type=lambda v: v.lower() not in {"false", "0", "no"},
+        type=_parse_bool_arg,
         default=False,
         metavar="BOOL",
         help="Approved flag sent to YNAB (default: false). Pass true/false.",
@@ -94,6 +105,11 @@ def main() -> None:
     )
     parser.add_argument("--profile", default="", help="Workflow profile (for budget defaults).")
     parser.add_argument("--budget-id", dest="budget_id", default="", help="Override YNAB budget/plan id.")
+    return parser
+
+
+def main() -> None:
+    parser = _build_parser()
     args = parser.parse_args()
 
     input_path = Path(args.input_path)
