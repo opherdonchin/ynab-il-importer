@@ -12,18 +12,12 @@ Previous workstream (Aikido forward updates) is paused but ready to resume on `m
 
 ## Current Goal
 
-Second hostile audit is complete at commit `55adca5`. The stop condition is satisfied: non-mutation reruns are now free, caching is correct, 208 tests passing.
+The hostile-audit fix pass is now committed at `d7b8823`.
 
 Current focus:
-- address remaining low/moderate FIX LIST items from the second audit
-- merge the cleanup branch into `main` once remaining items are addressed or triaged
-
-Remaining items:
-- Loosen perf test bound from 10s to 30s (flake risk)
-- Fix README dangling reference to non-existent `documents/review_app_workflow.md`
-- Clean up `mappings/account_name_map.csv` truncated/incomplete rows
-- Fix `scripts/prepare_ynab_upload.py` --approved CLI flag parsing
-- Update `REPOSITORY_LAYOUT.md` to mention new source structure
+- run another hostile audit against the new branch state
+- confirm the rerun-cost stop condition is now actually satisfied
+- fix only what the next audit finds to be real and blocking
 
 Cleanup pass completed on `code-review-refactor`:
 
@@ -36,7 +30,7 @@ Cleanup pass completed on `code-review-refactor`:
 ### Priority 1 (performance) — SECOND PASS
 - E. Cache all derived series between non-mutation reruns via generation counter — completed
 - F. Pass cached component map to `apply_review_state` to avoid redundant traversal — completed
-- G. Add performance regression test with 500-row synthetic dataset — completed (bound should be loosened)
+- G. Add performance regression test with 500-row synthetic dataset — completed
 
 ### Priority 2 (maintainability)
 - H. Pull proposal-generation logic out of `scripts/build_proposed_transactions.py` into `src/` — not started (out of scope this pass)
