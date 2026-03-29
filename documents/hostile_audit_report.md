@@ -5,7 +5,8 @@
 | Pass | Commit | Date | Outcome |
 |------|--------|------|---------|
 | 1 | `aa347a9` | 2026-03-29 | BLOCKED — blocker_series recomputes O(n²) component graph on every Streamlit rerun |
-| 2 | `55adca5` | 2026-03-30 | See below |
+| 2 | `55adca5` | 2026-03-30 | PASS — stop condition met; 5 low/moderate items remaining |
+| 3 | `68bbec5` | 2026-03-30 | See below |
 
 ---
 
@@ -403,7 +404,209 @@ Evidence:
 | IO round-trip tests | ✅ DONE | 3 new tests in `test_review_io.py` |
 | Test suite | ✅ DONE | 208 tests passing |
 | Stop condition | ✅ MET | Non-mutation reruns are free; per-mutation cost is tolerable |
-| README dangling reference | ❌ OPEN | `review_app_workflow.md` doesn't exist |
-| Account name map data quality | ❌ OPEN | Truncated/incomplete rows |
-| Perf test timing bound | ⚠️ FRAGILE | 8.6s actual vs 10s bound |
-| --approved CLI flag | ⚠️ PERMISSIVE | Accepts arbitrary strings as True |
+| README dangling reference | ✅ FIXED | `review_app_workflow.md` now exists |
+| Account name map data quality | ✅ FIXED | Truncated rows removed |
+| Perf test timing bound | ✅ RETAINED | Union-find cut 500-row time to ~7s; bound kept at `< 10` |
+| --approved CLI flag | ✅ FIXED | Rejects invalid values with `ArgumentTypeError` |
+
+---
+
+## Pass 3 — Hostile Audit at Commit `68bbec5`
+
+### Scope
+
+Expanded scope: code style, modern Python idioms, algorithmic analysis, test quality, documentation accuracy, and data file integrity. Graded as a high-school CS project with emphasis on teaching good programming practice.
+
+### What Codex Delivered
+
+Codex addressed all 5 items from the Pass 2 FIX LIST:
+
+1. **Union-find component discovery** — `precompute_components` rewritten from repeated-BFS O(C×n) to union-find O(n·α(n)). Implementation is **correct**: path compression with halving, union by rank, separate `first_by_source`/`first_by_target` dicts (preserving the intentional separation of source and target ID namespaces). `connected_component_mask` now delegates to `precompute_components`.
+2. **`review_app_workflow.md`** — Created, accurate, well-organized. All 3 README references now resolve.
+3. **`account_name_map.csv`** — Two truncated rows removed. File now has consistent 5-column structure, no trailing newline issues.
+4. **`--approved` CLI fix** — `_parse_bool_arg` is a clean, testable function. Parser extracted to `_build_parser()`. Test covers accept + reject paths.
+5. **`REPOSITORY_LAYOUT.md`** — Updated with `review_app/` subpackage and `safe_types.py`.
+
+**All items verified. 210 tests passing. Union-find is algorithmically correct.**
+
+### Findings
+
+#### FIX 1 — PERFORMANCE: `validate_row` called twice per row (HIGH)
+
+`blocker_series_with_components` calls `validate_row` for every row **twice**:
+
+- Once inside `precompute_component_errors` → `review_component_errors` → iterrows + `validate_row(row)`
+- Once inside the blocker_label list comprehension → `blocker_label(row)` → `validate_row(row)`
+
+Measured: 1000 `validate_row` calls for 500 rows. Each call takes ~2.6ms. Total redundant work: ~1.3s at 500 rows.
+
+**Fix**: Precompute row-level errors once and pass them to both consumers.
+
+#### FIX 2 — PERFORMANCE: `normalize_decision_actions` wraps scalars in pd.Series (HIGH)
+
+`validate_row` normalizes a single action string by wrapping it in a 1-element `pd.Series`:
+
+```python
+action = normalize_decision_actions(pd.Series([row.get("decision_action", "")])).iloc[0]
+```
+
+Measured overhead: creating and operating on a 1-element Series costs **1.03ms** per call. The equivalent scalar operation (`str.strip()`) costs **0.0002ms** — a **1,027× overhead**. At 1000 calls per blocker computation, this accounts for ~1s of the 7s total.
+
+**Fix**: Add a scalar `normalize_decision_action(value: str) -> str` helper. Reserve the Series version for batch operations only.
+
+#### FIX 3 — PERFORMANCE: `apply_row_edit` recomputes union-find per row (MEDIUM)
+
+`state.py::apply_row_edit` line 517:
+```python
+from ynab_il_importer.review_app.validation import connected_component_mask
+df.loc[connected_component_mask(df, idx), "reviewed"] = bool(reviewed)
+```
+
+`connected_component_mask` now delegates to `precompute_components` (full union-find over all rows). This runs once per `apply_row_edit` call. The caller `apply_review_state` already has a `component_map` but doesn't pass it through.
+
+Impact: O(n) per touched row (not O(n²) anymore thanks to union-find), but still wasteful when the map is already computed. For typical k=1 row edits this is ~9ms, so LOW urgency, but a clean-code issue: the architectural intent of caching the component_map is undermined by a function that ignores it.
+
+**Fix**: Accept optional `component_map` parameter in `apply_row_edit`. Use existing map to compute the mask.
+
+#### FIX 4 — PERFORMANCE: `review_component_errors` receives full DataFrame (LOW)
+
+`precompute_component_errors` calls `review_component_errors(df, start_idx, component_mask=...)` for each of 250 components, passing the **full 500-row DataFrame** each time. Inside, it does `df.loc[component_mask].copy()` to extract 2 rows. A single `groupby` would replace 250 mask-filter-copy operations with one grouped iteration.
+
+Measured: 250× mask+copy costs 102ms vs groupby at 9ms. Not blocking at current sizes but a style issue — passing a 500-row frame to process 2 rows is the wrong abstraction.
+
+**Fix (deferred)**: Refactor `precompute_component_errors` to use `df.groupby(component_series)` and pass each group directly to a simplified validation function.
+
+#### FIX 5 — STYLE: `main()` is 739 lines (HIGH)
+
+`app.py::main()` spans lines 1171–1909. Contains sidebar rendering, row view, grouped view, navigation, and session management all in one function. This is **untestable** and violates single-responsibility. The 289-line `_render_row_controls` (lines 871–1159) is similarly oversized, mixing form construction, submission logic, competing row resolution, and state mutation.
+
+This is not new debt but the cleanup branch has not addressed it despite extracting 9 helper functions. The extraction moved leaf-level computations out but left the orchestration monolith intact.
+
+**Fix**: Extract `_render_sidebar()`, `_render_row_view()`, `_render_group_view()`. Split `_render_row_controls` into `_build_edit_form()` and `_handle_form_submit()`.
+
+#### FIX 6 — STYLE: Repeated `.astype("string").fillna("").str.strip()` (MEDIUM)
+
+This 4-method chain appears **15 times** across `validation.py`, `state.py`, `io.py`, and `model.py`. `state.py` already has `series_or_default()` which does exactly this, but it's not used consistently. `validation.py` has its own `_id_series` doing the same thing.
+
+**Fix**: Consolidate on a single `normalize_string_series(series)` helper in a shared location (e.g., `safe_types.py` or a new `review_app/common.py`).
+
+#### FIX 7 — STYLE: String-literal dispatch for decision actions (MEDIUM)
+
+Decision action values (`"create_source"`, `"keep_match"`, `"delete_both"`, etc.) appear as raw string literals in 20+ places across `validation.py`, `state.py`, and `app.py`. There are 5 separate `frozenset` / `set` constants at the top of `validation.py` grouping subsets of these strings, plus `NO_DECISION = "No decision"`. But the individual action names have no canonical definition — a typo like `"create_sourxe"` would silently fail to match any set.
+
+**Fix**: Define a `DecisionAction` `StrEnum` (Python 3.11+, which is the project's minimum). Use members in all sets and comparisons. Typos then become import errors.
+
+#### FIX 8 — STYLE: `iterrows()` in hot paths (MEDIUM)
+
+5 `iterrows()` calls in the review_app package:
+- `blocker_series_with_components` blocker_label comprehension (validation.py:210)
+- `review_component_errors` per-row validation (validation.py:294)
+- `primary_state_series` row-by-row state classification (state.py:260)
+- `_load_categories` parsing loop (app.py:261)
+- grouped view rendering loop (app.py:1709)
+
+The first three are on the mutation hot path. `iterrows()` is the single slowest way to iterate a DataFrame — the pandas documentation itself discourages it. For rows that need scalar per-row logic, `df.apply(..., axis=1)` is marginally better but still slow. The real fix for `blocker_label` and `primary_state_series` is to vectorize: compute the blocker/state as masks and assign via `np.select` or chained `.where()`.
+
+#### FIX 9 — STYLE: Dead code `accept_defaults_mask()` (LOW)
+
+`state.py:78` — function returns `pd.Series([False] * len(df), ...)` unconditionally. No callers detected in the entire codebase. Remove it.
+
+#### FIX 10 — STYLE: Circular import via lazy import (LOW)
+
+`state.py:516` uses a function-body import to avoid circular dependency:
+```python
+from ynab_il_importer.review_app.validation import connected_component_mask
+```
+`state.py` → `validation.py` → `state.py` forms a cycle. The lazy import works but hides the dependency graph. The proper fix is to move shared types/functions (like component computation) to a module that doesn't import from either `state` or `validation`.
+
+#### FIX 11 — STYLE: Duplicated column lists (LOW)
+
+The editable-column list `["source_payee_selected", "source_category_selected", ..., "reviewed"]` appears 3 times in `state.py` (in `modified_mask`, `changed_mask`, and implicitly in `apply_row_edit`). Define once as a module constant.
+
+#### FIX 12 — TEST: `test_prepare_ynab_upload_script.py` coverage gaps (MEDIUM)
+
+- `_parse_bool_arg` accepts 6 values (`true`, `false`, `1`, `0`, `yes`, `no`) but tests only cover `true` and `false`.
+- Rejection test uses `pytest.raises(SystemExit)` which passes for **any** argparse failure (missing required args, wrong flag name, etc.) — not specific to the `--approved` validation.
+- No direct unit test for `_parse_bool_arg` — only tested indirectly through the parser.
+
+**Fix**: Add `@pytest.mark.parametrize` over all 6 valid values + 3 invalid values. Test `_parse_bool_arg` directly.
+
+#### FIX 13 — TEST: Perf test asserts duration but not correctness (LOW)
+
+`test_blocker_series_with_components_smoke_500_rows` checks `duration < 10` and `len(blocker_series) == len(df)` but never checks that the blocker values are **correct** — a broken-but-fast implementation would pass. Add at least one assertion on the content (e.g., all values are in the known blocker vocabulary).
+
+#### FIX 14 — TEST: Multi-field assertion tests (LOW)
+
+`test_review_io.py::test_save_then_load_round_trip_preserves_review_fields` has 14 assertions in one test. When one fails, the remaining assertions are skipped, making it hard to diagnose which fields broke. Use `pytest.raises` subtests or split per field-group.
+
+#### FIX 15 — DOC: README `build-payee-map` example is incomplete (LOW)
+
+README lines 160–164 show `pixi run ynab-il build-payee-map` but omit required arguments (`--parsed`, `--matched-pairs`, `--out-dir`). Not copy-paste-runnable.
+
+### Performance Profile After Union-Find
+
+Measured at 500 rows:
+
+| Component | Time | % of Total |
+|-----------|------|-----------|
+| `precompute_components` (union-find) | **0.009s** | <1% |
+| `precompute_component_errors` (250 components × `review_component_errors`) | **5.08s** | 72% |
+| `iterrows` + `blocker_label` (500 rows × `validate_row`) | **2.16s** | 31% |
+| `uncategorized_mask` | 0.002s | <1% |
+| **Total: `blocker_series_with_components`** | **~7.0s** | 100% |
+
+The union-find itself is blazing fast. The bottleneck has shifted entirely to per-row validation overhead:
+- `validate_row` costs ~2.6ms/call (dominated by 1-element `pd.Series` creation in `normalize_decision_actions`)
+- It runs 2× per row (once in component error checking, once in blocker labeling)
+- `review_component_errors` creates pandas Series operations on 2-row subframes 250 times
+
+**Key insight**: The algorithmic win from union-find (O(n²) → O(n·α(n))) improved wall time by only ~19% (8.6s → 7.0s) because the asymptotic bottleneck was never the graph algorithm — it was the O(n) scan with ~7ms/row constant factor from pandas per-row overhead. Halving the constant factor (eliminate double-validation + scalar Series wrapping) would yield a larger improvement than the algorithmic change did.
+
+### Scaling Projection
+
+| Rows | Current | After FIX 1+2 (est.) |
+|------|---------|----------------------|
+| 240 | 3.8s | ~1.5s |
+| 500 | 7.0s | ~2.8s |
+| 1000 | 13.5s | ~5.4s |
+
+### Pass 3 FIX LIST Summary
+
+| # | Severity | Category | Item |
+|---|----------|----------|------|
+| 1 | HIGH | Perf | `validate_row` called 2× per row — precompute row errors once |
+| 2 | HIGH | Perf | `normalize_decision_actions` wraps scalars in pd.Series (1,027× overhead) |
+| 3 | MEDIUM | Perf | `apply_row_edit` ignores available `component_map`, recomputes union-find |
+| 4 | LOW | Perf | `precompute_component_errors` passes full DataFrame for 2-row slices |
+| 5 | HIGH | Style | `main()` is 739 lines, `_render_row_controls` is 289 lines |
+| 6 | MEDIUM | Style | `.astype("string").fillna("").str.strip()` repeated 15 times |
+| 7 | MEDIUM | Style | Decision actions as raw strings — should be `StrEnum` |
+| 8 | MEDIUM | Style | `iterrows()` in hot paths (5 call sites) |
+| 9 | LOW | Style | Dead code `accept_defaults_mask()` |
+| 10 | LOW | Style | Circular import via function-body `from ... import` |
+| 11 | LOW | Style | Editable-column list duplicated 3 times |
+| 12 | MEDIUM | Test | `test_prepare_ynab_upload_script.py` covers 2 of 6 valid values |
+| 13 | LOW | Test | Perf test asserts timing but not correctness of output |
+| 14 | LOW | Test | Multi-assertion round-trip test hides failures |
+| 15 | LOW | Doc | README `build-payee-map` example missing required args |
+
+### Verdict
+
+**PASS — all prior audit items addressed correctly. No regressions. Union-find is correct.**
+
+The remaining findings are style, idiom, and micro-optimization issues. None are blocking. The most impactful next move would be FIX 1+2 (eliminate double-validation and scalar-Series overhead) which would roughly halve the per-mutation cost with minimal risk. FIX 5 (splitting `main()`) is the biggest maintainability debt but highest effort.
+
+### Pass 3 Status Table
+
+| Area | Status | Assessment |
+|------|--------|------------|
+| Union-find correctness | ✅ VERIFIED | Path compression + union by rank. Separate source/target namespaces. Edge cases handled. |
+| Prior FIX LIST items | ✅ ALL FIXED | 5/5 items from Pass 2 addressed |
+| Test suite | ✅ GREEN | 210 tests passing in 71s |
+| `validate_row` double-call | ⚠️ NEW | 1000 calls for 500 rows |
+| Scalar pd.Series overhead | ⚠️ NEW | 1,027× overhead vs plain string ops |
+| `main()` function size | ⚠️ EXISTING | 739 lines — untestable monolith |
+| String normalization DRY | ⚠️ EXISTING | 15 repetitions of same 4-method chain |
+| Decision action type safety | ⚠️ NEW | Raw string literals, no `StrEnum` |
+| Per-mutation cost | ✅ IMPROVED | 7.0s at 500 rows (was 8.6s), 3.8s at 240 rows (was 4.0s) |
+| Non-mutation rerun cost | ✅ FREE | Generation-counter caching verified |

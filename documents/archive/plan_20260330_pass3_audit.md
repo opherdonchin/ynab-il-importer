@@ -12,30 +12,19 @@ Previous workstream (Aikido forward updates) is paused but ready to resume on `m
 
 ## Current Goal
 
-Third hostile audit (Pass 3) complete at commit `68bbec5`. All 5 items from Pass 2 FIX LIST addressed correctly. Union-find is verified correct. 210 tests passing. No regressions.
-
-Pass 3 broadened scope to code style, idiom quality, and performance micro-analysis. Found the true per-mutation bottleneck is NOT the graph algorithm (now 9ms with union-find) but pandas per-row overhead: `validate_row` called 2× per row, and `normalize_decision_actions` wraps scalars in 1-element `pd.Series` (measured 1,027× overhead vs scalar string ops). See `documents/hostile_audit_report.md` Pass 3 section.
+Second hostile audit follow-up pass is complete locally after commit `b12d2e3`. The audit fix list is addressed, non-mutation reruns remain free, and the remaining mutation-time hotspot is materially faster. Full test suite: `210` passing.
 
 Current focus:
-- address Pass 3 FIX LIST items (15 items, 0 blocking, 3 HIGH)
-- merge the cleanup branch into `main` once remaining findings are triaged
+- prepare the branch for another hostile audit or human review
+- merge the cleanup branch into `main` once that review is clean or any remaining findings are triaged
 
-Pass 3 FIX LIST (prioritized):
-1. HIGH Perf — `validate_row` called 2× per row; precompute row errors once
-2. HIGH Perf — `normalize_decision_actions` wraps scalars in pd.Series (1,027× overhead)
-3. HIGH Style — `main()` is 739 lines, `_render_row_controls` is 289 lines
-4. MEDIUM Perf — `apply_row_edit` ignores available `component_map`
-5. MEDIUM Style — `.astype("string").fillna("").str.strip()` repeated 15 times
-6. MEDIUM Style — Decision actions as raw strings; should be `StrEnum`
-7. MEDIUM Style — `iterrows()` in 5 hot-path call sites
-8. MEDIUM Test — `test_prepare_ynab_upload_script.py` covers 2 of 6 valid bool values
-9. LOW Perf — `precompute_component_errors` passes full DataFrame for 2-row slices
-10. LOW Style — Dead code `accept_defaults_mask()`
-11. LOW Style — Circular import via function-body `from ... import`
-12. LOW Style — Editable-column list duplicated 3 times
-13. LOW Test — Perf test asserts timing but not correctness of output
-14. LOW Test — Multi-assertion round-trip test hides individual failures
-15. LOW Doc — README `build-payee-map` example missing required args
+Resolved since the second audit:
+- Added `documents/review_app_workflow.md` so README workflow links are live again
+- Removed unusable truncated rows from `mappings/account_name_map.csv`
+- Tightened `scripts/prepare_ynab_upload.py` `--approved` parsing to reject invalid values
+- Updated `REPOSITORY_LAYOUT.md` to mention the `review_app/` package split and `safe_types.py`
+- Replaced repeated component BFS work with a union-find style component build in `review_app/validation.py`
+- Kept the performance guard at `< 10s` and improved measured 500-row blocker time from about `8.6s` to about `4.0s` in focused local timing
 
 Cleanup pass completed on `code-review-refactor`:
 
