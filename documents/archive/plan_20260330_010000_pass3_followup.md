@@ -12,19 +12,19 @@ Previous workstream (Aikido forward updates) is paused but ready to resume on `m
 
 ## Current Goal
 
-Third hostile audit (Pass 3) complete at commit `68bbec5`. Follow-up implementation is now underway on top of that audit. The first Pass 3 performance slice is complete locally: row validation is no longer duplicated in blocker derivation, scalar decision normalization no longer routes through 1-element `pd.Series`, and `apply_row_edit` can reuse a supplied component map. Full test suite: `213` passing.
+Third hostile audit (Pass 3) complete at commit `68bbec5`. All 5 items from Pass 2 FIX LIST addressed correctly. Union-find is verified correct. 210 tests passing. No regressions.
 
 Pass 3 broadened scope to code style, idiom quality, and performance micro-analysis. Found the true per-mutation bottleneck is NOT the graph algorithm (now 9ms with union-find) but pandas per-row overhead: `validate_row` called 2× per row, and `normalize_decision_actions` wraps scalars in 1-element `pd.Series` (measured 1,027× overhead vs scalar string ops). See `documents/hostile_audit_report.md` Pass 3 section.
 
 Current focus:
-- finish the remaining Pass 3 maintainability and test-quality items
+- address Pass 3 FIX LIST items (15 items, 0 blocking, 3 HIGH)
 - merge the cleanup branch into `main` once remaining findings are triaged
 
 Pass 3 FIX LIST (prioritized):
-1. HIGH Perf — `validate_row` called 2× per row; precompute row errors once — completed
-2. HIGH Perf — `normalize_decision_actions` wraps scalars in pd.Series (1,027× overhead) — completed via scalar helper
+1. HIGH Perf — `validate_row` called 2× per row; precompute row errors once
+2. HIGH Perf — `normalize_decision_actions` wraps scalars in pd.Series (1,027× overhead)
 3. HIGH Style — `main()` is 739 lines, `_render_row_controls` is 289 lines
-4. MEDIUM Perf — `apply_row_edit` ignores available `component_map` — completed
+4. MEDIUM Perf — `apply_row_edit` ignores available `component_map`
 5. MEDIUM Style — `.astype("string").fillna("").str.strip()` repeated 15 times
 6. MEDIUM Style — Decision actions as raw strings; should be `StrEnum`
 7. MEDIUM Style — `iterrows()` in 5 hot-path call sites
@@ -207,17 +207,6 @@ Done:
   - `500` rows: `4.00s`
 - post-second-audit-cleanup full test suite passes:
   - `210` passed
-- first Pass 3 follow-up pass added:
-  - scalar `normalize_decision_action()` for row-level validation
-  - one-pass row-error precomputation for `blocker_series_with_components()`
-  - `review_component_errors()` can reuse precomputed row errors instead of revalidating every row
-  - `state.apply_row_edit()` now accepts an optional `component_map` and avoids recomputing component membership when one is already available
-- focused blocker validation regression coverage now checks:
-  - scalar action normalization
-  - `apply_review_state()` reuse of a supplied component map
-  - blocker derivation validates each row only once
-- post-Pass-3-follow-up full test suite passes:
-  - `213` passed
 
 Validated recently:
 - focused review-app tests
@@ -277,15 +266,13 @@ Forward reconcile status:
 ## Next Steps
 
 1. Commit the second-audit cleanup pass and archive/update this plan
-2. Commit the first Pass 3 implementation slice and archive/update this plan
-3. Continue with remaining Pass 3 cleanup items, starting with the highest-value maintainability and test gaps
-4. Run another hostile audit against the current committed branch state
-5. Triage any new findings into:
+2. Run another hostile audit against the current committed branch state
+3. Triage any new findings into:
    - must-fix before merge
    - good follow-up but not blocking
    - rejected / false positive
-6. If the audit is clean or all blocking findings are resolved, prepare the branch for human review
-7. After merge, resume Aikido forward updates on `main`
+4. If the audit is clean or all blocking findings are resolved, prepare the branch for human review
+5. After merge, resume Aikido forward updates on `main`
 
 ## Code Review Findings Summary
 

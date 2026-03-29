@@ -29,19 +29,19 @@ Performance profiling revealed the per-mutation bottleneck is no longer the grap
 
 ### HIGH priority
 
-**1. Eliminate double `validate_row` calls**
-`blocker_series_with_components` calls `validate_row` twice per row: once inside `precompute_component_errors` → `review_component_errors`, once inside `blocker_label`. Precompute row errors once, pass to both.
+**1. Eliminate double `validate_row` calls** — completed
+`blocker_series_with_components` now precomputes row errors once and reuses them in both component-error derivation and blocker labeling. Focused regression coverage asserts one `validate_row` call per row.
 
-**2. Add scalar `normalize_decision_action` helper**
-`validate_row` wraps a single string in `pd.Series` to call `normalize_decision_actions`. This costs 1.03ms per call (1,027× overhead vs plain string ops). Add a scalar version for per-row use.
+**2. Add scalar `normalize_decision_action` helper** — completed
+Row-level validation and blocker labeling now use a scalar helper instead of constructing 1-element Series.
 
 **3. Split `main()` and `_render_row_controls()`**
 `main()` is 739 lines; `_render_row_controls` is 289 lines. Extract `_render_sidebar()`, `_render_row_view()`, `_render_group_view()`, `_build_edit_form()`, `_handle_form_submit()`.
 
 ### MEDIUM priority
 
-**4. Pass `component_map` through `apply_row_edit`**
-`state.py::apply_row_edit` calls `connected_component_mask(df, idx)` which recomputes the full union-find. The caller has the map but doesn't pass it.
+**4. Pass `component_map` through `apply_row_edit`** — completed
+`state.py::apply_row_edit` now accepts an optional `component_map`, and `apply_review_state()` passes the cached map through so review toggles do not recompute component membership.
 
 **5. Consolidate string normalization**
 `.astype("string").fillna("").str.strip()` appears 15 times. Centralize in a shared helper.
@@ -77,3 +77,10 @@ Same 7-column list appears 3 times in `state.py`.
 
 **15. Fix README `build-payee-map` example**
 Missing required `--parsed`, `--matched-pairs`, `--out-dir` arguments.
+
+## Current Recommendation
+
+The highest-value remaining work is now maintainability, not urgent latency:
+- split `app.py::main()` and `_render_row_controls()`
+- tighten test quality on the parser/perf paths
+- clean up repeated string-normalization helpers

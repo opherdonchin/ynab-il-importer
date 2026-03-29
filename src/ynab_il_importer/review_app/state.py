@@ -43,6 +43,20 @@ def _id_series(df: pd.DataFrame, col: str) -> pd.Series:
     return series_or_default(df, col).str.strip()
 
 
+def _component_mask_from_map(
+    df: pd.DataFrame,
+    idx: Any,
+    component_map: dict[Any, int],
+) -> pd.Series:
+    component_label = component_map.get(idx)
+    if component_label is None:
+        return pd.Series([False] * len(df), index=df.index)
+    return pd.Series(
+        [component_map.get(current_idx) == component_label for current_idx in df.index],
+        index=df.index,
+    )
+
+
 def _missing_value_masks(df: pd.DataFrame) -> tuple[pd.Series, pd.Series, pd.Series]:
     decision_action = _decision_action_series(df)
     create_target = decision_action.eq("create_target")
@@ -473,6 +487,7 @@ def apply_row_edit(
     update_maps: str | None = None,
     reviewed: bool | None = None,
     decision_action: str | None = None,
+    component_map: dict[Any, int] | None = None,
 ) -> pd.DataFrame:
     target_payee = payee if target_payee is None else target_payee
     target_category = category if target_category is None else target_category
@@ -512,7 +527,11 @@ def apply_row_edit(
     if decision_action is not None and "decision_action" in df.columns:
         df.at[idx, "decision_action"] = str(decision_action).strip()
     if reviewed is not None and "reviewed" in df.columns:
-        from ynab_il_importer.review_app.validation import connected_component_mask
+        if component_map is None:
+            from ynab_il_importer.review_app.validation import connected_component_mask
 
-        df.loc[connected_component_mask(df, idx), "reviewed"] = bool(reviewed)
+            reviewed_mask = connected_component_mask(df, idx)
+        else:
+            reviewed_mask = _component_mask_from_map(df, idx, component_map)
+        df.loc[reviewed_mask, "reviewed"] = bool(reviewed)
     return df

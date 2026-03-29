@@ -34,6 +34,11 @@ def test_validate_row_blocks_reviewed_no_decision_and_institutional_source_mutat
     assert warnings == []
 
 
+def test_normalize_decision_action_scalar_defaults_blank_to_no_decision() -> None:
+    assert review_validation.normalize_decision_action("") == review_validation.NO_DECISION
+    assert review_validation.normalize_decision_action("  keep_match  ") == "keep_match"
+
+
 def test_review_component_errors_catch_unresolved_and_conflicting_rows() -> None:
     df = _review_rows(
         [
@@ -298,6 +303,55 @@ def test_apply_review_state_rejects_reviewed_no_decision() -> None:
         "connected rows still contain No decision",
         "row 0: reviewed row cannot have No decision",
     ]
+
+
+def test_apply_review_state_reuses_provided_component_map(monkeypatch) -> None:
+    df = _review_rows(
+        [
+            {
+                "transaction_id": "t1",
+                "source_row_id": "s1",
+                "target_row_id": "t1",
+                "workflow_type": "cross_budget",
+                "decision_action": "keep_match",
+                "reviewed": False,
+                "source_payee_selected": "Cafe",
+                "source_category_selected": "Food",
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+                "update_maps": "",
+            },
+            {
+                "transaction_id": "t2",
+                "source_row_id": "s1",
+                "target_row_id": "t2",
+                "workflow_type": "cross_budget",
+                "decision_action": "ignore_row",
+                "reviewed": False,
+                "source_payee_selected": "Cafe",
+                "source_category_selected": "Food",
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+                "update_maps": "",
+            },
+        ]
+    )
+    component_map = review_validation.precompute_components(df)
+
+    def fail(_: pd.DataFrame) -> dict[object, int]:
+        raise AssertionError("precompute_components should not be called")
+
+    monkeypatch.setattr(review_validation, "precompute_components", fail)
+
+    updated, errors = review_validation.apply_review_state(
+        df,
+        [0],
+        reviewed=True,
+        component_map=component_map,
+    )
+
+    assert errors == []
+    assert updated["reviewed"].tolist() == [True, True]
 
 
 def test_apply_competing_row_resolution_ignores_conflicts() -> None:

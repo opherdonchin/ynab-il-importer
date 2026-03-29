@@ -102,3 +102,22 @@ def test_cached_derived_state_skips_recompute_when_generation_is_unchanged(monke
     review_app._get_cached_derived_state(cache, df, None, None)
 
     assert call_count == 2
+
+
+def test_blocker_series_with_components_validates_each_row_once(monkeypatch) -> None:
+    df = make_review_df(20)
+    call_count = 0
+    original = review_validation.validate_row
+
+    def wrapped(row: pd.Series) -> tuple[list[str], list[str]]:
+        nonlocal call_count
+        call_count += 1
+        return original(row)
+
+    monkeypatch.setattr(review_validation, "validate_row", wrapped)
+
+    blocker_series, component_map = review_validation.blocker_series_with_components(df)
+
+    assert len(blocker_series) == len(df)
+    assert len(component_map) == len(df)
+    assert call_count == len(df)

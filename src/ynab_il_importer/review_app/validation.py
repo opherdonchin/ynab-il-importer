@@ -22,6 +22,8 @@ SOURCE_MATCH_ACTIONS = {"keep_match", "create_target"}
 TARGET_MATCH_ACTIONS = {"keep_match", "create_source"}
 SOURCE_DELETE_ACTIONS = {"delete_source", "delete_both"}
 TARGET_DELETE_ACTIONS = {"delete_target", "delete_both"}
+
+
 def normalize_update_maps(series: pd.Series) -> pd.Series:
     return series.astype("string").fillna("").str.strip()
 
@@ -64,6 +66,11 @@ def _text(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def normalize_decision_action(value: Any) -> str:
+    text = _text(value)
+    return text or NO_DECISION
 
 
 def _truthy(value: Any) -> bool:
@@ -162,6 +169,8 @@ def precompute_components(df: pd.DataFrame) -> dict[Any, int]:
 def precompute_component_errors(
     df: pd.DataFrame,
     component_map: dict[Any, int],
+    *,
+    row_errors_by_index: dict[Any, list[str]] | None = None,
 ) -> dict[int, list[str]]:
     component_errors: dict[int, list[str]] = {}
     if not component_map:
@@ -181,6 +190,7 @@ def precompute_component_errors(
             df,
             start_idx,
             component_mask=component_mask,
+            row_errors_by_index=row_errors_by_index,
         )
 
     return component_errors
@@ -199,13 +209,19 @@ def blocker_series_with_components(
     df: pd.DataFrame,
 ) -> tuple[pd.Series, dict[Any, int]]:
     uncategorized = review_state.uncategorized_mask(df)
+    row_errors_by_index = precompute_row_errors(df)
     component_map = precompute_components(df)
-    component_errors = precompute_component_errors(df, component_map)
+    component_errors = precompute_component_errors(
+        df,
+        component_map,
+        row_errors_by_index=row_errors_by_index,
+    )
     values = [
         blocker_label(
             row,
             component_errors=component_errors.get(component_map.get(idx, -1), []),
             uncategorized=bool(uncategorized.loc[idx]),
+            row_errors=row_errors_by_index.get(idx, []),
         )
         for idx, row in df.iterrows()
     ]
@@ -220,7 +236,7 @@ def validate_row(row: pd.Series) -> tuple[list[str], list[str]]:
     source_category = _selected_value(row, "category", side="source")
     target_payee = _selected_value(row, "payee", side="target")
     target_category = _selected_value(row, "category", side="target")
-    action = normalize_decision_actions(pd.Series([row.get("decision_action", "")])).iloc[0]
+    action = normalize_decision_action(row.get("decision_action", ""))
     reviewed = _truthy(row.get("reviewed", False))
     workflow_type = _text(row.get("workflow_type")).casefold()
     source_category_required = not model.is_transfer_payee(source_payee)
@@ -260,11 +276,19 @@ def validate_row(row: pd.Series) -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
+def precompute_row_errors(df: pd.DataFrame) -> dict[Any, list[str]]:
+    return {
+        idx: validate_row(row)[0]
+        for idx, row in df.iterrows()
+    }
+
+
 def review_component_errors(
     df: pd.DataFrame,
     start_idx: Any,
     *,
     component_mask: pd.Series | None = None,
+    row_errors_by_index: dict[Any, list[str]] | None = None,
 ) -> list[str]:
     if component_mask is None:
         component_mask = connected_component_mask(df, start_idx)
@@ -292,7 +316,11 @@ def review_component_errors(
         errors.append("institutional rows cannot create or delete on the source side")
 
     for idx, row in component.iterrows():
-        row_errors, _ = validate_row(row)
+        row_errors = (
+            row_errors_by_index.get(idx, [])
+            if row_errors_by_index is not None
+            else validate_row(row)[0]
+        )
         errors.extend([f"row {idx}: {message}" for message in row_errors])
 
     for source_id in sorted({value for value in source_ids.tolist() if value}):
@@ -312,11 +340,16 @@ def review_component_errors(
     return errors
 
 
-def blocker_label(row: pd.Series, *, component_errors: list[str], uncategorized: bool) -> str:
-    row_errors, _ = validate_row(row)
-    action = normalize_decision_actions(
-        pd.Series([row.get("decision_action", "")])
-    ).iloc[0]
+def blocker_label(
+    row: pd.Series,
+    *,
+    component_errors: list[str],
+    uncategorized: bool,
+    row_errors: list[str] | None = None,
+) -> str:
+    if row_errors is None:
+        row_errors = validate_row(row)[0]
+    action = normalize_decision_action(row.get("decision_action", ""))
     combined_errors = list(row_errors) + list(component_errors)
 
     if any(
@@ -385,7 +418,12 @@ def apply_review_state(
 
     updated = edited_df.copy()
     for idx in touched:
-        review_state.apply_row_edit(updated, idx, reviewed=reviewed)
+        review_state.apply_row_edit(
+            updated,
+            idx,
+            reviewed=reviewed,
+            component_map=component_map,
+        )
 
     if not reviewed:
         return updated, []
@@ -408,7 +446,12 @@ def apply_review_state(
     if errors:
         reverted = edited_df.copy()
         for idx in touched:
-            review_state.apply_row_edit(reverted, idx, reviewed=False)
+            review_state.apply_row_edit(
+                reverted,
+                idx,
+                reviewed=False,
+                component_map=component_map,
+            )
         unique_errors = list(dict.fromkeys(errors))
         return reverted, unique_errors
 
