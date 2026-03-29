@@ -7,14 +7,14 @@ Merged onto branch `aikido-workflow`.
 Current focus:
 - use the unified review-row model as the only persisted review format
 - bootstrap Aikido cleanly from fresh YNAB exports
-- improve the review app so review state is easier to understand and act on
+- move from reviewed Aikido backlog into upload, post-upload reconcile, and stable historical baselining
 
 ## Current Goal
 
-Finish the Aikido bootstrap handoff so review can proceed from a clean baseline:
-- rebuilt Aikido payee mapping from matched bootstrap pairs
-- isolated historical unresolved cleanup from the forward bootstrap backlog
-- make the review app communicate row/group state clearly
+Execute the Aikido bootstrap backlog from a coherent reviewed state:
+- reviewed backlog rows are complete and upload artifacts are ready
+- the next operational step is upload execution for the prepared Aikido backlog
+- after upload, reconcile from a stable historical source baseline and carry that forward deterministically
 
 ## Settled Product Decisions
 
@@ -30,6 +30,10 @@ Finish the Aikido bootstrap handoff so review can proceed from a clean baseline:
   - `Fix`
   - `Decide`
   - `Settled`
+- Choosing a substantive row action automatically resolves competing rows:
+  - matching or create/delete actions auto-set competing rows to `ignore_row`
+  - `ignore_row` itself does not propagate
+- Upload prep may fall back hidden or missing target categories to live YNAB `Uncategorized`.
 
 See `documents/decisions/` for the schema and design contract behind the unified review model.
 
@@ -46,13 +50,40 @@ Done:
   - `data/paired/aikido_bootstrap_2026_03_28/historical_unresolved_review_rows.csv`
 - forward Aikido backlog review rows isolated in:
   - `data/paired/aikido_bootstrap_2026_03_28/backlog_review_rows.csv`
+- Aikido payee-map rules updated from review decisions, including trial-lesson handling and explicit reviewed-map corrections
 - review app primary status language changed to `Fix / Decide / Settled`
 - review app now shows a 3-color legend for those primary states
+- review app filter set now matches triage needs more closely:
+  - `State`
+  - `Save status`
+  - `Row kind`
+  - `Action`
+  - `Blocker`
+  - `Suggestions`
+  - `Map updates`
+  - `Search`
+- row review flow now:
+  - marks reviewed explicitly
+  - advances to the next row in Row view after successful review
+  - supports `Accept all set decisions`
+  - keeps non-review actions open in place
+- row and group actions now auto-ignore competing rows instead of relying on manual propagation checkboxes
+- review detail panels are shared between Row and Grouped views
+- category refresh is aligned to the workflow profile and uses the live YNAB category file shape
+- hidden categories are excluded from the review-app target category choices
+- upload prep now:
+  - honors `memo_append`
+  - prepares only explicit reviewed `create_target` rows
+  - falls back hidden or missing category names to YNAB `Uncategorized`
+- Aikido reviewed backlog upload artifacts were prepared successfully:
+  - `data/paired/aikido_bootstrap_2026_03_28/backlog_upload.csv`
+  - `data/paired/aikido_bootstrap_2026_03_28/backlog_upload.json`
 
 Validated recently:
 - focused review-app tests
 - focused YNAB/fingerprint/payee-map tests
 - Aikido payee-map validation
+- upload-prep dry run for the reviewed Aikido backlog
 
 ## Aikido Bootstrap Snapshot
 
@@ -67,19 +98,16 @@ Historical reconciled bootstrap slice:
 Forward backlog slice:
 - backlog review rows: `68`
 - rows with suggested target payee/category from the rebuilt map: `30`
+- reviewed backlog rows: `68`
+- upload-prep rows prepared: `68`
 
 ## Next Steps
 
-1. Review `data/paired/aikido_bootstrap_2026_03_28/backlog_review_rows.csv`
-2. Review `data/paired/aikido_bootstrap_2026_03_28/historical_unresolved_review_rows.csv`
-3. Save reviewed outputs beside those files with `_reviewed` suffixes
-4. Prepare upload artifacts from the reviewed backlog file
-5. Reconcile post-upload and inspect any remaining unresolved Aikido rows
-
-## Immediate UX Follow-Up
-
-Next review-app improvement under consideration:
-- simplify and improve the available filter dimensions so they match how users actually triage review work
+1. Execute upload from `data/paired/aikido_bootstrap_2026_03_28/backlog_upload.json`
+2. Reconcile Aikido after upload and inspect remaining unresolved rows
+3. Build historical source snapshots so reconcile can be propagated forward from a stable baseline
+4. Review the Pilates historical-reconcile workflow and prior notes before locking the Aikido historical-baseline process
+5. Review `data/paired/aikido_bootstrap_2026_03_28/historical_unresolved_review_rows.csv`
 
 ## Deferred
 

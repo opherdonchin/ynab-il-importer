@@ -287,6 +287,7 @@ def apply_row_edit(
     source_category: str | None = None,
     target_payee: str | None = None,
     target_category: str | None = None,
+    memo_append: str | None = None,
     update_maps: str | None = None,
     reviewed: bool | None = None,
     decision_action: str | None = None,
@@ -323,6 +324,8 @@ def apply_row_edit(
 
     if update_maps is not None and "update_maps" in df.columns:
         df.at[idx, "update_maps"] = str(update_maps).strip()
+    if memo_append is not None and "memo_append" in df.columns:
+        df.at[idx, "memo_append"] = str(memo_append).strip()
 
     if decision_action is not None and "decision_action" in df.columns:
         df.at[idx, "decision_action"] = str(decision_action).strip()

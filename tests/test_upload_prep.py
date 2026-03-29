@@ -237,7 +237,7 @@ def test_ready_mask_treats_transfer_without_category_as_ready() -> None:
     assert upload_prep.ready_mask(reviewed).tolist() == [True, False]
 
 
-def test_ready_mask_excludes_uncategorized_placeholder_rows() -> None:
+def test_ready_mask_allows_uncategorized_category() -> None:
     reviewed = _reviewed_df(
         {
             "transaction_id": ["t1", "t2"],
@@ -251,7 +251,7 @@ def test_ready_mask_excludes_uncategorized_placeholder_rows() -> None:
         }
     )
 
-    assert upload_prep.ready_mask(reviewed).tolist() == [False, True]
+    assert upload_prep.ready_mask(reviewed).tolist() == [True, True]
 
 
 def test_ready_mask_excludes_zero_amount_rows_even_if_other_fields_are_ready() -> None:
@@ -271,7 +271,7 @@ def test_ready_mask_excludes_zero_amount_rows_even_if_other_fields_are_ready() -
     assert upload_prep.ready_mask(reviewed).tolist() == [False, True]
 
 
-def test_prepare_upload_transactions_rejects_uncategorized_placeholder_rows() -> None:
+def test_prepare_upload_transactions_maps_uncategorized_category() -> None:
     reviewed = _reviewed_df(
         {
             "transaction_id": ["t1"],
@@ -285,12 +285,36 @@ def test_prepare_upload_transactions_rejects_uncategorized_placeholder_rows() ->
         }
     )
 
-    with pytest.raises(ValueError, match="missing category"):
-        upload_prep.prepare_upload_transactions(
-            reviewed,
-            accounts=_accounts(),
-            categories_df=_categories(),
-        )
+    prepared = upload_prep.prepare_upload_transactions(
+        reviewed,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+
+    assert prepared.loc[0, "category_id"] == "cat-uncat"
+
+
+def test_prepare_upload_transactions_falls_back_to_uncategorized_for_missing_category() -> None:
+    reviewed = _reviewed_df(
+        {
+            "transaction_id": ["t1"],
+            "account_name": ["Bank Leumi"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["10.00"],
+            "inflow_ils": ["0"],
+            "memo": ["pending"],
+            "payee_selected": ["Bit"],
+            "category_selected": ["Hidden or Missing"],
+        }
+    )
+
+    prepared = upload_prep.prepare_upload_transactions(
+        reviewed,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+
+    assert prepared.loc[0, "category_id"] == "cat-uncat"
 
 
 def test_prepare_upload_transactions_rejects_zero_amount_rows() -> None:

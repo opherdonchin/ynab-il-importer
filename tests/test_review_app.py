@@ -17,12 +17,14 @@ def _row(
     fingerprint: str = "fp1",
     source_row_id: str = "s1",
     target_row_id: str = "t1",
+    match_status: str = "ambiguous",
     source_present: bool = True,
     target_present: bool = True,
     decision_action: str = "No decision",
     reviewed: bool = False,
     workflow_type: str = "cross_budget",
     target_category: str = "Food",
+    update_maps: str = "",
 ) -> dict[str, object]:
     return {
         "transaction_id": transaction_id,
@@ -34,7 +36,7 @@ def _row(
         "fingerprint": fingerprint,
         "payee_options": "Cafe;Grocer",
         "category_options": "Food;Dining",
-        "match_status": "ambiguous",
+        "match_status": match_status,
         "workflow_type": workflow_type,
         "source_row_id": source_row_id,
         "target_row_id": target_row_id,
@@ -45,7 +47,7 @@ def _row(
         "target_payee_selected": "Cafe",
         "target_category_selected": target_category,
         "decision_action": decision_action,
-        "update_maps": "",
+        "update_maps": update_maps,
         "reviewed": "TRUE" if reviewed else "",
     }
 
@@ -99,10 +101,6 @@ def _find_selectbox(container, prefix: str):
     return next(widget for widget in container.selectbox if str(widget.key).startswith(prefix))
 
 
-def _find_checkbox(container, prefix: str):
-    return next(widget for widget in container.checkbox if str(widget.key).startswith(prefix))
-
-
 def _find_button(container, key_fragment: str):
     return next(widget for widget in container.button if key_fragment in str(widget.key))
 
@@ -117,7 +115,7 @@ def _find_multiselect_by_label(container, label: str):
 
 def _show_all_primary_states(app: AppTest) -> None:
     _find_multiselect_by_label(app.sidebar, "State").set_value(["Fix", "Decide", "Settled"])
-    _find_multiselect_by_label(app.sidebar, "Save state").set_value(["Unsaved", "Saved"])
+    _find_multiselect_by_label(app.sidebar, "Save status").set_value(["Unsaved", "Saved"])
 
 
 def test_apply_to_same_fingerprint_respects_eligible_mask() -> None:
@@ -201,8 +199,7 @@ def test_app_row_save_persists_side_specific_fields_and_review_state(tmp_path: P
 
     row = app.expander[0]
     _find_selectbox(row, "target_category_select_0").set_value("Dining")
-    _find_checkbox(row, "reviewed_0").check()
-    _find_button(row, "FormSubmitter:row_form_0").click()
+    _find_button_by_label(row, "Mark reviewed").click()
     app.run()
 
     session_df = app.session_state["df"]
@@ -222,12 +219,45 @@ def test_app_row_save_persists_side_specific_fields_and_review_state(tmp_path: P
     assert "payee_selected" not in saved.columns
 
 
-def test_app_review_blocked_for_component_with_no_decision_rows(tmp_path: Path) -> None:
+def test_next_row_cursor_advances_and_keeps_last_page_when_done() -> None:
+    indices = ["row-a", "row-b", "row-c"]
+
+    assert review_app._next_row_cursor(indices, "row-a", 2) == ("row-b", 1)
+    assert review_app._next_row_cursor(indices, "row-b", 2) == ("row-c", 2)
+    assert review_app._next_row_cursor(indices, "row-c", 2) == (None, 2)
+
+
+def test_mark_reviewed_opens_next_row_in_row_view(tmp_path: Path) -> None:
+    app, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[
+            _row(transaction_id="t1", source_row_id="s1", target_row_id="x1", decision_action="keep_match"),
+            _row(transaction_id="t2", source_row_id="s2", target_row_id="x2", decision_action="create_target"),
+        ],
+    )
+
+    app.run()
+    app.sidebar.radio[0].set_value("Row")
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    row = app.expander[0]
+    _find_button_by_label(row, "Mark reviewed").click()
+    app.run()
+
+    session_df = app.session_state["df"]
+    assert bool(session_df.loc[0, "reviewed"]) is True
+    assert app.session_state["expanded_row_id"] == 1
+
+
+def test_app_review_blocked_for_cascaded_component_with_no_decision_rows(tmp_path: Path) -> None:
     app, _ = _build_app_test(
         tmp_path,
         proposed_rows=[
             _row(transaction_id="t1", source_row_id="s1", target_row_id="t1", decision_action="No decision"),
             _row(transaction_id="t2", source_row_id="s1", target_row_id="t2", decision_action="No decision"),
+            _row(transaction_id="t3", source_row_id="s3", target_row_id="t2", decision_action="No decision"),
         ],
     )
 
@@ -239,22 +269,24 @@ def test_app_review_blocked_for_component_with_no_decision_rows(tmp_path: Path) 
 
     row = app.expander[0]
     _find_selectbox(row, "decision_action_0").set_value("keep_match")
-    _find_checkbox(row, "reviewed_0").check()
-    _find_button(row, "FormSubmitter:row_form_0").click()
+    _find_button_by_label(row, "Mark reviewed").click()
     app.run()
 
     session_df = app.session_state["df"]
     assert session_df.loc[0, "decision_action"] == "keep_match"
+    assert session_df.loc[1, "decision_action"] == "ignore_row"
+    assert session_df.loc[2, "decision_action"] == review_validation.NO_DECISION
     assert bool(session_df.loc[0, "reviewed"]) is False
     assert bool(session_df.loc[1, "reviewed"]) is False
+    assert bool(session_df.loc[2, "reviewed"]) is False
 
 
-def test_app_propagates_action_to_same_source_rows(tmp_path: Path) -> None:
+def test_app_create_target_auto_ignores_same_source_rows(tmp_path: Path) -> None:
     app, _ = _build_app_test(
         tmp_path,
         proposed_rows=[
-            _row(transaction_id="t1", source_row_id="s1", target_row_id="t1"),
-            _row(transaction_id="t2", source_row_id="s1", target_row_id="t2"),
+            _row(transaction_id="t1", source_row_id="s1", target_row_id="", target_present=False),
+            _row(transaction_id="t2", source_row_id="s1", target_row_id="", target_present=False),
         ],
     )
 
@@ -265,11 +297,198 @@ def test_app_propagates_action_to_same_source_rows(tmp_path: Path) -> None:
     app.run()
 
     row = app.expander[0]
-    _find_selectbox(row, "decision_action_0").set_value("delete_target")
-    _find_checkbox(row, "propagate_action_source_0").check()
-    _find_button(row, "FormSubmitter:row_form_0").click()
+    _find_selectbox(row, "decision_action_0").set_value("create_target")
+    _find_button_by_label(row, "Apply without review").click()
     app.run()
 
     session_df = app.session_state["df"]
-    assert session_df["decision_action"].tolist() == ["delete_target", "delete_target"]
+    assert session_df["decision_action"].tolist() == ["create_target", "ignore_row"]
     assert session_df["reviewed"].tolist() == [False, False]
+    assert app.session_state["expanded_row_id"] == 0
+
+
+def test_app_keep_match_auto_ignores_same_source_and_target_rows(tmp_path: Path) -> None:
+    app, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[
+            _row(transaction_id="t1", source_row_id="s1", target_row_id="x1"),
+            _row(transaction_id="t2", source_row_id="s1", target_row_id="x2"),
+            _row(transaction_id="t3", source_row_id="s3", target_row_id="x1"),
+        ],
+    )
+
+    app.run()
+    app.sidebar.radio[0].set_value("Row")
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    row = app.expander[0]
+    _find_selectbox(row, "decision_action_0").set_value("keep_match")
+    _find_button_by_label(row, "Apply without review").click()
+    app.run()
+
+    session_df = app.session_state["df"]
+    assert session_df["decision_action"].tolist() == ["keep_match", "ignore_row", "ignore_row"]
+
+
+def test_app_ignore_row_does_not_propagate(tmp_path: Path) -> None:
+    app, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[
+            _row(transaction_id="t1", source_row_id="s1", target_row_id="x1"),
+            _row(transaction_id="t2", source_row_id="s1", target_row_id="x2"),
+        ],
+    )
+
+    app.run()
+    app.sidebar.radio[0].set_value("Row")
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    row = app.expander[0]
+    _find_selectbox(row, "decision_action_0").set_value("ignore_row")
+    _find_button_by_label(row, "Apply without review").click()
+    app.run()
+
+    session_df = app.session_state["df"]
+    assert session_df["decision_action"].tolist() == ["ignore_row", review_validation.NO_DECISION]
+
+
+def test_mark_reviewed_reviews_auto_ignored_competing_rows(tmp_path: Path) -> None:
+    app, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[
+            _row(transaction_id="t1", source_row_id="s1", target_row_id="", target_present=False),
+            _row(transaction_id="t2", source_row_id="s1", target_row_id="", target_present=False),
+        ],
+    )
+
+    app.run()
+    app.sidebar.radio[0].set_value("Row")
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    row = app.expander[0]
+    _find_selectbox(row, "decision_action_0").set_value("create_target")
+    _find_button_by_label(row, "Mark reviewed").click()
+    app.run()
+
+    session_df = app.session_state["df"]
+    assert session_df["decision_action"].tolist() == ["create_target", "ignore_row"]
+    assert session_df["reviewed"].tolist() == [True, True]
+
+
+def test_accept_all_set_decisions_reviews_only_rows_with_actions(tmp_path: Path) -> None:
+    app, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[
+            _row(transaction_id="t1", source_row_id="s1", target_row_id="x1", decision_action="keep_match"),
+            _row(
+                transaction_id="t2",
+                source_row_id="s2",
+                target_row_id="x2",
+                decision_action="create_target",
+                target_present=False,
+            ),
+            _row(
+                transaction_id="t3",
+                source_row_id="s3",
+                target_row_id="x3",
+                decision_action=review_validation.NO_DECISION,
+            ),
+        ],
+    )
+
+    app.run()
+    _find_button_by_label(app.sidebar, "Accept all set decisions").click()
+    app.run()
+
+    session_df = app.session_state["df"]
+    assert session_df["reviewed"].tolist() == [True, True, False]
+
+
+def test_primary_state_series_keeps_no_decision_open_and_component_conflicts_fix() -> None:
+    df = pd.DataFrame(
+        [
+            _row(transaction_id="draft", decision_action=review_validation.NO_DECISION),
+            _row(
+                transaction_id="matched",
+                source_row_id="shared-source",
+                target_row_id="target-a",
+                decision_action="keep_match",
+                reviewed=True,
+            ),
+            _row(
+                transaction_id="deleted",
+                source_row_id="shared-source",
+                target_row_id="target-b",
+                decision_action="delete_source",
+                reviewed=True,
+            ),
+        ]
+    )
+    df["reviewed"] = review_validation.normalize_flag_series(df["reviewed"])
+
+    blocker_series = review_app._blocker_series(df)
+    primary_state_series = review_app._primary_state_series(df, blocker_series)
+
+    assert blocker_series.tolist() == [
+        "No decision",
+        "Contradiction in component",
+        "Contradiction in component",
+    ]
+    assert primary_state_series.tolist() == ["Decide", "Fix", "Fix"]
+
+
+def test_apply_row_filters_supports_action_blocker_suggestions_map_updates_and_search() -> None:
+    df = pd.DataFrame(
+        [
+            _row(
+                transaction_id="create-target",
+                match_status="source_only",
+                target_present=False,
+                decision_action="create_target",
+            ),
+            _row(
+                transaction_id="ignored",
+                match_status="ambiguous",
+                decision_action="ignore_row",
+                update_maps="fingerprint_add_source",
+            ),
+        ]
+    )
+    df["reviewed"] = review_validation.normalize_flag_series(df["reviewed"])
+
+    blocker_series = review_app._blocker_series(df)
+    primary_state_series = review_app._primary_state_series(df, blocker_series)
+    row_kind_series = review_app._row_kind_series(df)
+    action_series = review_app._action_series(df)
+    save_state = pd.Series(["Unsaved", "Saved"], index=df.index, dtype="string")
+    suggestion_series = review_app._suggestion_series(df)
+    map_update_series = review_app._map_update_filter_series(df)
+    search_text = review_app._search_text_series(df)
+
+    filtered = review_app._apply_row_filters(
+        df,
+        primary_state=["Decide"],
+        row_kind=["Source only"],
+        action_filter=["create_target"],
+        save_status=["Unsaved"],
+        blocker_filter=["None"],
+        suggestion_filter=["Has suggestions"],
+        map_update_filter=["No update_maps"],
+        primary_state_series=primary_state_series,
+        row_kind_series=row_kind_series,
+        action_series=action_series,
+        save_state=save_state,
+        blocker_series=blocker_series,
+        suggestion_series=suggestion_series,
+        map_update_series=map_update_series,
+        search_query="memo-create-target",
+        search_text=search_text,
+    )
+
+    assert filtered["transaction_id"].tolist() == ["create-target"]

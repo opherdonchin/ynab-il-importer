@@ -55,6 +55,9 @@ def load_proposed_transactions(path: str | Path) -> pd.DataFrame:
         "workflow_type",
     ]:
         df[col] = df[col].astype("string").fillna("").str.strip()
+    if "memo_append" not in df.columns:
+        df["memo_append"] = ""
+    df["memo_append"] = df["memo_append"].astype("string").fillna("").str.strip()
 
     df["update_maps"] = validation.normalize_update_maps(df["update_maps"])
     if "reviewed" not in df.columns:

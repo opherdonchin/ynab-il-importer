@@ -24,7 +24,6 @@ REQUIRED_REVIEW_COLUMNS = [
     "reviewed",
 ]
 _LEADING_SYMBOL_RE = re.compile(r"^[^\w\u0590-\u05FF]+")
-_UNCATEGORIZED_PLACEHOLDER = "uncategorized"
 _CREATE_TARGET_ACTION = "create_target"
 
 
@@ -38,9 +37,7 @@ def _normalize_text_series(series: pd.Series) -> pd.Series:
 
 def _is_selected_category(value: Any) -> bool:
     text = _normalize_text(value)
-    if not text:
-        return False
-    return text.casefold() != _UNCATEGORIZED_PLACEHOLDER
+    return bool(text)
 
 
 def _amount_milliunits(row: pd.Series) -> int:
@@ -72,6 +69,23 @@ def _target_category_series(df: pd.DataFrame) -> pd.Series:
     if "target_category_selected" in df.columns:
         return _normalize_text_series(df["target_category_selected"])
     return _normalize_text_series(df["category_selected"])
+
+
+def _memo_append_series(df: pd.DataFrame) -> pd.Series:
+    return _normalize_text_series(
+        df.get("memo_append", pd.Series([""] * len(df), index=df.index))
+    )
+
+
+def _combined_memo_series(df: pd.DataFrame) -> pd.Series:
+    base = _normalize_text_series(df["memo"])
+    extra = _memo_append_series(df)
+    combined = base.copy()
+    extra_only = combined.eq("") & extra.ne("")
+    combined.loc[extra_only] = extra.loc[extra_only]
+    both = combined.ne("") & extra.ne("")
+    combined.loc[both] = combined.loc[both] + "\n" + extra.loc[both]
+    return combined
 
 
 def _transfer_target(payee: str) -> str:
@@ -190,6 +204,14 @@ def _category_alias_lookup(categories_df: pd.DataFrame) -> dict[str, str]:
     return alias_to_id
 
 
+def _uncategorized_category_id(categories_df: pd.DataFrame) -> str:
+    category_ids = _category_lookup(categories_df)
+    if "Uncategorized" in category_ids:
+        return category_ids["Uncategorized"]
+    category_alias_ids = _category_alias_lookup(categories_df)
+    return category_alias_ids.get("uncategorized", "")
+
+
 def validate_ready_for_upload(df: pd.DataFrame) -> None:
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
     upload_df = df.loc[_decision_action_mask(df)].copy()
@@ -240,18 +262,19 @@ def prepare_upload_transactions(
         "transaction_id",
         "account_name",
         "date",
-        "memo",
         "target_payee_selected",
         "target_category_selected",
         "decision_action",
     ]:
         df[col] = _normalize_text_series(df[col])
+    df["memo"] = _combined_memo_series(df)
     for col in ["outflow_ils", "inflow_ils"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0).round(2)
 
     account_ids, transfer_payees = _account_lookup(accounts)
     category_ids = _category_lookup(categories_df)
     category_alias_ids = _category_alias_lookup(categories_df)
+    uncategorized_category_id = _uncategorized_category_id(categories_df)
 
     df["account_id"] = df["account_name"].map(account_ids).astype("string").fillna("")
     missing_accounts = sorted(
@@ -290,6 +313,9 @@ def prepare_upload_transactions(
         df.loc[unresolved_category, "category_id"] = (
             aliases.map(category_alias_ids).astype("string").fillna("")
         )
+    unresolved_category = (~is_transfer) & (df["category_id"] == "")
+    if unresolved_category.any() and uncategorized_category_id:
+        df.loc[unresolved_category, "category_id"] = uncategorized_category_id
     missing_categories = sorted(
         df.loc[~is_transfer & (df["category_id"] == ""), "target_category_selected"]
         .unique()
