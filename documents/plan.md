@@ -173,12 +173,9 @@ Forward reconcile status:
 
 ## Next Steps
 
-1. Priority 1A: Extract review-semantic functions from `app.py` into `state.py`/`validation.py`/new modules
-2. Priority 1B: Precompute connected components once per load/edit instead of per-rerun
-3. Priority 1C: Build `fingerprint → row indices` mapping once for grouped mode
-4. Priority 1D: Replace all `astype(bool)` on string-backed columns with safe boolean parsing
-5. Run full test suite after each extraction to confirm no regressions
-6. Priority 2E–G and 3H after Priority 1 is validated
+1. Hand `documents/cleanup_plan.md` to Codex for implementation (Tasks 0–10)
+2. Review Codex output — verify test pass rate, diff size, and correctness
+3. After merge, resume Aikido forward updates on `main`
 
 ## Code Review Findings Summary
 
