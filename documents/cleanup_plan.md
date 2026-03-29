@@ -5,7 +5,7 @@ Updated: 2026-03-30
 
 ## What Is Done
 
-All critical and moderate items from the original cleanup plan and all three hostile audit passes:
+All critical and moderate items from the original cleanup plan and the first three hostile audit passes:
 - ✅ Safe boolean handling (`safe_types.py`, all CSV-backed review/upload paths)
 - ✅ Component precomputation (single-sourced in `validation.py`, union-find)
 - ✅ Generation-counter caching (non-mutation reruns skip all expensive computation)
@@ -22,6 +22,10 @@ All critical and moderate items from the original cleanup plan and all three hos
 - ✅ Union-find component discovery (replaces repeated BFS)
 - ✅ 210 tests passing
 - ✅ Stop condition for "repeated whole-dataframe work" is satisfied
+- ✅ Newcomer architecture overview in `documents/architecture_overview.md`
+- ✅ README reading order now links the architecture and review workflow docs
+- ✅ Package-root orientation added in `src/ynab_il_importer/__init__.py`
+- ✅ Dual-column target-side compatibility convention commented in `review_app/state.py`
 
 ## Pass 3 Remaining Items
 
@@ -84,3 +88,4 @@ The highest-value remaining work is now maintainability, not urgent latency:
 - split `app.py::main()` and `_render_row_controls()`
 - tighten test quality on the parser/perf paths
 - clean up repeated string-normalization helpers
+- keep closing Pass 4 newcomer-orientation gaps without inventing new abstractions

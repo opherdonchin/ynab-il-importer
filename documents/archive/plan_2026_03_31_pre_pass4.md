@@ -12,52 +12,30 @@ Previous workstream (Aikido forward updates) is paused but ready to resume on `m
 
 ## Current Goal
 
-Fourth hostile audit (Pass 4) complete — readability and clarity from a newcomer's perspective. A first newcomer-orientation follow-up pass is now complete locally: the repo has a real architecture overview, the README points to it, the package root now explains the stage layout, and the target-side compatibility column pattern is documented in code. See `documents/hostile_audit_report.md` Pass 4 section.
+Third hostile audit (Pass 3) complete at commit `68bbec5`. Follow-up implementation is now underway on top of that audit. The first Pass 3 performance slice is complete locally: row validation is no longer duplicated in blocker derivation, scalar decision normalization no longer routes through 1-element `pd.Series`, and `apply_row_edit` can reuse a supplied component map. Full test suite: `213` passing.
 
-Key findings:
-- No architectural overview anywhere (data-flow diagram, module-to-stage mapping) — completed via `documents/architecture_overview.md`
-- `main()` at 739 lines needs decomposition into `_render_sidebar()`, `_render_row_view()`, `_render_grouped_view()`
-- 25 flat modules with no grouping, no module-level docstrings
-- Derived-state dict is a 25-key untyped bag (should be a dataclass)
-- Dual-column `payee_selected`/`target_payee_selected` pattern never explained in code — completed in `review_app/state.py`
-- Scripts carry business logic with `sys.path` hacks
+Pass 3 broadened scope to code style, idiom quality, and performance micro-analysis. Found the true per-mutation bottleneck is NOT the graph algorithm (now 9ms with union-find) but pandas per-row overhead: `validate_row` called 2× per row, and `normalize_decision_actions` wraps scalars in 1-element `pd.Series` (measured 1,027× overhead vs scalar string ops). See `documents/hostile_audit_report.md` Pass 3 section.
 
 Current focus:
-- continue with the remaining Pass 4 and Pass 3 maintainability items, starting with `app.py::main()` decomposition
-- merge cleanup branch into `main` once remaining findings across passes 3+4 are addressed or deferred
+- finish the remaining Pass 3 maintainability and test-quality items
+- merge the cleanup branch into `main` once remaining findings are triaged
 
-Pass 3 FIX LIST (remaining):
-3. HIGH Style — `main()` is 739 lines, `_render_row_controls` is 289 lines — reinforced by Pass 4 #4 and #6
-5. MEDIUM Style — `.astype("string").fillna("").str.strip()` repeated 15 times — reinforced by Pass 4 #14
+Pass 3 FIX LIST (prioritized):
+1. HIGH Perf — `validate_row` called 2× per row; precompute row errors once — completed
+2. HIGH Perf — `normalize_decision_actions` wraps scalars in pd.Series (1,027× overhead) — completed via scalar helper
+3. HIGH Style — `main()` is 739 lines, `_render_row_controls` is 289 lines
+4. MEDIUM Perf — `apply_row_edit` ignores available `component_map` — completed
+5. MEDIUM Style — `.astype("string").fillna("").str.strip()` repeated 15 times
 6. MEDIUM Style — Decision actions as raw strings; should be `StrEnum`
 7. MEDIUM Style — `iterrows()` in 5 hot-path call sites
 8. MEDIUM Test — `test_prepare_ynab_upload_script.py` covers 2 of 6 valid bool values
 9. LOW Perf — `precompute_component_errors` passes full DataFrame for 2-row slices
 10. LOW Style — Dead code `accept_defaults_mask()`
-11. LOW Style — Circular import via function-body `from ... import` — reinforced by Pass 4 #13
+11. LOW Style — Circular import via function-body `from ... import`
 12. LOW Style — Editable-column list duplicated 3 times
 13. LOW Test — Perf test asserts timing but not correctness of output
 14. LOW Test — Multi-assertion round-trip test hides individual failures
 15. LOW Doc — README `build-payee-map` example missing required args
-
-Pass 4 FIX LIST:
-1. HIGH Architecture — Add architectural overview (data-flow diagram, module-to-stage mapping) — completed
-2. MEDIUM Organization — Add module grouping or orientation to `__init__.py` — completed
-3. MEDIUM Documentation — Add module-level docstrings
-4. HIGH Readability — Decompose `main()` into `_render_sidebar()`, `_render_row_view()`, `_render_grouped_view()`
-5. MEDIUM Design — Replace derived-state dict with `DerivedState` dataclass
-6. MEDIUM Design — Reduce `_render_row_controls` parameter count
-7. LOW Documentation — Comment `EDITOR_STATE_PREFIXES`/`EDITOR_STATE_KEYS`
-8. LOW Readability — Consolidate inline HTML/CSS builders
-9. MEDIUM Documentation — Comment the dual-column `payee_selected`/`target_payee_selected` fallback — completed
-10. MEDIUM Organization — Move script business logic into `src/` (same as existing item H)
-11. LOW Naming — `review_reconcile.py` naming
-12. LOW Naming — Review test file naming
-13. LOW Design — Comment circular imports
-14. LOW Style — Extract shared string-coercion helper (same as Pass 3 #5)
-15. LOW Style — Consolidate `_text()` helpers
-16. LOW API — Make launcher-called functions public
-17. LOW Documentation — Link `review_app_workflow.md` from README — completed, plus architecture overview link
 
 Cleanup pass completed on `code-review-refactor`:
 
@@ -240,11 +218,6 @@ Done:
   - blocker derivation validates each row only once
 - post-Pass-3-follow-up full test suite passes:
   - `213` passed
-- first Pass 4 newcomer-orientation pass added:
-  - `documents/architecture_overview.md`
-  - README reading-order links for architecture and review workflow docs
-  - stage-level package orientation in `src/ynab_il_importer/__init__.py`
-  - inline explanation of the `payee_selected` / `target_payee_selected` compatibility alias in `review_app/state.py`
 
 Validated recently:
 - focused review-app tests
@@ -303,10 +276,9 @@ Forward reconcile status:
 
 ## Next Steps
 
-1. Triage combined Pass 3 + Pass 4 findings for implementation priority
-2. Implement high-value items: decompose `main()`, add architectural overview, add module docstrings
-3. Address remaining Pass 3 maintainability items
-4. Merge cleanup branch into `main` once validated
+1. Commit the second-audit cleanup pass and archive/update this plan
+2. Commit the first Pass 3 implementation slice and archive/update this plan
+3. Continue with remaining Pass 3 cleanup items, starting with the highest-value maintainability and test gaps
 4. Run another hostile audit against the current committed branch state
 5. Triage any new findings into:
    - must-fix before merge

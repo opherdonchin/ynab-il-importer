@@ -7,6 +7,7 @@
 | 1 | `aa347a9` | 2026-03-29 | BLOCKED — blocker_series recomputes O(n²) component graph on every Streamlit rerun |
 | 2 | `55adca5` | 2026-03-30 | PASS — stop condition met; 5 low/moderate items remaining |
 | 3 | `68bbec5` | 2026-03-30 | See below |
+| 4 | `75ce9a0` | 2026-03-31 | Readability & clarity — 2 HIGH, 5 MEDIUM, 10 LOW |
 
 ---
 
@@ -391,6 +392,290 @@ Evidence:
 2. **Mutation reruns compute once.** The O(n²) component graph runs exactly once per DataFrame mutation (row edit, review, accept-all). At 240 rows (current working set), this takes ~4 seconds — noticeable but acceptable for an action the user explicitly triggered.
 3. **Component map is reused.** `apply_review_state()` accepts the cached component map from `blocker_series_with_components`, avoiding redundant graph traversal within the same user interaction.
 4. **The remaining O(n²) cost is per-mutation, not per-rerun.** The stop condition specifically targets "repeated whole-dataframe work." Post-caching, the work happens exactly once per state change, which is the minimum possible.
+
+---
+
+## Pass 4 — Readability & Clarity Audit (Newcomer Walkthrough)
+
+**Scope:** This pass reads the repository as a newcomer would — starting from the README, following breadcrumbs into the code, and flagging every point where a first-time reader would stumble, lose context, or need to search elsewhere to understand what they're looking at. This is not about correctness or performance; it's about whether the codebase is understandable.
+
+**Method:** Read files in the order a newcomer would discover them. Note every point of confusion. Build up understanding, then evaluate the whole.
+
+---
+
+### Walk-in Experience
+
+A newcomer enters through `README.md`, which is thorough on *how to use the tool* — it documents two workflows (bootstrap and ongoing), lists CLI commands, and describes the review UI. But it never explains the code architecture. A reader finishes the README knowing *what buttons to press* but not *how the code is organized* or *what modules call what*.
+
+`REPOSITORY_LAYOUT.md` lists directories and gives brief module descriptions, but doesn't explain data flow or module relationships. After reading both entry documents, a newcomer knows the project has a `src/` package with 25+ modules, a `scripts/` directory, and a `review_app/` subpackage — but cannot draw a mental diagram of how data moves through the system.
+
+### Finding 1 — No architectural overview anywhere
+
+**Severity: HIGH (readability)**
+
+There is no single document or diagram that shows:
+- The data pipeline: raw bank/card files → normalization → fingerprinting → pairing → proposal building → human review → upload prep → YNAB API
+- Which modules implement which stages
+- Which scripts orchestrate which library calls
+
+The information exists in fragments across README (workflow steps), REPOSITORY_LAYOUT (module names), and project_context.md (priorities and reading order), but nobody has drawn the picture. A newcomer must read 3 documents and still guess at the module graph.
+
+**Recommendation:** Add an "Architecture" section to README or a standalone `ARCHITECTURE.md` with a data-flow diagram and module-to-stage mapping.
+
+### Finding 2 — 25 flat modules with no grouping or orientation
+
+**Severity: MEDIUM**
+
+The package `src/ynab_il_importer/` contains 25 flat modules. A newcomer sees:
+```
+account_map.py, bank_identity.py, bank_reconciliation.py, card_identity.py,
+card_reconciliation.py, cli.py, config.py, cross_budget_pairing.py,
+cross_budget_reconciliation.py, export.py, fingerprint.py, io_leumi.py,
+io_leumi_card_html.py, io_leumi_xls.py, io_max.py, io_ynab.py, map_updates.py,
+normalize.py, pairing.py, reconciliation_packets.py, review_reconcile.py,
+rules.py, safe_types.py, upload_prep.py, workflow_profiles.py, ynab_api.py
+```
+
+These fall into natural groups but nothing communicates the grouping:
+- **IO adapters:** `io_leumi.py`, `io_leumi_xls.py`, `io_leumi_card_html.py`, `io_max.py`, `io_ynab.py` (plus `export.py`, which lacks the `io_` prefix)
+- **Domain logic:** `rules.py`, `fingerprint.py`, `pairing.py`, `bank_reconciliation.py`, `card_reconciliation.py`, `cross_budget_reconciliation.py`, `cross_budget_pairing.py`, `upload_prep.py`, `map_updates.py`
+- **Identity/normalization:** `bank_identity.py`, `card_identity.py`, `normalize.py`, `account_map.py`
+- **Infrastructure:** `config.py`, `safe_types.py`, `workflow_profiles.py`, `ynab_api.py`, `reconciliation_packets.py`
+- **Orchestration:** `cli.py`, `review_app/`, `review_reconcile.py`
+
+`__init__.py` exports only `__version__`. It could at minimum carry a module-level docstring listing these groups.
+
+**Recommendation:** Add a docstring to `__init__.py` listing the module groups, or add sub-packages for the natural clusters. At minimum, sort the import graph in the developer's head.
+
+### Finding 3 — No module-level docstrings
+
+**Severity: MEDIUM**
+
+Most modules lack any docstring explaining their purpose. A newcomer opening `state.py`, `validation.py`, `model.py`, `io.py`, `pairing.py`, `fingerprint.py`, `map_updates.py` etc. sees imports and immediate function definitions. There is no orientation sentence telling the reader "this module is responsible for X."
+
+Examples of modules that would benefit most from a one-line docstring:
+- `safe_types.py` — name says "safe types" but it's about boolean parsing from CSV strings
+- `review_reconcile.py` — name implies "reviewing reconciliation" but it carries over prior review decisions to new proposed rows
+- `config.py` — defines `ProjectPaths` with hardcoded paths; `workflow_profiles.py` also manages config via TOML — the split isn't obvious
+- `export.py` — is an IO module but doesn't follow the `io_*` naming convention
+- `model.py` — a newcomer wonders "model of what?" (it's the review-row data model)
+
+**Recommendation:** Add a one-line module docstring to each file. This is a 10-minute task that eliminates the most common newcomer stall point.
+
+### Finding 4 — `app.py` main() is 739 lines of sequential orchestration
+
+**Severity: HIGH (readability)**
+
+`main()` spans lines 1171–1909. It does:
+1. Page configuration and initialization (~15 lines)
+2. Data loading and ensure-loaded checks (~10 lines)
+3. Unpack 25+ variables from derived state dict (~30 lines)
+4. Sidebar: file management, save/reload, quit buttons (~50 lines)
+5. Summary statistics (~30 lines)
+6. View mode radio and "Accept all" button (~20 lines)
+7. Filter multiselects (~60 lines)
+8. Search (~10 lines)
+9. State legend and matrix display (~40 lines)
+10. Row view mode: pagination + per-row rendering loop (~90 lines)
+11. Grouped view mode: fingerprint grouping, group controls, "Apply to all" logic, per-row-in-group rendering (~350 lines)
+
+These are distinct phases with clear boundaries but they're all in one function. A newcomer has to hold the entire 739-line function in memory to understand any part of it. The grouped view section (point 11) is ~350 lines of group setup, widget creation, apply logic, and row rendering nested 3 `for`/`with` levels deep.
+
+**Recommendation:** Extract `_render_sidebar()`, `_render_row_view()`, `_render_grouped_view()` as top-level functions called from `main()`. This doesn't change behavior — just gives the reader chapter headings.
+
+### Finding 5 — The derived-state dict is a 25-key untyped bag
+
+**Severity: MEDIUM**
+
+`_compute_derived_state()` returns a `dict[str, Any]` with 25+ keys. `main()` then unpacks everything into local variables:
+```python
+d = _get_cached_derived_state(df, ...)
+blocker_series = d["blocker_series"]
+component_map = d["component_map"]
+primary_state_series = d["primary_state_series"]
+# ... 22 more lines
+```
+
+This is a custom struct without any of the benefits of a typed struct. Key names are stringly-typed, autocomplete doesn't work, typos fail silently at dict-lookup time, and there's no single place to see the complete schema.
+
+**Recommendation:** Replace the dict with a `@dataclass` or `NamedTuple` called `DerivedState`. This makes the contract self-documenting and gives IDE support.
+
+### Finding 6 — `_render_row_controls` has 14 parameters
+
+**Severity: MEDIUM**
+
+```python
+def _render_row_controls(
+    df, idx, category_choices, category_group_map, payee_defaults,
+    category_defaults, show_apply, group_fingerprint, updated_mask,
+    component_map, row_order, row_page_size, ...
+)
+```
+
+A newcomer does not know what "row controls" means, cannot guess which parameters drive rendering vs. mutation, and must read the full 289-line body to understand the signature.
+
+**Recommendation:** Group related parameters into a context object or split rendering from mutation handling.
+
+### Finding 7 — `EDITOR_STATE_PREFIXES` and `EDITOR_STATE_KEYS` are unexplained
+
+**Severity: LOW**
+
+Lines ~30-50 of `app.py` define tuples and sets of magic strings used to namespace Streamlit session state keys:
+```python
+EDITOR_STATE_PREFIXES = ("payee_select_", "payee_override_", ...)
+EDITOR_STATE_KEYS = {"review_df", "original_df", "baseline_df", ...}
+```
+
+These drive `_editor_key()` which prefixes widget keys with `_ed_`. A newcomer encounters these constants and has no idea what "editor state" means, why keys need prefixing, or what happens if they collide. A brief comment would suffice.
+
+### Finding 8 — Inline HTML/CSS scattered across 5+ functions
+
+**Severity: LOW**
+
+`_render_status_badges`, `_render_primary_state_banner`, `_render_primary_state_strip`, `_render_secondary_tag_badges`, `_inject_primary_state_css`, and `_render_primary_state_legend` all build raw HTML strings with inline CSS. The `_inject_primary_state_css` function injects a `<style>` block targeting Streamlit internal `data-testid` attributes, which will break when Streamlit updates its internal DOM.
+
+For a newcomer, these functions are walls of string concatenation that obscure the rendering intent. The actual *what* (a colored badge, a colored strip) is buried in *how* (CSS properties, hex colors).
+
+**Recommendation:** Consolidate the color/style definitions into a single constants dict (partially done via `_PRIMARY_STATE_META`) and consider extracting the HTML builders into a thin `review_app/ui.py` module. This isn't urgent but would improve readability.
+
+### Finding 9 — The dual-column `payee_selected` / `target_payee_selected` pattern is never explained in code
+
+**Severity: MEDIUM**
+
+Throughout the codebase, `payee_selected` and `target_payee_selected` coexist as columns. `state.py`'s `series_or_default` silently falls back from one to the other. `io.py` copies between them on load and on save. A newcomer encounters:
+```python
+if col == "payee_selected" and "target_payee_selected" in df.columns:
+    return df["target_payee_selected"]...
+```
+…and wonders: are they the same thing? Why do both exist?
+
+The answer is in `documents/decisions/unified_review_model_schema.md`: `payee_selected` is a legacy unsuffixed alias kept for backward compatibility during the transition. But this is never mentioned in a code comment. Every new reader will spend 10 minutes figuring this out.
+
+**Recommendation:** Add a one-line comment where the fallback logic lives: `# Legacy alias: payee_selected → target_payee_selected (see unified_review_model_schema.md)`.
+
+### Finding 10 — Scripts carry significant business logic with sys.path hacks
+
+**Severity: MEDIUM**
+
+`scripts/build_proposed_transactions.py` (900+ lines) starts with:
+```python
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+```
+
+This is a code smell: the script bypasses normal package installation to import from `src/`. Other scripts do this too. The business logic in this script (deduplication, pairing orchestration, review-row construction) is untestable without the same `sys.path` hack. Tests use `importlib.util.spec_from_file_location` to load these scripts as modules.
+
+**Recommendation:** Already flagged in plan.md as item H (pull proposal-generation logic into `src/`). Reinforcing: this is the biggest single barrier to a newcomer understanding the test/source relationship.
+
+### Finding 11 — `review_reconcile.py` naming is misleading
+
+**Severity: LOW**
+
+The module name suggests "reviewing reconciliation results." It actually carries forward prior review decisions when rerunning build_proposed_transactions. The function names inside (`forward_reviewed_decisions`, etc.) are clear, but the module name makes a newcomer look in the wrong place.
+
+### Finding 12 — Five test files for the review subsystem with opaque naming
+
+**Severity: LOW**
+
+| File | Actually tests |
+|------|---------------|
+| `test_review.py` | validation.py and state.py (unit tests) |
+| `test_review_app.py` | Streamlit app via AppTest (integration) |
+| `test_review_app_wrapper.py` | scripts/review_app.py launcher (CLI integration) |
+| `test_review_io.py` | review_app/io.py (unit) |
+| `test_review_perf.py` | Performance regression (synthetic benchmark) |
+
+`test_review.py` is the one that tests `validation.py` and `state.py`, but its name suggests it tests "review" generically. A newcomer would expect `test_review_validation.py` and `test_review_state.py`.
+
+### Finding 13 — Circular imports via function-body imports
+
+**Severity: LOW**
+
+Three locations use deferred imports to break circular dependencies:
+- `state.py` → `validation.py` (in `primary_state_series()` and `apply_row_edit()`)
+- `model.py` → `validation.py` (in `competing_row_scope()`)
+
+A newcomer encountering `import ynab_il_importer.review_app.validation as review_validation` *inside a function body* wonders if this is a mistake. The circular dependency is structural: `state` ↔ `validation` ↔ `model` form a triangle. The current approach works but is not self-documenting.
+
+**Recommendation:** A brief comment like `# Deferred import: circular dependency with validation.py` would eliminate the confusion.
+
+### Finding 14 — `.astype("string").fillna("").str.strip()` repeated 15+ times
+
+**Severity: LOW**
+
+This defensive string-coercion chain appears throughout `state.py`, `validation.py`, `map_updates.py`, `upload_prep.py`, and `app.py`. Each instance is slightly different (some add `.str.casefold()`, some don't). A newcomer reads through the code and keeps seeing this incantation without understanding why it's necessary (answer: pandas CSV columns can contain NaN, floats, and non-string types).
+
+Already flagged in Pass 3 as item #5. Reinforcing that this is also a *readability* issue, not just a style one.
+
+### Finding 15 — `_text()` helper redefined identically in 3 modules
+
+**Severity: LOW**
+
+`validation.py`, `upload_prep.py` (as `_normalize_text`), and `map_updates.py` all define:
+```python
+def _text(value: Any) -> str:
+    return str(value or "").strip()
+```
+
+Identical body, different names. A newcomer wonders if they differ. They don't.
+
+### Finding 16 — `scripts/review_app.py` calls private API from `app.py`
+
+**Severity: LOW**
+
+The launcher script calls `review_app._build_arg_parser()`, `review_app._default_reviewed_path()`, and `review_app._effective_categories_path()`. All underscore-prefixed. If these are meant to be called from outside the module, they should be public.
+
+### Finding 17 — `review_app_workflow.md` exists but isn't linked from README or REPOSITORY_LAYOUT
+
+**Severity: LOW**
+
+A well-written document about the review app loop exists at `documents/review_app_workflow.md`, but a newcomer would never find it because neither README nor REPOSITORY_LAYOUT references it.
+
+---
+
+### Holistic Assessment
+
+**Things that are genuinely good:**
+- The `documents/decisions/` directory is excellent — design decisions are explicit, reasoned, and versioned
+- The review model vocabulary (Fix/Decide/Settled, component validation, competing-row resolution) is internally consistent and well-thought-out
+- `model.py` (114 lines) is a good example of size and focus — small, clear functions, no mixed concerns
+- `io.py` (111 lines) is similarly well-scoped
+- `safe_types.py` and `normalize.py` are correctly extracted as shared utilities
+- Test coverage is broad (210 tests) and tests like `test_review.py` serve as effective documentation of validation rules
+
+**The core readability bottleneck:**
+The codebase has a *top-heavy* problem. The entry points (README, REPOSITORY_LAYOUT) explain usage but not architecture. The package (`__init__.py`) is silent. The main application file (`app.py`) carries 1913 lines of mixed rendering, UI state management, and business-logic orchestration. The 25 flat modules have no visible grouping. A newcomer can understand any *individual* module, but cannot quickly build a mental map of how they relate.
+
+**If I were grading this like a high school CS project:**
+The student clearly understands the domain deeply and has built a working, well-tested system. The individual functions are generally well-named and do what they say. But the project reads like it was built incrementally (which it was) without stepping back to explain the whole to a reader. The README teaches *operation* but not *comprehension*. The package teaches *nothing* — you must read every file. The review app works but its main function is the length of a short story.
+
+---
+
+### Pass 4 Summary Table
+
+| # | Severity | Category | Finding |
+|---|----------|----------|---------|
+| 1 | HIGH | Architecture | No architectural overview (data-flow diagram, module-to-stage map) |
+| 2 | MEDIUM | Organization | 25 flat modules with no grouping or orientation |
+| 3 | MEDIUM | Documentation | No module-level docstrings |
+| 4 | HIGH | Readability | `main()` is 739 lines of sequential orchestration |
+| 5 | MEDIUM | Design | Derived-state dict is a 25-key untyped bag |
+| 6 | MEDIUM | Design | `_render_row_controls` has 14 parameters |
+| 7 | LOW | Documentation | `EDITOR_STATE_PREFIXES`/`EDITOR_STATE_KEYS` unexplained |
+| 8 | LOW | Readability | Inline HTML/CSS scattered across 5+ functions |
+| 9 | MEDIUM | Documentation | Dual-column `payee_selected`/`target_payee_selected` never explained in code |
+| 10 | MEDIUM | Organization | Scripts carry business logic with sys.path hacks |
+| 11 | LOW | Naming | `review_reconcile.py` naming is misleading |
+| 12 | LOW | Naming | Five test files for review subsystem with opaque naming |
+| 13 | LOW | Design | Circular imports via function-body imports (without comments) |
+| 14 | LOW | Style | `.astype("string").fillna("").str.strip()` repeated 15+ times |
+| 15 | LOW | Style | `_text()` helper redefined identically in 3 modules |
+| 16 | LOW | API | Launcher script calls private underscore-prefixed functions |
+| 17 | LOW | Documentation | `review_app_workflow.md` not linked from README or REPOSITORY_LAYOUT |
+
+**Totals:** 2 HIGH, 5 MEDIUM, 10 LOW
 
 ## SUMMARY SCORECARD (Pass 2)
 

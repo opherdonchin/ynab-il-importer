@@ -13,10 +13,19 @@ Directory convention:
 - `tmp/` and `tests_runtime/`: scratch/runtime space (ignored by git).
 
 `documents/review_app_workflow.md` documents the review app workflow.
+`documents/architecture_overview.md` documents the codebase architecture and stage-to-module map.
 
 See `REPOSITORY_LAYOUT.md` for the detailed retention policy and layout rules.
 
 ## Workflow Overview
+
+If you are new to the repository, read these in order:
+
+1. `README.md`
+2. `documents/project_context.md`
+3. `documents/architecture_overview.md`
+4. `documents/decisions/unified_review_model_design.md`
+5. `documents/review_app_workflow.md` if you are working in the review flow
 
 There are two distinct workflows:
 
@@ -299,6 +308,7 @@ Default behavior:
 - Row expanders include a primary state marker (`NR/US`, `NR/S`, `R/US`, `R/S`) and color-coded state styling.
 
 See `documents/review_app_workflow.md` for the full review and upload workflow.
+See `documents/architecture_overview.md` for where the review app fits in the larger pipeline.
 
 Hard rule for readiness:
 - Both `payee_selected` and `category_selected` must be filled.
