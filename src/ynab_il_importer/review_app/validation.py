@@ -169,6 +169,23 @@ def component_error_lookup(df: pd.DataFrame) -> dict[Any, list[str]]:
     }
 
 
+def blocker_series_with_components(
+    df: pd.DataFrame,
+) -> tuple[pd.Series, dict[Any, int]]:
+    uncategorized = review_state.uncategorized_mask(df)
+    component_map = precompute_components(df)
+    component_errors = precompute_component_errors(df, component_map)
+    values = [
+        blocker_label(
+            row,
+            component_errors=component_errors.get(component_map.get(idx, -1), []),
+            uncategorized=bool(uncategorized.loc[idx]),
+        )
+        for idx, row in df.iterrows()
+    ]
+    return pd.Series(values, index=df.index, dtype="string"), component_map
+
+
 def validate_row(row: pd.Series) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -298,17 +315,8 @@ def blocker_label(row: pd.Series, *, component_errors: list[str], uncategorized:
 
 
 def blocker_series(df: pd.DataFrame) -> pd.Series:
-    uncategorized = review_state.uncategorized_mask(df)
-    component_errors = component_error_lookup(df)
-    values = [
-        blocker_label(
-            row,
-            component_errors=component_errors.get(idx, []),
-            uncategorized=bool(uncategorized.loc[idx]),
-        )
-        for idx, row in df.iterrows()
-    ]
-    return pd.Series(values, index=df.index, dtype="string")
+    blocker_values, _ = blocker_series_with_components(df)
+    return blocker_values
 
 
 def allowed_decision_actions(row: pd.Series) -> list[str]:
@@ -343,6 +351,7 @@ def apply_review_state(
     indices: list[Any],
     *,
     reviewed: bool,
+    component_map: dict[Any, int] | None = None,
 ) -> tuple[pd.DataFrame, list[str]]:
     touched = [idx for idx in dict.fromkeys(indices) if idx in edited_df.index]
     if not touched:
@@ -356,7 +365,8 @@ def apply_review_state(
         return updated, []
 
     errors: list[str] = []
-    component_map = precompute_components(updated)
+    if component_map is None:
+        component_map = precompute_components(updated)
     component_series = pd.Series(component_map).reindex(updated.index)
     seen_components: set[int] = set()
     for idx in touched:

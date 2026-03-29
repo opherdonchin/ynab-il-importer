@@ -6,7 +6,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, MutableMapping
 
 import pandas as pd
 import streamlit as st
@@ -206,10 +206,36 @@ def _request_quit(action: str) -> bool:
     return True
 
 
+def _bump_df_generation() -> None:
+    st.session_state["_df_generation"] = int(st.session_state.get("_df_generation", 0)) + 1
+    st.session_state["_series_generation"] = -1
+    st.session_state.pop("_cached_series", None)
+    st.session_state.pop("_cached_component_map", None)
+
+
+def _set_review_frames(
+    *,
+    df: pd.DataFrame | None = None,
+    original: pd.DataFrame | None = None,
+    base: pd.DataFrame | None = None,
+) -> None:
+    changed = False
+    if df is not None:
+        st.session_state["df"] = df
+        changed = True
+    if original is not None:
+        st.session_state["df_original"] = original
+        changed = True
+    if base is not None:
+        st.session_state["df_base"] = base
+        changed = True
+    if changed:
+        _bump_df_generation()
+
+
 def _load_df(path: Path, *, set_source_path: bool = False) -> None:
     df = review_io.load_proposed_transactions(path)
-    st.session_state["df"] = df
-    st.session_state["df_original"] = df.copy()
+    _set_review_frames(df=df, original=df.copy())
     if set_source_path:
         st.session_state["source_path"] = str(path)
     _clear_editor_state()
@@ -217,7 +243,7 @@ def _load_df(path: Path, *, set_source_path: bool = False) -> None:
 
 def _load_base(path: Path) -> None:
     base = review_io.load_proposed_transactions(path)
-    st.session_state["df_base"] = base
+    _set_review_frames(base=base)
 
 
 def _load_categories(path: Path) -> None:
@@ -615,12 +641,89 @@ def _render_secondary_tag_badges(
     st.markdown(" | ".join(spans), unsafe_allow_html=True)
 
 
-def _row_key_series(df: pd.DataFrame) -> pd.Series:
-    if "transaction_id" not in df.columns:
-        return pd.Series(df.index.astype("string"), index=df.index, dtype="string")
-    txn_id = df["transaction_id"].astype("string").fillna("")
-    occurrence = txn_id.groupby(txn_id).cumcount().astype("string")
-    return txn_id + "|" + occurrence
+def _compute_derived_state(
+    df: pd.DataFrame,
+    original: pd.DataFrame | None,
+    base: pd.DataFrame | None,
+) -> dict[str, Any]:
+    counts = review_state.summary_counts(df)
+    modified = review_state.modified_count(df, original)
+    unsaved_mask = review_state.modified_mask(df, original)
+    changed_mask = review_state.changed_mask(df, base)
+    reviewed_mask = review_validation.normalize_flag_series(
+        df.get("reviewed", pd.Series([False] * len(df), index=df.index))
+    )
+    saved_mask = review_state.saved_mask(original, base, df.index)
+    updated_mask = (changed_mask | reviewed_mask).astype(bool)
+    inconsistent = review_validation.inconsistent_fingerprints(df)
+    uncategorized_mask = review_state.uncategorized_mask(df)
+    blocker_series, component_map = review_validation.blocker_series_with_components(df)
+    primary_state_series = review_state.primary_state_series(df, blocker_series)
+    row_kind_series = review_state.row_kind_series(df)
+    action_series = review_state.action_series(df)
+    suggestion_series = review_state.suggestion_series(df)
+    map_update_series = review_state.map_update_filter_series(df)
+    search_text = review_state.search_text_series(df)
+    save_state = pd.Series(
+        ["Saved" if bool(value) else "Unsaved" for value in saved_mask],
+        index=df.index,
+        dtype="string",
+    )
+    inference_tag = review_state.initial_inference_tags(df, base)
+    progress_tag = pd.Series(
+        ["resolved" if bool(value) else "unchanged" for value in updated_mask],
+        index=df.index,
+        dtype="string",
+    )
+    persistence_tag = save_state.str.lower()
+    base_count = len(base) if isinstance(base, pd.DataFrame) and not base.empty else len(df)
+    updated_confirmed_count = int(updated_mask.sum())
+    saved_reviewed_count = int(saved_mask.sum())
+    uncategorized_count = int(uncategorized_mask.sum())
+    return {
+        "counts": counts,
+        "modified": modified,
+        "unsaved_mask": unsaved_mask,
+        "changed_mask": changed_mask,
+        "reviewed_mask": reviewed_mask,
+        "saved_mask": saved_mask,
+        "updated_mask": updated_mask,
+        "inconsistent": inconsistent,
+        "uncategorized_mask": uncategorized_mask,
+        "blocker_series": blocker_series,
+        "primary_state_series": primary_state_series,
+        "row_kind_series": row_kind_series,
+        "action_series": action_series,
+        "suggestion_series": suggestion_series,
+        "map_update_series": map_update_series,
+        "search_text": search_text,
+        "save_state": save_state,
+        "inference_tag": inference_tag,
+        "progress_tag": progress_tag,
+        "persistence_tag": persistence_tag,
+        "base_count": base_count,
+        "updated_confirmed_count": updated_confirmed_count,
+        "saved_reviewed_count": saved_reviewed_count,
+        "uncategorized_count": uncategorized_count,
+        "component_map": component_map,
+    }
+
+
+def _get_cached_derived_state(
+    cache: MutableMapping[str, Any],
+    df: pd.DataFrame,
+    original: pd.DataFrame | None,
+    base: pd.DataFrame | None,
+) -> dict[str, Any]:
+    current_generation = int(cache.get("_df_generation", 0))
+    cached_generation = int(cache.get("_series_generation", -1))
+    cached = cache.get("_cached_series")
+    if cached_generation != current_generation or not isinstance(cached, dict):
+        cached = _compute_derived_state(df, original, base)
+        cache["_cached_series"] = cached
+        cache["_cached_component_map"] = cached.get("component_map", {})
+        cache["_series_generation"] = current_generation
+    return cached
 
 
 def _ordered_filter_options(series: pd.Series, preferred: list[str]) -> list[str]:
@@ -628,74 +731,6 @@ def _ordered_filter_options(series: pd.Series, preferred: list[str]) -> list[str
     ordered = [value for value in preferred if value in present]
     extras = sorted(present - set(ordered))
     return ordered + extras
-
-
-def _derive_inference_tags(df: pd.DataFrame) -> pd.Series:
-    match_status = review_state.series_or_default(df, "match_status").str.strip().str.lower()
-    payee = review_state.series_or_default(df, "payee_selected").str.strip()
-    missing_required = payee.eq("") | review_state.required_category_missing_mask(df)
-
-    inferred = pd.Series(["unique"] * len(df), index=df.index, dtype="string")
-    inferred = inferred.where(~match_status.eq("none"), "unrecognized")
-    inferred = inferred.where(~match_status.eq("ambiguous"), "ambiguous")
-    inferred = inferred.where(
-        ~(~match_status.isin(["none", "ambiguous"]) & missing_required), "missing"
-    )
-    unknown = (
-        ~match_status.isin(["", "none", "ambiguous", "unique"])
-        & ~missing_required
-    )
-    inferred = inferred.where(~unknown, match_status)
-    return inferred
-
-
-def _initial_inference_tags(df: pd.DataFrame, base: pd.DataFrame | None) -> pd.Series:
-    fallback = _derive_inference_tags(df)
-    if base is None or base.empty:
-        return fallback
-
-    base_keys = _row_key_series(base)
-    base_inference = _derive_inference_tags(base)
-    base_map = pd.Series(base_inference.to_numpy(), index=base_keys)
-
-    current_keys = _row_key_series(df)
-    aligned = current_keys.map(base_map)
-    return aligned.fillna(fallback).astype("string")
-
-
-def _apply_row_filters(
-    df: pd.DataFrame,
-    *,
-    primary_state: list[str],
-    row_kind: list[str],
-    action_filter: list[str],
-    save_status: list[str],
-    blocker_filter: list[str],
-    suggestion_filter: list[str],
-    map_update_filter: list[str],
-    primary_state_series: pd.Series,
-    row_kind_series: pd.Series,
-    action_series: pd.Series,
-    save_state: pd.Series,
-    blocker_series: pd.Series,
-    suggestion_series: pd.Series,
-    map_update_series: pd.Series,
-    search_query: str,
-    search_text: pd.Series,
-) -> pd.DataFrame:
-    mask = pd.Series([True] * len(df), index=df.index)
-    mask &= primary_state_series.isin(primary_state)
-    mask &= row_kind_series.isin(row_kind)
-    mask &= action_series.isin(action_filter)
-    mask &= save_state.isin(save_status)
-    mask &= blocker_series.isin(blocker_filter)
-    mask &= suggestion_series.isin(suggestion_filter)
-    mask &= map_update_series.isin(map_update_filter)
-
-    if search_query:
-        mask &= search_text.str.contains(search_query, regex=False)
-
-    return df[mask]
 
 
 def _merge_category_choices(*values: str) -> list[str]:
@@ -843,6 +878,7 @@ def _render_row_controls(
     show_apply: bool = True,
     group_fingerprint: str | None = None,
     updated_mask: pd.Series | None = None,
+    component_map: dict[Any, int] | None = None,
     row_order: list[Any] | None = None,
     row_page_size: int | None = None,
 ) -> None:
@@ -1095,6 +1131,7 @@ def _render_row_controls(
             working_df,
             review_indices,
             reviewed=review_requested,
+            component_map=component_map,
         )
         review_notice = "Review blocked: " + "; ".join(review_errors) if review_errors else ""
 
@@ -1108,7 +1145,7 @@ def _render_row_controls(
             st.success(
                 "Applied target values in memory. Click Save to persist."
             )
-        st.session_state["df"] = final_df
+        _set_review_frames(df=final_df)
         if (
             review_requested
             and not review_errors
@@ -1154,42 +1191,32 @@ def main() -> None:
     category_list: list[str] = st.session_state.get("category_list", [])
     category_group_map: dict[str, str] = st.session_state.get("category_group_map", {})
     category_error = st.session_state.get("category_error", "")
-
-    counts = review_state.summary_counts(df)
-    modified = review_state.modified_count(df, original)
-    unsaved_mask = review_state.modified_mask(df, original)
-    changed_mask = review_state.changed_mask(df, base)
-    reviewed_mask = review_validation.normalize_flag_series(
-        df.get("reviewed", pd.Series([False] * len(df), index=df.index))
-    )
-    saved_mask = review_state.saved_mask(original, base, df.index)
-    updated_mask = (changed_mask | reviewed_mask).astype(bool)
-    inconsistent = review_validation.inconsistent_fingerprints(df)
-    uncategorized_mask = review_state.uncategorized_mask(df)
-    blocker_series = review_validation.blocker_series(df)
-    primary_state_series = review_state.primary_state_series(df, blocker_series)
-    row_kind_series = review_state.row_kind_series(df)
-    action_series = review_state.action_series(df)
-    suggestion_series = review_state.suggestion_series(df)
-    map_update_series = review_state.map_update_filter_series(df)
-    search_text = review_state.search_text_series(df)
-    save_state = pd.Series(
-        ["Saved" if bool(value) else "Unsaved" for value in saved_mask],
-        index=df.index,
-        dtype="string",
-    )
-    inference_tag = _initial_inference_tags(df, base)
-    progress_tag = pd.Series(
-        ["resolved" if bool(value) else "unchanged" for value in updated_mask],
-        index=df.index,
-        dtype="string",
-    )
-    persistence_tag = save_state.str.lower()
-
-    base_count = len(base) if isinstance(base, pd.DataFrame) and not base.empty else len(df)
-    updated_confirmed_count = int(updated_mask.sum())
-    saved_reviewed_count = int(saved_mask.sum())
-    uncategorized_count = int(uncategorized_mask.sum())
+    derived = _get_cached_derived_state(st.session_state, df, original, base)
+    counts = derived["counts"]
+    modified = derived["modified"]
+    unsaved_mask = derived["unsaved_mask"]
+    changed_mask = derived["changed_mask"]
+    reviewed_mask = derived["reviewed_mask"]
+    saved_mask = derived["saved_mask"]
+    updated_mask = derived["updated_mask"]
+    inconsistent = derived["inconsistent"]
+    uncategorized_mask = derived["uncategorized_mask"]
+    blocker_series = derived["blocker_series"]
+    primary_state_series = derived["primary_state_series"]
+    row_kind_series = derived["row_kind_series"]
+    action_series = derived["action_series"]
+    suggestion_series = derived["suggestion_series"]
+    map_update_series = derived["map_update_series"]
+    search_text = derived["search_text"]
+    save_state = derived["save_state"]
+    inference_tag = derived["inference_tag"]
+    progress_tag = derived["progress_tag"]
+    persistence_tag = derived["persistence_tag"]
+    base_count = derived["base_count"]
+    updated_confirmed_count = derived["updated_confirmed_count"]
+    saved_reviewed_count = derived["saved_reviewed_count"]
+    uncategorized_count = derived["uncategorized_count"]
+    component_map = derived["component_map"]
 
     with st.sidebar:
         st.header("Files")
@@ -1260,7 +1287,7 @@ def main() -> None:
             review_io.save_reviewed_transactions(df, save_path)
             map_updates_df = map_updates.save_map_update_candidates(df, base, map_updates_path)
             st.session_state["last_saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            st.session_state["df_original"] = df.copy()
+            _set_review_frames(original=df.copy())
             st.session_state["save_notice"] = (
                 f"Saved to {save_path} and wrote {len(map_updates_df)} map updates to {map_updates_path}"
             )
@@ -1292,8 +1319,9 @@ def main() -> None:
                     df.copy(),
                     review_indices,
                     reviewed=True,
+                    component_map=component_map,
                 )
-                st.session_state["df"] = final_df
+                _set_review_frames(df=final_df)
                 if review_errors:
                     st.session_state["review_error"] = (
                         "Accept all blocked: " + "; ".join(review_errors)
@@ -1448,7 +1476,7 @@ def main() -> None:
     if not inconsistent.empty:
         st.warning(f"Inconsistent repeated transaction selections: {len(inconsistent)}")
 
-    filtered = _apply_row_filters(
+    filtered = review_state.apply_row_filters(
         df,
         primary_state=primary_state,
         row_kind=selected_row_kind,
@@ -1539,6 +1567,7 @@ def main() -> None:
                     category_defaults=category_defaults,
                     show_apply=True,
                     updated_mask=updated_mask,
+                    component_map=component_map,
                     row_order=indices,
                     row_page_size=page_size,
                 )
@@ -1789,10 +1818,11 @@ def main() -> None:
                         working_df,
                         affected_indices,
                         reviewed=True,
+                        component_map=component_map,
                     )
                     st.session_state["expanded_group_fp"] = fp
                     st.session_state["expanded_group_row_id"] = None
-                    st.session_state["df"] = final_df
+                    _set_review_frames(df=final_df)
                     if review_errors:
                         st.error("Review blocked: " + "; ".join(review_errors))
                     else:
@@ -1875,6 +1905,7 @@ def main() -> None:
                             show_apply=False,
                             group_fingerprint=fp,
                             updated_mask=updated_mask,
+                            component_map=component_map,
                         )
 
 

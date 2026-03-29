@@ -359,6 +359,82 @@ def search_text_series(df: pd.DataFrame) -> pd.Series:
     return text.str.casefold()
 
 
+def _row_key_series(df: pd.DataFrame) -> pd.Series:
+    if "transaction_id" not in df.columns:
+        return pd.Series(df.index.astype("string"), index=df.index, dtype="string")
+    txn_id = df["transaction_id"].astype("string").fillna("")
+    occurrence = txn_id.groupby(txn_id).cumcount().astype("string")
+    return txn_id + "|" + occurrence
+
+
+def derive_inference_tags(df: pd.DataFrame) -> pd.Series:
+    match_status = series_or_default(df, "match_status").str.strip().str.lower()
+    payee = series_or_default(df, "payee_selected").str.strip()
+    missing_required = payee.eq("") | required_category_missing_mask(df)
+
+    inferred = pd.Series(["unique"] * len(df), index=df.index, dtype="string")
+    inferred = inferred.where(~match_status.eq("none"), "unrecognized")
+    inferred = inferred.where(~match_status.eq("ambiguous"), "ambiguous")
+    inferred = inferred.where(
+        ~(~match_status.isin(["none", "ambiguous"]) & missing_required), "missing"
+    )
+    unknown = (
+        ~match_status.isin(["", "none", "ambiguous", "unique"])
+        & ~missing_required
+    )
+    inferred = inferred.where(~unknown, match_status)
+    return inferred
+
+
+def initial_inference_tags(df: pd.DataFrame, base: pd.DataFrame | None) -> pd.Series:
+    fallback = derive_inference_tags(df)
+    if base is None or base.empty:
+        return fallback
+
+    base_keys = _row_key_series(base)
+    base_inference = derive_inference_tags(base)
+    base_map = pd.Series(base_inference.to_numpy(), index=base_keys)
+
+    current_keys = _row_key_series(df)
+    aligned = current_keys.map(base_map)
+    return aligned.fillna(fallback).astype("string")
+
+
+def apply_row_filters(
+    df: pd.DataFrame,
+    *,
+    primary_state: list[str],
+    row_kind: list[str],
+    action_filter: list[str],
+    save_status: list[str],
+    blocker_filter: list[str],
+    suggestion_filter: list[str],
+    map_update_filter: list[str],
+    primary_state_series: pd.Series,
+    row_kind_series: pd.Series,
+    action_series: pd.Series,
+    save_state: pd.Series,
+    blocker_series: pd.Series,
+    suggestion_series: pd.Series,
+    map_update_series: pd.Series,
+    search_query: str,
+    search_text: pd.Series,
+) -> pd.DataFrame:
+    mask = pd.Series([True] * len(df), index=df.index)
+    mask &= primary_state_series.isin(primary_state)
+    mask &= row_kind_series.isin(row_kind)
+    mask &= action_series.isin(action_filter)
+    mask &= save_state.isin(save_status)
+    mask &= blocker_series.isin(blocker_filter)
+    mask &= suggestion_series.isin(suggestion_filter)
+    mask &= map_update_series.isin(map_update_filter)
+
+    if search_query:
+        mask &= search_text.str.contains(search_query, regex=False)
+
+    return df[mask]
+
+
 def related_rows_mask(
     df: pd.DataFrame,
     idx: Any,

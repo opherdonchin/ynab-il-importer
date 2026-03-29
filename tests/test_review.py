@@ -437,3 +437,67 @@ def test_precompute_component_errors_propagates() -> None:
     assert component_errors[component_map[0]] == component_errors[component_map[1]]
     assert "connected rows still contain No decision" in component_errors[component_map[0]]
     assert component_errors[component_map[2]] == []
+
+
+def test_blocker_series_with_components_returns_series_and_component_map() -> None:
+    df = _review_rows(
+        [
+            {"source_row_id": "s1", "target_row_id": "t1", "decision_action": "keep_match"},
+            {"source_row_id": "s1", "target_row_id": "t2", "decision_action": "ignore_row"},
+            {"source_row_id": "s3", "target_row_id": "t3", "decision_action": "keep_match"},
+        ]
+    )
+
+    blockers, component_map = review_validation.blocker_series_with_components(df)
+
+    assert blockers.index.tolist() == df.index.tolist()
+    assert component_map[0] == component_map[1]
+    assert component_map[2] != component_map[0]
+
+
+def test_derive_inference_tags_marks_missing_rows() -> None:
+    df = _review_rows(
+        [
+            {
+                "transaction_id": "t1",
+                "match_status": "matched_auto",
+                "target_payee_selected": "",
+                "target_category_selected": "",
+            },
+            {
+                "transaction_id": "t2",
+                "match_status": "ambiguous",
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+            },
+        ]
+    )
+
+    inferred = review_state.derive_inference_tags(df)
+
+    assert inferred.tolist() == ["missing", "ambiguous"]
+
+
+def test_initial_inference_tags_aligns_by_transaction_occurrence() -> None:
+    base = _review_rows(
+        [
+            {
+                "transaction_id": "dup",
+                "match_status": "ambiguous",
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+            },
+            {
+                "transaction_id": "dup",
+                "match_status": "matched_auto",
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+            },
+        ]
+    )
+    current = base.copy()
+    current.loc[1, "match_status"] = "source_only"
+
+    inferred = review_state.initial_inference_tags(current, base)
+
+    assert inferred.tolist() == ["ambiguous", "matched_auto"]

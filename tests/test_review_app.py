@@ -498,7 +498,7 @@ def test_apply_row_filters_supports_action_blocker_suggestions_map_updates_and_s
     map_update_series = review_state.map_update_filter_series(df)
     search_text = review_state.search_text_series(df)
 
-    filtered = review_app._apply_row_filters(
+    filtered = review_state.apply_row_filters(
         df,
         primary_state=["Decide"],
         row_kind=["Source only"],
