@@ -263,6 +263,33 @@ def _rule_matches(rule: pd.Series, txn: pd.Series) -> bool:
     return True
 
 
+def _compile_active_rules(
+    rules: pd.DataFrame,
+) -> tuple[dict[str, list[pd.Series]], list[pd.Series]]:
+    active_rules = rules[rules["is_active"]].copy()
+    by_fingerprint: dict[str, list[pd.Series]] = {}
+    wildcard_rules: list[pd.Series] = []
+    for _, rule in active_rules.iterrows():
+        fingerprint = _blank_to_none(rule.get("fingerprint"))
+        if fingerprint is None:
+            wildcard_rules.append(rule)
+            continue
+        by_fingerprint.setdefault(fingerprint, []).append(rule)
+    return by_fingerprint, wildcard_rules
+
+
+def _candidate_rules_for_txn(
+    compiled_rules: tuple[dict[str, list[pd.Series]], list[pd.Series]],
+    txn: pd.Series,
+) -> list[pd.Series]:
+    by_fingerprint, wildcard_rules = compiled_rules
+    fingerprint = _blank_to_none(txn.get("fingerprint"))
+    candidates = list(wildcard_rules)
+    if fingerprint is not None:
+        candidates.extend(by_fingerprint.get(fingerprint, []))
+    return candidates
+
+
 def _parse_amount_bucket(rule_value: str) -> tuple[Callable[[float], bool], str] | None:
     text = rule_value.strip().replace(" ", "")
     if not text:
@@ -313,11 +340,15 @@ def _compute_specificity(rule: pd.Series) -> int:
 
 def apply_payee_map_rules(transactions: pd.DataFrame, rules: pd.DataFrame) -> pd.DataFrame:
     tx = prepare_transactions_for_rules(transactions)
-    active_rules = rules[rules["is_active"]].copy()
+    compiled_rules = _compile_active_rules(rules)
 
     results: list[dict[str, Any]] = []
     for _, txn in tx.iterrows():
-        matched_rules = [rule for _, rule in active_rules.iterrows() if _rule_matches(rule, txn)]
+        matched_rules = [
+            rule
+            for rule in _candidate_rules_for_txn(compiled_rules, txn)
+            if _rule_matches(rule, txn)
+        ]
         if not matched_rules:
             results.append(
                 {

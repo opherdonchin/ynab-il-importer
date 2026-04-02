@@ -151,6 +151,58 @@ def test_load_csvs_prefers_sidecar_parquet(tmp_path: Path) -> None:
     assert loaded.loc[0, "fingerprint"] == "mega-pet-parquet"
 
 
+def test_build_options_from_applied_uses_candidate_rule_ids() -> None:
+    rules = build_proposed_transactions.rules_mod.normalize_payee_map_rules(
+        pd.DataFrame(
+            [
+                {
+                    "rule_id": "r1",
+                    "is_active": True,
+                    "priority": 0,
+                    "txn_kind": "",
+                    "fingerprint": "coffee shop",
+                    "description_clean_norm": "",
+                    "account_name": "",
+                    "source": "",
+                    "direction": "",
+                    "currency": "",
+                    "amount_bucket": "",
+                    "payee_canonical": "Coffee Shop",
+                    "category_target": "Eating Out",
+                    "notes": "",
+                    "card_suffix": "",
+                },
+                {
+                    "rule_id": "r2",
+                    "is_active": True,
+                    "priority": 0,
+                    "txn_kind": "",
+                    "fingerprint": "coffee shop",
+                    "description_clean_norm": "",
+                    "account_name": "",
+                    "source": "",
+                    "direction": "",
+                    "currency": "",
+                    "amount_bucket": "",
+                    "payee_canonical": "Cafe Nero",
+                    "category_target": "Eating Out",
+                    "notes": "",
+                    "card_suffix": "",
+                },
+            ]
+        )
+    )
+    applied = pd.DataFrame(
+        [{"match_candidate_rule_ids": "r2;r1"}, {"match_candidate_rule_ids": ""}]
+    )
+
+    options = build_proposed_transactions._build_options_from_applied(applied, rules)
+
+    assert options.loc[0, "payee_options"] == "Cafe Nero; Coffee Shop"
+    assert options.loc[0, "category_options"] == "Eating Out"
+    assert options.loc[1, "payee_options"] == ""
+
+
 def test_dedupe_sources_handles_non_range_index(monkeypatch: pytest.MonkeyPatch) -> None:
     source_df = pd.DataFrame(
         [

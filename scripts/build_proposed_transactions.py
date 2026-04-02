@@ -372,19 +372,30 @@ def _dedupe_sources(
     return deduped, pairs
 
 
-def _build_options(transactions: pd.DataFrame, rules: pd.DataFrame) -> pd.DataFrame:
-    tx = rules_mod.prepare_transactions_for_rules(transactions)
-    active_rules = rules[rules["is_active"]]
+def _build_options_from_applied(applied: pd.DataFrame, rules: pd.DataFrame) -> pd.DataFrame:
+    if applied.empty:
+        return pd.DataFrame(columns=["payee_options", "category_options"], index=applied.index)
+
+    active_rules = rules.loc[rules["is_active"]].copy()
+    rule_lookup = active_rules.set_index("rule_id", drop=False).to_dict(orient="index")
     payee_options: list[str] = []
     category_options: list[str] = []
 
-    for _, txn in tx.iterrows():
-        matched = [
-            rule for _, rule in active_rules.iterrows() if rules_mod._rule_matches(rule, txn)
-        ]
-        payees = []
-        categories = []
-        for rule in matched:
+    for rule_ids in (
+        applied.get(
+            "match_candidate_rule_ids",
+            pd.Series([""] * len(applied), index=applied.index, dtype="string"),
+        )
+        .astype("string")
+        .fillna("")
+        .tolist()
+    ):
+        payees: list[str] = []
+        categories: list[str] = []
+        for rule_id in [part.strip() for part in str(rule_ids).split(";") if part.strip()]:
+            rule = rule_lookup.get(rule_id)
+            if not rule:
+                continue
             payee = str(rule.get("payee_canonical") or "").strip()
             category = str(rule.get("category_target") or "").strip()
             if payee and payee not in payees:
@@ -395,7 +406,8 @@ def _build_options(transactions: pd.DataFrame, rules: pd.DataFrame) -> pd.DataFr
         category_options.append("; ".join(categories))
 
     return pd.DataFrame(
-        {"payee_options": payee_options, "category_options": category_options}, index=tx.index
+        {"payee_options": payee_options, "category_options": category_options},
+        index=applied.index,
     )
 
 
@@ -641,7 +653,7 @@ def build_target_suggestions(transactions: pd.DataFrame, *, map_path: Path) -> p
         out = _fast_apply_rules(out, rules)
     else:
         applied = rules_mod.apply_payee_map_rules(out, rules)
-        options = _build_options(out, rules)
+        options = _build_options_from_applied(applied, rules)
         out = out.join(options)
         out = out.join(applied)
         out["payee_selected"] = out["payee_canonical_suggested"].where(
