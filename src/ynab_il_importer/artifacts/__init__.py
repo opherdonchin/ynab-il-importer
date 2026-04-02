@@ -1,9 +1,11 @@
 """Artifact helpers for canonical transaction storage and projections."""
 
 from ynab_il_importer.artifacts.transaction_io import (
+    flat_projection_to_canonical_table,
     read_transactions_arrow,
     read_transactions_pandas,
     read_transactions_polars,
+    write_flat_transaction_artifacts,
     write_transactions_parquet,
 )
 from ynab_il_importer.artifacts.transaction_projection import (
@@ -23,9 +25,11 @@ __all__ = [
     "TRANSACTION_SCHEMA",
     "empty_transaction_table",
     "explode_split_lines",
+    "flat_projection_to_canonical_table",
     "project_top_level_transactions",
     "read_transactions_arrow",
     "read_transactions_pandas",
     "read_transactions_polars",
+    "write_flat_transaction_artifacts",
     "write_transactions_parquet",
 ]

@@ -1,13 +1,18 @@
+# ruff: noqa: E402
+
 import argparse
 import sys
 import warnings
 from pathlib import Path
+
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from ynab_il_importer.artifacts.transaction_io import write_flat_transaction_artifacts
 import ynab_il_importer.export as export
 import ynab_il_importer.io_leumi as leumi
 import ynab_il_importer.io_leumi_card_html as leumi_card_html
@@ -58,7 +63,15 @@ def _normalize_one(
         fingerprint_map_path=fingerprint_map_path,
         fingerprint_log_path=fingerprint_log_path,
     )
-    export.write_dataframe(df, out_path)
+    _, parquet_path = write_flat_transaction_artifacts(
+        df,
+        out_path,
+        artifact_kind="normalized_source_transaction",
+        source_system=str(
+            df.get("source", pd.Series([""])).astype("string").fillna("").iloc[0] or fmt
+        ),
+    )
+    print(f"Wrote canonical parquet to {parquet_path}")
     print(export.wrote_message(out_path, len(df)))
 
 
@@ -101,7 +114,15 @@ def _normalize_dir(
         except Exception as exc:
             warnings.warn(f"Failed to parse {path} as {fmt}: {exc}", UserWarning)
             continue
-        export.write_dataframe(df, out_path)
+        _, parquet_path = write_flat_transaction_artifacts(
+            df,
+            out_path,
+            artifact_kind="normalized_source_transaction",
+            source_system=str(
+                df.get("source", pd.Series([""])).astype("string").fillna("").iloc[0] or fmt
+            ),
+        )
+        print(f"Wrote canonical parquet to {parquet_path}")
         print(export.wrote_message(out_path, len(df)))
 
 
@@ -173,7 +194,9 @@ def main() -> None:
     }
     provided = {fmt: path for fmt, path in single_inputs.items() if path is not None}
     if len(provided) != 1:
-        raise ValueError("Provide exactly one of --leumi, --leumi-xls, --max, --ynab, or use --dir.")
+        raise ValueError(
+            "Provide exactly one of --leumi, --leumi-xls, --max, --ynab, or use --dir."
+        )
 
     fmt, in_path = next(iter(provided.items()))
     if not in_path.exists():

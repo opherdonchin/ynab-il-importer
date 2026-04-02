@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
+from ynab_il_importer.artifacts.transaction_io import write_flat_transaction_artifacts
 import ynab_il_importer.export as export
 import ynab_il_importer.io_leumi as leumi
 import ynab_il_importer.io_leumi_xls as leumi_xls
@@ -24,9 +25,24 @@ def _print_wrote(path: Path, row_count: int) -> None:
     print(export.wrote_message(path, row_count))
 
 
-def _fill_and_validate_ynab_account(
-    df: pd.DataFrame, fallback_account_name: str
-) -> pd.DataFrame:
+def _write_normalized_with_parquet(df: pd.DataFrame, out_path: Path, *, fmt: str) -> None:
+    source_series = (
+        df["source"].astype("string").fillna("").str.strip()
+        if "source" in df.columns
+        else pd.Series([""] * len(df), index=df.index, dtype="string")
+    )
+    source_system = str(source_series.iloc[0] if not source_series.empty else "").strip() or fmt
+    _, parquet_path = write_flat_transaction_artifacts(
+        df,
+        out_path,
+        artifact_kind="normalized_source_transaction",
+        source_system=source_system,
+    )
+    print(f"Wrote canonical parquet to {parquet_path}")
+    _print_wrote(out_path, len(df))
+
+
+def _fill_and_validate_ynab_account(df: pd.DataFrame, fallback_account_name: str) -> pd.DataFrame:
     out = df.copy()
     if "account_name" not in out.columns:
         out["account_name"] = ""
@@ -270,8 +286,7 @@ if typer is not None:
     ) -> None:
         df = leumi_xls.read_raw(in_path)
         _ensure_parent(out_path)
-        df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        _print_wrote(out_path, len(df))
+        _write_normalized_with_parquet(df, out_path, fmt="leumi_xls")
 
     @app.command("parse-max")
     def parse_max(
@@ -280,8 +295,7 @@ if typer is not None:
     ) -> None:
         df = maxio.read_raw(in_path)
         _ensure_parent(out_path)
-        df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        _print_wrote(out_path, len(df))
+        _write_normalized_with_parquet(df, out_path, fmt="max")
 
     @app.command("parse-ynab")
     def parse_ynab(
@@ -291,8 +305,7 @@ if typer is not None:
     ) -> None:
         df = _fill_and_validate_ynab_account(ynab.read_raw(in_path), account_name)
         _ensure_parent(out_path)
-        df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        _print_wrote(out_path, len(df))
+        _write_normalized_with_parquet(df, out_path, fmt="ynab")
 
     @app.command("parse-leumi")
     def parse_leumi(
@@ -301,8 +314,7 @@ if typer is not None:
     ) -> None:
         df = leumi.read_raw(in_path)
         _ensure_parent(out_path)
-        df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        _print_wrote(out_path, len(df))
+        _write_normalized_with_parquet(df, out_path, fmt="leumi")
 
     @app.command("match-pairs")
     def match_pairs(
@@ -320,9 +332,7 @@ if typer is not None:
         ynab_df = pd.read_csv(ynab_path)
         if "account_name" not in ynab_df.columns:
             raise ValueError(f"ynab file missing account_name column: {ynab_path}")
-        ynab_df["account_name"] = (
-            ynab_df["account_name"].astype("string").fillna("").str.strip()
-        )
+        ynab_df["account_name"] = ynab_df["account_name"].astype("string").fillna("").str.strip()
         if (ynab_df["account_name"] == "").any():
             raise ValueError("ynab file has empty account_name rows.")
 
@@ -361,9 +371,7 @@ if typer is not None:
     ) -> None:
         df = pd.read_csv(in_path)
         accounts = _resolve_account_column(df).astype("string").fillna("").str.strip()
-        unique_accounts = sorted(
-            {value for value in accounts.tolist() if value}, key=str.casefold
-        )
+        unique_accounts = sorted({value for value in accounts.tolist() if value}, key=str.casefold)
         for account in unique_accounts:
             print(account)
 
@@ -405,9 +413,7 @@ def _fallback_main() -> None:
     build_payee_map_parser.add_argument("--parsed", action="append", required=True)
     build_payee_map_parser.add_argument("--matched-pairs", action="append", default=[])
     build_payee_map_parser.add_argument("--out-dir", required=True)
-    build_payee_map_parser.add_argument(
-        "--map-path", default=str(Path("mappings/payee_map.csv"))
-    )
+    build_payee_map_parser.add_argument("--map-path", default=str(Path("mappings/payee_map.csv")))
 
     list_accounts_parser = subparsers.add_parser("list-accounts")
     list_accounts_parser.add_argument("--in", dest="in_path", required=True)
@@ -417,26 +423,22 @@ def _fallback_main() -> None:
         df = leumi_xls.read_raw(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
-        df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        _print_wrote(out_path, len(df))
+        _write_normalized_with_parquet(df, out_path, fmt="leumi_xls")
     elif args.command == "parse-max":
         df = maxio.read_raw(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
-        df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        _print_wrote(out_path, len(df))
+        _write_normalized_with_parquet(df, out_path, fmt="max")
     elif args.command == "parse-ynab":
         df = _fill_and_validate_ynab_account(ynab.read_raw(args.in_path), args.account_name)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
-        df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        _print_wrote(out_path, len(df))
+        _write_normalized_with_parquet(df, out_path, fmt="ynab")
     elif args.command == "parse-leumi":
         df = leumi.read_raw(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
-        df.to_csv(out_path, index=False, encoding="utf-8-sig")
-        _print_wrote(out_path, len(df))
+        _write_normalized_with_parquet(df, out_path, fmt="leumi")
     elif args.command == "match-pairs":
         if not args.source:
             raise ValueError("Provide at least one --source input.")
@@ -446,9 +448,7 @@ def _fallback_main() -> None:
         ynab_df = pd.read_csv(Path(args.ynab))
         if "account_name" not in ynab_df.columns:
             raise ValueError(f"ynab file missing account_name column: {args.ynab}")
-        ynab_df["account_name"] = (
-            ynab_df["account_name"].astype("string").fillna("").str.strip()
-        )
+        ynab_df["account_name"] = ynab_df["account_name"].astype("string").fillna("").str.strip()
         if (ynab_df["account_name"] == "").any():
             raise ValueError("ynab file has empty account_name rows.")
         pairs_df = pairing.match_pairs(source_df, ynab_df)
@@ -470,9 +470,7 @@ def _fallback_main() -> None:
     elif args.command == "list-accounts":
         df = pd.read_csv(Path(args.in_path))
         accounts = _resolve_account_column(df).astype("string").fillna("").str.strip()
-        unique_accounts = sorted(
-            {value for value in accounts.tolist() if value}, key=str.casefold
-        )
+        unique_accounts = sorted({value for value in accounts.tolist() if value}, key=str.casefold)
         for account in unique_accounts:
             print(account)
 

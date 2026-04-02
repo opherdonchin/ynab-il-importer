@@ -4,10 +4,12 @@ import polars as pl
 import pyarrow as pa
 
 from ynab_il_importer.artifacts.transaction_io import (
+    flat_projection_to_canonical_table,
     normalize_transaction_table,
     read_transactions_arrow,
     read_transactions_pandas,
     read_transactions_polars,
+    write_flat_transaction_artifacts,
     write_transactions_parquet,
 )
 from ynab_il_importer.artifacts.transaction_projection import (
@@ -111,3 +113,70 @@ def test_explode_split_lines_returns_flat_split_rows() -> None:
     assert exploded["parent_transaction_id"].to_list() == ["txn-1", "txn-1"]
     assert exploded["category_id"].to_list() == ["cat-books", "cat-gifts"]
     assert exploded["category_raw"].to_list() == ["Books", "Gifts"]
+
+
+def test_flat_projection_to_canonical_table_uses_existing_row_ids() -> None:
+    flat_df = pl.DataFrame(
+        {
+            "source": ["bank"],
+            "account_name": ["Family Leumi"],
+            "source_account": ["Family Leumi"],
+            "date": ["2026-03-01"],
+            "secondary_date": ["2026-03-02"],
+            "txn_kind": ["expense"],
+            "merchant_raw": ["Mega Pet"],
+            "description_clean": ["Mega Pet"],
+            "description_raw": ["Mega Pet Pet Food"],
+            "description_clean_norm": ["mega pet"],
+            "fingerprint": ["mega pet"],
+            "ref": ["123"],
+            "outflow_ils": [90.0],
+            "inflow_ils": [0.0],
+            "bank_txn_id": ["BANK:1"],
+            "currency": ["ILS"],
+            "amount_bucket": [""],
+        }
+    )
+
+    canonical = flat_projection_to_canonical_table(
+        flat_df,
+        artifact_kind="normalized_source_transaction",
+        source_system="bank",
+    )
+
+    assert canonical["transaction_id"].to_pylist() == ["BANK:1"]
+    assert canonical["merchant_raw"].to_pylist() == ["Mega Pet"]
+    assert canonical["signed_amount_ils"].to_pylist() == [-90.0]
+
+
+def test_write_flat_transaction_artifacts_writes_csv_and_parquet(tmp_path) -> None:
+    out_path = tmp_path / "normalized.csv"
+    flat_df = pl.DataFrame(
+        {
+            "source": ["card"],
+            "account_name": ["Visa"],
+            "source_account": ["Visa"],
+            "date": ["2026-03-01"],
+            "txn_kind": ["expense"],
+            "merchant_raw": ["Spotify"],
+            "description_clean": ["Spotify"],
+            "description_raw": ["Spotify Stockholm"],
+            "description_clean_norm": ["spotify"],
+            "fingerprint": ["spotify"],
+            "outflow_ils": [19.9],
+            "inflow_ils": [0.0],
+            "card_txn_id": ["CARD:1"],
+        }
+    )
+
+    csv_path, parquet_path = write_flat_transaction_artifacts(
+        flat_df,
+        out_path,
+        artifact_kind="normalized_source_transaction",
+        source_system="card",
+    )
+
+    assert csv_path == out_path
+    assert parquet_path == out_path.with_suffix(".parquet")
+    assert csv_path.exists()
+    assert parquet_path.exists()
