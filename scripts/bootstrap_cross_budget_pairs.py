@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 import argparse
 import sys
 from pathlib import Path
@@ -9,6 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from ynab_il_importer.artifacts.transaction_io import load_flat_transaction_projection
 import ynab_il_importer.cross_budget_pairing as cross_budget_pairing
 import ynab_il_importer.export as export
 
@@ -39,10 +42,16 @@ def main() -> None:
     )
     parser.add_argument("--source", required=True, help="Source CSV path.")
     parser.add_argument("--ynab", required=True, help="Target YNAB snapshot CSV path.")
-    parser.add_argument("--source-profile", default="", help="Source workflow profile (for artifact naming only).")
+    parser.add_argument(
+        "--source-profile", default="", help="Source workflow profile (for artifact naming only)."
+    )
     parser.add_argument("--source-category", default="", help="Optional source category filter.")
-    parser.add_argument("--target-profile", default="", help="Target workflow profile (for artifact naming only).")
-    parser.add_argument("--target-account", required=True, help="Target account name in the target budget.")
+    parser.add_argument(
+        "--target-profile", default="", help="Target workflow profile (for artifact naming only)."
+    )
+    parser.add_argument(
+        "--target-account", required=True, help="Target account name in the target budget."
+    )
     parser.add_argument("--since", default="", help="Start date YYYY-MM-DD.")
     parser.add_argument("--until", default="", help="End date YYYY-MM-DD.")
     parser.add_argument(
@@ -71,8 +80,14 @@ def main() -> None:
 
     source_path = Path(args.source)
     target_path = Path(args.ynab)
-    source_df = pd.read_csv(source_path).fillna("")
-    target_df = pd.read_csv(target_path).fillna("")
+    source_df = load_flat_transaction_projection(
+        source_path,
+        prefer_sidecar_parquet=False,
+    ).fillna("")
+    target_df = load_flat_transaction_projection(
+        target_path,
+        prefer_sidecar_parquet=True,
+    ).fillna("")
     source_df["source_file"] = source_path.name
     target_df["target_file"] = target_path.name
 
@@ -100,9 +115,7 @@ def main() -> None:
         else artifact_root / "unmatched_target.csv"
     )
     ambiguous_out = (
-        Path(args.ambiguous_out)
-        if args.ambiguous_out
-        else artifact_root / "ambiguous_matches.csv"
+        Path(args.ambiguous_out) if args.ambiguous_out else artifact_root / "ambiguous_matches.csv"
     )
 
     export.write_dataframe(result.matched_pairs_df, pairs_out)

@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 import argparse
 import sys
 from pathlib import Path
@@ -9,6 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from ynab_il_importer.artifacts.transaction_io import load_flat_transaction_projection
 import ynab_il_importer.export as export
 import ynab_il_importer.pairing as pairing
 
@@ -28,7 +31,7 @@ def main() -> None:
     def _load_with_file(paths: list[Path], column_name: str) -> pd.DataFrame:
         frames = []
         for path in paths:
-            df = pd.read_csv(path)
+            df = load_flat_transaction_projection(path, prefer_sidecar_parquet=True)
             df[column_name] = path.name
             frames.append(df)
         return pd.concat(frames, ignore_index=True)

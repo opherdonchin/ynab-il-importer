@@ -178,7 +178,10 @@ def load_flat_transaction_projection(
             project_top_level_transactions,
         )
 
-        return project_top_level_transactions(read_transactions_arrow(resolved_path)).to_pandas()
+        projected = project_top_level_transactions(read_transactions_arrow(resolved_path)).to_pandas()
+        if "source" not in projected.columns and "source_system" in projected.columns:
+            projected["source"] = projected["source_system"]
+        return projected
 
     return pd.read_csv(source_path, dtype="string").fillna("")
 

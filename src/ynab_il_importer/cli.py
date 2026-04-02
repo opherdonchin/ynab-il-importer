@@ -2,7 +2,10 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
-from ynab_il_importer.artifacts.transaction_io import write_flat_transaction_artifacts
+from ynab_il_importer.artifacts.transaction_io import (
+    load_flat_transaction_projection,
+    write_flat_transaction_artifacts,
+)
 import ynab_il_importer.export as export
 import ynab_il_importer.io_leumi as leumi
 import ynab_il_importer.io_leumi_xls as leumi_xls
@@ -60,7 +63,7 @@ def _fill_and_validate_ynab_account(df: pd.DataFrame, fallback_account_name: str
 def _load_many_csvs(paths: list[Path], label: str) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     for path in paths:
-        df = pd.read_csv(path)
+        df = load_flat_transaction_projection(path, prefer_sidecar_parquet=True)
         if "account_name" not in df.columns:
             raise ValueError(f"{label} file missing account_name column: {path}")
         df["account_name"] = df["account_name"].astype("string").fillna("").str.strip()
@@ -130,7 +133,7 @@ def _load_csv_paths(paths: list[Path], label: str) -> pd.DataFrame:
     for path in paths:
         if not path.exists():
             raise FileNotFoundError(f"{label} file does not exist: {path}")
-        frames.append(pd.read_csv(path))
+        frames.append(load_flat_transaction_projection(path, prefer_sidecar_parquet=True))
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
@@ -329,7 +332,7 @@ if typer is not None:
         source_df = _load_many_csvs(sources, "source")
         if "source" not in source_df.columns:
             raise ValueError("source inputs must include a 'source' column.")
-        ynab_df = pd.read_csv(ynab_path)
+        ynab_df = load_flat_transaction_projection(ynab_path, prefer_sidecar_parquet=True)
         if "account_name" not in ynab_df.columns:
             raise ValueError(f"ynab file missing account_name column: {ynab_path}")
         ynab_df["account_name"] = ynab_df["account_name"].astype("string").fillna("").str.strip()
@@ -445,7 +448,10 @@ def _fallback_main() -> None:
         source_df = _load_many_csvs([Path(p) for p in args.source], "source")
         if "source" not in source_df.columns:
             raise ValueError("source inputs must include a 'source' column.")
-        ynab_df = pd.read_csv(Path(args.ynab))
+        ynab_df = load_flat_transaction_projection(
+            Path(args.ynab),
+            prefer_sidecar_parquet=True,
+        )
         if "account_name" not in ynab_df.columns:
             raise ValueError(f"ynab file missing account_name column: {args.ynab}")
         ynab_df["account_name"] = ynab_df["account_name"].astype("string").fillna("").str.strip()
