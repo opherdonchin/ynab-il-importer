@@ -148,6 +148,16 @@ pixi run python scripts/review_app.py \
   --categories outputs/ynab_categories.csv
 ```
 
+If you need to reuse an older reviewed CSV from before the unified review-row cutover, translate it first:
+
+```bash
+pixi run python scripts/translate_review_csv.py \
+  --in data/paired/<old-date>/proposed_transactions_reviewed.csv \
+  --out data/paired/<old-date>/proposed_transactions_reviewed_unified_v1.csv
+```
+
+The review loader expects unified review CSVs and will reject legacy institutional review files with a pointer to this translator.
+
 6. Stamp lineage on existing YNAB transactions (dry-run first, then add `--execute`):
 
 ```bash

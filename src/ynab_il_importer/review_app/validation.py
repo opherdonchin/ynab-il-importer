@@ -80,10 +80,14 @@ def _truthy(value: Any) -> bool:
 def _selected_value(row: pd.Series, field: str, *, side: str) -> str:
     side_key = f"{side}_{field}_selected"
     if side_key in row.index:
-        return _text(row.get(side_key))
-    if side == "target":
-        return _text(row.get(f"{field}_selected"))
-    return ""
+        value = _text(row.get(side_key))
+    elif side == "target":
+        value = _text(row.get(f"{field}_selected"))
+    else:
+        value = ""
+    if field == "category":
+        return model.normalize_category_value(value)
+    return value
 
 
 def _id_series(df: pd.DataFrame, column: str) -> pd.Series:
@@ -241,6 +245,8 @@ def validate_row(row: pd.Series) -> tuple[list[str], list[str]]:
     workflow_type = _text(row.get("workflow_type")).casefold()
     source_category_required = not model.is_transfer_payee(source_payee)
     category_required = not model.is_transfer_payee(target_payee)
+    source_no_category_required = model.is_no_category_required(source_category)
+    target_no_category_required = model.is_no_category_required(target_category)
     update_maps = parse_update_maps(row.get("update_maps", ""))
 
     if reviewed and action == NO_DECISION:
@@ -250,12 +256,12 @@ def validate_row(row: pd.Series) -> tuple[list[str], list[str]]:
     if action == "create_source":
         if not source_payee:
             errors.append("missing source payee")
-        if source_category_required and not source_category:
+        if source_category_required and (not source_category or source_no_category_required):
             errors.append("missing source category")
     if action == "create_target":
         if not target_payee:
             errors.append("missing target payee")
-        if category_required and not target_category:
+        if category_required and (not target_category or target_no_category_required):
             errors.append("missing target category")
 
     if ";" in target_payee:
@@ -366,8 +372,6 @@ def blocker_label(
         return "No decision"
     if any(("missing" in error) and ("payee" in error) for error in row_errors):
         return "Missing payee"
-    if uncategorized:
-        return "Uncategorized"
     if any(("missing" in error) and ("category" in error) for error in row_errors):
         return "Missing category"
     return "None"
@@ -456,6 +460,56 @@ def apply_review_state(
         return reverted, unique_errors
 
     return updated, []
+
+
+def apply_review_state_best_effort(
+    edited_df: pd.DataFrame,
+    indices: list[Any],
+    *,
+    reviewed: bool,
+    component_map: dict[Any, int] | None = None,
+) -> tuple[pd.DataFrame, list[str], list[Any]]:
+    touched = [idx for idx in dict.fromkeys(indices) if idx in edited_df.index]
+    if not touched:
+        return edited_df.copy(), [], []
+
+    if not reviewed:
+        updated, errors = apply_review_state(
+            edited_df,
+            touched,
+            reviewed=reviewed,
+            component_map=component_map,
+        )
+        return updated, errors, touched if not errors else []
+
+    working = edited_df.copy()
+    reviewed_indices: list[Any] = []
+    errors: list[str] = []
+    if component_map is None:
+        component_map = precompute_components(working)
+
+    grouped_indices: dict[int, list[Any]] = {}
+    for idx in touched:
+        label = component_map.get(idx)
+        if label is None:
+            continue
+        grouped_indices.setdefault(label, []).append(idx)
+
+    for component_label in sorted(grouped_indices):
+        component_indices = grouped_indices[component_label]
+        updated, component_errors = apply_review_state(
+            working,
+            component_indices,
+            reviewed=True,
+            component_map=component_map,
+        )
+        if component_errors:
+            errors.extend(component_errors)
+            continue
+        working = updated
+        reviewed_indices.extend(component_indices)
+
+    return working, list(dict.fromkeys(errors)), reviewed_indices
 
 
 def inconsistent_fingerprints(df: pd.DataFrame) -> pd.DataFrame:

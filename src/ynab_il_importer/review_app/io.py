@@ -6,6 +6,7 @@ from typing import Iterable
 import pandas as pd
 
 import ynab_il_importer.review_app.validation as validation
+import ynab_il_importer.review_app.model as model
 
 
 REQUIRED_COLUMNS = [
@@ -28,9 +29,103 @@ REQUIRED_COLUMNS = [
     "target_category_selected",
 ]
 
+LEGACY_INSTITUTIONAL_REQUIRED_COLUMNS = [
+    "transaction_id",
+    "source",
+    "account_name",
+    "date",
+    "outflow_ils",
+    "inflow_ils",
+    "memo",
+    "fingerprint",
+    "payee_options",
+    "category_options",
+    "payee_selected",
+    "category_selected",
+    "match_status",
+    "reviewed",
+]
+
 
 def _missing_columns(df: pd.DataFrame, required: Iterable[str]) -> list[str]:
     return [col for col in required if col not in df.columns]
+
+
+def _text_series(df: pd.DataFrame, column: str) -> pd.Series:
+    if column not in df.columns:
+        return pd.Series([""] * len(df), index=df.index, dtype="string")
+    return df[column].astype("string").fillna("").str.strip()
+
+
+def _legacy_source_row_ids(df: pd.DataFrame) -> pd.Series:
+    source = _text_series(df, "source").str.casefold()
+    bank_ids = _text_series(df, "bank_txn_id")
+    card_ids = _text_series(df, "card_txn_id")
+    row_ids = pd.Series([""] * len(df), index=df.index, dtype="string")
+    row_ids = row_ids.mask(source.eq("bank"), bank_ids)
+    row_ids = row_ids.mask(source.eq("card"), card_ids)
+    return row_ids
+
+
+def _legacy_update_maps(df: pd.DataFrame) -> pd.Series:
+    if "update_map" not in df.columns:
+        return pd.Series([""] * len(df), index=df.index, dtype="string")
+    flagged = validation.normalize_flag_series(df["update_map"])
+    return pd.Series(
+        ["payee_add_fingerprint" if bool(value) else "" for value in flagged],
+        index=df.index,
+        dtype="string",
+    )
+
+
+def _legacy_institutional_mask(df: pd.DataFrame) -> bool:
+    if _missing_columns(df, LEGACY_INSTITUTIONAL_REQUIRED_COLUMNS):
+        return False
+    sources = set(_text_series(df, "source").str.casefold().tolist()) - {""}
+    return bool(sources) and sources <= {"bank", "card"}
+
+
+def _translate_legacy_institutional_review(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["legacy_review_schema"] = "legacy_institutional_v0"
+    out["legacy_match_status"] = _text_series(out, "match_status")
+    out["match_status"] = "source_only"
+    out["update_maps"] = _legacy_update_maps(out)
+    out["decision_action"] = "create_target"
+    out["workflow_type"] = "institutional"
+    out["source_payee_selected"] = ""
+    out["source_category_selected"] = ""
+    out["target_payee_selected"] = _text_series(out, "payee_selected")
+    out["target_category_selected"] = _text_series(out, "category_selected")
+    out["source_present"] = True
+    out["target_present"] = False
+    out["source_row_id"] = _legacy_source_row_ids(out)
+    out["target_row_id"] = ""
+    out["target_account"] = _text_series(out, "account_name")
+    out["source_date"] = _text_series(out, "date")
+    out["target_date"] = ""
+    out["source_memo"] = _text_series(out, "memo")
+    out["target_memo"] = ""
+    out["source_fingerprint"] = _text_series(out, "fingerprint")
+    out["target_fingerprint"] = ""
+    return out
+
+
+def detect_review_csv_format(df: pd.DataFrame) -> str:
+    if not _missing_columns(df, REQUIRED_COLUMNS):
+        return "unified_v1"
+    if _legacy_institutional_mask(df):
+        return "legacy_institutional_v0"
+    return "unknown"
+
+
+def translate_review_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    fmt = detect_review_csv_format(df)
+    if fmt == "unified_v1":
+        return df.copy()
+    if fmt == "legacy_institutional_v0":
+        return _translate_legacy_institutional_review(df)
+    raise ValueError("Unsupported review CSV format for translation.")
 
 
 def load_proposed_transactions(path: str | Path) -> pd.DataFrame:
@@ -39,6 +134,14 @@ def load_proposed_transactions(path: str | Path) -> pd.DataFrame:
         raise FileNotFoundError(f"Missing proposed transactions file: {csv_path}")
 
     df = pd.read_csv(csv_path, dtype="string").fillna("")
+    detected_format = detect_review_csv_format(df)
+    if detected_format != "unified_v1":
+        if detected_format.startswith("legacy_"):
+            raise ValueError(
+                "proposed_transactions is in legacy review format "
+                f"({detected_format}); run scripts/translate_review_csv.py first"
+            )
+        raise ValueError("proposed_transactions missing columns: " f"{_missing_columns(df, REQUIRED_COLUMNS)}")
     missing = _missing_columns(df, REQUIRED_COLUMNS)
     if missing:
         raise ValueError(f"proposed_transactions missing columns: {missing}")
@@ -55,6 +158,9 @@ def load_proposed_transactions(path: str | Path) -> pd.DataFrame:
         "workflow_type",
     ]:
         df[col] = df[col].astype("string").fillna("").str.strip()
+    for col in ["source_category_selected", "target_category_selected"]:
+        if col in df.columns:
+            df[col] = df[col].map(model.normalize_category_value)
     if "memo_append" not in df.columns:
         df["memo_append"] = ""
     df["memo_append"] = df["memo_append"].astype("string").fillna("").str.strip()
@@ -79,9 +185,9 @@ def save_reviewed_transactions(df: pd.DataFrame, path: str | Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     out = df.copy()
-    if "payee_selected" in out.columns and "target_payee_selected" in out.columns:
+    if "target_payee_selected" not in out.columns and "payee_selected" in out.columns:
         out["target_payee_selected"] = out["payee_selected"].astype("string").fillna("").str.strip()
-    if "category_selected" in out.columns and "target_category_selected" in out.columns:
+    if "target_category_selected" not in out.columns and "category_selected" in out.columns:
         out["target_category_selected"] = out["category_selected"].astype("string").fillna("").str.strip()
     out = out.drop(
         columns=[col for col in ["payee_selected", "category_selected"] if col in out.columns]

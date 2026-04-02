@@ -5,6 +5,9 @@ from typing import Any
 import pandas as pd
 
 
+NO_CATEGORY_REQUIRED = "None"
+
+
 def parse_option_string(value: Any) -> list[str]:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return []
@@ -32,6 +35,19 @@ def resolve_selected_value(selected_value: Any, override_value: Any) -> str:
 def is_transfer_payee(value: Any) -> bool:
     text = "" if value is None else str(value).strip()
     return text.startswith("Transfer :")
+
+
+def normalize_category_value(value: Any) -> str:
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return ""
+    if text.casefold() == NO_CATEGORY_REQUIRED.casefold():
+        return NO_CATEGORY_REQUIRED
+    return text
+
+
+def is_no_category_required(value: Any) -> bool:
+    return normalize_category_value(value) == NO_CATEGORY_REQUIRED
 
 
 def apply_to_same_fingerprint(

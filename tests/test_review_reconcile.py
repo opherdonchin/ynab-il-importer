@@ -95,3 +95,89 @@ def test_reconcile_reviewed_transactions_falls_back_on_unique_key() -> None:
     assert bool(merged.loc[0, "reviewed"]) is True
     assert stats["direct_matches"] == 0
     assert stats["fallback_matches"] == 1
+
+
+def test_reconcile_reviewed_transactions_preserves_new_auto_settled_rows() -> None:
+    old = pd.DataFrame(
+        {
+            "transaction_id": ["t1"],
+            "date": ["2026-01-07"],
+            "outflow_ils": ["145"],
+            "inflow_ils": ["0"],
+            "fingerprint": ["gifts to us"],
+            "source_payee_selected": [""],
+            "source_category_selected": [""],
+            "target_payee_selected": ["Subjects"],
+            "target_category_selected": ["University"],
+            "decision_action": ["create_source"],
+            "update_maps": [""],
+            "reviewed": [""],
+        }
+    )
+    new = pd.DataFrame(
+        {
+            "transaction_id": ["t1"],
+            "date": ["2026-01-07"],
+            "outflow_ils": ["145"],
+            "inflow_ils": ["0"],
+            "fingerprint": ["gifts to us"],
+            "source_payee_selected": [""],
+            "source_category_selected": [""],
+            "target_payee_selected": ["Gifts to us"],
+            "target_category_selected": ["Unexplained expenses"],
+            "decision_action": ["ignore_row"],
+            "update_maps": [""],
+            "reviewed": ["TRUE"],
+        }
+    )
+
+    merged, stats = review_reconcile.reconcile_reviewed_transactions(old, new)
+
+    assert merged.loc[0, "target_payee_selected"] == "Gifts to us"
+    assert merged.loc[0, "target_category_selected"] == "Unexplained expenses"
+    assert merged.loc[0, "decision_action"] == "ignore_row"
+    assert bool(merged.loc[0, "reviewed"]) is True
+    assert stats["direct_matches"] == 0
+
+
+def test_reconcile_reviewed_transactions_matches_duplicate_transaction_ids_by_occurrence() -> None:
+    old = pd.DataFrame(
+        {
+            "transaction_id": ["dup", "dup"],
+            "date": ["2026-03-01", "2026-03-01"],
+            "outflow_ils": ["10", "10"],
+            "inflow_ils": ["0", "0"],
+            "fingerprint": ["fp1", "fp1"],
+            "source_payee_selected": ["", ""],
+            "source_category_selected": ["", ""],
+            "target_payee_selected": ["Payee A", "Payee B"],
+            "target_category_selected": ["Cat A", "Cat B"],
+            "decision_action": ["keep_match", "ignore_row"],
+            "update_maps": ["", ""],
+            "reviewed": ["TRUE", "TRUE"],
+        }
+    )
+    new = pd.DataFrame(
+        {
+            "transaction_id": ["dup", "dup"],
+            "date": ["2026-03-01", "2026-03-01"],
+            "outflow_ils": ["10", "10"],
+            "inflow_ils": ["0", "0"],
+            "fingerprint": ["fp1", "fp1"],
+            "source_payee_selected": ["", ""],
+            "source_category_selected": ["", ""],
+            "target_payee_selected": ["", ""],
+            "target_category_selected": ["", ""],
+            "decision_action": ["", ""],
+            "update_maps": ["", ""],
+            "reviewed": ["", ""],
+        }
+    )
+
+    merged, stats = review_reconcile.reconcile_reviewed_transactions(old, new)
+
+    assert merged["target_payee_selected"].tolist() == ["Payee A", "Payee B"]
+    assert merged["target_category_selected"].tolist() == ["Cat A", "Cat B"]
+    assert merged["decision_action"].tolist() == ["keep_match", "ignore_row"]
+    assert merged["reviewed"].tolist() == [True, True]
+    assert stats["direct_matches"] == 2

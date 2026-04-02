@@ -87,9 +87,21 @@ def _prepare(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _used_old_mask(old: pd.DataFrame, new: pd.DataFrame) -> pd.Series:
-    old_ids = old["transaction_id"].astype("string").fillna("")
-    new_ids = set(new["transaction_id"].astype("string").fillna("").tolist())
-    return old_ids.isin(new_ids)
+    old_keys = _occurrence_key_series(old)
+    new_keys = set(_occurrence_key_series(new).tolist())
+    return old_keys.isin(new_keys)
+
+
+def _occurrence_key_series(df: pd.DataFrame) -> pd.Series:
+    transaction_id = df["transaction_id"].astype("string").fillna("")
+    occurrence = transaction_id.groupby(transaction_id, dropna=False).cumcount().astype("string")
+    return transaction_id + "|" + occurrence
+
+
+def _should_preserve_new_row(old_row: pd.Series, new_row: pd.Series) -> bool:
+    old_reviewed = bool(old_row.get("reviewed", False))
+    new_reviewed = bool(new_row.get("reviewed", False))
+    return new_reviewed and not old_reviewed
 
 
 def reconcile_reviewed_transactions(
@@ -99,6 +111,8 @@ def reconcile_reviewed_transactions(
     old = _prepare(old_reviewed)
     new = _prepare(new_proposed)
     result = new.copy()
+    old["_occurrence_key"] = _occurrence_key_series(old)
+    result["_occurrence_key"] = _occurrence_key_series(result)
 
     if "reviewed" not in result.columns:
         result["reviewed"] = False
@@ -109,16 +123,29 @@ def reconcile_reviewed_transactions(
     fallback_matches = 0
     untouched = 0
 
-    old_by_id = (
-        old.drop_duplicates(subset=["transaction_id"], keep="last")
-        .set_index("transaction_id")[DECISION_COLUMNS]
-    )
-    direct_mask = result["transaction_id"].isin(old_by_id.index)
-    if direct_mask.any():
-        matched = old_by_id.reindex(result.loc[direct_mask, "transaction_id"])
+    old_by_id = old.set_index("_occurrence_key")
+    direct_candidates = result["_occurrence_key"].isin(old_by_id.index)
+    if direct_candidates.any():
+        matched = old_by_id.reindex(result.loc[direct_candidates, "_occurrence_key"])
+        matched.index = result.loc[direct_candidates].index
+        preserve_direct = pd.Series(
+            [
+                _should_preserve_new_row(old_row, new_row)
+                for (_, old_row), (_, new_row) in zip(
+                    matched.iterrows(),
+                    result.loc[direct_candidates].iterrows(),
+                    strict=False,
+                )
+            ],
+            index=result.loc[direct_candidates].index,
+        )
+        direct_mask = direct_candidates.copy()
+        direct_mask.loc[direct_candidates] = ~preserve_direct
         for col in DECISION_COLUMNS:
-            result.loc[direct_mask, col] = matched[col].to_numpy()
+            result.loc[direct_mask, col] = matched.loc[~preserve_direct, col].to_numpy()
         direct_matches = int(direct_mask.sum())
+    else:
+        direct_mask = direct_candidates
 
     used_old = _used_old_mask(old, result)
     remaining_old = old.loc[~used_old].copy()
@@ -158,6 +185,15 @@ def reconcile_reviewed_transactions(
                 continue
             if old_counts[key] < 1:
                 continue
+            if _should_preserve_new_row(
+                pd.Series(
+                    {
+                        "reviewed": decision_sets[key][-1],
+                    }
+                ),
+                row,
+            ):
+                continue
             (
                 source_payee,
                 source_category,
@@ -176,6 +212,7 @@ def reconcile_reviewed_transactions(
             result.at[idx, "reviewed"] = bool(reviewed)
             fallback_matches += 1
 
+    result = result.drop(columns=["_occurrence_key"], errors="ignore")
     untouched = len(result) - direct_matches - fallback_matches
     return result, {
         "direct_matches": direct_matches,

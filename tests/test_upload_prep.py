@@ -5,6 +5,7 @@ import pytest
 
 import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.card_identity as card_identity
+import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.upload_prep as upload_prep
 
 
@@ -237,6 +238,23 @@ def test_ready_mask_treats_transfer_without_category_as_ready() -> None:
     assert upload_prep.ready_mask(reviewed).tolist() == [True, False]
 
 
+def test_ready_mask_treats_explicit_no_category_as_transfer_only() -> None:
+    reviewed = _reviewed_df(
+        {
+            "transaction_id": ["t1", "t2"],
+            "account_name": ["Bank Leumi", "Bank Leumi"],
+            "date": ["2026-03-01", "2026-03-02"],
+            "outflow_ils": ["10.00", "5.00"],
+            "inflow_ils": ["0", "0"],
+            "memo": ["", ""],
+            "payee_selected": ["Transfer : Cash", "Cafe"],
+            "category_selected": [review_model.NO_CATEGORY_REQUIRED, review_model.NO_CATEGORY_REQUIRED],
+        }
+    )
+
+    assert upload_prep.ready_mask(reviewed).tolist() == [True, False]
+
+
 def test_ready_mask_allows_uncategorized_category() -> None:
     reviewed = _reviewed_df(
         {
@@ -292,6 +310,30 @@ def test_prepare_upload_transactions_maps_uncategorized_category() -> None:
     )
 
     assert prepared.loc[0, "category_id"] == "cat-uncat"
+
+
+def test_prepare_upload_transactions_maps_explicit_no_category_transfer_to_blank() -> None:
+    reviewed = _reviewed_df(
+        {
+            "transaction_id": ["t1"],
+            "account_name": ["Bank Leumi"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["10.50"],
+            "inflow_ils": ["0"],
+            "memo": ["cash move"],
+            "payee_selected": ["Transfer : Cash"],
+            "category_selected": [review_model.NO_CATEGORY_REQUIRED],
+        }
+    )
+
+    prepared = upload_prep.prepare_upload_transactions(
+        reviewed,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+
+    assert prepared.loc[0, "category_id"] == ""
+    assert prepared.loc[0, "upload_kind"] == "transfer"
 
 
 def test_prepare_upload_transactions_falls_back_to_uncategorized_for_missing_category() -> None:

@@ -12,6 +12,11 @@ Minimum inputs:
 - proposed review CSV from a builder such as `scripts/build_proposed_transactions.py` or `scripts/build_cross_budget_review_rows.py`
 - YNAB categories CSV from `scripts/download_ynab_categories.py` or `scripts/build_categories_from_ynab_snapshot.py`
 
+Review CSV format note:
+- the review loader expects unified review-row CSVs
+- older institutional reviewed CSVs from before the unified cutover must be translated first with `scripts/translate_review_csv.py`
+- the translator detects the format from the CSV columns and writes an explicit unified artifact such as `*_unified_v1.csv`
+
 Typical launch:
 
 ```bash
@@ -26,11 +31,19 @@ Resume a prior session:
 pixi run python scripts/review_app.py --resume
 ```
 
+Translate a legacy reviewed CSV before reuse:
+
+```bash
+pixi run python scripts/translate_review_csv.py \
+  --in data/paired/<old-date>/proposed_transactions_reviewed.csv \
+  --out data/paired/<old-date>/proposed_transactions_reviewed_unified_v1.csv
+```
+
 ## Core Review Model
 
 Each row is a source/target review candidate. The app derives three primary states:
-- `Fix`: the row is blocked by missing required fields or validation problems
-- `Decide`: the row is valid enough to review but still needs a user decision
+- `Fix`: the row is unresolved or blocked and still needs a decision or correction
+- `Decide`: the row has a concrete default or chosen action and is waiting for approval
 - `Settled`: the row is internally consistent and no longer needs active attention
 
 Important contract points:
@@ -38,6 +51,8 @@ Important contract points:
 - `decision_action` stores the selected action
 - source and target selected fields are side-specific
 - competing rows are auto-resolved when a substantive action is chosen
+- `None` in a selected category field means "no category required", not "missing category"
+- institutional rows that were already exact-matched and have YNAB `cleared` or `reconciled` state are labeled `matched_cleared` and start out settled
 
 For the authoritative design contract, see:
 - `documents/decisions/unified_review_model_design.md`
@@ -47,11 +62,12 @@ For the authoritative design contract, see:
 
 1. Load the proposed CSV and categories file.
 2. Filter to rows that are not yet settled.
-3. Inspect blocker, state, and suggestion information.
-4. Edit selected payee/category fields or decision fields as needed.
-5. Review rows individually or in grouped mode.
-6. Save the reviewed CSV.
-7. Rerun downstream prep or reconcile steps against the saved artifact.
+3. By default, leave `Matched cleared` hidden unless you are auditing prior settled work.
+4. Inspect blocker, state, and suggestion information.
+5. Edit selected payee/category fields or decision fields as needed.
+6. Review rows individually or in grouped mode.
+7. Save the reviewed CSV.
+8. Rerun downstream prep or reconcile steps against the saved artifact.
 
 ## Views
 

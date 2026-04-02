@@ -8,6 +8,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.rules as rules_mod
 
 
@@ -123,6 +124,26 @@ def test_blank_category_target_stays_unassigned() -> None:
     assert out.loc[0, "match_status"] == "unique"
     assert out.loc[0, "payee_canonical_suggested"] == "Cafe"
     assert out.loc[0, "category_target_suggested"] == ""
+
+
+def test_none_category_target_is_preserved_as_explicit_no_category() -> None:
+    rules = _rules(
+        [
+            {
+                "rule_id": "r1",
+                "fingerprint": "transfer",
+                "payee_canonical": "Transfer : Cash",
+                "category_target": review_model.NO_CATEGORY_REQUIRED,
+            }
+        ]
+    )
+    tx = pd.DataFrame([{"fingerprint": "transfer", "outflow_ils": 15, "inflow_ils": 0}])
+
+    out = rules_mod.apply_payee_map_rules(tx, rules)
+
+    assert out.loc[0, "match_status"] == "unique"
+    assert out.loc[0, "payee_canonical_suggested"] == "Transfer : Cash"
+    assert out.loc[0, "category_target_suggested"] == review_model.NO_CATEGORY_REQUIRED
 
 
 def test_exact_amount_bucket_matches_only_exact_value() -> None:

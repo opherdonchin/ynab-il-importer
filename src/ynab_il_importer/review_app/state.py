@@ -64,10 +64,13 @@ def _missing_value_masks(df: pd.DataFrame) -> tuple[pd.Series, pd.Series, pd.Ser
     decision_action = _decision_action_series(df)
     create_target = decision_action.eq("create_target")
     payee_blank = series_or_default(df, "payee_selected").str.strip() == ""
-    category_blank = series_or_default(df, "category_selected").str.strip() == ""
-    transfer_payee = series_or_default(df, "payee_selected").map(model.is_transfer_payee)
+    payee = series_or_default(df, "payee_selected").str.strip()
+    category = series_or_default(df, "category_selected").map(model.normalize_category_value)
+    category_blank = category.eq("")
+    no_category_required = category.map(model.is_no_category_required)
+    transfer_payee = payee.map(model.is_transfer_payee)
     missing_payee = create_target & payee_blank
-    missing_category = create_target & category_blank & ~transfer_payee
+    missing_category = create_target & (category_blank | no_category_required) & ~transfer_payee
     return missing_payee, missing_category, create_target
 
 
@@ -245,14 +248,20 @@ def most_common_by_fingerprint(df: pd.DataFrame, column: str) -> dict[str, str]:
 
 def required_category_missing_mask(df: pd.DataFrame) -> pd.Series:
     payee = series_or_default(df, "payee_selected").str.strip()
-    category = series_or_default(df, "category_selected").str.strip()
+    category = series_or_default(df, "category_selected").map(model.normalize_category_value)
     transfer = payee.map(model.is_transfer_payee)
-    return category.eq("") & ~transfer
+    return (category.eq("") | category.map(model.is_no_category_required)) & ~transfer
 
 
 def uncategorized_mask(df: pd.DataFrame) -> pd.Series:
-    category = series_or_default(df, "category_selected").str.strip().str.casefold()
-    return category.str.contains("uncategorized", regex=False)
+    payee = series_or_default(df, "payee_selected").str.strip()
+    transfer = payee.map(model.is_transfer_payee)
+    category = (
+        series_or_default(df, "category_selected")
+        .map(model.normalize_category_value)
+        .str.casefold()
+    )
+    return category.str.contains("uncategorized", regex=False) & ~transfer
 
 
 def truthy_series(df: pd.DataFrame, column: str) -> pd.Series:
@@ -262,33 +271,26 @@ def truthy_series(df: pd.DataFrame, column: str) -> pd.Series:
 
 
 def primary_state_series(df: pd.DataFrame, blocker_series: pd.Series) -> pd.Series:
-    import ynab_il_importer.review_app.validation as review_validation
-
     reviewed = truthy_series(df, "reviewed")
-    uncategorized = uncategorized_mask(df)
-    fix_blockers = {
-        "Contradiction in component",
-        "Institutional source mutation",
-        "Missing payee",
-        "Missing category",
-        "Uncategorized",
-    }
+    blocker = blocker_series.astype("string").fillna("").str.strip()
+    action = action_series(df)
     states: list[str] = []
-    for idx, row in df.iterrows():
-        row_errors, _ = review_validation.validate_row(row)
-        blocker = str(blocker_series.loc[idx] or "")
-        if bool(uncategorized.loc[idx]) or row_errors or blocker in fix_blockers:
-            states.append("Fix")
-        elif bool(reviewed.loc[idx]):
+    for idx in df.index:
+        if bool(reviewed.loc[idx]) and blocker.loc[idx] in {"", "None"}:
             states.append("Settled")
-        else:
+        elif blocker.loc[idx] not in {"", "None"}:
+            states.append("Fix")
+        elif action.loc[idx] != "No decision":
             states.append("Decide")
+        else:
+            states.append("Fix")
     return pd.Series(states, index=df.index, dtype="string")
 
 
 def row_kind_series(df: pd.DataFrame) -> pd.Series:
     match_status = series_or_default(df, "match_status").str.strip().str.casefold()
     labels = pd.Series(["Other"] * len(df), index=df.index, dtype="string")
+    labels = labels.where(~match_status.eq("matched_cleared"), "Matched cleared")
     labels = labels.where(~match_status.eq("matched_auto"), "Matched")
     labels = labels.where(~match_status.eq("source_only"), "Source only")
     labels = labels.where(~match_status.eq("target_only"), "Target only")

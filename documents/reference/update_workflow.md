@@ -18,6 +18,7 @@ Treat categories as fixed for the duration of a single budget/plan run.
 
 - Refresh categories once per profile section, before review.
 - The review app does not create, rename, move, or reload categories during a run.
+- Use selected category `None` for transfer rows that do not need a budget category.
 - If a needed category or category group does not yet exist in YNAB, do one of these:
   - leave the row as `Uncategorized` and fix it later in YNAB post-sync review
   - add or fix the category structure in YNAB, refresh categories, and restart that profile's workflow section from the beginning
@@ -41,6 +42,15 @@ Shell activation:
 
 ```bash
 pixi shell
+```
+
+Review artifact format:
+
+- `scripts/review_app.py` expects unified review-row CSVs
+- if you need to reuse a reviewed CSV from before the unified cutover, translate it first:
+
+```bash
+python scripts/translate_review_csv.py --in "data/paired/<old-date>/proposed_transactions_reviewed.csv" --out "data/paired/<old-date>/proposed_transactions_reviewed_unified_v1.csv"
 ```
 
 ## Run Constants For This Update (`2026_03_24`)
@@ -122,6 +132,7 @@ python scripts/sync_card_matches.py --profile family --account "Opher X5898" --s
 Family review note:
 
 - The app uses the category file downloaded earlier in this Family section.
+- Exact matched rows that were already `cleared` or `reconciled` in YNAB are labeled `matched_cleared` and are hidden by default in the app.
 - If a required category is missing, leave the row `Uncategorized` or stop, fix the Family category structure in YNAB, refresh categories, and restart Family review/build steps.
 
 ```bash
@@ -252,7 +263,7 @@ python scripts/sync_card_matches.py --profile pilates --account "Credit card 060
 Dry-run cross-budget matching (Family category `Pilates` -> Pilates account `In Family`):
 
 ```bash
-python scripts/build_cross_budget_proposed.py --source "data/derived/2026_03_24/family_ynab_api_norm.csv" --source-profile family --source-category Pilates --ynab "data/derived/2026_03_24/pilates_ynab_api_norm.csv" --target-profile pilates --target-account "In Family" --since 2026-03-19 --until 2026-03-24 --date-tolerance-days 0 --out "data/paired/2026_03_24/pilates_cross_budget_proposed_transactions.csv" --pairs-out "data/paired/2026_03_24/pilates_cross_budget_matched_pairs.csv" --unmatched-source-out "data/paired/2026_03_24/pilates_cross_budget_unmatched_source.csv" --unmatched-target-out "data/paired/2026_03_24/pilates_cross_budget_unmatched_target.csv" --ambiguous-out "data/paired/2026_03_24/pilates_cross_budget_ambiguous_matches.csv"
+python scripts/build_cross_budget_review_rows.py --source "data/derived/2026_03_24/family_ynab_api_norm.csv" --source-category Pilates --ynab "data/derived/2026_03_24/pilates_ynab_api_norm.csv" --target-profile pilates --target-account "In Family" --since 2026-03-19 --until 2026-03-24 --date-tolerance-days 0 --out "data/paired/2026_03_24/pilates_cross_budget_proposed_transactions.csv" --pairs-out "data/paired/2026_03_24/pilates_cross_budget_matched_pairs.csv" --unmatched-source-out "data/paired/2026_03_24/pilates_cross_budget_unmatched_source.csv" --unmatched-target-out "data/paired/2026_03_24/pilates_cross_budget_unmatched_target.csv" --ambiguous-out "data/paired/2026_03_24/pilates_cross_budget_ambiguous_matches.csv"
 ```
 
 ## 5) Pilates Review
@@ -376,7 +387,7 @@ Aikido category note:
 Build cross-budget proposed transactions for Family category `Aikido` to Aikido account `Personal In Leumi`:
 
 ```bash
-python scripts/build_cross_budget_proposed.py --source "data/derived/2026_03_25_aikido/family_ynab_api_norm.csv" --source-profile family --source-category Aikido --ynab "data/derived/2026_03_25_aikido/aikido_ynab_api_norm.csv" --target-profile aikido --target-account "Personal In Leumi" --since 2026-03-01 --until 2026-03-25 --date-tolerance-days 0 --out "data/paired/2026_03_25_aikido/aikido_cross_budget_proposed_transactions.csv" --pairs-out "data/paired/2026_03_25_aikido/aikido_cross_budget_matched_pairs.csv" --unmatched-source-out "data/paired/2026_03_25_aikido/aikido_cross_budget_unmatched_source.csv" --unmatched-target-out "data/paired/2026_03_25_aikido/aikido_cross_budget_unmatched_target.csv" --ambiguous-out "data/paired/2026_03_25_aikido/aikido_cross_budget_ambiguous_matches.csv"
+python scripts/build_cross_budget_review_rows.py --source "data/derived/2026_03_25_aikido/family_ynab_api_norm.csv" --source-category Aikido --ynab "data/derived/2026_03_25_aikido/aikido_ynab_api_norm.csv" --target-profile aikido --target-account "Personal In Leumi" --since 2026-03-01 --until 2026-03-25 --date-tolerance-days 0 --out "data/paired/2026_03_25_aikido/aikido_cross_budget_proposed_transactions.csv" --pairs-out "data/paired/2026_03_25_aikido/aikido_cross_budget_matched_pairs.csv" --unmatched-source-out "data/paired/2026_03_25_aikido/aikido_cross_budget_unmatched_source.csv" --unmatched-target-out "data/paired/2026_03_25_aikido/aikido_cross_budget_unmatched_target.csv" --ambiguous-out "data/paired/2026_03_25_aikido/aikido_cross_budget_ambiguous_matches.csv"
 ```
 
 ## 8) Aikido Review

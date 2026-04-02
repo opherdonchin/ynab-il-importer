@@ -2,341 +2,136 @@
 
 ## Workstream
 
-Branch `code-review-refactor` off `main`.
+Use `code-review-refactor` as the acceptance-test branch for the real `2026_04_01` update run.
 
-Current focus:
-- address understandability and performance debt identified in the code review (`documents/code_review_prompt.md`)
-- all refactor work stays on this branch until validated; `main` remains operational
-
-Previous workstream (Aikido forward updates) is paused but ready to resume on `main`.
+Current intent:
+- treat the refactor as done enough to validate in live workflow use
+- run the full update in order: Family, then Pilates, then Aikido
+- improve workflow clarity and repeatability while we work
+- merge back to `main` if the run is smooth and any remaining issues are understood
 
 ## Current Goal
 
-Fourth hostile audit (Pass 4) complete — readability and clarity from a newcomer's perspective. A first newcomer-orientation follow-up pass is now complete locally: the repo has a real architecture overview, the README points to it, the package root now explains the stage layout, and the target-side compatibility column pattern is documented in code. See `documents/hostile_audit_report.md` Pass 4 section.
+Complete the `2026_04_01` operational run end to end and use it to answer two questions:
 
-Key findings:
-- No architectural overview anywhere (data-flow diagram, module-to-stage mapping) — completed via `documents/architecture_overview.md`
-- `main()` at 739 lines needs decomposition into `_render_sidebar()`, `_render_row_view()`, `_render_grouped_view()`
-- 25 flat modules with no grouping, no module-level docstrings
-- Derived-state dict is a 25-key untyped bag (should be a dataclass)
-- Dual-column `payee_selected`/`target_payee_selected` pattern never explained in code — completed in `review_app/state.py`
-- Scripts carry business logic with `sys.path` hacks
+1. Does the refactored review workflow hold up in real use?
+2. What needs to be standardized so future runs can be partially or fully automated?
 
-Current focus:
-- continue with the remaining Pass 4 and Pass 3 maintainability items, starting with `app.py::main()` decomposition
-- merge cleanup branch into `main` once remaining findings across passes 3+4 are addressed or deferred
-
-Pass 3 FIX LIST (remaining):
-3. HIGH Style — `main()` is 739 lines, `_render_row_controls` is 289 lines — reinforced by Pass 4 #4 and #6
-5. MEDIUM Style — `.astype("string").fillna("").str.strip()` repeated 15 times — reinforced by Pass 4 #14
-6. MEDIUM Style — Decision actions as raw strings; should be `StrEnum`
-7. MEDIUM Style — `iterrows()` in 5 hot-path call sites
-8. MEDIUM Test — `test_prepare_ynab_upload_script.py` covers 2 of 6 valid bool values
-9. LOW Perf — `precompute_component_errors` passes full DataFrame for 2-row slices
-10. LOW Style — Dead code `accept_defaults_mask()`
-11. LOW Style — Circular import via function-body `from ... import` — reinforced by Pass 4 #13
-12. LOW Style — Editable-column list duplicated 3 times
-13. LOW Test — Perf test asserts timing but not correctness of output
-14. LOW Test — Multi-assertion round-trip test hides individual failures
-15. LOW Doc — README `build-payee-map` example missing required args
-
-Pass 4 FIX LIST:
-1. HIGH Architecture — Add architectural overview (data-flow diagram, module-to-stage mapping) — completed
-2. MEDIUM Organization — Add module grouping or orientation to `__init__.py` — completed
-3. MEDIUM Documentation — Add module-level docstrings
-4. HIGH Readability — Decompose `main()` into `_render_sidebar()`, `_render_row_view()`, `_render_grouped_view()`
-5. MEDIUM Design — Replace derived-state dict with `DerivedState` dataclass
-6. MEDIUM Design — Reduce `_render_row_controls` parameter count
-7. LOW Documentation — Comment `EDITOR_STATE_PREFIXES`/`EDITOR_STATE_KEYS`
-8. LOW Readability — Consolidate inline HTML/CSS builders
-9. MEDIUM Documentation — Comment the dual-column `payee_selected`/`target_payee_selected` fallback — completed
-10. MEDIUM Organization — Move script business logic into `src/` (same as existing item H)
-11. LOW Naming — `review_reconcile.py` naming
-12. LOW Naming — Review test file naming
-13. LOW Design — Comment circular imports
-14. LOW Style — Extract shared string-coercion helper (same as Pass 3 #5)
-15. LOW Style — Consolidate `_text()` helpers
-16. LOW API — Make launcher-called functions public
-17. LOW Documentation — Link `review_app_workflow.md` from README — completed, plus architecture overview link
-
-Cleanup pass completed on `code-review-refactor`:
-
-### Priority 1 (correctness + performance) — FIRST PASS
-- A. Refactor review app around a real state/model boundary — completed
-- B. Remove repeated whole-dataframe component traversals from the rerun path — completed across reruns
-- C. Replace repeated per-fingerprint full scans in grouped mode — completed
-- D. Audit every `astype(bool)` on string-backed review data — completed
-
-### Priority 1 (performance) — SECOND PASS
-- E. Cache all derived series between non-mutation reruns via generation counter — completed
-- F. Pass cached component map to `apply_review_state` to avoid redundant traversal — completed
-- G. Add performance regression test with 500-row synthetic dataset — completed (bound retained after algorithmic improvement)
-
-### Priority 2 (maintainability)
-- H. Pull proposal-generation logic out of `scripts/build_proposed_transactions.py` into `src/` — not started (out of scope this pass)
-- I. Collapse duplicate helper families into shared utilities — done for review/upload path
-- J. Make the review-row column contract explicit and singular — improved, not fully closed
-- K. Extract 3 remaining business logic functions from app.py to state.py — completed
-- L. Add targeted io.py tests — completed
-
-### Priority 3 (cleanup)
-- H. Reduce duplicated state derivations in the app — partially improved, app still large and still carries rendering debt
-
-## Settled Product Decisions
-
-- Source and target are both editable.
-- Persisted selected fields are side-specific only.
-- Unsuffixed selected fields are removed from the review CSV.
-- `decision_action` stores the row action or default suggestion.
-- `reviewed` is the approval gate; reviewed rows cannot carry `No decision`.
-- Institutional sources cannot use `create_source`, `delete_source`, or `delete_both`.
-- `update_map` becomes `update_maps`.
-- Chooser-based manual relinking is deferred.
-- Review-app primary state language is:
-  - `Fix`
-  - `Decide`
-  - `Settled`
-- Choosing a substantive row action automatically resolves competing rows:
-  - matching or create/delete actions auto-set competing rows to `ignore_row`
-  - `ignore_row` itself does not propagate
-- Upload prep may fall back hidden or missing target categories to live YNAB `Uncategorized`.
-
-See `documents/decisions/` for the schema and design contract behind the unified review model.
-
-## Current Code State
+## Current Status
 
 Done:
-- unified review-row hard cutover merged into `aikido-workflow`
-- YNAB export normalization now runs the shared fingerprint path
-- fresh Aikido bootstrap exports normalized under `data/derived/aikido_bootstrap_2026_03_28/`
-- Aikido categories rebuilt into `outputs/aikido/ynab_categories.csv`
-- bootstrap matching artifacts built under `data/paired/aikido_bootstrap_2026_03_28/`
-- Aikido payee map rebuilt from bootstrap matched pairs
-- historical unresolved Aikido review rows isolated in:
-  - `data/paired/aikido_bootstrap_2026_03_28/historical_unresolved_review_rows.csv`
-- forward Aikido backlog review rows isolated in:
-  - `data/paired/aikido_bootstrap_2026_03_28/backlog_review_rows.csv`
-- Aikido payee-map rules updated from review decisions, including trial-lesson handling and explicit reviewed-map corrections
-- review app primary status language changed to `Fix / Decide / Settled`
-- review app now shows a 3-color legend for those primary states
-- review app filter set now matches triage needs more closely:
-  - `State`
-  - `Save status`
-  - `Row kind`
-  - `Action`
-  - `Blocker`
-  - `Suggestions`
-  - `Map updates`
-  - `Search`
-- row review flow now:
-  - marks reviewed explicitly
-  - advances to the next row in Row view after successful review
-  - supports `Accept all set decisions`
-  - keeps non-review actions open in place
-- row and group actions now auto-ignore competing rows instead of relying on manual propagation checkboxes
-- review detail panels are shared between Row and Grouped views
-- category refresh is aligned to the workflow profile and uses the live YNAB category file shape
-- hidden categories are excluded from the review-app target category choices
-- upload prep now:
-  - honors `memo_append`
-  - prepares only explicit reviewed `create_target` rows
-  - falls back hidden or missing category names to YNAB `Uncategorized`
-- Aikido reviewed backlog upload artifacts were prepared successfully:
-  - `data/paired/aikido_bootstrap_2026_03_28/backlog_upload.csv`
-  - `data/paired/aikido_bootstrap_2026_03_28/backlog_upload.json`
-- Aikido reviewed backlog upload was executed successfully:
-  - `68` rows uploaded
-  - `68` newly saved
-  - `0` duplicates
-  - `0` matched existing
-- fresh post-upload Family and Aikido YNAB exports were normalized under:
-  - `data/derived/aikido_baseline_2026_03_29/`
-- post-upload dry-run reconcile proved the carry-forward balance anchor:
-  - exact anchor month `2025-09-01`
-  - full balance difference `0.0`
-  - forward window from `2025-11-01` had `68` matched, `0` unmatched source, `0` unmatched target, `0` ambiguous
-- historical unresolved Aikido rows were inspected in detail against the live post-upload snapshot
-- the broken `2024-07-26` target-side Miles Kessler row was fixed live in YNAB by splitting it into:
-  - `Integral dojo -250`
-  - `Ying Jin +80`
-- live Aikido historical pairing was rebuilt under:
-  - `data/paired/aikido_cross_budget_live/`
-- using a wider historical comparison window (`date-tolerance-days = 10`) collapses all non-ambiguous historical rows
-- the remaining March 2024 duplicate Member Fees ambiguity has been explicitly settled in:
-  - `data/paired/aikido_cross_budget_live/history_review_rows_pre_2025_11_settled.csv`
-- the anchored cached month report has been frozen at:
-  - `data/paired/aikido_cross_budget_live/anchored_reconcile_after_history_upload_month_report.csv`
-- the forward cached reconcile has been executed successfully:
-  - `68` reconcile updates applied
-  - verification rerun shows `updates planned = 0`
-  - target rows now read `reconciled = 1046`, `cleared = 0`, `uncleared = 0`
-- the Aikido baseline has been packeted locally at:
-  - `data/packets/cross_budget/aikido/family__aikido__personal_in_leumi/baseline_reconciled_state/`
-- cleanup plan was rewritten to match the real repo state and current branch goals
-- baseline review-app wrapper drift was fixed so the test suite is trustworthy again
-- shared safe boolean parsing now lives in:
-  - `src/ynab_il_importer/safe_types.py`
-- unsafe CSV-backed boolean coercion was removed from the main review/upload path:
-  - `upload_prep.py`
-  - `map_updates.py`
-  - `review_app/state.py`
-  - `review_app/app.py`
-  - `scripts/prepare_ynab_upload.py`
-- category snapshot exports now write `hidden` as boolean data instead of `"False"` strings
-- connected-component traversal is now single-sourced in `review_app/validation.py`
-- component membership and component errors are precomputed instead of recomputed per row in the app blocker path
-- grouped review mode now reuses precomputed fingerprint-to-index groupings instead of rescanning the full dataframe per fingerprint
-- grouped option aggregation no longer uses repeated per-group `iterrows()` scans for payee/category option collection
-- review semantics moved out of `review_app/app.py` into:
-  - `review_app/state.py`
-  - `review_app/validation.py`
-  - `review_app/model.py`
-- `review_app/state.py::changed_mask()` now marks rows absent from the baseline as changed
-- review-app focused unit coverage was expanded for:
-  - blocker derivation
-  - primary-state derivation
-  - allowed actions
-  - competing-row resolution
-  - connected-component precomputation
-  - search text
-  - uncategorized detection
-  - safe boolean normalization
-- post-cleanup full test suite passes:
-  - `200` passed
-- hostile-audit fix pass added generation-based caching for derived review-app state in:
-  - `review_app/app.py`
-- the derived-state cache now reuses component maps between non-mutation reruns
-- `apply_review_state()` now accepts a cached component map and no longer recomputes components when one is already available
-- the last pure business-logic helpers were moved from `review_app/app.py` into:
-  - `review_app/state.py`
-- targeted review io tests were added in:
-  - `tests/test_review_io.py`
-- performance smoke/regression coverage was added in:
-  - `tests/test_review_perf.py`
-- post-hostile-audit-fix full test suite passes:
-  - `208` passed
-- second hostile-audit cleanup pass added:
-  - real `documents/review_app_workflow.md`
-  - strict `--approved` CLI parsing in `scripts/prepare_ynab_upload.py`
-  - focused parser coverage in `tests/test_prepare_ynab_upload_script.py`
-  - removal of unusable rows from `mappings/account_name_map.csv`
-  - updated `REPOSITORY_LAYOUT.md` for the new review-app structure
-- component discovery in `review_app/validation.py` now uses a union-find style pass instead of repeated whole-dataframe BFS expansion per component
-- focused local blocker timing after the component rewrite measured approximately:
-  - `50` rows: `0.47s`
-  - `100` rows: `0.87s`
-  - `240` rows: `1.99s`
-  - `500` rows: `4.00s`
-- post-second-audit-cleanup full test suite passes:
-  - `210` passed
-- first Pass 3 follow-up pass added:
-  - scalar `normalize_decision_action()` for row-level validation
-  - one-pass row-error precomputation for `blocker_series_with_components()`
-  - `review_component_errors()` can reuse precomputed row errors instead of revalidating every row
-  - `state.apply_row_edit()` now accepts an optional `component_map` and avoids recomputing component membership when one is already available
-- focused blocker validation regression coverage now checks:
-  - scalar action normalization
-  - `apply_review_state()` reuse of a supplied component map
-  - blocker derivation validates each row only once
-- post-Pass-3-follow-up full test suite passes:
-  - `213` passed
-- first Pass 4 newcomer-orientation pass added:
-  - `documents/architecture_overview.md`
-  - README reading-order links for architecture and review workflow docs
-  - stage-level package orientation in `src/ynab_il_importer/__init__.py`
-  - inline explanation of the `payee_selected` / `target_payee_selected` compatibility alias in `review_app/state.py`
+- read project context and prior plan state
+- audited the current runbook and active scripts before execution
+- identified command drift in docs: cross-budget builder is `scripts/build_cross_budget_review_rows.py`
+- normalized the new raw drop under `data/derived/2026_04_01/`:
+  - `Bankin family_leumi_norm.csv`
+  - `transaction-details_export_1775044561886_max_norm.csv`
+  - `Bankin pilates_leumi_norm.csv`
+  - `Pilates card_leumi_card_html_norm.csv`
+- extracted bounded YNAB windows for Family and Pilates from source dates
+- refreshed Family YNAB context for the new run:
+  - `data/derived/2026_04_01/family_ynab_api_norm.csv`
+  - `outputs/family/ynab_categories.csv`
+- built fresh Family review artifacts:
+  - `data/paired/2026_04_01/family_proposed_transactions.csv`
+  - `data/paired/2026_04_01/family_matched_pairs.csv`
+- ran Family dry-run lineage matching:
+  - `family_bank_sync_report.csv`
+  - `family_bank_uncleared_ynab_report.csv`
+  - `family_card_sync_report_x9922.csv`
+  - `family_card_sync_report_x7195.csv`
+  - `family_card_sync_report_x5898.csv`
+- built smaller Family review helper files for the actual decision surface:
+  - `family_proposed_transactions_focus_source_only.csv`
+  - `family_proposed_transactions_focus_ambiguous_detail.csv`
+  - `family_proposed_transactions_focus_ambiguous_grouped.csv`
+- added an explicit legacy review translator:
+  - `scripts/translate_review_csv.py`
+- changed review loading to a strict two-step flow:
+  - unified review CSVs load normally
+  - legacy institutional review CSVs fail with guidance to translate first
+- translated old reviewed files into explicit unified artifacts:
+  - `data/paired/2026_03_24/family_proposed_transactions_reviewed_unified_v1.csv`
+  - `data/paired/2026_03_24/pilates_proposed_transactions_reviewed_unified_v1.csv`
+- added focused regression coverage for legacy review detection and translation
 
-Validated recently:
-- focused review-app tests
-- focused YNAB/fingerprint/payee-map tests
-- Aikido payee-map validation
-- upload-prep dry run for the reviewed Aikido backlog
-- live post-upload cross-budget reconcile dry run
-- live historical review rebuild after the July 2024 split
-- forward cached reconcile execute + verify pass
-- full project pytest after cleanup commit
-- focused review performance/cache tests
-- full project pytest after hostile-audit fix commit
+Current Family state:
+- Family source window:
+  - `2026-01-18` through `2026-04-01`
+- Family YNAB fetch window:
+  - `2026-01-04` through `2026-04-15`
+- Family proposal rows:
+  - `685`
+- active Family review surface:
+  - `54` `source_only` rows
+  - `32` grouped ambiguous items
+- Family bank dry-run sync:
+  - matched `100`
+  - updates planned `4`
+  - unmatched `32`
+  - blocked `0`
+- Family card dry-run sync:
+  - `Opher x9922`: unmatched `7`, blocked `0`
+  - `Liya X7195`: unmatched `8`, blocked `0`
+  - `Opher X5898`: unmatched `3`, blocked `0`
 
-## Aikido Baseline Snapshot
+Workflow findings already confirmed:
+- per-account reconciliation must stay explicit for every relevant account
+- translated legacy review files are useful reference artifacts, but old create-target decisions cannot be blindly replayed onto a fresh post-upload proposal
+- some previously reviewed map-update candidates were never promoted into `mappings/payee_map.csv`, so repeat fingerprints are still appearing without suggestions
 
-Fresh bootstrap window:
-- Family Aikido source rows: `2024-01-02` through `2026-03-25`
-- Aikido reconciled target history through `2025-10-18`
+Known Family mapping follow-up candidates from this run:
+- likely missing or not yet applied:
+  - `spareeat`
+  - `mei sheva`
+  - `clalit`
+  - `oren meshi`
+  - `spotify stockholm עסקת חו`
+  - `kahoot asa oslo`
+  - `גרנד fox`
+- likely already represented but worth verifying against current behavior:
+  - `paypal facebook עסקת חו`
+  - `yellow`
 
-Post-upload baseline snapshot:
-- fresh Family export rows: `6462`
-- fresh Aikido export rows: `1071`
-- Family `Aikido` slice rows: `240`
-- Aikido `Personal In Leumi` rows: `1054`
-- target-side `Cleared` rows after upload: `68`
+## Working Rules For This Run
 
-Historical baseline status:
-- strict zero-day historical compare after upload:
-  - matched pairs: `159`
-  - unresolved historical rows: `25`
-- widened historical compare (`date-tolerance-days = 10`):
-  - matched pairs: `170`
-  - unmatched source: `0`
-  - unmatched target: `0`
-  - remaining open rows: only the March 2024 duplicate Member Fees ambiguity
-- settled historical review artifact:
-  - `data/paired/aikido_cross_budget_live/history_review_rows_pre_2025_11_settled.csv`
-  - final reviewed open rows in that file: `4`
-  - outcome: `2 keep_match`, `2 ignore_row`
+- Keep work in this order:
+  1. Family
+  2. Pilates
+  3. Aikido
+- Each section is not complete until review, upload/sync, and all required reconciliations are done.
+- Reconciliation coverage must include every relevant account, not just the main budget-level flow.
+- Prefer explicit, reusable artifacts over ad hoc terminal reasoning.
+- When a workflow gap appears, capture the smallest durable fix:
+  - naming convention
+  - helper script
+  - review artifact
+  - documented command sequence
 
-Forward backlog slice:
-- backlog review rows: `68`
-- rows with suggested target payee/category from the rebuilt map: `30`
-- reviewed backlog rows: `68`
-- upload-prep rows prepared: `68`
-- uploaded backlog rows: `68`
+## Standardization Direction
 
-Forward reconcile status:
-- cached forward reconcile from `2025-11-01` is fully executed
-- verify pass result:
-  - matched `68`
-  - unmatched source `0`
-  - unmatched target `0`
-  - ambiguous `0`
-  - updates planned `0`
+The run should keep pushing toward a workflow app or checklist-driven process. Current preferred direction:
+
+- use column-based format detection rather than filename-only assumptions
+- keep translated legacy review files explicit in naming, for example `_unified_v1.csv`
+- preserve dated run roots under `data/derived/<run_tag>/` and `data/paired/<run_tag>/`
+- keep per-stage commands stable and profile-driven
+- generate smaller review helper artifacts when the raw proposal is too noisy
+- close the loop from reviewed map-update candidates into real map files or an explicit pending queue
 
 ## Next Steps
 
-1. Triage combined Pass 3 + Pass 4 findings for implementation priority
-2. Implement high-value items: decompose `main()`, add architectural overview, add module docstrings
-3. Address remaining Pass 3 maintainability items
-4. Merge cleanup branch into `main` once validated
-4. Run another hostile audit against the current committed branch state
-5. Triage any new findings into:
-   - must-fix before merge
-   - good follow-up but not blocking
-   - rejected / false positive
-6. If the audit is clean or all blocking findings are resolved, prepare the branch for human review
-7. After merge, resume Aikido forward updates on `main`
+1. Finish Family mapping decisions and complete Family review.
+2. Execute Family upload, lineage sync, bank reconciliation, and all three card reconciliations.
+3. Refresh Pilates YNAB context, build both institutional and cross-budget artifacts, then review and reconcile all Pilates accounts.
+4. Run the Aikido cross-budget flow, review it, upload it, and reconcile it.
+5. Keep notes on friction points and convert them into doc or script improvements during the run.
+6. If the full run is clean, prepare merge-back to `main`.
 
-## Code Review Findings Summary
+## Merge Readiness Criteria
 
-Verified file sizes (lines):
-- `review_app/app.py`: 2180 (61 functions, `main()` ~756 lines from L1421–L2177)
-- `card_reconciliation.py`: 1507
-- `bank_reconciliation.py`: 1741
-- `cross_budget_reconciliation.py`: 1116
-- `upload_prep.py`: 748
-- `scripts/build_proposed_transactions.py`: 1164
-- `scripts/build_cross_budget_review_rows.py`: 593
-
-Key confirmed issues:
-- duplicated `connected_component_mask` in the review app — fixed
-- repeated whole-dataframe component traversals in blocker derivation — fixed across reruns in second pass
-- grouped mode rescans full df per fingerprint — fixed in first pass
-- unsafe string-backed boolean coercion in the review/upload path — fixed in first pass
-- no shared safe boolean parser — fixed
-- missing review-app rerun caching for derived state — fixed in second pass
-- `_normalize_text` redefined in `bank_identity.py`, `bank_reconciliation.py`; inline `.astype("string").fillna("").str.strip()` chains in 15+ locations
-
-## Deferred
-
-- chooser-based manual relinking UI
-- broader sync execution for every non-`create_target` action
-- richer `update_maps` ergonomics beyond the minimal explicit form
+- Family, Pilates, and Aikido all complete without unexplained blockers
+- documentation reflects the actual current workflow
+- legacy review translation path is explicit and tested
+- script names and runbook commands match the codebase
+- remaining rough edges are either fixed or clearly documented as follow-up

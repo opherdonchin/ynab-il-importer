@@ -15,8 +15,10 @@ if str(SRC) not in sys.path:
 
 import ynab_il_importer.export as export
 import ynab_il_importer.pairing as pairing
+import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.rules as rules_mod
 import ynab_il_importer.workflow_profiles as workflow_profiles
+from ynab_il_importer import bank_identity, card_identity
 
 _CARD_SUFFIX_DIGITS_RE = re.compile(r"\D+")
 _CARD_SUFFIX_MEMO_TAG_RE = re.compile(r"\[card x\d{4}\]", flags=re.IGNORECASE)
@@ -537,6 +539,31 @@ def _source_lineage_id(row: pd.Series) -> str:
     return _optional_text(row.get("card_txn_id", ""))
 
 
+def _target_lineage_ids(row: pd.Series) -> tuple[str, ...]:
+    values: list[str] = []
+    for candidate in [
+        _optional_text(row.get("ynab_import_id") or row.get("import_id")),
+        *bank_identity.extract_bank_txn_ids_from_memo(row.get("target_memo", row.get("memo", ""))),
+        *card_identity.extract_card_txn_ids_from_memo(row.get("target_memo", row.get("memo", ""))),
+    ]:
+        text = _optional_text(candidate)
+        if text and text not in values:
+            values.append(text)
+    return tuple(values)
+
+
+def _target_memo_lineage_ids(row: pd.Series) -> tuple[str, ...]:
+    values: list[str] = []
+    for candidate in [
+        *bank_identity.extract_bank_txn_ids_from_memo(row.get("target_memo", row.get("memo", ""))),
+        *card_identity.extract_card_txn_ids_from_memo(row.get("target_memo", row.get("memo", ""))),
+    ]:
+        text = _optional_text(candidate)
+        if text and text not in values:
+            values.append(text)
+    return tuple(values)
+
+
 def _to_string_set(value: object) -> set[str]:
     if value is None:
         return set()
@@ -662,6 +689,59 @@ def _review_first_nonempty(values: pd.Series) -> str:
     return ""
 
 
+def _is_cleared_match(row: pd.Series) -> bool:
+    cleared = _optional_text(row.get("ynab_cleared")).casefold()
+    return cleared in {"cleared", "reconciled"}
+
+
+def _normalize_selected_category(payee: str, category: str) -> str:
+    normalized = review_model.normalize_category_value(category)
+    if review_model.is_transfer_payee(payee) and normalized.casefold() == "uncategorized":
+        return review_model.NO_CATEGORY_REQUIRED
+    return normalized
+
+
+def _is_target_only_transfer_counterpart(row: pd.Series) -> bool:
+    target_payee = _optional_text(row.get("ynab_payee_raw"))
+    return review_model.is_transfer_payee(target_payee)
+
+
+def _is_target_only_manual_entry(row: pd.Series) -> bool:
+    approved = _optional_text(row.get("ynab_approved")).casefold() in {"true", "1", "yes", "y"}
+    if not approved:
+        return False
+
+    target_payee = _optional_text(row.get("ynab_payee_raw"))
+    if not target_payee:
+        return False
+
+    target_category = _normalize_selected_category(
+        target_payee,
+        _optional_text(row.get("ynab_category_raw")),
+    )
+    if not target_category and not review_model.is_transfer_payee(target_payee):
+        return False
+
+    has_lineage = any(
+        _optional_text(row.get(column))
+        for column in ["ynab_import_id", "ynab_matched_transaction_id"]
+    )
+    if has_lineage:
+        return False
+
+    target_memo = _optional_text(row.get("target_memo") or row.get("memo"))
+    if bank_identity.extract_bank_txn_ids_from_memo(target_memo):
+        return False
+    if card_identity.extract_card_txn_ids_from_memo(target_memo):
+        return False
+
+    return True
+
+
+def _is_target_only_settled(row: pd.Series) -> bool:
+    return _is_cleared_match(row) or _is_target_only_manual_entry(row)
+
+
 def _stable_row_ids(
     df: pd.DataFrame,
     *,
@@ -753,6 +833,7 @@ def _prepare_review_source_rows(source_df: pd.DataFrame) -> pd.DataFrame:
         .str.strip()
         .to_numpy()
     )
+    prepared["source_lineage_id"] = aligned.apply(_source_lineage_id, axis=1).astype("string").to_numpy()
     return prepared
 
 
@@ -791,13 +872,58 @@ def _institutional_candidate_pairs(
     )
     if pairs.empty:
         return pairs
-    key_counts = (
-        pairs.groupby(["account_key", "date_key", "amount_key"], dropna=False)
-        .size()
-        .reset_index(name="_key_count")
+
+    # If a source row has an explicit lineage id and one or more targets share that import id,
+    # keep only those exact-lineage candidates for that source row.
+    source_lineage = pairs.get(
+        "source_lineage_id",
+        pd.Series([""] * len(pairs), index=pairs.index, dtype="string"),
+    ).astype("string").fillna("").str.strip()
+    target_import = pairs.get(
+        "ynab_import_id",
+        pd.Series([""] * len(pairs), index=pairs.index, dtype="string"),
+    ).astype("string").fillna("").str.strip()
+    exact_import_match = source_lineage.ne("") & source_lineage.eq(target_import)
+    import_match_by_source = exact_import_match.groupby(
+        pairs["source_row_id"], dropna=False
+    ).transform("any")
+    pairs = pairs.loc[~import_match_by_source | exact_import_match].copy()
+
+    source_lineage = pairs.get(
+        "source_lineage_id",
+        pd.Series([""] * len(pairs), index=pairs.index, dtype="string"),
+    ).astype("string").fillna("").str.strip()
+    target_memo_lineages = pairs.apply(_target_memo_lineage_ids, axis=1)
+    exact_memo_lineage_match = source_lineage.ne("") & pd.Series(
+        [
+            lineage in lineage_ids
+            for lineage, lineage_ids in zip(
+                source_lineage.tolist(), target_memo_lineages.tolist()
+            )
+        ],
+        index=pairs.index,
     )
-    pairs = pairs.merge(key_counts, on=["account_key", "date_key", "amount_key"], how="left")
-    pairs["ambiguous_key"] = pairs["_key_count"].fillna(0).astype(int) > 1
+    memo_lineage_by_source = exact_memo_lineage_match.groupby(
+        pairs["source_row_id"], dropna=False
+    ).transform("any")
+    pairs = pairs.loc[~memo_lineage_by_source | exact_memo_lineage_match].copy()
+
+    source_candidate_counts = (
+        pairs.groupby("source_row_id", dropna=False)
+        .size()
+        .reset_index(name="_source_candidate_count")
+    )
+    target_candidate_counts = (
+        pairs.groupby("target_row_id", dropna=False)
+        .size()
+        .reset_index(name="_target_candidate_count")
+    )
+    pairs = pairs.merge(source_candidate_counts, on="source_row_id", how="left")
+    pairs = pairs.merge(target_candidate_counts, on="target_row_id", how="left")
+    pairs["ambiguous_key"] = (
+        pairs["_source_candidate_count"].fillna(0).astype(int).gt(1)
+        | pairs["_target_candidate_count"].fillna(0).astype(int).gt(1)
+    )
     return pairs
 
 
@@ -873,7 +999,19 @@ def _apply_review_target_suggestions(relations: pd.DataFrame, *, map_path: Path)
     )
 
     current_target_payee = merged["target_payee_current"].astype("string").fillna("").str.strip()
-    current_target_category = merged["target_category_current"].astype("string").fillna("").str.strip()
+    current_target_category = (
+        pd.Series(
+            [
+                _normalize_selected_category(payee, category)
+                for payee, category in zip(
+                    merged["target_payee_current"].astype("string").fillna("").str.strip(),
+                    merged["target_category_current"].astype("string").fillna("").str.strip(),
+                )
+            ],
+            index=merged.index,
+            dtype="string",
+        )
+    )
     suggested_payee = (
         merged.get("suggested_payee_selected", pd.Series([""] * len(merged)))
         .astype("string")
@@ -884,7 +1022,7 @@ def _apply_review_target_suggestions(relations: pd.DataFrame, *, map_path: Path)
         merged.get("suggested_category_selected", pd.Series([""] * len(merged)))
         .astype("string")
         .fillna("")
-        .str.strip()
+        .map(review_model.normalize_category_value)
     )
     has_target = merged["target_present"].astype(bool)
 
@@ -942,9 +1080,16 @@ def build_review_rows(
     for _, row in pairs.iterrows():
         is_ambiguous = bool(row.get("ambiguous_key", False))
         target_payee = _optional_text(row.get("ynab_payee_raw"))
-        target_category = _optional_text(row.get("ynab_category_raw"))
+        target_category_current = _optional_text(row.get("ynab_category_raw"))
+        target_category = _normalize_selected_category(
+            target_payee,
+            target_category_current,
+        )
         source_payee = _optional_text(row.get("source_payee_current"))
-        source_category = _optional_text(row.get("source_category_current"))
+        source_category = review_model.normalize_category_value(
+            _optional_text(row.get("source_category_current"))
+        )
+        matched_cleared = (not is_ambiguous) and _is_cleared_match(row)
         rows.append(
             {
                 "transaction_id": _make_transaction_id(
@@ -969,12 +1114,20 @@ def build_review_rows(
                 "fingerprint": _optional_text(row.get("fingerprint") or row.get("ynab_fingerprint")),
                 "payee_options": target_payee,
                 "category_options": target_category,
-                "match_status": "ambiguous" if is_ambiguous else "matched_auto",
+                "match_status": (
+                    "ambiguous"
+                    if is_ambiguous
+                    else ("matched_cleared" if matched_cleared else "matched_auto")
+                ),
                 "update_maps": "",
                 "decision_action": "No decision" if is_ambiguous else "keep_match",
-                "reviewed": False,
+                "reviewed": matched_cleared,
                 "workflow_type": "institutional",
-                "relation_kind": "ambiguous_candidate" if is_ambiguous else "matched_pair",
+                "relation_kind": (
+                    "ambiguous_candidate"
+                    if is_ambiguous
+                    else ("matched_cleared_pair" if matched_cleared else "matched_pair")
+                ),
                 "match_method": "exact_date_amount_not_unique" if is_ambiguous else "exact_date_amount",
                 "source_present": True,
                 "target_present": True,
@@ -987,7 +1140,7 @@ def build_review_rows(
                 "source_payee_current": source_payee,
                 "target_payee_current": target_payee,
                 "source_category_current": source_category,
-                "target_category_current": target_category,
+                "target_category_current": target_category_current,
                 "source_memo": _optional_text(row.get("source_memo")),
                 "target_memo": _optional_text(row.get("target_memo")),
                 "source_fingerprint": _optional_text(row.get("fingerprint")),
@@ -1004,7 +1157,9 @@ def build_review_rows(
     ].copy()
     for _, row in unmatched_source.iterrows():
         source_payee = _optional_text(row.get("source_payee_current"))
-        source_category = _optional_text(row.get("source_category_current"))
+        source_category = review_model.normalize_category_value(
+            _optional_text(row.get("source_category_current"))
+        )
         rows.append(
             {
                 "transaction_id": _make_transaction_id(
@@ -1063,7 +1218,13 @@ def build_review_rows(
     ].copy()
     for _, row in unmatched_target.iterrows():
         target_payee = _optional_text(row.get("ynab_payee_raw"))
-        target_category = _optional_text(row.get("ynab_category_raw"))
+        target_category_current = _optional_text(row.get("ynab_category_raw"))
+        target_category = _normalize_selected_category(
+            target_payee,
+            target_category_current,
+        )
+        settled_transfer_counterpart = _is_target_only_transfer_counterpart(row)
+        settled_target_only = settled_transfer_counterpart or _is_target_only_settled(row)
         rows.append(
             {
                 "transaction_id": _make_transaction_id(
@@ -1089,10 +1250,22 @@ def build_review_rows(
                 "category_options": target_category,
                 "match_status": "target_only",
                 "update_maps": "",
-                "decision_action": "create_source",
-                "reviewed": False,
+                "decision_action": "ignore_row" if settled_target_only else "No decision",
+                "reviewed": settled_target_only,
                 "workflow_type": "institutional",
-                "relation_kind": "target_only",
+                "relation_kind": (
+                    "target_only_transfer_counterpart"
+                    if settled_transfer_counterpart
+                    else (
+                        "target_only_cleared"
+                        if _is_cleared_match(row)
+                        else (
+                            "target_only_manual"
+                            if settled_target_only
+                            else "target_only"
+                        )
+                    )
+                ),
                 "match_method": "",
                 "source_present": False,
                 "target_present": True,
@@ -1105,7 +1278,7 @@ def build_review_rows(
                 "source_payee_current": "",
                 "target_payee_current": target_payee,
                 "source_category_current": "",
-                "target_category_current": target_category,
+                "target_category_current": target_category_current,
                 "source_memo": "",
                 "target_memo": _optional_text(row.get("target_memo")),
                 "source_fingerprint": "",

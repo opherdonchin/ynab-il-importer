@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import ynab_il_importer.review_app.model as review_model
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "build_proposed_transactions.py"
@@ -516,7 +517,7 @@ def test_build_review_rows_emits_institutional_statuses(tmp_path: Path) -> None:
                 "memo": "existing",
                 "import_id": "",
                 "matched_transaction_id": "",
-                "cleared": "cleared",
+                "cleared": "uncleared",
                 "approved": True,
             },
             {
@@ -565,7 +566,312 @@ def test_build_review_rows_emits_institutional_statuses(tmp_path: Path) -> None:
     target_only = review_rows.loc[review_rows["match_status"] == "target_only"].iloc[0]
     assert target_only["target_payee_current"] == "Manual Cash"
     assert target_only["source"] == "ynab"
-    assert target_only["decision_action"] == "create_source"
+    assert target_only["decision_action"] == "No decision"
+    assert bool(target_only["reviewed"]) is False
+
+
+def test_build_review_rows_marks_cleared_exact_matches_as_settled(tmp_path: Path) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "source": "bank",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "groceries",
+                "description_raw": "Groceries",
+            }
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-match",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Groceries",
+                "category_raw": "Food",
+                "fingerprint": "groceries",
+                "memo": "existing",
+                "import_id": "BANK:V1:abc",
+                "matched_transaction_id": "",
+                "cleared": "cleared",
+                "approved": True,
+            }
+        ]
+    )
+
+    review_rows, _ = build_proposed_transactions.build_review_rows(
+        source_df,
+        ynab_df,
+        map_path=map_path,
+    )
+
+    matched = review_rows.iloc[0]
+    assert matched["match_status"] == "matched_cleared"
+    assert matched["relation_kind"] == "matched_cleared_pair"
+    assert bool(matched["reviewed"]) is True
+
+
+def test_build_review_rows_normalizes_transfer_uncategorized_to_explicit_none(tmp_path: Path) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "source": "bank",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "card payment",
+                "description_raw": "Card payment",
+            }
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-match",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Transfer : Cash",
+                "category_raw": "Uncategorized",
+                "fingerprint": "card payment",
+                "memo": "existing",
+                "import_id": "BANK:V1:abc",
+                "matched_transaction_id": "",
+                "cleared": "cleared",
+                "approved": True,
+            }
+        ]
+    )
+
+    review_rows, _ = build_proposed_transactions.build_review_rows(
+        source_df,
+        ynab_df,
+        map_path=map_path,
+    )
+
+    matched = review_rows.iloc[0]
+    assert matched["target_category_current"] == "Uncategorized"
+    assert matched["target_category_selected"] == review_model.NO_CATEGORY_REQUIRED
+    assert matched["category_options"] == review_model.NO_CATEGORY_REQUIRED
+
+
+def test_build_review_rows_auto_settles_target_only_transfer_counterparts(tmp_path: Path) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "source": "bank",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "groceries",
+                "description_raw": "Groceries",
+            }
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-match",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Groceries",
+                "category_raw": "Food",
+                "fingerprint": "groceries",
+                "memo": "existing",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            },
+            {
+                "ynab_id": "ynab-transfer",
+                "account_id": "acc-2",
+                "account_name": "Card",
+                "date": "2025-01-03",
+                "outflow_ils": 0.0,
+                "inflow_ils": 20.0,
+                "payee_raw": "Transfer : Checking",
+                "category_raw": "Uncategorized",
+                "fingerprint": "transfer checking",
+                "memo": "payment",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            },
+        ]
+    )
+
+    review_rows, _ = build_proposed_transactions.build_review_rows(
+        source_df,
+        ynab_df,
+        map_path=map_path,
+    )
+
+    target_only = review_rows.loc[
+        review_rows["target_payee_selected"] == "Transfer : Checking"
+    ].iloc[0]
+    assert target_only["match_status"] == "target_only"
+    assert target_only["decision_action"] == "ignore_row"
+    assert bool(target_only["reviewed"]) is True
+    assert target_only["relation_kind"] == "target_only_transfer_counterpart"
+    assert target_only["target_category_selected"] == review_model.NO_CATEGORY_REQUIRED
+
+
+def test_build_review_rows_auto_settles_reconciled_target_only_rows(tmp_path: Path) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "source": "bank",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "groceries",
+                "description_raw": "Groceries",
+            }
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-match",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Groceries",
+                "category_raw": "Food",
+                "fingerprint": "groceries",
+                "memo": "existing",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            },
+            {
+                "ynab_id": "ynab-old",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2024-12-30",
+                "outflow_ils": 15.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Manual Cash",
+                "category_raw": "Cash",
+                "fingerprint": "manual cash",
+                "memo": "old reconciled",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "reconciled",
+                "approved": True,
+            },
+        ]
+    )
+
+    review_rows, _ = build_proposed_transactions.build_review_rows(
+        source_df,
+        ynab_df,
+        map_path=map_path,
+    )
+
+    target_only = review_rows.loc[review_rows["target_payee_selected"] == "Manual Cash"].iloc[0]
+    assert target_only["match_status"] == "target_only"
+    assert target_only["decision_action"] == "ignore_row"
+    assert bool(target_only["reviewed"]) is True
+    assert target_only["relation_kind"] == "target_only_cleared"
+
+
+def test_build_review_rows_auto_settles_manual_target_only_rows(tmp_path: Path) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "source": "bank",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "groceries",
+                "description_raw": "Groceries",
+            }
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-match",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Groceries",
+                "category_raw": "Food",
+                "fingerprint": "groceries",
+                "memo": "existing",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            },
+            {
+                "ynab_id": "ynab-manual",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2024-12-31",
+                "outflow_ils": 15.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Manual Cash",
+                "category_raw": "Cash",
+                "fingerprint": "manual cash",
+                "memo": "",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            },
+        ]
+    )
+
+    review_rows, _ = build_proposed_transactions.build_review_rows(
+        source_df,
+        ynab_df,
+        map_path=map_path,
+    )
+
+    target_only = review_rows.loc[review_rows["target_payee_selected"] == "Manual Cash"].iloc[0]
+    assert target_only["match_status"] == "target_only"
+    assert target_only["decision_action"] == "ignore_row"
+    assert bool(target_only["reviewed"]) is True
+    assert target_only["relation_kind"] == "target_only_manual"
 
 
 def test_build_review_rows_emits_institutional_ambiguous_candidates(tmp_path: Path) -> None:
@@ -634,3 +940,149 @@ def test_build_review_rows_emits_institutional_ambiguous_candidates(tmp_path: Pa
     assert set(ambiguous["relation_kind"].tolist()) == {"ambiguous_candidate"}
     assert len(set(ambiguous["source_row_id"].tolist())) == 1
     assert set(ambiguous["target_payee_current"].tolist()) == {"Cafe A", "Cafe B"}
+
+
+def test_institutional_candidate_pairs_prefer_exact_lineage_and_clear_false_ambiguity() -> None:
+    prepared_source = pd.DataFrame(
+        [
+            {
+                "source_row_id": "src-1",
+                "source_lineage_id": "BANK:V1:a",
+                "account_key": "Bank Leumi",
+                "date_key": pd.Timestamp("2026-03-03").date(),
+                "amount_key": -200.0,
+            },
+            {
+                "source_row_id": "src-2",
+                "source_lineage_id": "BANK:V1:b",
+                "account_key": "Bank Leumi",
+                "date_key": pd.Timestamp("2026-03-03").date(),
+                "amount_key": -200.0,
+            },
+        ]
+    )
+    prepared_target = pd.DataFrame(
+        [
+            {
+                "target_row_id": "tgt-1",
+                "ynab_import_id": "BANK:V1:a",
+                "account_key": "Bank Leumi",
+                "date_key": pd.Timestamp("2026-03-03").date(),
+                "amount_key": -200.0,
+            },
+            {
+                "target_row_id": "tgt-2",
+                "ynab_import_id": "BANK:V1:b",
+                "account_key": "Bank Leumi",
+                "date_key": pd.Timestamp("2026-03-03").date(),
+                "amount_key": -200.0,
+            },
+            {
+                "target_row_id": "tgt-3",
+                "ynab_import_id": "CARD:V1:c",
+                "account_key": "Bank Leumi",
+                "date_key": pd.Timestamp("2026-03-03").date(),
+                "amount_key": -200.0,
+            },
+            {
+                "target_row_id": "tgt-4",
+                "ynab_import_id": "CARD:V1:d",
+                "account_key": "Bank Leumi",
+                "date_key": pd.Timestamp("2026-03-03").date(),
+                "amount_key": -200.0,
+            },
+        ]
+    )
+
+    pairs = build_proposed_transactions._institutional_candidate_pairs(
+        prepared_source,
+        prepared_target,
+    )
+
+    assert set(pairs["source_row_id"].tolist()) == {"src-1", "src-2"}
+    assert set(pairs["target_row_id"].tolist()) == {"tgt-1", "tgt-2"}
+    assert pairs["ambiguous_key"].tolist() == [False, False]
+
+
+def test_institutional_candidate_pairs_prefer_exact_memo_lineage_markers() -> None:
+    prepared_source = pd.DataFrame(
+        [
+            {
+                "source_row_id": "src-1",
+                "source_lineage_id": "BANK:V1:111111111111111111111111",
+                "account_key": "Bank Leumi",
+                "date_key": pd.Timestamp("2026-03-03").date(),
+                "amount_key": -58.0,
+            }
+        ]
+    )
+    prepared_target = pd.DataFrame(
+        [
+            {
+                "target_row_id": "tgt-bank",
+                "ynab_import_id": "YNAB:-58000:2026-03-03:1",
+                "target_memo": "[ynab-il bank_txn_id=BANK:V1:111111111111111111111111]",
+                "account_key": "Bank Leumi",
+                "date_key": pd.Timestamp("2026-03-03").date(),
+                "amount_key": -58.0,
+            },
+            {
+                "target_row_id": "tgt-card",
+                "ynab_import_id": "CARD:V1:c",
+                "target_memo": "ROASTERS",
+                "account_key": "Bank Leumi",
+                "date_key": pd.Timestamp("2026-03-03").date(),
+                "amount_key": -58.0,
+            },
+        ]
+    )
+
+    pairs = build_proposed_transactions._institutional_candidate_pairs(
+        prepared_source,
+        prepared_target,
+    )
+
+    assert pairs["target_row_id"].tolist() == ["tgt-bank"]
+    assert pairs["ambiguous_key"].tolist() == [False]
+
+
+def test_institutional_candidate_pairs_prefer_exact_import_over_memo_lineage_marker() -> None:
+    prepared_source = pd.DataFrame(
+        [
+            {
+                "source_row_id": "src-1",
+                "source_lineage_id": "CARD:V1:111111111111111111111111",
+                "account_key": "Opher x9922",
+                "date_key": pd.Timestamp("2026-03-03").date(),
+                "amount_key": -58.0,
+            }
+        ]
+    )
+    prepared_target = pd.DataFrame(
+        [
+            {
+                "target_row_id": "tgt-memo",
+                "ynab_import_id": "YNAB:-58000:2026-03-03:1",
+                "target_memo": "[ynab-il card_txn_id=CARD:V1:111111111111111111111111]",
+                "account_key": "Opher x9922",
+                "date_key": pd.Timestamp("2026-03-03").date(),
+                "amount_key": -58.0,
+            },
+            {
+                "target_row_id": "tgt-import",
+                "ynab_import_id": "CARD:V1:111111111111111111111111",
+                "target_memo": "FACEBOOK",
+                "account_key": "Opher x9922",
+                "date_key": pd.Timestamp("2026-03-03").date(),
+                "amount_key": -58.0,
+            },
+        ]
+    )
+
+    pairs = build_proposed_transactions._institutional_candidate_pairs(
+        prepared_source,
+        prepared_target,
+    )
+
+    assert pairs["target_row_id"].tolist() == ["tgt-import"]
+    assert pairs["ambiguous_key"].tolist() == [False]

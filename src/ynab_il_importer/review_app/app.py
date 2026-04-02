@@ -4,12 +4,14 @@ import argparse
 import hashlib
 import json
 import sys
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, MutableMapping
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 import ynab_il_importer.map_updates as map_updates
 import ynab_il_importer.review_app.io as review_io
@@ -182,6 +184,58 @@ def _focus_row_view(next_idx: Any | None, page: int) -> None:
     st.session_state[_editor_key("row_page")] = max(1, int(page))
     if next_idx is not None:
         st.session_state["expanded_row_id"] = next_idx
+    st.session_state["scroll_to_top_nonce"] = int(
+        st.session_state.get("scroll_to_top_nonce", 0)
+    ) + 1
+
+
+def _consume_pending_scroll_to_top() -> None:
+    nonce = int(st.session_state.get("scroll_to_top_nonce", 0))
+    rendered_nonce = int(st.session_state.get("_scroll_to_top_rendered", 0))
+    if nonce <= 0 or nonce == rendered_nonce:
+        return
+    components.html(
+        """
+<script>
+const root = window.parent;
+const doc = root.document;
+const selectors = [
+  '[data-testid="stAppViewContainer"]',
+  'section.main',
+  '.main',
+];
+function scrollTopNow() {
+  root.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  doc.documentElement.scrollTop = 0;
+  doc.body.scrollTop = 0;
+  for (const selector of selectors) {
+    const element = doc.querySelector(selector);
+    if (element && typeof element.scrollTo === "function") {
+      element.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    }
+  }
+}
+scrollTopNow();
+setTimeout(scrollTopNow, 0);
+</script>
+        """,
+        height=0,
+    )
+    st.session_state["_scroll_to_top_rendered"] = nonce
+
+
+def _accept_reviewed_components(
+    df: pd.DataFrame,
+    review_indices: list[Any],
+    *,
+    component_map: dict[Any, int],
+) -> tuple[pd.DataFrame, list[str], list[Any]]:
+    return review_validation.apply_review_state_best_effort(
+        df,
+        review_indices,
+        reviewed=True,
+        component_map=component_map,
+    )
 
 
 def _quit_request_path(control_dir: Path) -> Path:
@@ -733,6 +787,11 @@ def _ordered_filter_options(series: pd.Series, preferred: list[str]) -> list[str
     return ordered + extras
 
 
+def _default_primary_state_selection(options: list[str]) -> list[str]:
+    preferred = [value for value in ["Fix", "Decide"] if value in options]
+    return preferred or options
+
+
 def _merge_category_choices(*values: str) -> list[str]:
     ordered: list[str] = []
     seen: set[str] = set()
@@ -786,7 +845,119 @@ def _category_choice_list(
 
 def _selected_side_value(row: pd.Series, *, side: str, field: str) -> str:
     column = f"{side}_{field}_selected"
-    return str(row.get(column, "") or "").strip()
+    value = str(row.get(column, "") or "").strip()
+    if field == "category":
+        return review_model.normalize_category_value(value)
+    return value
+
+
+def _apply_staged_row_widget_values(df: pd.DataFrame, indices: list[Any]) -> pd.DataFrame:
+    if df.empty or not indices:
+        return df.copy()
+
+    updated = df.copy()
+    for idx in indices:
+        if idx not in updated.index:
+            continue
+        row = updated.loc[idx]
+        source_payee_key = _editor_key(f"source_payee_{idx}")
+        source_category_key = _editor_key(f"source_category_{idx}")
+        target_payee_select_key = _editor_key(f"target_payee_select_{idx}")
+        target_payee_override_key = _editor_key(f"target_payee_override_{idx}")
+        target_category_select_key = _editor_key(f"target_category_select_{idx}")
+        memo_append_key = _editor_key(f"memo_append_{idx}")
+        update_maps_key = _editor_key(f"update_maps_{idx}")
+        decision_action_key = _editor_key(f"decision_action_{idx}")
+
+        widget_keys = [
+            source_payee_key,
+            source_category_key,
+            target_payee_select_key,
+            target_payee_override_key,
+            target_category_select_key,
+            memo_append_key,
+            update_maps_key,
+            decision_action_key,
+        ]
+        if not any(key in st.session_state for key in widget_keys):
+            continue
+
+        source_payee_value = str(
+            st.session_state.get(
+                source_payee_key,
+                _selected_side_value(row, side="source", field="payee"),
+            )
+            or ""
+        )
+        source_category_value = str(
+            st.session_state.get(
+                source_category_key,
+                _selected_side_value(row, side="source", field="category"),
+            )
+            or ""
+        )
+        target_payee_select_value = str(
+            st.session_state.get(
+                target_payee_select_key,
+                _selected_side_value(row, side="target", field="payee"),
+            )
+            or ""
+        )
+        target_payee_override_value = str(
+            st.session_state.get(target_payee_override_key, "") or ""
+        )
+        target_category_value = str(
+            st.session_state.get(
+                target_category_select_key,
+                _selected_side_value(row, side="target", field="category"),
+            )
+            or ""
+        )
+        memo_append_value = str(
+            st.session_state.get(memo_append_key, str(row.get("memo_append", "") or "")) or ""
+        )
+        update_maps_tokens = st.session_state.get(
+            update_maps_key,
+            review_validation.parse_update_maps(row.get("update_maps", "")),
+        ) or []
+        decision_action_value = str(
+            st.session_state.get(
+                decision_action_key,
+                review_validation.normalize_decision_action(row.get("decision_action", "")),
+            )
+            or review_validation.NO_DECISION
+        )
+
+        final_target_payee = review_model.resolve_selected_value(
+            target_payee_select_value,
+            target_payee_override_value,
+        )
+        final_update_maps = review_validation.join_update_maps(list(update_maps_tokens))
+
+        review_state.apply_row_edit(
+            updated,
+            idx,
+            source_payee=source_payee_value,
+            source_category=source_category_value,
+            target_payee=final_target_payee,
+            target_category=target_category_value,
+            memo_append=memo_append_value,
+            update_maps=final_update_maps,
+            decision_action=decision_action_value,
+        )
+
+    return updated
+
+
+def _grouped_row_indices(filtered: pd.DataFrame) -> tuple[list[str], dict[str, list[Any]]]:
+    filtered_fingerprints = review_state.series_or_default(filtered, "fingerprint").str.strip()
+    group_indices = {
+        fp: group.index.tolist()
+        for fp, group in filtered_fingerprints.groupby(filtered_fingerprints, sort=False)
+    }
+    sizes = filtered_fingerprints.value_counts().sort_values(ascending=False)
+    fingerprints = [fp for fp in sizes.index.tolist() if fp in group_indices]
+    return fingerprints, group_indices
 
 
 def _render_detail_section(title: str, entries: list[tuple[str, Any]]) -> None:
@@ -906,8 +1077,14 @@ def _render_row_controls(
         or payee_defaults.get(fingerprint, "")
         or (payee_options[0] if payee_options else "")
     )
+    no_category_default = (
+        review_model.NO_CATEGORY_REQUIRED
+        if review_model.is_transfer_payee(target_payee_selected or target_payee_default)
+        else ""
+    )
     target_category_default = (
         target_category_selected
+        or (no_category_default if create_target_default else "")
         or (uncategorized_default if create_target_default else "")
         or category_defaults.get(fingerprint, "")
         or (category_options[0] if category_options else "")
@@ -928,7 +1105,9 @@ def _render_row_controls(
         key=show_all_categories_key,
     )
 
-    with st.form(key=_editor_key(f"row_form_{idx}")):
+    use_form = group_fingerprint is None
+    form_context = st.form(key=_editor_key(f"row_form_{idx}")) if use_form else nullcontext()
+    with form_context:
         st.markdown("**Source**")
         source_payee_key = _editor_key(f"source_payee_{idx}")
         source_category_key = _editor_key(f"source_category_{idx}")
@@ -1042,17 +1221,38 @@ def _render_row_controls(
 
         action_cols = st.columns(2)
         with action_cols[0]:
-            mark_reviewed = st.form_submit_button("Mark reviewed", use_container_width=True)
+            if use_form:
+                mark_reviewed = st.form_submit_button("Mark reviewed", use_container_width=True)
+            else:
+                mark_reviewed = st.button(
+                    "Mark reviewed",
+                    use_container_width=True,
+                    key=_editor_key(f"row_mark_reviewed_{idx}"),
+                )
         with action_cols[1]:
-            keep_open = st.form_submit_button(
-                "Mark open" if bool(row.get("reviewed", False)) else "Apply without review",
-                use_container_width=True,
-            )
+            if use_form:
+                keep_open = st.form_submit_button(
+                    "Mark open" if bool(row.get("reviewed", False)) else "Apply without review",
+                    use_container_width=True,
+                )
+            else:
+                keep_open = st.button(
+                    "Mark open" if bool(row.get("reviewed", False)) else "Apply without review",
+                    use_container_width=True,
+                    key=_editor_key(f"row_keep_open_{idx}"),
+                )
         if show_apply:
-            apply_all = st.form_submit_button(
-                "Apply to untouched rows with this fingerprint and mark reviewed",
-                use_container_width=True,
-            )
+            if use_form:
+                apply_all = st.form_submit_button(
+                    "Apply to untouched rows with this fingerprint and mark reviewed",
+                    use_container_width=True,
+                )
+            else:
+                apply_all = st.button(
+                    "Apply to untouched rows with this fingerprint and mark reviewed",
+                    use_container_width=True,
+                    key=_editor_key(f"row_apply_all_{idx}"),
+                )
         else:
             apply_all = False
 
@@ -1162,16 +1362,24 @@ def _render_row_controls(
 def _format_category_label(value: str, group_map: dict[str, str]) -> str:
     if not value:
         return ""
+    if review_model.is_no_category_required(value):
+        return "None (no category required)"
     group = group_map.get(value, "")
     if group:
         return f"{group} / {value}"
     return value
 
 
+def _default_row_kind_selection(options: list[str]) -> list[str]:
+    selected = [value for value in options if value != "Matched cleared"]
+    return selected or options
+
+
 def main() -> None:
     st.set_page_config(page_title="YNAB Review", layout="wide")
     st.title("Proposed Transactions Review")
     _inject_primary_state_css()
+    _consume_pending_scroll_to_top()
 
     _init_from_cli()
     _ensure_loaded()
@@ -1310,22 +1518,32 @@ def main() -> None:
         st.header("View")
         view_mode = st.radio("Mode", ["Grouped", "Row"], index=0, key="view_mode")
         if st.button("Accept all set decisions", use_container_width=True):
-            reviewable_mask = action_series.ne(review_validation.NO_DECISION)
-            review_indices = df.index[reviewable_mask].tolist()
+            working_df = _apply_staged_row_widget_values(df, df.index.tolist())
+            working_actions = review_validation.normalize_decision_actions(
+                working_df.get(
+                    "decision_action",
+                    pd.Series([""] * len(working_df), index=working_df.index),
+                )
+            )
+            reviewable_mask = working_actions.ne(review_validation.NO_DECISION)
+            review_indices = working_df.index[reviewable_mask].tolist()
             if not review_indices:
                 st.session_state["review_notice"] = "No rows have a decision to accept yet."
             else:
-                final_df, review_errors = review_validation.apply_review_state(
-                    df.copy(),
+                final_df, review_errors, reviewed_indices = _accept_reviewed_components(
+                    working_df,
                     review_indices,
-                    reviewed=True,
                     component_map=component_map,
                 )
                 _set_review_frames(df=final_df)
                 if review_errors:
-                    st.session_state["review_error"] = (
-                        "Accept all blocked: " + "; ".join(review_errors)
+                    accepted_count = len(reviewed_indices)
+                    blocked_count = len(review_indices) - accepted_count
+                    message = (
+                        f"Accepted {accepted_count} rows in memory. "
+                        f"Blocked {blocked_count} rows: " + "; ".join(review_errors)
                     )
+                    st.session_state["review_error"] = message
                 else:
                     settled_count = int(
                         review_validation.normalize_flag_series(final_df["reviewed"]).sum()
@@ -1340,7 +1558,7 @@ def main() -> None:
         primary_state = st.multiselect(
             "State",
             ["Fix", "Decide", "Settled"],
-            default=["Fix", "Decide", "Settled"],
+            default=_default_primary_state_selection(["Fix", "Decide", "Settled"]),
             key="filter_primary_state",
         )
         selected_save_state = st.multiselect(
@@ -1351,12 +1569,12 @@ def main() -> None:
         )
         row_kind_options = _ordered_filter_options(
             row_kind_series,
-            ["Matched", "Source only", "Target only", "Ambiguous", "Unrecognized", "Other"],
+            ["Matched", "Matched cleared", "Source only", "Target only", "Ambiguous", "Unrecognized", "Other"],
         )
         selected_row_kind = st.multiselect(
             "Row kind",
             row_kind_options,
-            default=row_kind_options,
+            default=_default_row_kind_selection(row_kind_options),
             key="filter_row_kind",
         )
         action_options = _ordered_filter_options(
@@ -1580,15 +1798,7 @@ def main() -> None:
             "Rows per group", [10, 25, 50], index=0, key="group_row_page_size"
         )
 
-        fingerprint_series = review_state.series_or_default(df, "fingerprint").str.strip()
-        fp_to_indices = {
-            fp: group.index.tolist()
-            for fp, group in fingerprint_series.groupby(fingerprint_series, sort=False)
-        }
-        filtered_fps = review_state.series_or_default(filtered, "fingerprint").str.strip()
-        filtered_fp_set = set(filtered_fps.tolist())
-        all_sizes = fingerprint_series.value_counts().sort_values(ascending=False)
-        fingerprints = [fp for fp in all_sizes.index.tolist() if fp in filtered_fp_set]
+        fingerprints, fp_to_indices = _grouped_row_indices(filtered)
         total_pages = max(1, (len(fingerprints) + group_page_size - 1) // group_page_size)
         page_key = _editor_key("group_page")
         if page_key not in st.session_state:
@@ -1668,6 +1878,11 @@ def main() -> None:
                     group_payee_default = payee_options[0]
 
                 group_category_default = review_state.most_common_value(group["category_selected"])
+                if (
+                    not group_category_default
+                    and review_model.is_transfer_payee(group_payee_default)
+                ):
+                    group_category_default = review_model.NO_CATEGORY_REQUIRED
                 if not group_category_default and "Uncategorized" in category_list:
                     group_category_default = "Uncategorized"
                 if not group_category_default and category_options:
@@ -1766,11 +1981,41 @@ def main() -> None:
                     index=group_decision_options.index(group_decision_default),
                     key=group_decision_key,
                 )
-                apply_group = st.button(
-                    "Apply to all in group and mark reviewed",
-                    use_container_width=True,
-                    key=_editor_key(f"group_apply_{fp}"),
+                staged_group = _apply_staged_row_widget_values(df, group.index.tolist())
+                staged_group_actions = review_validation.normalize_decision_actions(
+                    staged_group.loc[group.index].get(
+                        "decision_action",
+                        pd.Series([""] * len(group), index=group.index),
+                    )
                 )
+                ready_group_count = int(
+                    staged_group_actions.ne(review_validation.NO_DECISION).sum()
+                )
+                unresolved_group_count = int(
+                    staged_group_actions.eq(review_validation.NO_DECISION).sum()
+                )
+                st.caption(
+                    "Ready to accept: "
+                    f"{ready_group_count} | Still unresolved: {unresolved_group_count}"
+                )
+                if unresolved_group_count:
+                    st.caption(
+                        "Unresolved rows still need a decision before they can be accepted."
+                    )
+                group_action_cols = st.columns(2)
+                with group_action_cols[0]:
+                    apply_group = st.button(
+                        "Apply to all in group and mark reviewed",
+                        use_container_width=True,
+                        key=_editor_key(f"group_apply_{fp}"),
+                    )
+                with group_action_cols[1]:
+                    accept_group = st.button(
+                        f"Accept set decisions in group ({ready_group_count})",
+                        use_container_width=True,
+                        key=_editor_key(f"group_accept_{fp}"),
+                        disabled=ready_group_count == 0,
+                    )
 
                 if apply_group:
                     group_payee_select_value = str(
@@ -1798,8 +2043,14 @@ def main() -> None:
                     )
                     working_df = df.copy()
                     untouched_mask = ~updated_mask.astype(bool)
-                    applied_mask = review_state.series_or_default(working_df, "fingerprint").eq(fp)
-                    applied_mask &= untouched_mask
+                    visible_group_mask = pd.Series(
+                        working_df.index.isin(group.index),
+                        index=working_df.index,
+                    )
+                    eligible_mask = untouched_mask & visible_group_mask
+                    applied_mask = eligible_mask & review_state.series_or_default(
+                        working_df, "fingerprint"
+                    ).eq(fp)
                     review_model.apply_to_same_fingerprint(
                         working_df,
                         fp,
@@ -1808,7 +2059,7 @@ def main() -> None:
                         decision_action=group_decision_value
                         if group_decision_value != review_validation.NO_DECISION
                         else None,
-                        eligible_mask=untouched_mask,
+                        eligible_mask=eligible_mask,
                     )
                     affected_indices = working_df.index[applied_mask].tolist()
                     affected_indices.extend(
@@ -1824,10 +2075,55 @@ def main() -> None:
                     st.session_state["expanded_group_row_id"] = None
                     _set_review_frames(df=final_df)
                     if review_errors:
-                        st.error("Review blocked: " + "; ".join(review_errors))
+                        st.session_state["review_error"] = (
+                            "Review blocked: " + "; ".join(review_errors)
+                        )
                     else:
-                        st.success("Applied group values in memory. Click Save to persist.")
+                        st.session_state["review_notice"] = (
+                            "Applied group values in memory. Click Save to persist."
+                        )
                     # Recompute counters/badges from the updated dataframe in the same interaction.
+                    st.rerun()
+
+                if accept_group:
+                    working_df = staged_group.copy()
+                    working_group = working_df.loc[group.index]
+                    group_actions = review_validation.normalize_decision_actions(
+                        working_group.get(
+                            "decision_action",
+                            pd.Series([""] * len(working_group), index=working_group.index),
+                        )
+                    )
+                    review_indices = working_group.index[
+                        group_actions.ne(review_validation.NO_DECISION)
+                    ].tolist()
+                    st.session_state["expanded_group_fp"] = fp
+                    st.session_state["expanded_group_row_id"] = None
+                    if not review_indices:
+                        st.session_state["review_error"] = (
+                            "No rows in this group have a decision to accept yet."
+                        )
+                    else:
+                        review_indices.extend(
+                            review_model.apply_competing_row_resolution(working_df, review_indices)
+                        )
+                        final_df, review_errors, reviewed_indices = _accept_reviewed_components(
+                            working_df,
+                            review_indices,
+                            component_map=component_map,
+                        )
+                        _set_review_frames(df=final_df)
+                        if review_errors:
+                            accepted_count = len(reviewed_indices)
+                            blocked_count = len(review_indices) - accepted_count
+                            st.session_state["review_error"] = (
+                                f"Accepted {accepted_count} group rows in memory. "
+                                f"Blocked {blocked_count} rows: " + "; ".join(review_errors)
+                            )
+                        else:
+                            st.session_state["review_notice"] = (
+                                "Accepted set group decisions in memory. Click Save to persist."
+                            )
                     st.rerun()
 
                 st.markdown("**Rows**")

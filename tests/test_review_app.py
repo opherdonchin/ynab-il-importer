@@ -144,6 +144,39 @@ def test_apply_to_same_fingerprint_respects_eligible_mask() -> None:
     assert df.loc[1, "target_category_selected"] == "C"
 
 
+def test_default_row_kind_selection_hides_matched_cleared_by_default() -> None:
+    assert review_app._default_row_kind_selection(
+        ["Matched", "Matched cleared", "Source only"]
+    ) == ["Matched", "Source only"]
+
+
+def test_default_primary_state_selection_hides_settled_by_default() -> None:
+    assert review_app._default_primary_state_selection(
+        ["Fix", "Decide", "Settled"]
+    ) == ["Fix", "Decide"]
+
+
+def test_format_category_label_special_cases_no_category_required() -> None:
+    assert (
+        review_app._format_category_label(review_model.NO_CATEGORY_REQUIRED, {})
+        == "None (no category required)"
+    )
+
+
+def test_grouped_row_indices_only_include_filtered_rows() -> None:
+    filtered = pd.DataFrame(
+        {
+            "fingerprint": ["fp-a", "fp-b", "fp-a"],
+        },
+        index=[10, 20, 30],
+    )
+
+    fingerprints, group_indices = review_app._grouped_row_indices(filtered)
+
+    assert fingerprints == ["fp-a", "fp-b"]
+    assert group_indices == {"fp-a": [10, 30], "fp-b": [20]}
+
+
 def test_changed_mask_aligns_duplicate_transaction_ids() -> None:
     base = pd.DataFrame(
         {
@@ -276,6 +309,7 @@ def test_mark_reviewed_opens_next_row_in_row_view(tmp_path: Path) -> None:
     session_df = app.session_state["df"]
     assert bool(session_df.loc[0, "reviewed"]) is True
     assert app.session_state["expanded_row_id"] == 1
+    assert int(app.session_state["scroll_to_top_nonce"]) == 1
 
 
 def test_app_review_blocked_for_cascaded_component_with_no_decision_rows(tmp_path: Path) -> None:
@@ -408,6 +442,151 @@ def test_mark_reviewed_reviews_auto_ignored_competing_rows(tmp_path: Path) -> No
     assert session_df["reviewed"].tolist() == [True, True]
 
 
+def test_group_accept_reviews_set_decisions_without_overwriting_them(tmp_path: Path) -> None:
+    app, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[
+            _row(
+                transaction_id="t1",
+                fingerprint="fp-group",
+                source_row_id="s1",
+                target_row_id="x1",
+                decision_action="keep_match",
+            ),
+            _row(
+                transaction_id="t2",
+                fingerprint="fp-group",
+                source_row_id="s2",
+                target_row_id="",
+                target_present=False,
+                decision_action="create_target",
+            ),
+        ],
+    )
+
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    group = app.expander[0]
+    _find_button_by_label(group, "Accept set decisions in group (2)").click()
+    app.run()
+
+    session_df = app.session_state["df"]
+    assert session_df["decision_action"].tolist() == ["keep_match", "create_target"]
+    assert session_df["reviewed"].tolist() == [True, True]
+
+
+def test_group_accept_uses_live_group_row_decisions(tmp_path: Path) -> None:
+    app, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[
+            _row(
+                transaction_id="t1",
+                fingerprint="fp-group-live",
+                source_row_id="s1",
+                target_row_id="x1",
+                decision_action=review_validation.NO_DECISION,
+            ),
+            _row(
+                transaction_id="t2",
+                fingerprint="fp-group-live",
+                source_row_id="s1",
+                target_row_id="x2",
+                decision_action=review_validation.NO_DECISION,
+            ),
+        ],
+    )
+
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    _find_selectbox(app, "decision_action_0").set_value("keep_match")
+    app.run()
+    _find_selectbox(app, "decision_action_1").set_value("ignore_row")
+    app.run()
+
+    group = app.expander[0]
+    _find_button_by_label(group, "Accept set decisions in group (2)").click()
+    app.run()
+
+    session_df = app.session_state["df"]
+    assert session_df["decision_action"].tolist() == ["keep_match", "ignore_row"]
+    assert session_df["reviewed"].tolist() == [True, True]
+
+
+def test_group_accept_resolves_competing_rows_for_ambiguous_group(tmp_path: Path) -> None:
+    app, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[
+            _row(
+                transaction_id="t1",
+                fingerprint="fp-amb",
+                source_row_id="s1",
+                target_row_id="x1",
+                match_status="ambiguous",
+                decision_action=review_validation.NO_DECISION,
+            ),
+            _row(
+                transaction_id="t2",
+                fingerprint="fp-amb",
+                source_row_id="s1",
+                target_row_id="x2",
+                match_status="ambiguous",
+                decision_action=review_validation.NO_DECISION,
+            ),
+        ],
+    )
+
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    _find_selectbox(app, "decision_action_0").set_value("keep_match")
+    app.run()
+
+    group = app.expander[0]
+    _find_button_by_label(group, "Accept set decisions in group (1)").click()
+    app.run()
+
+    session_df = app.session_state["df"]
+    assert session_df["decision_action"].tolist() == ["keep_match", "ignore_row"]
+    assert session_df["reviewed"].tolist() == [True, True]
+
+
+def test_group_accept_button_disabled_until_group_has_chosen_row_decisions(tmp_path: Path) -> None:
+    app, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[
+            _row(
+                transaction_id="t1",
+                fingerprint="fp-disabled",
+                source_row_id="s1",
+                target_row_id="x1",
+                match_status="ambiguous",
+                decision_action=review_validation.NO_DECISION,
+            ),
+            _row(
+                transaction_id="t2",
+                fingerprint="fp-disabled",
+                source_row_id="s1",
+                target_row_id="x2",
+                match_status="ambiguous",
+                decision_action=review_validation.NO_DECISION,
+            ),
+        ],
+    )
+
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    group = app.expander[0]
+    accept_button = _find_button_by_label(group, "Accept set decisions in group (0)")
+    assert accept_button.disabled is True
+
+
 def test_accept_all_set_decisions_reviews_only_rows_with_actions(tmp_path: Path) -> None:
     app, _ = _build_app_test(
         tmp_path,
@@ -437,7 +616,50 @@ def test_accept_all_set_decisions_reviews_only_rows_with_actions(tmp_path: Path)
     assert session_df["reviewed"].tolist() == [True, True, False]
 
 
-def test_primary_state_series_keeps_no_decision_open_and_component_conflicts_fix() -> None:
+def test_accept_all_set_decisions_uses_staged_values_and_skips_blocked_components(
+    tmp_path: Path,
+) -> None:
+    app, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[
+            _row(
+                transaction_id="t1",
+                source_row_id="s1",
+                target_row_id="x1",
+                decision_action=review_validation.NO_DECISION,
+            ),
+            _row(
+                transaction_id="t2",
+                source_row_id="",
+                target_row_id="x2",
+                source_present=False,
+                target_present=True,
+                workflow_type="institutional",
+                decision_action="create_source",
+            ),
+        ],
+    )
+
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    _find_selectbox(app, "decision_action_0").set_value("keep_match")
+    app.run()
+
+    _find_button_by_label(app.sidebar, "Accept all set decisions").click()
+    app.run()
+
+    session_df = app.session_state["df"]
+    assert session_df["decision_action"].tolist() == ["keep_match", "create_source"]
+    assert session_df["reviewed"].tolist() == [True, False]
+    assert any(
+        "Accepted 1 rows in memory. Blocked 1 rows" in str(element.value)
+        for element in app.error
+    )
+
+
+def test_primary_state_series_treats_no_decision_as_fix_and_component_conflicts_fix() -> None:
     df = pd.DataFrame(
         [
             _row(transaction_id="draft", decision_action=review_validation.NO_DECISION),
@@ -467,7 +689,45 @@ def test_primary_state_series_keeps_no_decision_open_and_component_conflicts_fix
         "Contradiction in component",
         "Contradiction in component",
     ]
-    assert primary_state_series.tolist() == ["Decide", "Fix", "Fix"]
+    assert primary_state_series.tolist() == ["Fix", "Fix", "Fix"]
+
+
+def test_transfer_uncategorized_is_not_treated_as_fix() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "transaction_id": "transfer-row",
+                "date": "2026-03-01",
+                "account_name": "Bank Leumi",
+                "outflow_ils": "10",
+                "inflow_ils": "0",
+                "memo": "cash move",
+                "fingerprint": "transfer cash",
+                "payee_options": "Transfer : Cash",
+                "category_options": "",
+                "match_status": "matched_cleared",
+                "workflow_type": "institutional",
+                "source_row_id": "s1",
+                "target_row_id": "t1",
+                "source_present": "TRUE",
+                "target_present": "TRUE",
+                "source_payee_selected": "cash move",
+                "source_category_selected": "",
+                "target_payee_selected": "Transfer : Cash",
+                "target_category_selected": "Uncategorized",
+                "decision_action": "keep_match",
+                "update_maps": "",
+                "reviewed": "TRUE",
+            }
+        ]
+    )
+    df["reviewed"] = review_validation.normalize_flag_series(df["reviewed"])
+
+    blocker_series = review_validation.blocker_series(df)
+    primary_state_series = review_state.primary_state_series(df, blocker_series)
+
+    assert blocker_series.tolist() == ["None"]
+    assert primary_state_series.tolist() == ["Settled"]
 
 
 def test_apply_row_filters_supports_action_blocker_suggestions_map_updates_and_search() -> None:

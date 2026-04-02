@@ -37,8 +37,8 @@ def _normalize_text_series(series: pd.Series) -> pd.Series:
 
 
 def _is_selected_category(value: Any) -> bool:
-    text = _normalize_text(value)
-    return bool(text)
+    text = review_model.normalize_category_value(value)
+    return bool(text) and not review_model.is_no_category_required(text)
 
 
 def _amount_milliunits(row: pd.Series) -> int:
@@ -68,8 +68,10 @@ def _target_payee_series(df: pd.DataFrame) -> pd.Series:
 
 def _target_category_series(df: pd.DataFrame) -> pd.Series:
     if "target_category_selected" in df.columns:
-        return _normalize_text_series(df["target_category_selected"])
-    return _normalize_text_series(df["category_selected"])
+        return _normalize_text_series(df["target_category_selected"]).map(
+            review_model.normalize_category_value
+        )
+    return _normalize_text_series(df["category_selected"]).map(review_model.normalize_category_value)
 
 
 def _memo_append_series(df: pd.DataFrame) -> pd.Series:
@@ -268,6 +270,9 @@ def prepare_upload_transactions(
         "decision_action",
     ]:
         df[col] = _normalize_text_series(df[col])
+    df["target_category_selected"] = df["target_category_selected"].map(
+        review_model.normalize_category_value
+    )
     df["memo"] = _combined_memo_series(df)
     for col in ["outflow_ils", "inflow_ils"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0).round(2)
@@ -305,12 +310,14 @@ def prepare_upload_transactions(
             f"Missing transfer payee ids for target accounts: {missing_transfer_targets}"
         )
 
-    df["category_id"] = (
-        df["target_category_selected"].map(category_ids).astype("string").fillna("")
+    upload_category = df["target_category_selected"].where(
+        ~df["target_category_selected"].map(review_model.is_no_category_required),
+        "",
     )
+    df["category_id"] = upload_category.map(category_ids).astype("string").fillna("")
     unresolved_category = (~is_transfer) & (df["category_id"] == "")
     if unresolved_category.any():
-        aliases = df.loc[unresolved_category, "target_category_selected"].map(_category_alias)
+        aliases = upload_category.loc[unresolved_category].map(_category_alias)
         df.loc[unresolved_category, "category_id"] = (
             aliases.map(category_alias_ids).astype("string").fillna("")
         )
@@ -318,7 +325,7 @@ def prepare_upload_transactions(
     if unresolved_category.any() and uncategorized_category_id:
         df.loc[unresolved_category, "category_id"] = uncategorized_category_id
     missing_categories = sorted(
-        df.loc[~is_transfer & (df["category_id"] == ""), "target_category_selected"]
+        upload_category.loc[~is_transfer & (df["category_id"] == "")]
         .unique()
         .tolist()
     )

@@ -180,6 +180,44 @@ def test_load_save_roundtrip_uses_side_specific_selected_fields(tmp_path) -> Non
     assert "update_map" not in saved.columns
 
 
+def test_save_reviewed_transactions_prefers_side_specific_target_columns(tmp_path: Path) -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "transaction_id": "t1",
+                "account_name": "Account 1",
+                "date": "2026-03-01",
+                "outflow_ils": 10.0,
+                "inflow_ils": 0.0,
+                "memo": "memo",
+                "payee_options": "Cafe",
+                "category_options": "Food",
+                "match_status": "source_only",
+                "update_maps": "",
+                "decision_action": "create_target",
+                "fingerprint": "fp1",
+                "workflow_type": "institutional",
+                "source_payee_selected": "",
+                "source_category_selected": "",
+                "target_payee_selected": "Target Payee",
+                "target_category_selected": "Target Category",
+                "payee_selected": "",
+                "category_selected": "",
+                "reviewed": True,
+                "source_present": True,
+                "target_present": False,
+            }
+        ]
+    )
+
+    out = tmp_path / "reviewed.csv"
+    review_io.save_reviewed_transactions(df, out)
+    saved = pd.read_csv(out, dtype="string").fillna("")
+
+    assert saved.loc[0, "target_payee_selected"] == "Target Payee"
+    assert saved.loc[0, "target_category_selected"] == "Target Category"
+
+
 def test_summary_counts_and_filters_follow_new_decision_action_rules() -> None:
     df = _review_rows(
         [
@@ -242,7 +280,7 @@ def test_primary_state_series_maps_fix_decide_and_settled() -> None:
             },
             {
                 "transaction_id": "decide",
-                "decision_action": review_validation.NO_DECISION,
+                "decision_action": "create_target",
                 "reviewed": False,
                 "target_payee_selected": "Cafe",
                 "target_category_selected": "Food",
@@ -380,6 +418,32 @@ def test_uncategorized_mask_detects_uncategorized_label() -> None:
     mask = review_state.uncategorized_mask(df)
 
     assert mask.tolist() == [True, False]
+
+
+def test_blocker_series_allows_reviewed_uncategorized_row() -> None:
+    df = _review_rows(
+        [
+            {
+                "transaction_id": "t1",
+                "workflow_type": "institutional",
+                "decision_action": "create_target",
+                "reviewed": True,
+                "source_payee_selected": "bit",
+                "source_category_selected": "",
+                "target_payee_selected": "Bit",
+                "target_category_selected": "Uncategorized",
+                "update_maps": "",
+                "source_present": True,
+                "target_present": False,
+            }
+        ]
+    )
+
+    blockers = review_validation.blocker_series(df)
+    states = review_state.primary_state_series(df, blockers)
+
+    assert blockers.tolist() == ["None"]
+    assert states.tolist() == ["Settled"]
 
 
 def test_search_text_series_contains_payee_and_memo() -> None:
