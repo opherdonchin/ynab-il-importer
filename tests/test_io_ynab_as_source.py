@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 
 import ynab_il_importer.workflow_profiles as workflow_profiles
 
@@ -52,6 +53,7 @@ def test_main_resolves_profile_budget_and_profile_paths(
         "resolve_budget_id",
         lambda **kwargs: kwargs.get("budget_id") or "family-budget",
     )
+
     def fake_fetch_categories(plan_id=None):
         captured["categories_plan_id"] = plan_id
         return [
@@ -115,8 +117,17 @@ def test_main_resolves_profile_budget_and_profile_paths(
         captured["written_rows"] = len(df)
         captured["written_columns"] = df.columns.tolist()
 
+    def fake_write_transactions_parquet(table: pa.Table, path: Path) -> None:
+        captured["parquet_path"] = path
+        captured["parquet_rows"] = table.num_rows
+
     monkeypatch.setattr(io_ynab_as_source.export, "write_dataframe", fake_write_dataframe)
     monkeypatch.setattr(io_ynab_as_source.export, "wrote_message", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(
+        io_ynab_as_source,
+        "write_transactions_parquet",
+        fake_write_transactions_parquet,
+    )
     monkeypatch.setattr(
         sys,
         "argv",
@@ -133,9 +144,15 @@ def test_main_resolves_profile_budget_and_profile_paths(
         "fingerprint_map_path": Path("mappings/family/fingerprint_map.csv"),
         "log_path": Path("outputs/family/fingerprint_log.csv"),
     }
-    assert captured["written_path"] == Path("data/derived/family/ynab_category_business_pilates.csv")
+    assert captured["written_path"] == Path(
+        "data/derived/family/ynab_category_business_pilates.csv"
+    )
     assert captured["written_rows"] == 1
     assert "source_account" in captured["written_columns"]
+    assert captured["parquet_path"] == Path(
+        "data/derived/family/ynab_category_business_pilates.parquet"
+    )
+    assert captured["parquet_rows"] == 1
 
 
 def test_main_explicit_budget_id_overrides_profile_budget(monkeypatch) -> None:
@@ -164,7 +181,19 @@ def test_main_explicit_budget_id_overrides_profile_budget(monkeypatch) -> None:
         "fetch_categories",
         lambda plan_id=None: seen_plan_ids.append(plan_id) or [],
     )
-    monkeypatch.setattr(sys, "argv", ["io_ynab_as_source.py", "--profile", "family", "--budget-id", "override-budget", "--category", "Pilates"])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "io_ynab_as_source.py",
+            "--profile",
+            "family",
+            "--budget-id",
+            "override-budget",
+            "--category",
+            "Pilates",
+        ],
+    )
 
     try:
         io_ynab_as_source.main()
@@ -246,3 +275,37 @@ def test_build_source_dataframe_uses_category_subtransactions(monkeypatch) -> No
     assert df.loc[0, "category_raw"] == "Pilates"
     assert df.loc[0, "category_display_name"] == "Business: Pilates"
     assert pd.to_numeric(df.loc[0, "outflow_ils"]) == 3000.0
+
+
+def test_transaction_matches_category_checks_parent_and_split_lines() -> None:
+    assert (
+        io_ynab_as_source._transaction_matches_category(
+            {"category_id": "cat-1"},
+            "cat-1",
+        )
+        is True
+    )
+    assert (
+        io_ynab_as_source._transaction_matches_category(
+            {
+                "category_id": "",
+                "subtransactions": [
+                    {"category_id": "cat-2", "deleted": False},
+                ],
+            },
+            "cat-2",
+        )
+        is True
+    )
+    assert (
+        io_ynab_as_source._transaction_matches_category(
+            {
+                "category_id": "",
+                "subtransactions": [
+                    {"category_id": "cat-3", "deleted": True},
+                ],
+            },
+            "cat-3",
+        )
+        is False
+    )

@@ -2,136 +2,78 @@
 
 ## Workstream
 
-Use `code-review-refactor` as the acceptance-test branch for the real `2026_04_01` update run.
+Implement Step 1 of split-transaction support on the `handle_splits` branch.
 
 Current intent:
-- treat the refactor as done enough to validate in live workflow use
-- run the full update in order: Family, then Pilates, then Aikido
-- improve workflow clarity and repeatability while we work
-- merge back to `main` if the run is smooth and any remaining issues are understood
+- establish canonical Parquet transaction artifacts with nested split support
+- move transaction-processing boundaries toward Polars and PyArrow
+- preserve current workflow behavior while the storage and loading layers change underneath
+- keep the review app pandas-based internally for now, but let it accept flat data from Polars/Arrow at the boundary
 
 ## Current Goal
 
-Complete the `2026_04_01` operational run end to end and use it to answer two questions:
+Finish Step 1: change the transaction representation and file-format plumbing without changing review, matching, or upload semantics.
 
-1. Does the refactored review workflow hold up in real use?
-2. What needs to be standardized so future runs can be partially or fully automated?
+That means:
+1. canonical transaction-like artifacts become Parquet-backed
+2. existing flat CSV workflows keep working through explicit projections or compatibility loaders
+3. current split-blind logic stays split-blind where it is split-blind today
 
 ## Current Status
 
 Done:
-- read project context and prior plan state
-- audited the current runbook and active scripts before execution
-- identified command drift in docs: cross-budget builder is `scripts/build_cross_budget_review_rows.py`
-- normalized the new raw drop under `data/derived/2026_04_01/`:
-  - `Bankin family_leumi_norm.csv`
-  - `transaction-details_export_1775044561886_max_norm.csv`
-  - `Bankin pilates_leumi_norm.csv`
-  - `Pilates card_leumi_card_html_norm.csv`
-- extracted bounded YNAB windows for Family and Pilates from source dates
-- refreshed Family YNAB context for the new run:
-  - `data/derived/2026_04_01/family_ynab_api_norm.csv`
-  - `outputs/family/ynab_categories.csv`
-- built fresh Family review artifacts:
-  - `data/paired/2026_04_01/family_proposed_transactions.csv`
-  - `data/paired/2026_04_01/family_matched_pairs.csv`
-- ran Family dry-run lineage matching:
-  - `family_bank_sync_report.csv`
-  - `family_bank_uncleared_ynab_report.csv`
-  - `family_card_sync_report_x9922.csv`
-  - `family_card_sync_report_x7195.csv`
-  - `family_card_sync_report_x5898.csv`
-- built smaller Family review helper files for the actual decision surface:
-  - `family_proposed_transactions_focus_source_only.csv`
-  - `family_proposed_transactions_focus_ambiguous_detail.csv`
-  - `family_proposed_transactions_focus_ambiguous_grouped.csv`
-- added an explicit legacy review translator:
-  - `scripts/translate_review_csv.py`
-- changed review loading to a strict two-step flow:
-  - unified review CSVs load normally
-  - legacy institutional review CSVs fail with guidance to translate first
-- translated old reviewed files into explicit unified artifacts:
-  - `data/paired/2026_03_24/family_proposed_transactions_reviewed_unified_v1.csv`
-  - `data/paired/2026_03_24/pilates_proposed_transactions_reviewed_unified_v1.csv`
-- added focused regression coverage for legacy review detection and translation
+- read project context, prior plan state, and split-handling design notes
+- created `handle_splits` branch from the prior working branch
+- wrote the staged split implementation plan:
+  - `documents/handle_splits_implementation_plan.md`
+- updated dependency management in `pixi.toml` and `pixi.lock`:
+  - added `polars`
+  - added `pyarrow`
+- added canonical transaction artifact foundations:
+  - `src/ynab_il_importer/artifacts/transaction_schema.py`
+  - `src/ynab_il_importer/artifacts/transaction_io.py`
+  - `src/ynab_il_importer/artifacts/transaction_projection.py`
+- added review-app boundary adapters:
+  - `src/ynab_il_importer/review_app/io.py` now accepts CSV paths, pandas DataFrames, Polars DataFrames, and Arrow tables, then normalizes once to pandas
+- added a first canonical YNAB producer:
+  - `src/ynab_il_importer/ynab_api.py::transactions_to_canonical_table(...)`
+- updated YNAB producer scripts to write canonical Parquet sidecars alongside the current CSV projections:
+  - `scripts/download_ynab_api.py`
+  - `scripts/io_ynab_as_source.py`
+- added regression coverage for the new artifact and script behavior:
+  - `tests/test_transaction_artifacts.py`
+  - `tests/test_review_io.py`
+  - `tests/test_ynab_api.py`
+  - `tests/test_io_ynab_as_source.py`
+  - `tests/test_download_ynab_api_script.py`
 
-Current Family state:
-- Family source window:
-  - `2026-01-18` through `2026-04-01`
-- Family YNAB fetch window:
-  - `2026-01-04` through `2026-04-15`
-- Family proposal rows:
-  - `685`
-- active Family review surface:
-  - `54` `source_only` rows
-  - `32` grouped ambiguous items
-- Family bank dry-run sync:
-  - matched `100`
-  - updates planned `4`
-  - unmatched `32`
-  - blocked `0`
-- Family card dry-run sync:
-  - `Opher x9922`: unmatched `7`, blocked `0`
-  - `Liya X7195`: unmatched `8`, blocked `0`
-  - `Opher X5898`: unmatched `3`, blocked `0`
+## Working Rules For This Phase
 
-Workflow findings already confirmed:
-- per-account reconciliation must stay explicit for every relevant account
-- translated legacy review files are useful reference artifacts, but old create-target decisions cannot be blindly replayed onto a fresh post-upload proposal
-- some previously reviewed map-update candidates were never promoted into `mappings/payee_map.csv`, so repeat fingerprints are still appearing without suggestions
+- Keep Step 1 behavior-preserving.
+- Prefer compatibility boundaries over deep rewrites.
+- Treat Parquet artifacts as authoritative for transaction-like data as new paths are migrated.
+- Keep human-edited control files such as maps in CSV.
+- Commit after each successful sub-step.
+- Update `documents/plan.md` before each commit on this branch.
 
-Known Family mapping follow-up candidates from this run:
-- likely missing or not yet applied:
-  - `spareeat`
-  - `mei sheva`
-  - `clalit`
-  - `oren meshi`
-  - `spotify stockholm עסקת חו`
-  - `kahoot asa oslo`
-  - `גרנד fox`
-- likely already represented but worth verifying against current behavior:
-  - `paypal facebook עסקת חו`
-  - `yellow`
+## Step 1 Remaining Slices
 
-## Working Rules For This Run
+1. Migrate normalized source artifacts so normalization outputs also write canonical Parquet alongside current CSV projections.
+2. Introduce centralized flat-transaction loaders so downstream builders can consume CSV or Parquet through one boundary.
+3. Refactor `build_proposed_transactions.py` and related downstream scripts to use the centralized artifact loaders instead of direct authoritative CSV reads.
+4. Extend the same treatment to cross-budget builder paths where practical in Step 1.
+5. Run equivalence-focused verification on representative workflows before calling Step 1 complete.
 
-- Keep work in this order:
-  1. Family
-  2. Pilates
-  3. Aikido
-- Each section is not complete until review, upload/sync, and all required reconciliations are done.
-- Reconciliation coverage must include every relevant account, not just the main budget-level flow.
-- Prefer explicit, reusable artifacts over ad hoc terminal reasoning.
-- When a workflow gap appears, capture the smallest durable fix:
-  - naming convention
-  - helper script
-  - review artifact
-  - documented command sequence
+## Risks To Watch
 
-## Standardization Direction
+- accidental semantic drift in matching caused by loader or dtype changes
+- writing canonical artifacts that do not preserve enough lineage for later split-aware phases
+- widening scope by trying to make pairing or the review UI split-aware too early
+- destabilizing the review app by moving more than the IO boundary in Step 1
 
-The run should keep pushing toward a workflow app or checklist-driven process. Current preferred direction:
+## Next Step
 
-- use column-based format detection rather than filename-only assumptions
-- keep translated legacy review files explicit in naming, for example `_unified_v1.csv`
-- preserve dated run roots under `data/derived/<run_tag>/` and `data/paired/<run_tag>/`
-- keep per-stage commands stable and profile-driven
-- generate smaller review helper artifacts when the raw proposal is too noisy
-- close the loop from reviewed map-update candidates into real map files or an explicit pending queue
-
-## Next Steps
-
-1. Finish Family mapping decisions and complete Family review.
-2. Execute Family upload, lineage sync, bank reconciliation, and all three card reconciliations.
-3. Refresh Pilates YNAB context, build both institutional and cross-budget artifacts, then review and reconcile all Pilates accounts.
-4. Run the Aikido cross-budget flow, review it, upload it, and reconcile it.
-5. Keep notes on friction points and convert them into doc or script improvements during the run.
-6. If the full run is clean, prepare merge-back to `main`.
-
-## Merge Readiness Criteria
-
-- Family, Pilates, and Aikido all complete without unexplained blockers
-- documentation reflects the actual current workflow
-- legacy review translation path is explicit and tested
-- script names and runbook commands match the codebase
-- remaining rough edges are either fixed or clearly documented as follow-up
+Move normalized source artifact producers onto the same pattern as the YNAB producers:
+- write canonical Parquet
+- keep current CSV projection outputs
+- preserve current normalized columns and downstream behavior

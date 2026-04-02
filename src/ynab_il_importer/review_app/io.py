@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
+import polars as pl
+import pyarrow as pa
 
 import ynab_il_importer.review_app.validation as validation
 import ynab_il_importer.review_app.model as model
@@ -128,12 +130,28 @@ def translate_review_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     raise ValueError("Unsupported review CSV format for translation.")
 
 
-def load_proposed_transactions(path: str | Path) -> pd.DataFrame:
-    csv_path = Path(path)
-    if not csv_path.exists():
-        raise FileNotFoundError(f"Missing proposed transactions file: {csv_path}")
+def _input_to_pandas_dataframe(
+    source: str | Path | pd.DataFrame | pl.DataFrame | pa.Table,
+    *,
+    label: str,
+) -> pd.DataFrame:
+    if isinstance(source, pd.DataFrame):
+        return source.copy()
+    if isinstance(source, pl.DataFrame):
+        return source.to_pandas()
+    if isinstance(source, pa.Table):
+        return source.to_pandas()
 
-    df = pd.read_csv(csv_path, dtype="string").fillna("")
+    csv_path = Path(source)
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Missing {label} file: {csv_path}")
+    return pd.read_csv(csv_path, dtype="string").fillna("")
+
+
+def load_proposed_transactions(
+    source: str | Path | pd.DataFrame | pl.DataFrame | pa.Table,
+) -> pd.DataFrame:
+    df = _input_to_pandas_dataframe(source, label="proposed transactions")
     detected_format = detect_review_csv_format(df)
     if detected_format != "unified_v1":
         if detected_format.startswith("legacy_"):
@@ -141,7 +159,9 @@ def load_proposed_transactions(path: str | Path) -> pd.DataFrame:
                 "proposed_transactions is in legacy review format "
                 f"({detected_format}); run scripts/translate_review_csv.py first"
             )
-        raise ValueError("proposed_transactions missing columns: " f"{_missing_columns(df, REQUIRED_COLUMNS)}")
+        raise ValueError(
+            f"proposed_transactions missing columns: {_missing_columns(df, REQUIRED_COLUMNS)}"
+        )
     missing = _missing_columns(df, REQUIRED_COLUMNS)
     if missing:
         raise ValueError(f"proposed_transactions missing columns: {missing}")
@@ -180,15 +200,20 @@ def load_proposed_transactions(path: str | Path) -> pd.DataFrame:
     return df
 
 
-def save_reviewed_transactions(df: pd.DataFrame, path: str | Path) -> None:
+def save_reviewed_transactions(
+    df: pd.DataFrame | pl.DataFrame | pa.Table,
+    path: str | Path,
+) -> None:
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    out = df.copy()
+    out = _input_to_pandas_dataframe(df, label="reviewed transactions")
     if "target_payee_selected" not in out.columns and "payee_selected" in out.columns:
         out["target_payee_selected"] = out["payee_selected"].astype("string").fillna("").str.strip()
     if "target_category_selected" not in out.columns and "category_selected" in out.columns:
-        out["target_category_selected"] = out["category_selected"].astype("string").fillna("").str.strip()
+        out["target_category_selected"] = (
+            out["category_selected"].astype("string").fillna("").str.strip()
+        )
     out = out.drop(
         columns=[col for col in ["payee_selected", "category_selected"] if col in out.columns]
     )
@@ -205,11 +230,10 @@ def save_reviewed_transactions(df: pd.DataFrame, path: str | Path) -> None:
     tmp_path.replace(output_path)
 
 
-def load_category_list(path: str | Path) -> pd.DataFrame:
-    csv_path = Path(path)
-    if not csv_path.exists():
-        raise FileNotFoundError(f"Missing categories file: {csv_path}")
-    df = pd.read_csv(csv_path, dtype="string").fillna("")
+def load_category_list(
+    source: str | Path | pd.DataFrame | pl.DataFrame | pa.Table,
+) -> pd.DataFrame:
+    df = _input_to_pandas_dataframe(source, label="categories")
     if "category_name" not in df.columns:
         raise ValueError("Categories file must contain a category_name column.")
     if "category_group" not in df.columns:

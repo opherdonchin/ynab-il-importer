@@ -139,3 +139,54 @@ def test_category_transactions_to_dataframe_explodes_subtransactions() -> None:
     assert df["account_name"].tolist() == ["Family Leumi", "Family Leumi"]
     assert pd.to_numeric(df.loc[0, "outflow_ils"]) == 3000.0
     assert pd.to_numeric(df.loc[1, "inflow_ils"]) == 3000.0
+
+
+def test_transactions_to_canonical_table_preserves_nested_split_lines() -> None:
+    transactions = [
+        {
+            "id": "parent-1",
+            "account_id": "acc-1",
+            "date": "2026-03-01",
+            "payee_name": "Salary Liya",
+            "category_name": "Split",
+            "category_id": "",
+            "amount": 0,
+            "memo": "parent memo",
+            "import_id": "parent-import",
+            "matched_transaction_id": "match-1",
+            "cleared": "cleared",
+            "approved": True,
+            "subtransactions": [
+                {
+                    "id": "sub-1",
+                    "amount": -3000000,
+                    "memo": "",
+                    "payee_name": "",
+                    "category_id": "cat-pilates",
+                    "category_name": "Pilates",
+                    "deleted": False,
+                },
+                {
+                    "id": "sub-2",
+                    "amount": 3000000,
+                    "memo": "child memo",
+                    "payee_name": "Salary Liya",
+                    "category_id": "cat-rta",
+                    "category_name": "Inflow: Ready to Assign",
+                    "deleted": False,
+                },
+            ],
+        }
+    ]
+    accounts = [{"id": "acc-1", "name": "Family Leumi"}]
+
+    table = ynab_api.transactions_to_canonical_table(transactions, accounts)
+
+    assert table["transaction_id"].to_pylist() == ["parent-1"]
+    assert table["account_name"].to_pylist() == ["Family Leumi"]
+    assert table["fingerprint"].to_pylist() == ["salary liya"]
+    split_lines = table["splits"].to_pylist()[0]
+    assert len(split_lines) == 2
+    assert split_lines[0]["category_id"] == "cat-pilates"
+    assert split_lines[0]["category_raw"] == "Pilates"
+    assert split_lines[1]["memo"] == "child memo"

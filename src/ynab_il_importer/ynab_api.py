@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import pyarrow as pa
 import requests
 
 try:
@@ -12,6 +13,10 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Py <3.11 fallback
     import tomli as tomllib  # type: ignore
 
+from ynab_il_importer.artifacts.transaction_schema import (
+    TRANSACTION_ARTIFACT_VERSION,
+    TRANSACTION_SCHEMA,
+)
 import ynab_il_importer.io_ynab as ynab
 import ynab_il_importer.normalize as normalize
 
@@ -232,6 +237,101 @@ def _base_transaction_row(
         "currency": "ILS",
         "amount_bucket": "",
     }
+
+
+def _canonical_split_rows(
+    txn: dict[str, Any],
+    *,
+    parent_ynab_id: str,
+    payee_name: str,
+    memo: str,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for index, subtxn in enumerate(txn.get("subtransactions") or []):
+        if bool(subtxn.get("deleted", False)):
+            continue
+        subtxn_id = subtxn.get("id") or f"{parent_ynab_id}::sub::{index}"
+        outflow, inflow = _amount_components(subtxn.get("amount", 0))
+        rows.append(
+            {
+                "split_id": subtxn_id,
+                "parent_transaction_id": parent_ynab_id,
+                "ynab_subtransaction_id": subtxn_id,
+                "payee_raw": subtxn.get("payee_name", "") or payee_name,
+                "category_id": subtxn.get("category_id", "") or "",
+                "category_raw": subtxn.get("category_name", "") or "",
+                "memo": subtxn.get("memo", "") or memo,
+                "inflow_ils": inflow,
+                "outflow_ils": outflow,
+                "import_id": txn.get("import_id", "") or "",
+                "matched_transaction_id": txn.get("matched_transaction_id", "") or "",
+            }
+        )
+    return rows
+
+
+def _canonical_transaction_row(
+    txn: dict[str, Any],
+    *,
+    account_name_map: dict[str, str],
+) -> dict[str, Any]:
+    txn_id = txn.get("id", "") or ""
+    outflow, inflow = _amount_components(txn.get("amount", 0))
+    amount = float(txn.get("amount", 0) or 0) / 1000.0
+    account_id = txn.get("account_id", "") or ""
+    payee_name = txn.get("payee_name", "") or ""
+    memo = txn.get("memo", "") or ""
+    return {
+        "artifact_kind": "ynab_transaction",
+        "artifact_version": TRANSACTION_ARTIFACT_VERSION,
+        "source_system": "ynab",
+        "transaction_id": txn_id,
+        "ynab_id": txn_id,
+        "import_id": txn.get("import_id", "") or "",
+        "parent_transaction_id": txn_id,
+        "account_id": account_id,
+        "account_name": account_name_map.get(account_id, account_id),
+        "source_account": account_name_map.get(account_id, account_id),
+        "date": txn.get("date", "") or "",
+        "secondary_date": "",
+        "inflow_ils": inflow,
+        "outflow_ils": outflow,
+        "signed_amount_ils": round(amount, 2),
+        "payee_raw": payee_name,
+        "category_id": txn.get("category_id", "") or "",
+        "category_raw": txn.get("category_name", "") or "",
+        "memo": memo,
+        "txn_kind": "",
+        "fingerprint": normalize.normalize_text(payee_name),
+        "description_raw": memo or payee_name,
+        "description_clean": payee_name,
+        "description_clean_norm": normalize.normalize_text(payee_name),
+        "merchant_raw": payee_name,
+        "ref": "",
+        "matched_transaction_id": txn.get("matched_transaction_id", "") or "",
+        "cleared": txn.get("cleared", "") or "",
+        "approved": bool(txn.get("approved", False)),
+        "is_subtransaction": False,
+        "splits": _canonical_split_rows(
+            txn,
+            parent_ynab_id=txn_id,
+            payee_name=payee_name,
+            memo=memo,
+        ),
+    }
+
+
+def transactions_to_canonical_table(
+    transactions: list[dict[str, Any]],
+    accounts: list[dict[str, Any]] | None = None,
+) -> pa.Table:
+    account_name_map = {acc.get("id"): acc.get("name") for acc in accounts or []}
+    rows = [
+        _canonical_transaction_row(txn, account_name_map=account_name_map)
+        for txn in transactions
+        if not bool(txn.get("deleted", False))
+    ]
+    return pa.Table.from_pylist(rows, schema=TRANSACTION_SCHEMA)
 
 
 def transactions_to_dataframe(

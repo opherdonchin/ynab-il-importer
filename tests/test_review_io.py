@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pandas as pd
+import polars as pl
+import pyarrow as pa
 import pytest
 
 import ynab_il_importer.review_app.io as review_io
@@ -28,6 +30,83 @@ def test_load_proposed_transactions_raises_for_missing_columns(tmp_path) -> None
 
     with pytest.raises(ValueError, match="missing columns"):
         review_io.load_proposed_transactions(path)
+
+
+def test_load_proposed_transactions_accepts_polars_dataframe() -> None:
+    df = pl.DataFrame(
+        {
+            "transaction_id": ["t1"],
+            "account_name": ["Account 1"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["10"],
+            "inflow_ils": ["0"],
+            "memo": ["memo"],
+            "payee_options": ["Cafe"],
+            "category_options": ["Food"],
+            "match_status": ["source_only"],
+            "update_maps": [""],
+            "decision_action": ["create_target"],
+            "fingerprint": ["fp1"],
+            "workflow_type": ["institutional"],
+            "source_payee_selected": [""],
+            "source_category_selected": [""],
+            "target_payee_selected": ["Cafe"],
+            "target_category_selected": ["Food"],
+        }
+    )
+
+    loaded = review_io.load_proposed_transactions(df)
+
+    assert isinstance(loaded, pd.DataFrame)
+    assert loaded.loc[0, "target_payee_selected"] == "Cafe"
+    assert bool(loaded.loc[0, "reviewed"]) is False
+
+
+def test_load_category_list_accepts_arrow_table() -> None:
+    table = pa.table(
+        {
+            "category_group": ["Everyday"],
+            "category_name": ["Groceries"],
+        }
+    )
+
+    loaded = review_io.load_category_list(table)
+
+    assert loaded.to_dict(orient="records") == [
+        {"category_group": "Everyday", "category_name": "Groceries"}
+    ]
+
+
+def test_save_reviewed_transactions_accepts_polars_dataframe(tmp_path) -> None:
+    path = tmp_path / "review.csv"
+    df = pl.DataFrame(
+        {
+            "transaction_id": ["t1"],
+            "account_name": ["Account 1"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["10"],
+            "inflow_ils": ["0"],
+            "memo": ["memo"],
+            "payee_options": ["Cafe"],
+            "category_options": ["Food"],
+            "match_status": ["source_only"],
+            "update_maps": [""],
+            "decision_action": ["create_target"],
+            "fingerprint": ["fp1"],
+            "workflow_type": ["institutional"],
+            "source_payee_selected": [""],
+            "source_category_selected": [""],
+            "target_payee_selected": ["Cafe"],
+            "target_category_selected": ["Food"],
+            "reviewed": [True],
+        }
+    )
+
+    review_io.save_reviewed_transactions(df, path)
+    loaded = review_io.load_proposed_transactions(path)
+
+    assert bool(loaded.loc[0, "reviewed"]) is True
+    assert loaded.loc[0, "target_category_selected"] == "Food"
 
 
 def test_save_then_load_round_trip_preserves_review_fields(tmp_path) -> None:

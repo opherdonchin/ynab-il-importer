@@ -28,6 +28,8 @@ Usage examples
       --since 2026-01-01
 """
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import argparse
@@ -43,9 +45,9 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from ynab_il_importer.artifacts.transaction_io import write_transactions_parquet
 import ynab_il_importer.export as export
 import ynab_il_importer.fingerprint as fingerprint_mod
-import ynab_il_importer.normalize as normalize
 import ynab_il_importer.workflow_profiles as workflow_profiles
 import ynab_il_importer.ynab_api as ynab_api
 from ynab_il_importer.io_ynab import _infer_txn_kind
@@ -86,9 +88,7 @@ def _resolve_category(
 
     if name_pattern:
         pattern_lower = name_pattern.lower()
-        matches = [
-            (cid, name) for cid, name in candidates if pattern_lower in name.lower()
-        ]
+        matches = [(cid, name) for cid, name in candidates if pattern_lower in name.lower()]
         if not matches:
             raise ValueError(
                 f"No category matched pattern={name_pattern!r}. "
@@ -227,11 +227,23 @@ def _default_out_path(
         parts.append(since.replace("-", ""))
     if until:
         parts.append(until.replace("-", ""))
-    return (
-        Path("data/derived")
-        / profile_name
-        / f"ynab_category_{'-'.join(parts)}.csv"
-    )
+    return Path("data/derived") / profile_name / f"ynab_category_{'-'.join(parts)}.csv"
+
+
+def _transaction_matches_category(txn: dict[str, Any], category_id: str) -> bool:
+    category_text = str(category_id).strip()
+    if str(txn.get("category_id", "")).strip() == category_text:
+        return True
+    for subtxn in txn.get("subtransactions") or []:
+        if bool(subtxn.get("deleted", False)):
+            continue
+        if str(subtxn.get("category_id", "")).strip() == category_text:
+            return True
+    return False
+
+
+def _parquet_out_path(csv_path: Path) -> Path:
+    return csv_path.with_suffix(".parquet")
 
 
 def main() -> None:
@@ -262,21 +274,14 @@ def main() -> None:
         metavar="UUID",
         help="Exact YNAB category UUID (takes precedence over --category).",
     )
-    parser.add_argument(
-        "--since", default="", metavar="YYYY-MM-DD", help="Start date (inclusive)."
-    )
-    parser.add_argument(
-        "--until", default="", metavar="YYYY-MM-DD", help="End date (inclusive)."
-    )
+    parser.add_argument("--since", default="", metavar="YYYY-MM-DD", help="Start date (inclusive).")
+    parser.add_argument("--until", default="", metavar="YYYY-MM-DD", help="End date (inclusive).")
     parser.add_argument(
         "--out",
         dest="out_path",
         type=Path,
         default=None,
-        help=(
-            "Output CSV path. Defaults to "
-            "data/derived/ynab_category_<slug>[-since][-until].csv"
-        ),
+        help=("Output CSV path. Defaults to data/derived/ynab_category_<slug>[-since][-until].csv"),
     )
     parser.add_argument(
         "--fingerprint-map",
@@ -349,7 +354,12 @@ def main() -> None:
         args.since or None,
         args.until or None,
     )
+    canonical_txns = [txn for txn in txns if _transaction_matches_category(txn, category_id)]
+    canonical_table = ynab_api.transactions_to_canonical_table(canonical_txns, accounts)
+    parquet_path = _parquet_out_path(out_path)
+    write_transactions_parquet(canonical_table, parquet_path)
     export.write_dataframe(df, out_path)
+    print(f"Wrote canonical parquet to {parquet_path}")
     print(export.wrote_message(out_path, len(df)))
 
     if not df.empty:
