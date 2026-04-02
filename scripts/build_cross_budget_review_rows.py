@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 import argparse
 import hashlib
 import importlib.util
@@ -11,6 +13,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from ynab_il_importer.artifacts.transaction_io import load_flat_transaction_projection
 import ynab_il_importer.cross_budget_pairing as cross_budget_pairing
 import ynab_il_importer.export as export
 import ynab_il_importer.workflow_profiles as workflow_profiles
@@ -27,9 +30,12 @@ REVIEW_BUILDER_SPEC.loader.exec_module(review_builder)
 BASE_COLUMNS = review_builder.REVIEW_ROW_COLUMNS
 
 
-def _read_csv_or_empty(path: Path) -> pd.DataFrame:
+def _read_csv_or_empty(path: Path, *, prefer_sidecar_parquet: bool = False) -> pd.DataFrame:
     try:
-        return pd.read_csv(path).fillna("")
+        return load_flat_transaction_projection(
+            path,
+            prefer_sidecar_parquet=prefer_sidecar_parquet,
+        ).fillna("")
     except pd.errors.EmptyDataError:
         return pd.DataFrame()
 
@@ -70,7 +76,9 @@ def _float(value: object) -> float:
 
 
 def _make_id(*parts: object, prefix: str) -> str:
-    digest = hashlib.sha1("|".join(str(part or "") for part in parts).encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha1("|".join(str(part or "") for part in parts).encode("utf-8")).hexdigest()[
+        :16
+    ]
     return f"{prefix}_{digest}"
 
 
@@ -131,8 +139,12 @@ def _expand_ambiguous_relation_rows(
     rows: list[dict[str, object]] = []
     seen: set[tuple[str, str, str, str]] = set()
     for _, row in ambiguous_df.iterrows():
-        source_ids = _split_options(row.get("source_row_id")) or _split_options(row.get("source_row_ids"))
-        target_ids = _split_options(row.get("target_row_id")) or _split_options(row.get("target_row_ids"))
+        source_ids = _split_options(row.get("source_row_id")) or _split_options(
+            row.get("source_row_ids")
+        )
+        target_ids = _split_options(row.get("target_row_id")) or _split_options(
+            row.get("target_row_ids")
+        )
         if not source_ids:
             source_ids = [""]
         if not target_ids:
@@ -156,9 +168,19 @@ def _expand_ambiguous_relation_rows(
                     continue
                 seen.add(relation_key)
 
-                source_date = _text(source_snapshot.get("date")) or _text(row.get("source_dates")) or fallback_date
-                target_date = _text(target_snapshot.get("date")) or _text(row.get("target_dates")) or fallback_date
-                source_payee = _text(source_snapshot.get("payee_raw")) or _text(row.get("source_payee"))
+                source_date = (
+                    _text(source_snapshot.get("date"))
+                    or _text(row.get("source_dates"))
+                    or fallback_date
+                )
+                target_date = (
+                    _text(target_snapshot.get("date"))
+                    or _text(row.get("target_dates"))
+                    or fallback_date
+                )
+                source_payee = _text(source_snapshot.get("payee_raw")) or _text(
+                    row.get("source_payee")
+                )
                 target_payee = _text(target_snapshot.get("payee_raw"))
                 source_category = _text(source_snapshot.get("category_raw"))
                 target_category = _text(target_snapshot.get("category_raw"))
@@ -166,29 +188,46 @@ def _expand_ambiguous_relation_rows(
                 target_memo = _text(target_snapshot.get("memo") or target_snapshot.get("raw_text"))
                 source_fingerprint = _text(source_snapshot.get("fingerprint"))
                 target_fingerprint = _text(target_snapshot.get("fingerprint"))
-                target_account_name = _text(target_snapshot.get("account_name")) or _text(target_account)
-                source_account_name = _text(source_snapshot.get("source_account") or source_snapshot.get("account_name"))
+                target_account_name = _text(target_snapshot.get("account_name")) or _text(
+                    target_account
+                )
+                source_account_name = _text(
+                    source_snapshot.get("source_account") or source_snapshot.get("account_name")
+                )
                 signed_amount = (
-                    _float(source_snapshot.get("inflow_ils")) - _float(source_snapshot.get("outflow_ils"))
+                    _float(source_snapshot.get("inflow_ils"))
+                    - _float(source_snapshot.get("outflow_ils"))
                     if source_snapshot
                     else (
-                        _float(target_snapshot.get("inflow_ils")) - _float(target_snapshot.get("outflow_ils"))
+                        _float(target_snapshot.get("inflow_ils"))
+                        - _float(target_snapshot.get("outflow_ils"))
                         if target_snapshot
                         else fallback_signed_amount
                     )
                 )
-                summary_memo = " / ".join([part for part in [source_memo or source_payee, target_memo or target_payee] if part])
+                summary_memo = " / ".join(
+                    [
+                        part
+                        for part in [source_memo or source_payee, target_memo or target_payee]
+                        if part
+                    ]
+                )
 
                 rows.append(
                     {
-                        "transaction_id": _make_id(source_row_id, target_row_id, fallback_date, prefix="txn"),
+                        "transaction_id": _make_id(
+                            source_row_id, target_row_id, fallback_date, prefix="txn"
+                        ),
                         "source": "cross_budget",
                         "account_name": target_account_name,
                         "date": source_date or target_date or fallback_date,
                         "outflow_ils": max(-signed_amount, 0.0),
                         "inflow_ils": max(signed_amount, 0.0),
                         "memo": summary_memo,
-                        "fingerprint": source_fingerprint or target_fingerprint or source_payee or target_payee,
+                        "fingerprint": source_fingerprint
+                        or target_fingerprint
+                        or source_payee
+                        or target_payee,
                         "payee_options": target_payee,
                         "category_options": target_category,
                         "match_status": "ambiguous",
@@ -399,6 +438,7 @@ def _relation_rows(
 
     return pd.DataFrame(rows, columns=BASE_COLUMNS)
 
+
 def _apply_target_suggestions(relations: pd.DataFrame, *, map_path: Path) -> pd.DataFrame:
     source_rows = relations.loc[relations["source_present"].astype(bool)].copy()
     if source_rows.empty:
@@ -415,7 +455,10 @@ def _apply_target_suggestions(relations: pd.DataFrame, *, map_path: Path) -> pd.
             "inflow_ils": pd.to_numeric(source_rows["inflow_ils"], errors="coerce").fillna(0.0),
             "memo": source_rows["source_memo"].astype("string").fillna("").str.strip(),
             "raw_text": source_rows["source_memo"].astype("string").fillna("").str.strip(),
-            "fingerprint": source_rows["source_fingerprint"].astype("string").fillna("").str.strip(),
+            "fingerprint": source_rows["source_fingerprint"]
+            .astype("string")
+            .fillna("")
+            .str.strip(),
         }
     )
     candidates = candidates.loc[candidates["fingerprint"].ne("")].copy()
@@ -443,8 +486,14 @@ def _apply_target_suggestions(relations: pd.DataFrame, *, map_path: Path) -> pd.
         suggested = (
             suggested.groupby("source_row_id", dropna=False, sort=False)
             .agg(
-                suggested_payee_options=("suggested_payee_options", lambda values: _join_options(*values.tolist())),
-                suggested_category_options=("suggested_category_options", lambda values: _join_options(*values.tolist())),
+                suggested_payee_options=(
+                    "suggested_payee_options",
+                    lambda values: _join_options(*values.tolist()),
+                ),
+                suggested_category_options=(
+                    "suggested_category_options",
+                    lambda values: _join_options(*values.tolist()),
+                ),
                 suggested_payee_selected=("suggested_payee_selected", _first_nonempty),
                 suggested_category_selected=("suggested_category_selected", _first_nonempty),
             )
@@ -465,18 +514,36 @@ def _apply_target_suggestions(relations: pd.DataFrame, *, map_path: Path) -> pd.
     )
 
     current_target_payee = merged["target_payee_current"].astype("string").fillna("").str.strip()
-    current_target_category = merged["target_category_current"].astype("string").fillna("").str.strip()
-    suggested_payee = merged.get("suggested_payee_selected", pd.Series([""] * len(merged))).astype("string").fillna("").str.strip()
-    suggested_category = merged.get("suggested_category_selected", pd.Series([""] * len(merged))).astype("string").fillna("").str.strip()
+    current_target_category = (
+        merged["target_category_current"].astype("string").fillna("").str.strip()
+    )
+    suggested_payee = (
+        merged.get("suggested_payee_selected", pd.Series([""] * len(merged)))
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
+    suggested_category = (
+        merged.get("suggested_category_selected", pd.Series([""] * len(merged)))
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
     has_target = merged["target_present"].astype(bool)
 
     merged["payee_options"] = [
         _join_options(current, suggested)
-        for current, suggested in zip(current_target_payee, merged.get("suggested_payee_options", pd.Series([""] * len(merged))))
+        for current, suggested in zip(
+            current_target_payee,
+            merged.get("suggested_payee_options", pd.Series([""] * len(merged))),
+        )
     ]
     merged["category_options"] = [
         _join_options(current, suggested)
-        for current, suggested in zip(current_target_category, merged.get("suggested_category_options", pd.Series([""] * len(merged))))
+        for current, suggested in zip(
+            current_target_category,
+            merged.get("suggested_category_options", pd.Series([""] * len(merged))),
+        )
     ]
     merged["target_payee_selected"] = current_target_payee.where(
         has_target & current_target_payee.ne(""),
@@ -487,12 +554,18 @@ def _apply_target_suggestions(relations: pd.DataFrame, *, map_path: Path) -> pd.
         suggested_category,
     )
 
-    return merged.drop(columns=[col for col in [
-        "suggested_payee_options",
-        "suggested_category_options",
-        "suggested_payee_selected",
-        "suggested_category_selected",
-    ] if col in merged.columns])
+    return merged.drop(
+        columns=[
+            col
+            for col in [
+                "suggested_payee_options",
+                "suggested_category_options",
+                "suggested_payee_selected",
+                "suggested_category_selected",
+            ]
+            if col in merged.columns
+        ]
+    )
 
 
 def build_review_rows(
@@ -552,8 +625,8 @@ def main() -> None:
 
     source_path = Path(args.source)
     target_path = Path(args.ynab)
-    source_df = _read_csv_or_empty(source_path)
-    target_df = _read_csv_or_empty(target_path)
+    source_df = _read_csv_or_empty(source_path, prefer_sidecar_parquet=False)
+    target_df = _read_csv_or_empty(target_path, prefer_sidecar_parquet=True)
     source_df["source_file"] = source_path.name
     target_df["target_file"] = target_path.name
     source_df = _filter_by_date(source_df, args.since or None, args.until or None)
@@ -571,9 +644,19 @@ def main() -> None:
     artifact_root = _default_artifact_root(target_profile.name, "live")
     out_path = Path(args.out_path) if args.out_path else artifact_root / "proposed_transactions.csv"
     pairs_out = Path(args.pairs_out) if args.pairs_out else artifact_root / "matched_pairs.csv"
-    unmatched_source_out = Path(args.unmatched_source_out) if args.unmatched_source_out else artifact_root / "unmatched_source.csv"
-    unmatched_target_out = Path(args.unmatched_target_out) if args.unmatched_target_out else artifact_root / "unmatched_target.csv"
-    ambiguous_out = Path(args.ambiguous_out) if args.ambiguous_out else artifact_root / "ambiguous_matches.csv"
+    unmatched_source_out = (
+        Path(args.unmatched_source_out)
+        if args.unmatched_source_out
+        else artifact_root / "unmatched_source.csv"
+    )
+    unmatched_target_out = (
+        Path(args.unmatched_target_out)
+        if args.unmatched_target_out
+        else artifact_root / "unmatched_target.csv"
+    )
+    ambiguous_out = (
+        Path(args.ambiguous_out) if args.ambiguous_out else artifact_root / "ambiguous_matches.csv"
+    )
 
     export.write_dataframe(review_rows, out_path)
     export.write_dataframe(result.matched_pairs_df, pairs_out)
@@ -590,4 +673,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

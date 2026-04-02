@@ -5,6 +5,7 @@ import pyarrow as pa
 
 from ynab_il_importer.artifacts.transaction_io import (
     flat_projection_to_canonical_table,
+    load_flat_transaction_projection,
     normalize_transaction_table,
     read_transactions_arrow,
     read_transactions_pandas,
@@ -180,3 +181,39 @@ def test_write_flat_transaction_artifacts_writes_csv_and_parquet(tmp_path) -> No
     assert parquet_path == out_path.with_suffix(".parquet")
     assert csv_path.exists()
     assert parquet_path.exists()
+
+
+def test_load_flat_transaction_projection_prefers_sidecar_parquet(tmp_path) -> None:
+    out_path = tmp_path / "normalized.csv"
+    flat_df = pl.DataFrame(
+        {
+            "source": ["card"],
+            "account_name": ["Visa"],
+            "source_account": ["Visa"],
+            "date": ["2026-03-01"],
+            "txn_kind": ["expense"],
+            "merchant_raw": ["Spotify"],
+            "description_clean": ["Spotify"],
+            "description_raw": ["Spotify Stockholm"],
+            "description_clean_norm": ["spotify"],
+            "fingerprint": ["spotify-parquet"],
+            "outflow_ils": [19.9],
+            "inflow_ils": [0.0],
+            "card_txn_id": ["CARD:1"],
+        }
+    )
+
+    write_flat_transaction_artifacts(
+        flat_df,
+        out_path,
+        artifact_kind="normalized_source_transaction",
+        source_system="card",
+    )
+    out_path.write_text(
+        "fingerprint,outflow_ils,inflow_ils\nspotify-csv,19.9,0.0\n",
+        encoding="utf-8",
+    )
+
+    loaded = load_flat_transaction_projection(out_path, prefer_sidecar_parquet=True)
+
+    assert loaded.loc[0, "fingerprint"] == "spotify-parquet"

@@ -2,6 +2,7 @@
 
 from ynab_il_importer.artifacts.transaction_io import (
     flat_projection_to_canonical_table,
+    load_flat_transaction_projection,
     read_transactions_arrow,
     read_transactions_pandas,
     read_transactions_polars,
@@ -26,6 +27,7 @@ __all__ = [
     "empty_transaction_table",
     "explode_split_lines",
     "flat_projection_to_canonical_table",
+    "load_flat_transaction_projection",
     "project_top_level_transactions",
     "read_transactions_arrow",
     "read_transactions_pandas",

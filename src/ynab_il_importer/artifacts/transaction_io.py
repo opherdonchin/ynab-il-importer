@@ -161,6 +161,28 @@ def write_flat_transaction_artifacts(
     return output_path, parquet_path
 
 
+def load_flat_transaction_projection(
+    path: str | Path,
+    *,
+    prefer_sidecar_parquet: bool = True,
+) -> pd.DataFrame:
+    source_path = Path(path)
+    resolved_path = source_path
+    if source_path.suffix.lower() == ".csv" and prefer_sidecar_parquet:
+        sidecar = source_path.with_suffix(".parquet")
+        if sidecar.exists():
+            resolved_path = sidecar
+
+    if resolved_path.suffix.lower() == ".parquet":
+        from ynab_il_importer.artifacts.transaction_projection import (
+            project_top_level_transactions,
+        )
+
+        return project_top_level_transactions(read_transactions_arrow(resolved_path)).to_pandas()
+
+    return pd.read_csv(source_path, dtype="string").fillna("")
+
+
 def write_transactions_parquet(
     data: Any,
     path: str | Path,

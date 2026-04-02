@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import importlib.util
 import shutil
 import sys
 from pathlib import Path
 
 import pandas as pd
+import polars as pl
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -13,6 +16,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 import ynab_il_importer.rules as rules_mod
+from ynab_il_importer.artifacts.transaction_io import write_flat_transaction_artifacts
 
 
 SCRIPT_PATH = ROOT / "scripts" / "build_cross_budget_review_rows.py"
@@ -23,7 +27,16 @@ sys.modules["build_cross_budget_review_rows_script"] = build_cross_budget_review
 SPEC.loader.exec_module(build_cross_budget_review_rows)
 
 
-def _source_row(*, row_id: str, date: str, payee_raw: str, fingerprint: str, account_name: str = "Family Leumi", inflow_ils: float = 0.0, outflow_ils: float = 100.0) -> dict[str, object]:
+def _source_row(
+    *,
+    row_id: str,
+    date: str,
+    payee_raw: str,
+    fingerprint: str,
+    account_name: str = "Family Leumi",
+    inflow_ils: float = 0.0,
+    outflow_ils: float = 100.0,
+) -> dict[str, object]:
     return {
         "source": "ynab",
         "ynab_id": row_id,
@@ -39,7 +52,16 @@ def _source_row(*, row_id: str, date: str, payee_raw: str, fingerprint: str, acc
     }
 
 
-def _target_row(*, row_id: str, date: str, payee_raw: str, fingerprint: str, inflow_ils: float = 0.0, outflow_ils: float = 100.0, account_name: str = "In Family") -> dict[str, object]:
+def _target_row(
+    *,
+    row_id: str,
+    date: str,
+    payee_raw: str,
+    fingerprint: str,
+    inflow_ils: float = 0.0,
+    outflow_ils: float = 100.0,
+    account_name: str = "In Family",
+) -> dict[str, object]:
     return {
         "source": "ynab",
         "ynab_id": row_id,
@@ -80,7 +102,9 @@ def _write_payee_map(path: Path) -> None:
             "card_suffix": "",
         }
     ]
-    pd.DataFrame(rows, columns=rules_mod.PAYEE_MAP_COLUMNS).to_csv(path, index=False, encoding="utf-8-sig")
+    pd.DataFrame(rows, columns=rules_mod.PAYEE_MAP_COLUMNS).to_csv(
+        path, index=False, encoding="utf-8-sig"
+    )
 
 
 def _runtime_dir(name: str) -> Path:
@@ -98,14 +122,38 @@ def test_build_review_rows_emits_matched_source_only_and_target_only() -> None:
 
     source_df = pd.DataFrame(
         [
-            _source_row(row_id="source-existing", date="2025-11-01", payee_raw="Existing Client", fingerprint="existing client", inflow_ils=100.0, outflow_ils=0.0),
-            _source_row(row_id="source-new", date="2025-11-02", payee_raw="Office Rent", fingerprint="office rent"),
+            _source_row(
+                row_id="source-existing",
+                date="2025-11-01",
+                payee_raw="Existing Client",
+                fingerprint="existing client",
+                inflow_ils=100.0,
+                outflow_ils=0.0,
+            ),
+            _source_row(
+                row_id="source-new",
+                date="2025-11-02",
+                payee_raw="Office Rent",
+                fingerprint="office rent",
+            ),
         ]
     )
     target_df = pd.DataFrame(
         [
-            _target_row(row_id="target-existing", date="2025-11-01", payee_raw="Existing Client", fingerprint="existing client", inflow_ils=100.0, outflow_ils=0.0),
-            _target_row(row_id="target-orphan", date="2025-11-03", payee_raw="Manual Pilates", fingerprint="manual pilates"),
+            _target_row(
+                row_id="target-existing",
+                date="2025-11-01",
+                payee_raw="Existing Client",
+                fingerprint="existing client",
+                inflow_ils=100.0,
+                outflow_ils=0.0,
+            ),
+            _target_row(
+                row_id="target-orphan",
+                date="2025-11-03",
+                payee_raw="Manual Pilates",
+                fingerprint="manual pilates",
+            ),
         ]
     )
 
@@ -119,7 +167,11 @@ def test_build_review_rows_emits_matched_source_only_and_target_only() -> None:
     )
 
     assert len(result.matched_pairs_df) == 1
-    assert set(review_rows["match_status"].tolist()) == {"matched_auto", "source_only", "target_only"}
+    assert set(review_rows["match_status"].tolist()) == {
+        "matched_auto",
+        "source_only",
+        "target_only",
+    }
 
     source_only = review_rows.loc[review_rows["match_status"] == "source_only"].iloc[0]
     assert source_only["decision_action"] == "create_target"
@@ -144,11 +196,29 @@ def test_build_review_rows_ignores_zero_amount_source_rows() -> None:
 
     source_df = pd.DataFrame(
         [
-            _source_row(row_id="source-zero", date="2026-03-13", payee_raw="paypal facebook", fingerprint="paypal facebook", inflow_ils=0.0, outflow_ils=0.0),
-            _source_row(row_id="source-real", date="2026-03-14", payee_raw="Office Rent", fingerprint="office rent"),
+            _source_row(
+                row_id="source-zero",
+                date="2026-03-13",
+                payee_raw="paypal facebook",
+                fingerprint="paypal facebook",
+                inflow_ils=0.0,
+                outflow_ils=0.0,
+            ),
+            _source_row(
+                row_id="source-real",
+                date="2026-03-14",
+                payee_raw="Office Rent",
+                fingerprint="office rent",
+            ),
         ]
     )
-    target_df = pd.DataFrame(columns=list(_target_row(row_id="unused", date="2026-03-13", payee_raw="unused", fingerprint="unused").keys()))
+    target_df = pd.DataFrame(
+        columns=list(
+            _target_row(
+                row_id="unused", date="2026-03-13", payee_raw="unused", fingerprint="unused"
+            ).keys()
+        )
+    )
 
     review_rows, _ = build_cross_budget_review_rows.build_review_rows(
         source_df,
@@ -179,7 +249,13 @@ def test_build_review_rows_skips_suggestions_for_blank_fingerprint() -> None:
             )
         ]
     )
-    target_df = pd.DataFrame(columns=list(_target_row(row_id="unused", date="2026-03-13", payee_raw="unused", fingerprint="unused").keys()))
+    target_df = pd.DataFrame(
+        columns=list(
+            _target_row(
+                row_id="unused", date="2026-03-13", payee_raw="unused", fingerprint="unused"
+            ).keys()
+        )
+    )
 
     review_rows, _ = build_cross_budget_review_rows.build_review_rows(
         source_df,
@@ -249,7 +325,10 @@ def test_build_review_rows_expands_ambiguous_rows_into_candidate_relations() -> 
     assert set(ambiguous["relation_kind"].tolist()) == {"ambiguous_candidate"}
     assert set(ambiguous["source_row_id"].tolist()) == {"source-ambiguous"}
     assert set(ambiguous["target_row_id"].tolist()) == {"target-a", "target-b"}
-    assert set(ambiguous["target_payee_current"].tolist()) == {"Manual Pilates A", "Manual Pilates B"}
+    assert set(ambiguous["target_payee_current"].tolist()) == {
+        "Manual Pilates A",
+        "Manual Pilates B",
+    }
 
 
 def test_build_review_rows_preserves_repeated_target_candidates() -> None:
@@ -305,3 +384,39 @@ def test_build_review_rows_preserves_repeated_target_candidates() -> None:
     assert set(ambiguous["source_row_id"].tolist()) == {"source-a", "source-b"}
     assert set(ambiguous["target_row_id"].tolist()) == {"target-shared"}
     assert set(ambiguous["target_payee_current"].tolist()) == {"Manual Shared"}
+
+
+def test_read_csv_or_empty_prefers_sidecar_parquet_when_requested(tmp_path: Path) -> None:
+    csv_path = tmp_path / "target.csv"
+    flat_df = pl.DataFrame(
+        {
+            "source": ["ynab"],
+            "ynab_id": ["txn-1"],
+            "account_name": ["In Family"],
+            "date": ["2025-11-01"],
+            "payee_raw": ["Existing Client"],
+            "category_raw": ["Pilates Expense"],
+            "outflow_ils": [0.0],
+            "inflow_ils": [100.0],
+            "txn_kind": ["income"],
+            "fingerprint": ["from-parquet"],
+            "memo": ["Existing Client"],
+        }
+    )
+    write_flat_transaction_artifacts(
+        flat_df,
+        csv_path,
+        artifact_kind="ynab_transaction",
+        source_system="ynab",
+    )
+    csv_path.write_text(
+        "fingerprint,outflow_ils,inflow_ils\nfrom-csv,0.0,100.0\n",
+        encoding="utf-8",
+    )
+
+    loaded = build_cross_budget_review_rows._read_csv_or_empty(
+        csv_path,
+        prefer_sidecar_parquet=True,
+    )
+
+    assert loaded.loc[0, "fingerprint"] == "from-parquet"

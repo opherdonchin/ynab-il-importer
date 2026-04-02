@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 import argparse
 import hashlib
 import re
@@ -13,6 +15,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from ynab_il_importer.artifacts.transaction_io import load_flat_transaction_projection
 import ynab_il_importer.export as export
 import ynab_il_importer.pairing as pairing
 import ynab_il_importer.review_app.model as review_model
@@ -81,7 +84,7 @@ def _load_csvs(paths: list[Path]) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     skipped: list[str] = []
     for path in paths:
-        df = pd.read_csv(path, dtype="string").fillna("")
+        df = load_flat_transaction_projection(path, prefer_sidecar_parquet=True).fillna("")
         for col in [
             "outflow_ils",
             "inflow_ils",
@@ -108,8 +111,7 @@ def _load_csvs(paths: list[Path]) -> pd.DataFrame:
     if not frames:
         detail = f" Skipped: {', '.join(skipped)}" if skipped else ""
         raise ValueError(
-            "No usable source rows found. Ensure normalized source files with fingerprint."
-            + detail
+            "No usable source rows found. Ensure normalized source files with fingerprint." + detail
         )
 
     return pd.concat(frames, ignore_index=True)
@@ -229,9 +231,7 @@ def _dedupe_source_overlaps(source_df: pd.DataFrame) -> pd.DataFrame:
             on=second_key_cols + ["_dup_rank"],
             how="left",
         )
-        secondary_drop = matched_secondary.loc[
-            matched_secondary["_matched"].eq(True), "_row_index"
-        ]
+        secondary_drop = matched_secondary.loc[matched_secondary["_matched"].eq(True), "_row_index"]
         if not secondary_drop.empty:
             drop_index.extend(secondary_drop.tolist())
 
@@ -246,14 +246,18 @@ def _dedupe_source_overlaps(source_df: pd.DataFrame) -> pd.DataFrame:
     return source_df.drop(index=drop_index).reset_index(drop=True).copy()
 
 
-def _dedupe_sources(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _dedupe_sources(
+    source_df: pd.DataFrame, ynab_df: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     source_clean = source_df.reset_index(drop=True).copy()
     source_clean["candidate_import_id"] = _candidate_import_ids(source_clean)
 
     ynab_with_import = ynab_df.copy()
     if "import_id" not in ynab_with_import.columns:
         ynab_with_import["import_id"] = ""
-    ynab_with_import["import_id"] = ynab_with_import["import_id"].astype("string").fillna("").str.strip()
+    ynab_with_import["import_id"] = (
+        ynab_with_import["import_id"].astype("string").fillna("").str.strip()
+    )
     ynab_import_keys = {
         (key, row["import_id"])
         for _, row in ynab_with_import.iterrows()
@@ -264,7 +268,9 @@ def _dedupe_sources(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> tuple[pd.
     exact_import_mask = source_clean.apply(
         lambda row: any(
             (key, str(row.get("candidate_import_id", "")).strip()) in ynab_import_keys
-            for key in _account_key_candidates(row, id_col="ynab_account_id", name_col="account_name")
+            for key in _account_key_candidates(
+                row, id_col="ynab_account_id", name_col="account_name"
+            )
         ),
         axis=1,
     )
@@ -274,7 +280,9 @@ def _dedupe_sources(source_df: pd.DataFrame, ynab_df: pd.DataFrame) -> tuple[pd.
             UserWarning,
         )
 
-    source_remaining = source_clean.loc[~exact_import_mask].drop(columns=["candidate_import_id"]).copy()
+    source_remaining = (
+        source_clean.loc[~exact_import_mask].drop(columns=["candidate_import_id"]).copy()
+    )
     pairs = pairing.match_pairs(source_remaining, ynab_df)
     if pairs.empty:
         return source_remaining.copy(), pairs
@@ -372,9 +380,7 @@ def _build_options(transactions: pd.DataFrame, rules: pd.DataFrame) -> pd.DataFr
 
     for _, txn in tx.iterrows():
         matched = [
-            rule
-            for _, rule in active_rules.iterrows()
-            if rules_mod._rule_matches(rule, txn)
+            rule for _, rule in active_rules.iterrows() if rules_mod._rule_matches(rule, txn)
         ]
         payees = []
         categories = []
@@ -388,13 +394,13 @@ def _build_options(transactions: pd.DataFrame, rules: pd.DataFrame) -> pd.DataFr
         payee_options.append("; ".join(payees))
         category_options.append("; ".join(categories))
 
-    return pd.DataFrame({"payee_options": payee_options, "category_options": category_options}, index=tx.index)
+    return pd.DataFrame(
+        {"payee_options": payee_options, "category_options": category_options}, index=tx.index
+    )
 
 
 def _rules_are_simple(rules: pd.DataFrame) -> bool:
-    non_fingerprint_cols = [
-        col for col in rules_mod.RULE_KEY_COLUMNS if col != "fingerprint"
-    ]
+    non_fingerprint_cols = [col for col in rules_mod.RULE_KEY_COLUMNS if col != "fingerprint"]
     has_other_keys = rules[non_fingerprint_cols].notna() & (rules[non_fingerprint_cols] != "")
     return not has_other_keys.any().any()
 
@@ -489,9 +495,9 @@ def _candidate_import_ids(source_df: pd.DataFrame) -> pd.Series:
     else:
         blank_transaction_id = work["transaction_id"].astype("string").fillna("").str.strip() == ""
         if blank_transaction_id.any():
-            work.loc[blank_transaction_id, "transaction_id"] = work.loc[
-                blank_transaction_id
-            ].apply(_make_transaction_id, axis=1)
+            work.loc[blank_transaction_id, "transaction_id"] = work.loc[blank_transaction_id].apply(
+                _make_transaction_id, axis=1
+            )
 
     work["account_key"] = work["account_name"].astype("string").fillna("").str.strip()
     work["date_key"] = (
@@ -499,17 +505,27 @@ def _candidate_import_ids(source_df: pd.DataFrame) -> pd.Series:
     )
     work["amount_milliunits"] = (
         (
-            pd.to_numeric(work.get("inflow_ils", 0.0), errors="coerce").fillna(0.0)
-            - pd.to_numeric(work.get("outflow_ils", 0.0), errors="coerce").fillna(0.0)
+            (
+                pd.to_numeric(work.get("inflow_ils", 0.0), errors="coerce").fillna(0.0)
+                - pd.to_numeric(work.get("outflow_ils", 0.0), errors="coerce").fillna(0.0)
+            )
+            * 1000
         )
-        * 1000
-    ).round().astype(int)
-    work["bank_txn_id"] = work.get(
-        "bank_txn_id", pd.Series([""] * len(work), index=work.index)
-    ).astype("string").fillna("").str.strip()
-    work["card_txn_id"] = work.get(
-        "card_txn_id", pd.Series([""] * len(work), index=work.index)
-    ).astype("string").fillna("").str.strip()
+        .round()
+        .astype(int)
+    )
+    work["bank_txn_id"] = (
+        work.get("bank_txn_id", pd.Series([""] * len(work), index=work.index))
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
+    work["card_txn_id"] = (
+        work.get("card_txn_id", pd.Series([""] * len(work), index=work.index))
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
 
     ordered = work.sort_values(
         ["account_key", "date_key", "amount_milliunits", "transaction_id", "index"]
@@ -520,15 +536,15 @@ def _candidate_import_ids(source_df: pd.DataFrame) -> pd.Series:
         .add(1)
     )
     ordered["candidate_import_id"] = ordered.apply(
-        lambda row: row["bank_txn_id"]
-        or row["card_txn_id"]
-        or f"YNAB:{int(row['amount_milliunits'])}:{row['date_key']}:{int(row['import_occurrence'])}",
+        lambda row: (
+            row["bank_txn_id"]
+            or row["card_txn_id"]
+            or f"YNAB:{int(row['amount_milliunits'])}:{row['date_key']}:{int(row['import_occurrence'])}"
+        ),
         axis=1,
     )
     return (
-        ordered.set_index("index")["candidate_import_id"]
-        .reindex(source_df.index)
-        .astype("string")
+        ordered.set_index("index")["candidate_import_id"].reindex(source_df.index).astype("string")
     )
 
 
@@ -588,9 +604,7 @@ def _protect_from_weak_dedupe(row: pd.Series) -> bool:
     ynab_import_ids = _to_string_set(row.get("ynab_import_ids", []))
 
     lineage_conflict = (
-        bool(source_lineage)
-        and bool(ynab_import_ids)
-        and source_lineage not in ynab_import_ids
+        bool(source_lineage) and bool(ynab_import_ids) and source_lineage not in ynab_import_ids
     )
     return lineage_conflict
 
@@ -816,7 +830,9 @@ def _prepare_review_source_rows(source_df: pd.DataFrame) -> pd.DataFrame:
     prepared["source_row_id"] = _stable_row_ids(
         aligned, prefix="src", part_getter=_source_row_id_parts
     ).to_numpy()
-    prepared["source_date"] = pd.to_datetime(aligned.get("date"), errors="coerce").dt.strftime("%Y-%m-%d")
+    prepared["source_date"] = pd.to_datetime(aligned.get("date"), errors="coerce").dt.strftime(
+        "%Y-%m-%d"
+    )
     prepared["source_date"] = prepared["source_date"].fillna("")
     prepared["source_payee_current"] = aligned.apply(_source_current_payee, axis=1).to_numpy()
     prepared["source_category_current"] = (
@@ -833,7 +849,9 @@ def _prepare_review_source_rows(source_df: pd.DataFrame) -> pd.DataFrame:
         .str.strip()
         .to_numpy()
     )
-    prepared["source_lineage_id"] = aligned.apply(_source_lineage_id, axis=1).astype("string").to_numpy()
+    prepared["source_lineage_id"] = (
+        aligned.apply(_source_lineage_id, axis=1).astype("string").to_numpy()
+    )
     return prepared
 
 
@@ -846,7 +864,9 @@ def _prepare_review_target_rows(ynab_df: pd.DataFrame) -> pd.DataFrame:
     prepared["target_row_id"] = _stable_row_ids(
         aligned, prefix="tgt", part_getter=_target_row_id_parts
     ).to_numpy()
-    prepared["target_date"] = pd.to_datetime(aligned.get("date"), errors="coerce").dt.strftime("%Y-%m-%d")
+    prepared["target_date"] = pd.to_datetime(aligned.get("date"), errors="coerce").dt.strftime(
+        "%Y-%m-%d"
+    )
     prepared["target_date"] = prepared["target_date"].fillna("")
     prepared["target_memo"] = (
         aligned.get("memo", pd.Series([""] * len(aligned), index=aligned.index))
@@ -875,31 +895,44 @@ def _institutional_candidate_pairs(
 
     # If a source row has an explicit lineage id and one or more targets share that import id,
     # keep only those exact-lineage candidates for that source row.
-    source_lineage = pairs.get(
-        "source_lineage_id",
-        pd.Series([""] * len(pairs), index=pairs.index, dtype="string"),
-    ).astype("string").fillna("").str.strip()
-    target_import = pairs.get(
-        "ynab_import_id",
-        pd.Series([""] * len(pairs), index=pairs.index, dtype="string"),
-    ).astype("string").fillna("").str.strip()
+    source_lineage = (
+        pairs.get(
+            "source_lineage_id",
+            pd.Series([""] * len(pairs), index=pairs.index, dtype="string"),
+        )
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
+    target_import = (
+        pairs.get(
+            "ynab_import_id",
+            pd.Series([""] * len(pairs), index=pairs.index, dtype="string"),
+        )
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
     exact_import_match = source_lineage.ne("") & source_lineage.eq(target_import)
     import_match_by_source = exact_import_match.groupby(
         pairs["source_row_id"], dropna=False
     ).transform("any")
     pairs = pairs.loc[~import_match_by_source | exact_import_match].copy()
 
-    source_lineage = pairs.get(
-        "source_lineage_id",
-        pd.Series([""] * len(pairs), index=pairs.index, dtype="string"),
-    ).astype("string").fillna("").str.strip()
+    source_lineage = (
+        pairs.get(
+            "source_lineage_id",
+            pd.Series([""] * len(pairs), index=pairs.index, dtype="string"),
+        )
+        .astype("string")
+        .fillna("")
+        .str.strip()
+    )
     target_memo_lineages = pairs.apply(_target_memo_lineage_ids, axis=1)
     exact_memo_lineage_match = source_lineage.ne("") & pd.Series(
         [
             lineage in lineage_ids
-            for lineage, lineage_ids in zip(
-                source_lineage.tolist(), target_memo_lineages.tolist()
-            )
+            for lineage, lineage_ids in zip(source_lineage.tolist(), target_memo_lineages.tolist())
         ],
         index=pairs.index,
     )
@@ -920,10 +953,9 @@ def _institutional_candidate_pairs(
     )
     pairs = pairs.merge(source_candidate_counts, on="source_row_id", how="left")
     pairs = pairs.merge(target_candidate_counts, on="target_row_id", how="left")
-    pairs["ambiguous_key"] = (
-        pairs["_source_candidate_count"].fillna(0).astype(int).gt(1)
-        | pairs["_target_candidate_count"].fillna(0).astype(int).gt(1)
-    )
+    pairs["ambiguous_key"] = pairs["_source_candidate_count"].fillna(0).astype(int).gt(1) | pairs[
+        "_target_candidate_count"
+    ].fillna(0).astype(int).gt(1)
     return pairs
 
 
@@ -943,7 +975,10 @@ def _apply_review_target_suggestions(relations: pd.DataFrame, *, map_path: Path)
             "inflow_ils": pd.to_numeric(source_rows["inflow_ils"], errors="coerce").fillna(0.0),
             "memo": source_rows["source_memo"].astype("string").fillna("").str.strip(),
             "raw_text": source_rows["source_memo"].astype("string").fillna("").str.strip(),
-            "fingerprint": source_rows["source_fingerprint"].astype("string").fillna("").str.strip(),
+            "fingerprint": source_rows["source_fingerprint"]
+            .astype("string")
+            .fillna("")
+            .str.strip(),
         }
     )
     candidates = candidates.loc[candidates["fingerprint"].ne("")].copy()
@@ -999,18 +1034,16 @@ def _apply_review_target_suggestions(relations: pd.DataFrame, *, map_path: Path)
     )
 
     current_target_payee = merged["target_payee_current"].astype("string").fillna("").str.strip()
-    current_target_category = (
-        pd.Series(
-            [
-                _normalize_selected_category(payee, category)
-                for payee, category in zip(
-                    merged["target_payee_current"].astype("string").fillna("").str.strip(),
-                    merged["target_category_current"].astype("string").fillna("").str.strip(),
-                )
-            ],
-            index=merged.index,
-            dtype="string",
-        )
+    current_target_category = pd.Series(
+        [
+            _normalize_selected_category(payee, category)
+            for payee, category in zip(
+                merged["target_payee_current"].astype("string").fillna("").str.strip(),
+                merged["target_category_current"].astype("string").fillna("").str.strip(),
+            )
+        ],
+        index=merged.index,
+        dtype="string",
     )
     suggested_payee = (
         merged.get("suggested_payee_selected", pd.Series([""] * len(merged)))
@@ -1074,8 +1107,12 @@ def build_review_rows(
     pairs = _institutional_candidate_pairs(prepared_source, prepared_target)
 
     rows: list[dict[str, object]] = []
-    pair_source_ids = set(pairs.get("source_row_id", pd.Series(dtype="string")).astype("string").tolist())
-    pair_target_ids = set(pairs.get("target_row_id", pd.Series(dtype="string")).astype("string").tolist())
+    pair_source_ids = set(
+        pairs.get("source_row_id", pd.Series(dtype="string")).astype("string").tolist()
+    )
+    pair_target_ids = set(
+        pairs.get("target_row_id", pd.Series(dtype="string")).astype("string").tolist()
+    )
 
     for _, row in pairs.iterrows():
         is_ambiguous = bool(row.get("ambiguous_key", False))
@@ -1111,7 +1148,9 @@ def build_review_rows(
                 "outflow_ils": row.get("outflow_ils", 0.0),
                 "inflow_ils": row.get("inflow_ils", 0.0),
                 "memo": _optional_text(row.get("source_memo") or row.get("target_memo")),
-                "fingerprint": _optional_text(row.get("fingerprint") or row.get("ynab_fingerprint")),
+                "fingerprint": _optional_text(
+                    row.get("fingerprint") or row.get("ynab_fingerprint")
+                ),
                 "payee_options": target_payee,
                 "category_options": target_category,
                 "match_status": (
@@ -1128,13 +1167,19 @@ def build_review_rows(
                     if is_ambiguous
                     else ("matched_cleared_pair" if matched_cleared else "matched_pair")
                 ),
-                "match_method": "exact_date_amount_not_unique" if is_ambiguous else "exact_date_amount",
+                "match_method": "exact_date_amount_not_unique"
+                if is_ambiguous
+                else "exact_date_amount",
                 "source_present": True,
                 "target_present": True,
                 "source_row_id": _optional_text(row.get("source_row_id")),
                 "target_row_id": _optional_text(row.get("target_row_id")),
-                "source_account": _optional_text(row.get("source_account") or row.get("account_name")),
-                "target_account": _optional_text(row.get("ynab_account") or row.get("account_name")),
+                "source_account": _optional_text(
+                    row.get("source_account") or row.get("account_name")
+                ),
+                "target_account": _optional_text(
+                    row.get("ynab_account") or row.get("account_name")
+                ),
                 "source_date": _optional_text(row.get("source_date")),
                 "target_date": _optional_text(row.get("target_date")),
                 "source_payee_current": source_payee,
@@ -1194,7 +1239,9 @@ def build_review_rows(
                 "target_present": False,
                 "source_row_id": _optional_text(row.get("source_row_id")),
                 "target_row_id": "",
-                "source_account": _optional_text(row.get("source_account") or row.get("account_name")),
+                "source_account": _optional_text(
+                    row.get("source_account") or row.get("account_name")
+                ),
                 "target_account": _optional_text(row.get("account_name")),
                 "source_date": _optional_text(row.get("source_date")),
                 "target_date": "",
@@ -1259,11 +1306,7 @@ def build_review_rows(
                     else (
                         "target_only_cleared"
                         if _is_cleared_match(row)
-                        else (
-                            "target_only_manual"
-                            if settled_target_only
-                            else "target_only"
-                        )
+                        else ("target_only_manual" if settled_target_only else "target_only")
                     )
                 ),
                 "match_method": "",
@@ -1320,7 +1363,10 @@ def main() -> None:
 
     source_df = _load_csvs(source_paths)
     source_df = _dedupe_source_overlaps(source_df)
-    ynab_df = pd.read_csv(Path(args.ynab))
+    ynab_df = load_flat_transaction_projection(
+        Path(args.ynab),
+        prefer_sidecar_parquet=True,
+    )
     if ynab_df.empty:
         raise ValueError("No rows found in YNAB input.")
 

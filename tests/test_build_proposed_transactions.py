@@ -3,9 +3,11 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import polars as pl
 import pytest
 
 import ynab_il_importer.review_app.model as review_model
+from ynab_il_importer.artifacts.transaction_io import write_flat_transaction_artifacts
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "build_proposed_transactions.py"
@@ -112,6 +114,41 @@ def test_dedupe_source_overlaps_preserves_extra_bank_rows() -> None:
         deduped = build_proposed_transactions._dedupe_source_overlaps(source_df)
 
     assert deduped["memo"].tolist() == ["bank 1", "bank 2"]
+
+
+def test_load_csvs_prefers_sidecar_parquet(tmp_path: Path) -> None:
+    csv_path = tmp_path / "source.csv"
+    flat_df = pl.DataFrame(
+        {
+            "source": ["bank"],
+            "account_name": ["Family Leumi"],
+            "source_account": ["Family Leumi"],
+            "date": ["2026-03-01"],
+            "txn_kind": ["expense"],
+            "merchant_raw": ["Mega Pet"],
+            "description_clean": ["Mega Pet"],
+            "description_raw": ["Mega Pet Pet Food"],
+            "description_clean_norm": ["mega pet"],
+            "fingerprint": ["mega-pet-parquet"],
+            "outflow_ils": [90.0],
+            "inflow_ils": [0.0],
+            "bank_txn_id": ["BANK:1"],
+        }
+    )
+    write_flat_transaction_artifacts(
+        flat_df,
+        csv_path,
+        artifact_kind="normalized_source_transaction",
+        source_system="bank",
+    )
+    csv_path.write_text(
+        "fingerprint,outflow_ils,inflow_ils\nmega-pet-csv,90.0,0.0\n",
+        encoding="utf-8",
+    )
+
+    loaded = build_proposed_transactions._load_csvs([csv_path])
+
+    assert loaded.loc[0, "fingerprint"] == "mega-pet-parquet"
 
 
 def test_dedupe_sources_handles_non_range_index(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -238,7 +275,9 @@ def test_dedupe_sources_drops_exact_import_id_matches_before_weak_pairing(
         lambda source, *_: pd.DataFrame() if len(source) == 1 else pd.DataFrame([{"bad": 1}]),
     )
 
-    with pytest.warns(UserWarning, match="Dropping 1 source rows matched to YNAB by exact import_id"):
+    with pytest.warns(
+        UserWarning, match="Dropping 1 source rows matched to YNAB by exact import_id"
+    ):
         deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
 
     assert matched_pairs.empty
@@ -288,7 +327,9 @@ def test_dedupe_sources_prefers_account_ids_for_exact_import_matches(
         lambda source, *_: pd.DataFrame() if len(source) == 1 else pd.DataFrame([{"bad": 1}]),
     )
 
-    with pytest.warns(UserWarning, match="Dropping 1 source rows matched to YNAB by exact import_id"):
+    with pytest.warns(
+        UserWarning, match="Dropping 1 source rows matched to YNAB by exact import_id"
+    ):
         deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
 
     assert matched_pairs.empty
@@ -337,7 +378,9 @@ def test_dedupe_sources_drops_exact_card_txn_id_matches_before_weak_pairing(
         lambda source, *_: pd.DataFrame() if len(source) == 1 else pd.DataFrame([{"bad": 1}]),
     )
 
-    with pytest.warns(UserWarning, match="Dropping 1 source rows matched to YNAB by exact import_id"):
+    with pytest.warns(
+        UserWarning, match="Dropping 1 source rows matched to YNAB by exact import_id"
+    ):
         deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
 
     assert matched_pairs.empty
@@ -620,7 +663,9 @@ def test_build_review_rows_marks_cleared_exact_matches_as_settled(tmp_path: Path
     assert bool(matched["reviewed"]) is True
 
 
-def test_build_review_rows_normalizes_transfer_uncategorized_to_explicit_none(tmp_path: Path) -> None:
+def test_build_review_rows_normalizes_transfer_uncategorized_to_explicit_none(
+    tmp_path: Path,
+) -> None:
     map_path = tmp_path / "payee_map.csv"
     _write_payee_map(map_path)
 
