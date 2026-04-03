@@ -163,6 +163,85 @@ def test_format_category_label_special_cases_no_category_required() -> None:
     )
 
 
+def test_canonical_review_bundle_preserves_nested_transactions_and_aligns_helpers() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "transaction_id": "t1",
+                "account_name": "Account 1",
+                "date": "2026-03-01",
+                "outflow_ils": "10",
+                "inflow_ils": "0",
+                "memo": "memo",
+                "fingerprint": "fp1",
+                "payee_options": "Cafe",
+                "category_options": "Food",
+                "match_status": "source_only",
+                "workflow_type": "institutional",
+                "source_present": True,
+                "target_present": False,
+                "source_payee_selected": "Cafe",
+                "source_category_selected": "",
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+                "decision_action": "create_target",
+                "update_maps": "",
+                "reviewed": False,
+                "source_transaction": {
+                    "artifact_kind": "normalized_source",
+                    "artifact_version": "transaction_v1",
+                    "source_system": "bank",
+                    "transaction_id": "src-1",
+                    "parent_transaction_id": "src-1",
+                    "account_name": "Account 1",
+                    "source_account": "Account 1",
+                    "date": "2026-03-01",
+                    "inflow_ils": 0.0,
+                    "outflow_ils": 10.0,
+                    "signed_amount_ils": -10.0,
+                    "payee_raw": "Cafe source",
+                    "category_raw": "",
+                    "memo": "memo",
+                    "fingerprint": "fp1",
+                    "approved": False,
+                    "is_subtransaction": False,
+                    "splits": [
+                        {
+                            "split_id": "sub-1",
+                            "parent_transaction_id": "src-1",
+                            "inflow_ils": 0.0,
+                            "outflow_ils": 6.0,
+                            "signed_amount_ils": -6.0,
+                            "payee_raw": "Cafe source",
+                            "category_id": "cat-food",
+                            "category_raw": "Food",
+                            "memo": "split memo",
+                            "matched_transaction_id": "",
+                        }
+                    ],
+                },
+            }
+        ],
+        index=[42],
+    )
+
+    bundle = review_app._canonical_review_bundle(df)
+
+    assert bundle["table"] is not None
+    assert bundle["table"].row(0, named=True)["source_transaction"]["splits"][0]["split_id"] == "sub-1"
+    helpers = bundle["helpers"]
+    assert helpers is not None
+    assert helpers.index.tolist() == [42]
+    assert int(helpers.loc[42, "source_split_count"]) == 1
+    assert bool(helpers.loc[42, "source_is_split"]) is True
+
+
+def test_split_summary_suffix_reports_source_and_target_counts() -> None:
+    helper_row = pd.Series({"source_split_count": 2, "target_split_count": 1})
+
+    assert review_app._split_summary_suffix(helper_row) == " | Src split 2 | Tgt split 1"
+
+
 def test_grouped_row_indices_only_include_filtered_rows() -> None:
     filtered = pd.DataFrame(
         {

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, MutableMapping
 
 import pandas as pd
+import polars as pl
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -267,6 +268,29 @@ def _bump_df_generation() -> None:
     st.session_state.pop("_cached_component_map", None)
 
 
+def _canonical_review_bundle(df: pd.DataFrame | None) -> dict[str, pl.DataFrame | pd.DataFrame | None]:
+    if df is None:
+        return {"table": None, "helpers": None}
+    table = review_io.load_review_artifact_polars(df)
+    helper_columns = [
+        "source_is_split",
+        "target_is_split",
+        "source_split_count",
+        "target_split_count",
+        "source_display_payee",
+        "target_display_payee",
+        "source_display_category",
+        "target_display_category",
+        "source_display_account",
+        "target_display_account",
+        "source_display_date",
+        "target_display_date",
+    ]
+    helpers = review_state.canonical_review_helpers(table).select(helper_columns).to_pandas()
+    helpers.index = df.index
+    return {"table": table, "helpers": helpers}
+
+
 def _set_review_frames(
     *,
     df: pd.DataFrame | None = None,
@@ -275,20 +299,31 @@ def _set_review_frames(
 ) -> None:
     changed = False
     if df is not None:
+        canonical = _canonical_review_bundle(df)
         st.session_state["df"] = df
+        st.session_state["review_table"] = canonical["table"]
+        st.session_state["review_helpers"] = canonical["helpers"]
         changed = True
     if original is not None:
+        canonical = _canonical_review_bundle(original)
         st.session_state["df_original"] = original
+        st.session_state["review_table_original"] = canonical["table"]
+        st.session_state["review_helpers_original"] = canonical["helpers"]
         changed = True
     if base is not None:
+        canonical = _canonical_review_bundle(base)
         st.session_state["df_base"] = base
+        st.session_state["review_table_base"] = canonical["table"]
+        st.session_state["review_helpers_base"] = canonical["helpers"]
         changed = True
     if changed:
         _bump_df_generation()
 
 
 def _load_df(path: Path, *, set_source_path: bool = False) -> None:
-    df = review_io.load_proposed_transactions(path)
+    df = review_io.project_review_artifact_to_flat_dataframe(
+        review_io.load_review_artifact_polars(path)
+    )
     _set_review_frames(df=df, original=df.copy())
     if set_source_path:
         st.session_state["source_path"] = str(path)
@@ -296,7 +331,9 @@ def _load_df(path: Path, *, set_source_path: bool = False) -> None:
 
 
 def _load_base(path: Path) -> None:
-    base = review_io.load_proposed_transactions(path)
+    base = review_io.project_review_artifact_to_flat_dataframe(
+        review_io.load_review_artifact_polars(path)
+    )
     _set_review_frames(base=base)
 
 
@@ -446,6 +483,21 @@ def _pick_summary_text(row: pd.Series) -> str:
         if value:
             return value
     return ""
+
+
+def _split_summary_suffix(helper_row: pd.Series | None) -> str:
+    if helper_row is None:
+        return ""
+    source_count = int(helper_row.get("source_split_count", 0) or 0)
+    target_count = int(helper_row.get("target_split_count", 0) or 0)
+    if source_count <= 0 and target_count <= 0:
+        return ""
+    parts: list[str] = []
+    if source_count > 0:
+        parts.append(f"Src split {source_count}")
+    if target_count > 0:
+        parts.append(f"Tgt split {target_count}")
+    return " | " + " | ".join(parts)
 
 
 def _format_option_summary(
@@ -975,6 +1027,7 @@ def _render_row_details(
     primary_state: str,
     blocker: str,
     category_group_map: dict[str, str],
+    helper_row: pd.Series | None = None,
 ) -> None:
     source_category_current = _format_category_label(
         str(row.get("source_category_current", "") or "").strip(),
@@ -1007,6 +1060,8 @@ def _render_row_details(
                 ("Fingerprint", row.get("fingerprint", "")),
                 ("Amount", _format_amount(row)),
                 ("Memo add", row.get("memo_append", "")),
+                ("Source context", row.get("source_context_kind", "")),
+                ("Target context", row.get("target_context_kind", "")),
             ],
         )
     with source_col:
@@ -1020,6 +1075,7 @@ def _render_row_details(
                 ("Selected payee", row.get("source_payee_selected", "")),
                 ("Current category", source_category_current),
                 ("Selected category", source_category_selected),
+                ("Split lines", "" if helper_row is None else helper_row.get("source_split_count", 0)),
                 ("Memo", row.get("source_memo", "")),
             ],
         )
@@ -1034,6 +1090,7 @@ def _render_row_details(
                 ("Selected payee", row.get("target_payee_selected", "")),
                 ("Current category", target_category_current),
                 ("Selected category", target_category_selected),
+                ("Split lines", "" if helper_row is None else helper_row.get("target_split_count", 0)),
                 ("Memo", row.get("target_memo", "")),
             ],
         )
@@ -1396,6 +1453,8 @@ def main() -> None:
     df: pd.DataFrame = st.session_state["df"]
     original: pd.DataFrame = st.session_state.get("df_original")
     base: pd.DataFrame = st.session_state.get("df_base")
+    review_table: pl.DataFrame | None = st.session_state.get("review_table")
+    review_helpers: pd.DataFrame | None = st.session_state.get("review_helpers")
     category_list: list[str] = st.session_state.get("category_list", [])
     category_group_map: dict[str, str] = st.session_state.get("category_group_map", {})
     category_error = st.session_state.get("category_error", "")
@@ -1492,7 +1551,10 @@ def main() -> None:
                 if _request_quit("quit_without_saving"):
                     st.success("Quit requested. This tab can be closed.")
                     st.stop()
-            review_io.save_reviewed_transactions(df, save_path)
+            review_io.save_reviewed_transactions(
+                review_table if review_table is not None else df,
+                save_path,
+            )
             map_updates_df = map_updates.save_map_update_candidates(df, base, map_updates_path)
             st.session_state["last_saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _set_review_frames(original=df.copy())
@@ -1735,6 +1797,11 @@ def main() -> None:
         end = start + page_size
         for idx in indices[start:end]:
             row = df.loc[idx]
+            helper_row = (
+                review_helpers.loc[idx]
+                if isinstance(review_helpers, pd.DataFrame) and idx in review_helpers.index
+                else None
+            )
             row_readiness = str(primary_state_series.loc[idx] or "")
             row_save_state = str(save_state.loc[idx] or "")
             primary_meta = _primary_state_meta(row_readiness, row_save_state)
@@ -1753,6 +1820,7 @@ def main() -> None:
                 f"[{primary_meta['short']}] {row.get('date','')} | {_format_amount(row)} | "
                 f"{str(row.get('account_name', '') or '').strip()} | "
                 f"{memo_snip} | Payee: {payee_summary} | Cat: {category_summary}"
+                f"{_split_summary_suffix(helper_row)}"
             )
             expanded = st.session_state.get("expanded_row_id") == idx
             _render_primary_state_strip(row_readiness, row_save_state)
@@ -1775,6 +1843,7 @@ def main() -> None:
                     primary_state=str(primary_state_series.loc[idx] or ""),
                     blocker=str(blocker_series.loc[idx] or ""),
                     category_group_map=category_group_map,
+                    helper_row=helper_row,
                 )
                 _render_row_controls(
                     df,
@@ -2145,6 +2214,11 @@ def main() -> None:
                 row_end = row_start + group_row_page_size
                 for idx in row_indices[row_start:row_end]:
                     row = df.loc[idx]
+                    helper_row = (
+                        review_helpers.loc[idx]
+                        if isinstance(review_helpers, pd.DataFrame) and idx in review_helpers.index
+                        else None
+                    )
                     row_readiness = str(primary_state_series.loc[idx] or "")
                     row_save_state = str(save_state.loc[idx] or "")
                     primary_meta = _primary_state_meta(row_readiness, row_save_state)
@@ -2165,6 +2239,7 @@ def main() -> None:
                         f"[{primary_meta['short']}] {row.get('date','')} | {_format_amount(row)} | "
                         f"{str(row.get('account_name', '') or '').strip()} | "
                         f"{memo_snip} | Payee: {payee_summary} | Cat: {category_summary}"
+                        f"{_split_summary_suffix(helper_row)}"
                     )
                     row_expanded = (
                         st.session_state.get("expanded_group_fp") == fp
@@ -2190,6 +2265,7 @@ def main() -> None:
                             primary_state=str(primary_state_series.loc[idx] or ""),
                             blocker=str(blocker_series.loc[idx] or ""),
                             category_group_map=category_group_map,
+                            helper_row=helper_row,
                         )
                         _render_row_controls(
                             df,
