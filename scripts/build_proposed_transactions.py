@@ -9,19 +9,25 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ynab_il_importer.artifacts.transaction_io import load_flat_transaction_projection
+from ynab_il_importer.artifacts.transaction_io import (
+    load_flat_transaction_projection,
+    read_transactions_pandas,
+)
 import ynab_il_importer.export as export
 import ynab_il_importer.pairing as pairing
+import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.rules as rules_mod
 import ynab_il_importer.workflow_profiles as workflow_profiles
 from ynab_il_importer import bank_identity, card_identity
+from ynab_il_importer.artifacts.transaction_schema import TRANSACTION_ARTIFACT_VERSION, TRANSACTION_SCHEMA
 
 _CARD_SUFFIX_DIGITS_RE = re.compile(r"\D+")
 _CARD_SUFFIX_MEMO_TAG_RE = re.compile(r"\[card x\d{4}\]", flags=re.IGNORECASE)
@@ -77,6 +83,8 @@ REVIEW_ROW_COLUMNS = [
     "source_category_selected",
     "target_payee_selected",
     "target_category_selected",
+    "source_transaction",
+    "target_transaction",
 ]
 
 
@@ -84,7 +92,7 @@ def _load_csvs(paths: list[Path]) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     skipped: list[str] = []
     for path in paths:
-        df = load_flat_transaction_projection(path, prefer_sidecar_parquet=True).fillna("")
+        df = _load_transaction_input(path, prefer_sidecar_parquet=True)
         for col in [
             "outflow_ils",
             "inflow_ils",
@@ -115,6 +123,70 @@ def _load_csvs(paths: list[Path]) -> pd.DataFrame:
         )
 
     return pd.concat(frames, ignore_index=True)
+
+
+def _load_transaction_input(
+    path: Path,
+    *,
+    prefer_sidecar_parquet: bool = True,
+) -> pd.DataFrame:
+    if path.suffix.lower() == ".parquet":
+        return read_transactions_pandas(path).fillna("")
+    if path.suffix.lower() == ".csv" and prefer_sidecar_parquet:
+        sidecar = path.with_suffix(".parquet")
+        if sidecar.exists():
+            return read_transactions_pandas(sidecar).fillna("")
+    return load_flat_transaction_projection(path, prefer_sidecar_parquet=False).fillna("")
+
+
+def _canonical_transaction_dict(
+    row: pd.Series,
+    *,
+    artifact_kind: str,
+    source_system_fallback: str,
+) -> dict[str, object]:
+    normalized: dict[str, object] = {}
+    for field in TRANSACTION_SCHEMA:
+        raw = row.get(field.name)
+        if raw is None or raw is pd.NA:
+            normalized[field.name] = None
+            continue
+        if pa.types.is_boolean(field.type):
+            normalized[field.name] = bool(raw)
+        elif pa.types.is_floating(field.type):
+            number = pd.to_numeric(pd.Series([raw]), errors="coerce").fillna(0.0).iloc[0]
+            normalized[field.name] = float(number)
+        elif pa.types.is_list(field.type):
+            normalized[field.name] = raw if isinstance(raw, list) else None
+        else:
+            normalized[field.name] = str(raw).strip()
+
+    normalized["artifact_kind"] = normalized.get("artifact_kind") or artifact_kind
+    normalized["artifact_version"] = (
+        normalized.get("artifact_version") or TRANSACTION_ARTIFACT_VERSION
+    )
+    normalized["source_system"] = (
+        normalized.get("source_system") or source_system_fallback
+    )
+    normalized["transaction_id"] = normalized.get("transaction_id") or normalized.get("ynab_id") or ""
+    normalized["parent_transaction_id"] = (
+        normalized.get("parent_transaction_id") or normalized.get("transaction_id") or ""
+    )
+    normalized["account_name"] = normalized.get("account_name") or normalized.get("source_account") or ""
+    normalized["source_account"] = normalized.get("source_account") or normalized.get("account_name") or ""
+    normalized["date"] = normalized.get("date") or ""
+    normalized["payee_raw"] = (
+        normalized.get("payee_raw")
+        or normalized.get("merchant_raw")
+        or normalized.get("description_clean")
+        or normalized.get("description_raw")
+        or normalized.get("memo")
+        or ""
+    )
+    normalized["category_raw"] = normalized.get("category_raw") or ""
+    normalized["memo"] = normalized.get("memo") or ""
+    normalized["fingerprint"] = normalized.get("fingerprint") or ""
+    return normalized
 
 
 def _expand_source_paths(files: list[Path], dirs: list[Path]) -> list[Path]:
@@ -861,6 +933,14 @@ def _prepare_review_source_rows(source_df: pd.DataFrame) -> pd.DataFrame:
         .str.strip()
         .to_numpy()
     )
+    prepared["source_transaction"] = aligned.apply(
+        lambda row: _canonical_transaction_dict(
+            row,
+            artifact_kind="normalized_source",
+            source_system_fallback=_optional_text(row.get("source")) or "source",
+        ),
+        axis=1,
+    ).to_numpy()
     prepared["source_lineage_id"] = (
         aligned.apply(_source_lineage_id, axis=1).astype("string").to_numpy()
     )
@@ -887,6 +967,14 @@ def _prepare_review_target_rows(ynab_df: pd.DataFrame) -> pd.DataFrame:
         .str.strip()
         .to_numpy()
     )
+    prepared["target_transaction"] = aligned.apply(
+        lambda row: _canonical_transaction_dict(
+            row,
+            artifact_kind="ynab_transaction",
+            source_system_fallback="ynab",
+        ),
+        axis=1,
+    ).to_numpy()
     return prepared
 
 
@@ -1206,6 +1294,8 @@ def build_review_rows(
                 "source_category_selected": source_category,
                 "target_payee_selected": target_payee,
                 "target_category_selected": target_category,
+                "source_transaction": row.get("source_transaction"),
+                "target_transaction": row.get("target_transaction"),
             }
         )
 
@@ -1269,6 +1359,8 @@ def build_review_rows(
                 "source_category_selected": source_category,
                 "target_payee_selected": "",
                 "target_category_selected": "",
+                "source_transaction": row.get("source_transaction"),
+                "target_transaction": None,
             }
         )
 
@@ -1342,6 +1434,8 @@ def build_review_rows(
                 "source_category_selected": "",
                 "target_payee_selected": target_payee,
                 "target_category_selected": target_category,
+                "source_transaction": None,
+                "target_transaction": row.get("target_transaction"),
             }
         )
 
@@ -1359,7 +1453,7 @@ def main() -> None:
     parser.add_argument("--source-dir", action="append", default=[])
     parser.add_argument("--ynab", required=True)
     parser.add_argument("--map", dest="map_path", type=Path, default=None)
-    parser.add_argument("--out", dest="out_path", default="outputs/proposed_transactions.csv")
+    parser.add_argument("--out", dest="out_path", default="outputs/proposed_transactions.parquet")
     parser.add_argument("--pairs-out", dest="pairs_out", default="")
     args = parser.parse_args()
 
@@ -1375,7 +1469,7 @@ def main() -> None:
 
     source_df = _load_csvs(source_paths)
     source_df = _dedupe_source_overlaps(source_df)
-    ynab_df = load_flat_transaction_projection(
+    ynab_df = _load_transaction_input(
         Path(args.ynab),
         prefer_sidecar_parquet=True,
     )
@@ -1387,8 +1481,12 @@ def main() -> None:
         export.write_dataframe(pairs, args.pairs_out)
         print(export.wrote_message(args.pairs_out, len(pairs)))
 
-    export.write_dataframe(out, args.out_path)
-    print(export.wrote_message(args.out_path, len(out)))
+    out_path = Path(args.out_path)
+    if out_path.suffix.lower() == ".parquet":
+        review_io.save_review_artifact(out, out_path)
+    else:
+        review_io.save_reviewed_transactions(out, out_path)
+    print(export.wrote_message(out_path, len(out)))
 
 
 if __name__ == "__main__":
