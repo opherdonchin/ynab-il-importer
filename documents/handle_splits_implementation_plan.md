@@ -943,6 +943,34 @@ rather than:
 
 This is especially important because Step 4 will need to present and edit the canonical transaction directly. A flattened Step 3 model would add churn we would soon have to undo.
 
+### Field classification
+
+Step 3 implementation should explicitly classify app-facing fields into three buckets:
+
+1. canonical nested transaction data
+   - `source_transaction`
+   - `target_transaction`
+   - nested `splits`
+
+2. review-control fields
+   - selected payees/categories
+   - decision action
+   - reviewed
+   - update maps
+   - memo append
+
+3. derived display/search helpers
+   - split badges/counts
+   - summary text
+   - search text
+   - source/target context labels
+   - inference/progress tags that are purely display-oriented
+
+This classification should drive both persistence and refactoring decisions:
+
+- canonical nested transaction data and review-control fields are part of the real app model
+- derived display/search helpers should be recomputed or regenerated from canonical state as needed
+
 ### Required review-artifact metadata additions
 
 The current review artifact contains nested source/target transactions, but Step 3 will need a little more relationship context for correct display, especially in cross-budget flows.
@@ -1340,51 +1368,69 @@ This means Step 3 should not require new external callers or new flattened artif
 - any flat compatibility CSV output should be secondary and debug-only if it survives at all
 - if a user changes only payee/category/decision fields, the canonical source/target transaction snapshots should remain unchanged unless Step 4 later introduces explicit transaction editing
 
-### Step 3 migration sequence
+### Step 3 phased implementation plan
+
+Because this is now a larger refactor, it should be done in explicit phases.
+
+#### Phase 3A: establish the canonical app boundary
+
+Goals:
+
+- stop treating flat projection as the primary app boundary
+- load/save canonical review artifacts directly in a Polars-native path
+- identify the minimal derived helper fields needed for app display and filtering
+
+Main work:
 
 1. extend the canonical review schema with explicit display-context fields
 2. update the builders to populate that context, especially for cross-budget source extraction
 3. refactor `review_app/io.py` so the native app load/save path is canonical and Polars-based
-4. refactor `review_app/state.py`, `review_app/validation.py`, and `review_app/model.py` away from flattened pandas assumptions
-5. refactor `review_app/app.py` session state to hold canonical review data plus derived view/index state
-6. add read-only split rendering helpers in `app.py`
-7. render split detail in row mode first, then verify grouped mode
-8. migrate `review_reconcile.py` and any remaining app-adjacent helpers that still assume flattened reviewed rows
-9. only after the canonical refactor is stable, consider cleanup/decomposition inside `app.py`
+4. define the initial derived helper fields allowed for app use
 
-### Step 3 implementation slices
-
-Because this is now a larger refactor, it should be done in two explicit tracks.
-
-#### Track A: Canonical internal refactor
+#### Phase 3B: make app state, validation, and model canonical-aware
 
 Goals:
 
 - remove flattened transaction representation from the app core
 - replace pandas with Polars in the app’s main state/model/validation flow
-- make save/resume/reconcile native to canonical review rows
+- keep review semantics parent-row based while changing the substrate
 
-Likely slices:
+Main work:
 
-1. canonical schema/context additions
-2. canonical Polars load/save path in `review_app/io.py`
-3. canonical state/validation/model helpers
-4. canonical session-state handling in `app.py`
-5. canonical reviewed-row reconciliation in `review_reconcile.py`
+1. refactor `review_app/state.py` away from flattened pandas assumptions
+2. refactor `review_app/validation.py` away from flattened pandas assumptions
+3. refactor `review_app/model.py` away from direct dataframe mutation assumptions
+4. refactor `review_app/app.py` session state to hold canonical review data plus derived view/index state
+5. migrate `review_reconcile.py` and any remaining app-adjacent helpers that still assume flattened reviewed rows
 
-#### Track B: Split display
+#### Phase 3C: add split display
 
 Goals:
 
-- use the canonical source/target transactions to show folded and expanded split detail
+- use canonical source/target transactions to show folded and expanded split detail
 - make cross-budget source context understandable when inclusion came from child split lines
 
-Likely slices:
+Main work:
 
-1. target-side split display
-2. source-side split display
-3. split/context badges in folded summaries
-4. grouped-view verification and cleanup
+1. add read-only split rendering helpers in `app.py`
+2. render target-side split detail first
+3. render source-side split/context detail next
+4. add split/context badges in folded summaries
+5. verify grouped mode remains transaction-row-oriented
+
+#### Phase 3D: cleanup after the canonical refactor
+
+Goals:
+
+- remove or demote stale flat compatibility helpers where safe
+- keep only the scalar fields that are true review controls or relation metadata
+- leave the codebase ready for Step 4 split editing
+
+Main work:
+
+1. remove or demote no-longer-needed flat compatibility columns/helpers
+2. simplify remaining app surfaces around the field classification above
+3. only after the canonical refactor is stable, consider cleanup/decomposition inside `app.py`
 
 ### Step 3 testing
 
