@@ -482,6 +482,23 @@ def _pick_summary_text(row: pd.Series) -> str:
         value = str(row.get(col, "") or "").strip()
         if value:
             return value
+    for side in ["source_transaction", "target_transaction"]:
+        txn = row.get(side)
+        if not isinstance(txn, dict):
+            continue
+        for key in ["memo", "payee_raw", "category_raw"]:
+            value = str(txn.get(key, "") or "").strip()
+            if value:
+                return value
+        splits = txn.get("splits") or []
+        if isinstance(splits, list):
+            for split in splits:
+                if not isinstance(split, dict):
+                    continue
+                for key in ["memo", "payee_raw", "category_raw"]:
+                    value = str(split.get(key, "") or "").strip()
+                    if value:
+                        return value
     return ""
 
 
@@ -498,6 +515,28 @@ def _split_summary_suffix(helper_row: pd.Series | None) -> str:
     if target_count > 0:
         parts.append(f"Tgt split {target_count}")
     return " | " + " | ".join(parts)
+
+
+def _helper_text(helper_row: pd.Series | None, key: str) -> str:
+    if helper_row is None:
+        return ""
+    return str(helper_row.get(key, "") or "").strip()
+
+
+def _summary_date(row: pd.Series, helper_row: pd.Series | None) -> str:
+    return (
+        _helper_text(helper_row, "source_display_date")
+        or _helper_text(helper_row, "target_display_date")
+        or str(row.get("date", "") or "").strip()
+    )
+
+
+def _summary_account(row: pd.Series, helper_row: pd.Series | None) -> str:
+    return (
+        _helper_text(helper_row, "source_display_account")
+        or _helper_text(helper_row, "target_display_account")
+        or str(row.get("account_name", "") or "").strip()
+    )
 
 
 def _format_option_summary(
@@ -1831,8 +1870,8 @@ def main() -> None:
                 limit=2,
             )
             summary = (
-                f"[{primary_meta['short']}] {row.get('date','')} | {_format_amount(row)} | "
-                f"{str(row.get('account_name', '') or '').strip()} | "
+                f"[{primary_meta['short']}] {_summary_date(row, helper_row)} | {_format_amount(row)} | "
+                f"{_summary_account(row, helper_row)} | "
                 f"{memo_snip} | Payee: {payee_summary} | Cat: {category_summary}"
                 f"{_split_summary_suffix(helper_row)}"
             )
@@ -2250,8 +2289,8 @@ def main() -> None:
                         limit=2,
                     )
                     summary = (
-                        f"[{primary_meta['short']}] {row.get('date','')} | {_format_amount(row)} | "
-                        f"{str(row.get('account_name', '') or '').strip()} | "
+                        f"[{primary_meta['short']}] {_summary_date(row, helper_row)} | {_format_amount(row)} | "
+                        f"{_summary_account(row, helper_row)} | "
                         f"{memo_snip} | Payee: {payee_summary} | Cat: {category_summary}"
                         f"{_split_summary_suffix(helper_row)}"
                     )

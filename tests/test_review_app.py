@@ -242,6 +242,45 @@ def test_split_summary_suffix_reports_source_and_target_counts() -> None:
     assert review_app._split_summary_suffix(helper_row) == " | Src split 2 | Tgt split 1"
 
 
+def test_pick_summary_text_falls_back_to_canonical_transaction_data() -> None:
+    row = pd.Series(
+        {
+            "memo": "",
+            "fingerprint": "",
+            "source_transaction": {
+                "memo": "",
+                "payee_raw": "",
+                "category_raw": "",
+                "splits": [
+                    {
+                        "memo": "split memo",
+                        "payee_raw": "",
+                        "category_raw": "",
+                    }
+                ],
+            },
+            "target_transaction": None,
+        }
+    )
+
+    assert review_app._pick_summary_text(row) == "split memo"
+
+
+def test_summary_date_and_account_prefer_canonical_helpers() -> None:
+    row = pd.Series({"date": "2026-03-01", "account_name": "Flat account"})
+    helper_row = pd.Series(
+        {
+            "source_display_date": "2026-03-02",
+            "target_display_date": "",
+            "source_display_account": "",
+            "target_display_account": "Canonical account",
+        }
+    )
+
+    assert review_app._summary_date(row, helper_row) == "2026-03-02"
+    assert review_app._summary_account(row, helper_row) == "Canonical account"
+
+
 def test_grouped_row_indices_only_include_filtered_rows() -> None:
     filtered = pd.DataFrame(
         {
