@@ -670,6 +670,30 @@ def _account_import_label(account_id: str, import_id: str) -> str:
     return f"{_normalize_text(account_id)}::{_normalize_text(import_id)}"
 
 
+def _response_transaction_lookup(
+    transactions: list[dict[str, Any]],
+) -> dict[tuple[str, str], dict[str, Any]]:
+    lookup: dict[tuple[str, str], dict[str, Any]] = {}
+    for txn in transactions or []:
+        account_id = _normalize_text(txn.get("account_id", ""))
+        import_id = _normalize_text(txn.get("import_id", ""))
+        if not account_id or not import_id:
+            continue
+        lookup[(account_id, import_id)] = txn
+    return lookup
+
+
+def _normalize_split_line_for_compare(line: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "amount": int(line.get("amount", 0) or 0),
+        "memo": _normalize_text(line.get("memo", "")),
+        "category_id": _normalize_text(line.get("category_id", "")),
+        "payee_id": _normalize_text(line.get("payee_id", "")),
+        "payee_name": _normalize_text(line.get("payee_name", "")),
+    }
+    return payload
+
+
 def upload_preflight(
     prepared_df: pd.DataFrame,
     existing_transactions: list[dict[str, Any]],
@@ -763,15 +787,20 @@ def summarize_upload_response(response: dict[str, Any]) -> dict[str, int]:
 
     matched_existing = 0
     transfer_saved = 0
+    split_saved = 0
     if not tx_df.empty:
         matched_existing = int((tx_df["matched_transaction_id"] != "").sum())
         transfer_saved = int((tx_df["transfer_account_id"] != "").sum())
+        split_saved = int(
+            tx_df["category_name"].astype("string").fillna("").str.strip().eq("Split").sum()
+        )
 
     return {
         "saved": len(saved_ids),
         "duplicate_import_ids": len(duplicate_ids),
         "matched_existing": matched_existing,
         "transfer_saved": transfer_saved,
+        "split_saved": split_saved,
     }
 
 
@@ -782,6 +811,7 @@ def classify_upload_result(
     duplicate_import_ids = int(summary.get("duplicate_import_ids", 0))
     matched_existing = int(summary.get("matched_existing", 0))
     transfer_saved = int(summary.get("transfer_saved", 0))
+    split_saved = int(summary.get("split_saved", 0))
 
     idempotent_rerun = (
         prepared_count > 0 and saved == 0 and duplicate_import_ids == prepared_count
@@ -802,6 +832,7 @@ def classify_upload_result(
         "duplicate_import_ids": duplicate_import_ids,
         "matched_existing": matched_existing,
         "transfer_saved": transfer_saved,
+        "split_saved": split_saved,
         "idempotent_rerun": idempotent_rerun,
         "verification_needed": verification_needed,
         "status": status,
@@ -814,7 +845,8 @@ def verify_upload_response(
 ) -> dict[str, Any]:
     prepared = assemble_upload_transaction_units(prepared_df)
 
-    response_df = _transactions_frame(response.get("transactions", []) or [])
+    response_transactions = response.get("transactions", []) or []
+    response_df = _transactions_frame(response_transactions)
     if response_df.empty:
         return {
             "checked": 0,
@@ -824,9 +856,11 @@ def verify_upload_response(
             "account_mismatches": [],
             "transfer_mismatches": [],
             "category_mismatches": [],
+            "split_mismatches": [],
         }
 
     response_df = response_df[response_df["import_id"] != ""].copy()
+    response_lookup = _response_transaction_lookup(response_transactions)
     prepared_indexed = prepared.set_index(["account_id", "import_id"], drop=False)
     response_indexed = response_df.set_index(["account_id", "import_id"], drop=False)
 
@@ -851,6 +885,7 @@ def verify_upload_response(
     account_mismatches: list[str] = []
     transfer_mismatches: list[str] = []
     category_mismatches: list[str] = []
+    split_mismatches: list[str] = []
 
     for account_id, import_id in shared_keys:
         prepared_row = prepared_indexed.loc[(account_id, import_id)]
@@ -900,6 +935,37 @@ def verify_upload_response(
         ):
             category_mismatches.append(label)
 
+        if str(prepared_row["upload_kind"]) == "split":
+            response_txn = response_lookup.get((account_id, import_id), {})
+            response_category_name = _normalize_text(response_txn.get("category_name", ""))
+            response_subtransactions = response_txn.get("subtransactions", []) or []
+            prepared_subtransactions = prepared_row.get("subtransactions", []) or []
+            if response_category_name != "Split":
+                split_mismatches.append(label)
+                continue
+            if len(prepared_subtransactions) != len(response_subtransactions):
+                split_mismatches.append(label)
+                continue
+            prepared_lines = [
+                _normalize_split_line_for_compare(line)
+                for line in prepared_subtransactions
+            ]
+            response_lines = []
+            for line in response_subtransactions:
+                response_lines.append(
+                    _normalize_split_line_for_compare(
+                        {
+                            "amount": line.get("amount", 0),
+                            "memo": line.get("memo", ""),
+                            "category_id": line.get("category_id", ""),
+                            "payee_id": line.get("payee_id", ""),
+                            "payee_name": line.get("payee_name", ""),
+                        }
+                    )
+                )
+            if prepared_lines != response_lines:
+                split_mismatches.append(label)
+
     return {
         "checked": len(shared_keys),
         "missing_saved_transactions": missing_saved,
@@ -908,6 +974,7 @@ def verify_upload_response(
         "account_mismatches": sorted(account_mismatches),
         "transfer_mismatches": sorted(transfer_mismatches),
         "category_mismatches": sorted(category_mismatches),
+        "split_mismatches": sorted(split_mismatches),
     }
 
 

@@ -643,6 +643,7 @@ def test_summarize_upload_response_counts_matches_and_transfers() -> None:
                 "amount": -3000,
                 "matched_transaction_id": "",
                 "transfer_account_id": "acc-cash",
+                "category_name": "Split",
             },
         ],
     }
@@ -654,6 +655,7 @@ def test_summarize_upload_response_counts_matches_and_transfers() -> None:
         "duplicate_import_ids": 1,
         "matched_existing": 1,
         "transfer_saved": 1,
+        "split_saved": 1,
     }
 
 
@@ -664,6 +666,7 @@ def test_classify_upload_result_detects_idempotent_rerun() -> None:
             "duplicate_import_ids": 561,
             "matched_existing": 0,
             "transfer_saved": 0,
+            "split_saved": 0,
         },
         prepared_count=561,
     )
@@ -680,6 +683,7 @@ def test_classify_upload_result_requires_verification_when_transactions_saved() 
             "duplicate_import_ids": 0,
             "matched_existing": 2,
             "transfer_saved": 3,
+            "split_saved": 1,
         },
         prepared_count=10,
     )
@@ -735,6 +739,7 @@ def test_verify_upload_response_checks_transfer_and_category_fields() -> None:
         "account_mismatches": [],
         "transfer_mismatches": [],
         "category_mismatches": [],
+        "split_mismatches": [],
     }
 
 
@@ -784,6 +789,7 @@ def test_verify_upload_response_allows_same_import_id_on_different_accounts() ->
         "account_mismatches": [],
         "transfer_mismatches": [],
         "category_mismatches": [],
+        "split_mismatches": [],
     }
 
 
@@ -826,4 +832,68 @@ def test_verify_upload_response_accepts_uncategorized_name_without_category_id()
         "account_mismatches": [],
         "transfer_mismatches": [],
         "category_mismatches": [],
+        "split_mismatches": [],
+    }
+
+
+def test_verify_upload_response_checks_split_child_structure() -> None:
+    prepared = pd.DataFrame(
+        {
+            "upload_transaction_id": ["split-1", "split-1"],
+            "account_id": ["acc-bank", "acc-bank"],
+            "account_name": ["Bank Leumi", "Bank Leumi"],
+            "date": ["2026-03-01", "2026-03-01"],
+            "amount_milliunits": [-8000, -4000],
+            "memo": ["books", "gift"],
+            "cleared": ["cleared", "cleared"],
+            "approved": [False, False],
+            "import_id": ["YNAB:-12000:2026-03-01:1", "YNAB:-12000:2026-03-01:1"],
+            "upload_kind": ["regular", "regular"],
+            "payee_id": ["", ""],
+            "payee_name_upload": ["Tsomet Sfarim", "Tsomet Sfarim"],
+            "category_id": ["cat-books", "cat-gifts"],
+            "transfer_target_account_id": ["", ""],
+        }
+    )
+    response = {
+        "transaction_ids": ["t1"],
+        "transactions": [
+            {
+                "id": "t1",
+                "import_id": "YNAB:-12000:2026-03-01:1",
+                "account_id": "acc-bank",
+                "date": "2026-03-01",
+                "amount": -12000,
+                "category_id": "",
+                "category_name": "Split",
+                "transfer_account_id": "",
+                "subtransactions": [
+                    {
+                        "amount": -8000,
+                        "memo": "books",
+                        "category_id": "cat-books",
+                        "payee_name": "Tsomet Sfarim",
+                    },
+                    {
+                        "amount": -4000,
+                        "memo": "gift",
+                        "category_id": "cat-gifts",
+                        "payee_name": "Tsomet Sfarim",
+                    },
+                ],
+            }
+        ],
+    }
+
+    verification = upload_prep.verify_upload_response(prepared, response)
+
+    assert verification == {
+        "checked": 1,
+        "missing_saved_transactions": [],
+        "amount_mismatches": [],
+        "date_mismatches": [],
+        "account_mismatches": [],
+        "transfer_mismatches": [],
+        "category_mismatches": [],
+        "split_mismatches": [],
     }

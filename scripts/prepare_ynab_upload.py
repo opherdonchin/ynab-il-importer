@@ -233,6 +233,7 @@ def main() -> None:
                 ("duplicate import_ids", outcome["duplicate_import_ids"]),
                 ("matched existing", outcome["matched_existing"]),
                 ("transfer rows returned", outcome["transfer_saved"]),
+                ("split rows returned", outcome["split_saved"]),
                 ("status", outcome["status"]),
             ],
         )
@@ -261,12 +262,17 @@ def main() -> None:
                     ("account mismatches", len(verification["account_mismatches"])),
                     ("transfer mismatches", len(verification["transfer_mismatches"])),
                     ("category mismatches", len(verification["category_mismatches"])),
+                    ("split mismatches", len(verification["split_mismatches"])),
                 ],
             )
             upload_warnings: list[str] = []
             if verification["transfer_mismatches"]:
                 upload_warnings.append(
                     "Some transfer rows did not come back as the expected transfer."
+                )
+            if verification["split_mismatches"]:
+                upload_warnings.append(
+                    "Some split rows did not come back with the expected split child structure."
                 )
             if verification["missing_saved_transactions"]:
                 upload_warnings.append(
