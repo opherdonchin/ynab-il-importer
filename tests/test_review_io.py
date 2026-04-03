@@ -219,6 +219,83 @@ def test_save_review_artifact_parquet_round_trip_preserves_nested_transactions(t
     assert loaded.loc[0, "source_transaction"]["payee_raw"] == "Cafe source"
 
 
+def test_load_review_artifact_polars_preserves_nested_transactions_and_context(tmp_path) -> None:
+    path = tmp_path / "review_polars.parquet"
+    df = pd.DataFrame(
+        [
+            {
+                "transaction_id": "t1",
+                "account_name": "Account 1",
+                "date": "2026-03-01",
+                "outflow_ils": "10",
+                "inflow_ils": "0",
+                "memo": "memo",
+                "payee_options": "Cafe",
+                "category_options": "Food",
+                "match_status": "source_only",
+                "update_maps": "",
+                "decision_action": "create_target",
+                "fingerprint": "fp1",
+                "workflow_type": "institutional",
+                "source_present": True,
+                "target_present": False,
+                "source_context_kind": "ynab_split_category_match",
+                "source_context_category_id": "cat-food",
+                "source_context_category_name": "Food",
+                "source_context_matching_split_ids": "sub-1",
+                "source_payee_selected": "Cafe source",
+                "source_category_selected": "",
+                "target_payee_selected": "Cafe target",
+                "target_category_selected": "Food",
+                "source_transaction": {
+                    "artifact_kind": "normalized_source",
+                    "artifact_version": "transaction_v1",
+                    "source_system": "bank",
+                    "transaction_id": "src-1",
+                    "parent_transaction_id": "src-1",
+                    "account_name": "Account 1",
+                    "source_account": "Account 1",
+                    "date": "2026-03-01",
+                    "inflow_ils": 0.0,
+                    "outflow_ils": 10.0,
+                    "signed_amount_ils": -10.0,
+                    "payee_raw": "Cafe source",
+                    "category_raw": "",
+                    "memo": "memo",
+                    "fingerprint": "fp1",
+                    "approved": False,
+                    "is_subtransaction": False,
+                    "splits": [
+                        {
+                            "split_id": "sub-1",
+                            "parent_transaction_id": "src-1",
+                            "ynab_subtransaction_id": "sub-1",
+                            "payee_raw": "Cafe split",
+                            "category_id": "cat-food",
+                            "category_raw": "Food",
+                            "memo": "",
+                            "inflow_ils": 0.0,
+                            "outflow_ils": 10.0,
+                            "import_id": "",
+                            "matched_transaction_id": "",
+                        }
+                    ],
+                },
+            }
+        ]
+    )
+
+    review_io.save_review_artifact(df, path)
+    loaded = review_io.load_review_artifact_polars(path)
+
+    assert isinstance(loaded, pl.DataFrame)
+    row = loaded.to_dicts()[0]
+    assert row["source_context_kind"] == "ynab_split_category_match"
+    assert row["source_context_matching_split_ids"] == "sub-1"
+    assert row["source_transaction"]["transaction_id"] == "src-1"
+    assert row["source_transaction"]["splits"][0]["split_id"] == "sub-1"
+
+
 def _legacy_institutional_df() -> pd.DataFrame:
     return pd.DataFrame(
         [

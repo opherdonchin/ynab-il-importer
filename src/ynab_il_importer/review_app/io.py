@@ -169,6 +169,13 @@ def _is_review_artifact_table(table: pa.Table) -> bool:
     )
 
 
+def _coerce_review_artifact_table(table: pa.Table) -> pa.Table:
+    return pa.Table.from_arrays(
+        [table[field.name].cast(field.type, safe=False) for field in REVIEW_SCHEMA],
+        schema=REVIEW_SCHEMA,
+    )
+
+
 def _normalize_transaction_mapping(value: Any) -> dict[str, Any] | None:
     if value is None or value is pd.NA:
         return None
@@ -363,12 +370,12 @@ def load_review_artifact(
 ) -> pa.Table:
     if isinstance(source, pa.Table):
         if _is_review_artifact_table(source):
-            return pa.Table.from_arrays(
-                [source[field.name].cast(field.type, safe=False) for field in REVIEW_SCHEMA],
-                schema=REVIEW_SCHEMA,
-            )
+            return _coerce_review_artifact_table(source)
         return _review_table_from_dataframe(source.to_pandas())
     if isinstance(source, pl.DataFrame):
+        table = source.to_arrow()
+        if _is_review_artifact_table(table):
+            return _coerce_review_artifact_table(table)
         return _review_table_from_dataframe(source.to_pandas())
     if isinstance(source, pd.DataFrame):
         return _review_table_from_dataframe(source)
@@ -380,10 +387,7 @@ def load_review_artifact(
         table = pq.read_table(path)
         if not _is_review_artifact_table(table):
             raise ValueError(f"Parquet file is not a canonical review artifact: {path}")
-        return pa.Table.from_arrays(
-            [table[field.name].cast(field.type, safe=False) for field in REVIEW_SCHEMA],
-            schema=REVIEW_SCHEMA,
-        )
+        return _coerce_review_artifact_table(table)
 
     df = pd.read_csv(path, dtype="string").fillna("")
     detected_format = detect_review_csv_format(df)
@@ -397,6 +401,12 @@ def load_review_artifact(
             f"proposed_transactions missing columns: {_missing_columns(df, REQUIRED_COLUMNS)}"
         )
     return _review_table_from_dataframe(df)
+
+
+def load_review_artifact_polars(
+    source: str | Path | pd.DataFrame | pl.DataFrame | pa.Table,
+) -> pl.DataFrame:
+    return pl.from_arrow(load_review_artifact(source))
 
 
 def project_review_artifact_to_flat_dataframe(
@@ -588,6 +598,13 @@ def save_review_artifact(
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
     pq.write_table(table, tmp_path)
     tmp_path.replace(output_path)
+
+
+def save_review_artifact_polars(
+    data: pd.DataFrame | pl.DataFrame | pa.Table,
+    path: str | Path,
+) -> None:
+    save_review_artifact(data, path)
 
 
 def save_reviewed_transactions(
