@@ -183,6 +183,8 @@ def test_build_review_rows_emits_matched_source_only_and_target_only() -> None:
     assert bool(matched["reviewed"]) is False
     assert matched["decision_action"] == "keep_match"
     assert matched["target_payee_selected"] == "Existing Client"
+    assert matched["source_transaction"]["source_system"] == "ynab"
+    assert matched["target_transaction"]["source_system"] == "ynab"
 
     target_only = review_rows.loc[review_rows["match_status"] == "target_only"].iloc[0]
     assert target_only["target_payee_current"] == "Manual Pilates"

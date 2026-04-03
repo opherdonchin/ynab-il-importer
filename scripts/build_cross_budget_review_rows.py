@@ -13,9 +13,9 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ynab_il_importer.artifacts.transaction_io import load_flat_transaction_projection
 import ynab_il_importer.cross_budget_pairing as cross_budget_pairing
 import ynab_il_importer.export as export
+import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.workflow_profiles as workflow_profiles
 
 REVIEW_BUILDER_SPEC = importlib.util.spec_from_file_location(
@@ -32,7 +32,7 @@ BASE_COLUMNS = review_builder.REVIEW_ROW_COLUMNS
 
 def _read_csv_or_empty(path: Path, *, prefer_sidecar_parquet: bool = False) -> pd.DataFrame:
     try:
-        return load_flat_transaction_projection(
+        return review_builder._load_transaction_input(
             path,
             prefer_sidecar_parquet=prefer_sidecar_parquet,
         ).fillna("")
@@ -124,6 +124,21 @@ def _snapshot_lookup(df: pd.DataFrame, *, row_id_column: str) -> dict[str, dict[
             continue
         lookup[row_id] = row.to_dict()
     return lookup
+
+
+def _canonical_snapshot(
+    snapshot: dict[str, object],
+    *,
+    artifact_kind: str,
+    source_system_fallback: str,
+) -> dict[str, object] | None:
+    if not snapshot:
+        return None
+    return review_builder._canonical_transaction_dict(
+        pd.Series(snapshot),
+        artifact_kind=artifact_kind,
+        source_system_fallback=source_system_fallback,
+    )
 
 
 def _expand_ambiguous_relation_rows(
@@ -253,10 +268,25 @@ def _expand_ambiguous_relation_rows(
                         "target_memo": target_memo,
                         "source_fingerprint": source_fingerprint,
                         "target_fingerprint": target_fingerprint,
+                        "source_bank_txn_id": "",
+                        "source_card_txn_id": "",
+                        "source_card_suffix": "",
+                        "source_secondary_date": _text(source_snapshot.get("secondary_date")),
+                        "source_ref": _text(source_snapshot.get("ref")),
                         "source_payee_selected": source_payee,
                         "source_category_selected": source_category,
                         "target_payee_selected": target_payee,
                         "target_category_selected": target_category,
+                        "source_transaction": _canonical_snapshot(
+                            source_snapshot,
+                            artifact_kind="ynab_transaction",
+                            source_system_fallback="ynab",
+                        ),
+                        "target_transaction": _canonical_snapshot(
+                            target_snapshot,
+                            artifact_kind="ynab_transaction",
+                            source_system_fallback="ynab",
+                        ),
                     }
                 )
 
@@ -277,6 +307,8 @@ def _relation_rows(
     for _, row in result.matched_pairs_df.iterrows():
         source_row_id = _text(row.get("source_row_id"))
         target_row_id = _text(row.get("target_row_id"))
+        source_snapshot = source_lookup.get(source_row_id, row.to_dict())
+        target_snapshot = target_lookup.get(target_row_id, row.to_dict())
         source_date = _text(row.get("date"))
         target_date = _text(row.get("date"))
         source_payee = _text(row.get("source_payee_raw"))
@@ -322,10 +354,25 @@ def _relation_rows(
                 "target_memo": target_memo,
                 "source_fingerprint": source_fingerprint,
                 "target_fingerprint": target_fingerprint,
+                "source_bank_txn_id": "",
+                "source_card_txn_id": "",
+                "source_card_suffix": "",
+                "source_secondary_date": _text(source_snapshot.get("secondary_date")),
+                "source_ref": _text(source_snapshot.get("ref")),
                 "source_payee_selected": source_payee,
                 "source_category_selected": source_category,
                 "target_payee_selected": target_payee,
                 "target_category_selected": target_category,
+                "source_transaction": _canonical_snapshot(
+                    source_snapshot,
+                    artifact_kind="ynab_transaction",
+                    source_system_fallback="ynab",
+                ),
+                "target_transaction": _canonical_snapshot(
+                    target_snapshot,
+                    artifact_kind="ynab_transaction",
+                    source_system_fallback="ynab",
+                ),
             }
         )
 
@@ -371,10 +418,21 @@ def _relation_rows(
                 "target_memo": "",
                 "source_fingerprint": source_fingerprint,
                 "target_fingerprint": "",
+                "source_bank_txn_id": "",
+                "source_card_txn_id": "",
+                "source_card_suffix": "",
+                "source_secondary_date": _text(row.get("secondary_date")),
+                "source_ref": _text(row.get("ref")),
                 "source_payee_selected": source_payee,
                 "source_category_selected": source_category,
                 "target_payee_selected": "",
                 "target_category_selected": "",
+                "source_transaction": _canonical_snapshot(
+                    row.to_dict(),
+                    artifact_kind="ynab_transaction",
+                    source_system_fallback="ynab",
+                ),
+                "target_transaction": None,
             }
         )
 
@@ -420,10 +478,21 @@ def _relation_rows(
                 "target_memo": target_memo,
                 "source_fingerprint": "",
                 "target_fingerprint": target_fingerprint,
+                "source_bank_txn_id": "",
+                "source_card_txn_id": "",
+                "source_card_suffix": "",
+                "source_secondary_date": "",
+                "source_ref": "",
                 "source_payee_selected": "",
                 "source_category_selected": "",
                 "target_payee_selected": target_payee,
                 "target_category_selected": target_category,
+                "source_transaction": None,
+                "target_transaction": _canonical_snapshot(
+                    row.to_dict(),
+                    artifact_kind="ynab_transaction",
+                    source_system_fallback="ynab",
+                ),
             }
         )
 
@@ -642,7 +711,9 @@ def main() -> None:
     )
 
     artifact_root = _default_artifact_root(target_profile.name, "live")
-    out_path = Path(args.out_path) if args.out_path else artifact_root / "proposed_transactions.csv"
+    out_path = (
+        Path(args.out_path) if args.out_path else artifact_root / "proposed_transactions.parquet"
+    )
     pairs_out = Path(args.pairs_out) if args.pairs_out else artifact_root / "matched_pairs.csv"
     unmatched_source_out = (
         Path(args.unmatched_source_out)
@@ -658,7 +729,10 @@ def main() -> None:
         Path(args.ambiguous_out) if args.ambiguous_out else artifact_root / "ambiguous_matches.csv"
     )
 
-    export.write_dataframe(review_rows, out_path)
+    if out_path.suffix.lower() == ".parquet":
+        review_io.save_review_artifact(review_rows, out_path)
+    else:
+        review_io.save_reviewed_transactions(review_rows, out_path)
     export.write_dataframe(result.matched_pairs_df, pairs_out)
     export.write_dataframe(result.unmatched_source_df, unmatched_source_out)
     export.write_dataframe(result.unmatched_target_df, unmatched_target_out)
