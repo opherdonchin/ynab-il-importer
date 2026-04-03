@@ -60,7 +60,7 @@ def test_delete_transaction_calls_item_delete_endpoint(monkeypatch) -> None:
     assert response == {"transaction": {"id": "txn-1", "deleted": True}}
 
 
-def test_transactions_to_dataframe_preserves_lineage_fields() -> None:
+def test_transactions_to_dataframe_returns_canonical_rows() -> None:
     transactions = [
         {
             "id": "txn-1",
@@ -80,6 +80,40 @@ def test_transactions_to_dataframe_preserves_lineage_fields() -> None:
 
     df = ynab_api.transactions_to_dataframe(transactions, accounts)
 
+    assert df.loc[0, "transaction_id"] == "txn-1"
+    assert df.loc[0, "ynab_id"] == "txn-1"
+    assert df.loc[0, "account_id"] == "acc-1"
+    assert df.loc[0, "source_system"] == "ynab"
+    assert df.loc[0, "import_id"] == "YNAB:-12340:2026-03-01:1"
+    assert df.loc[0, "matched_transaction_id"] == "match-1"
+    assert df.loc[0, "cleared"] == "cleared"
+    assert bool(df.loc[0, "approved"]) is True
+    assert df.loc[0, "fingerprint"] == "merchant"
+    assert pd.to_numeric(df.loc[0, "signed_amount_ils"]) == -12.34
+    assert len(df.loc[0, "splits"]) == 0
+
+
+def test_project_transactions_to_flat_dataframe_preserves_lineage_fields() -> None:
+    transactions = [
+        {
+            "id": "txn-1",
+            "account_id": "acc-1",
+            "date": "2026-03-01",
+            "payee_name": "Merchant",
+            "category_name": "Groceries",
+            "amount": -12340,
+            "memo": "memo text",
+            "import_id": "YNAB:-12340:2026-03-01:1",
+            "matched_transaction_id": "match-1",
+            "cleared": "cleared",
+            "approved": True,
+        }
+    ]
+    accounts = [{"id": "acc-1", "name": "Bank Leumi"}]
+
+    canonical = ynab_api.transactions_to_dataframe(transactions, accounts)
+    df = ynab_api.project_transactions_to_flat_dataframe(canonical)
+
     assert df.loc[0, "ynab_id"] == "txn-1"
     assert df.loc[0, "account_id"] == "acc-1"
     assert df.loc[0, "import_id"] == "YNAB:-12340:2026-03-01:1"
@@ -90,7 +124,7 @@ def test_transactions_to_dataframe_preserves_lineage_fields() -> None:
     assert pd.to_numeric(df.loc[0, "outflow_ils"]) == 12.34
 
 
-def test_category_transactions_to_dataframe_explodes_subtransactions() -> None:
+def test_extract_category_transactions_preserves_parent_split_transaction() -> None:
     transactions = [
         {
             "id": "parent-1",
@@ -129,16 +163,68 @@ def test_category_transactions_to_dataframe_explodes_subtransactions() -> None:
     ]
     accounts = [{"id": "acc-1", "name": "Family Leumi"}]
 
-    df = ynab_api.category_transactions_to_dataframe(transactions, accounts)
+    canonical = ynab_api.transactions_to_dataframe(transactions, accounts)
+    df = ynab_api.extract_category_transactions(canonical, category_id="cat-pilates")
 
-    assert df["ynab_id"].tolist() == ["sub-1", "sub-2"]
-    assert df["parent_ynab_id"].tolist() == ["parent-1", "parent-1"]
-    assert df["is_subtransaction"].tolist() == [True, True]
-    assert df["category_raw"].tolist() == ["Pilates", "Inflow: Ready to Assign"]
-    assert df["payee_raw"].tolist() == ["Salary Liya", "Salary Liya"]
-    assert df["account_name"].tolist() == ["Family Leumi", "Family Leumi"]
+    assert df["transaction_id"].tolist() == ["parent-1"]
+    assert df["category_raw"].tolist() == ["Split"]
+    assert df["account_name"].tolist() == ["Family Leumi"]
+    assert len(df.loc[0, "splits"]) == 2
+
+
+def test_project_category_transactions_to_source_rows_flattens_matches_for_bridge_workflows() -> None:
+    transactions = [
+        {
+            "id": "parent-1",
+            "account_id": "acc-1",
+            "date": "2026-03-01",
+            "payee_name": "Salary Liya",
+            "category_name": "Split",
+            "category_id": "",
+            "amount": 0,
+            "memo": "",
+            "import_id": "parent-import",
+            "matched_transaction_id": "",
+            "cleared": "cleared",
+            "approved": True,
+            "subtransactions": [
+                {
+                    "id": "sub-1",
+                    "amount": -3000000,
+                    "memo": "",
+                    "payee_name": "",
+                    "category_id": "cat-pilates",
+                    "category_name": "Pilates",
+                    "deleted": False,
+                },
+                {
+                    "id": "sub-2",
+                    "amount": 3000000,
+                    "memo": "",
+                    "payee_name": "",
+                    "category_id": "cat-rta",
+                    "category_name": "Inflow: Ready to Assign",
+                    "deleted": False,
+                },
+            ],
+        }
+    ]
+    accounts = [{"id": "acc-1", "name": "Family Leumi"}]
+
+    canonical = ynab_api.transactions_to_dataframe(transactions, accounts)
+    df = ynab_api.project_category_transactions_to_source_rows(
+        canonical,
+        category_id="cat-pilates",
+        category_name="Pilates",
+    )
+
+    assert df["ynab_id"].tolist() == ["sub-1"]
+    assert df["parent_ynab_id"].tolist() == ["parent-1"]
+    assert df["is_subtransaction"].tolist() == [True]
+    assert df["category_raw"].tolist() == ["Pilates"]
+    assert df["payee_raw"].tolist() == ["Salary Liya"]
+    assert df["account_name"].tolist() == ["Family Leumi"]
     assert pd.to_numeric(df.loc[0, "outflow_ils"]) == 3000.0
-    assert pd.to_numeric(df.loc[1, "inflow_ils"]) == 3000.0
 
 
 def test_transactions_to_canonical_table_preserves_nested_split_lines() -> None:

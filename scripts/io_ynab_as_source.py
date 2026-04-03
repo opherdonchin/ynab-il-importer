@@ -45,7 +45,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ynab_il_importer.artifacts.transaction_io import write_transactions_parquet
+from ynab_il_importer.artifacts.transaction_io import normalize_transaction_table, write_transactions_parquet
 import ynab_il_importer.export as export
 import ynab_il_importer.fingerprint as fingerprint_mod
 import ynab_il_importer.workflow_profiles as workflow_profiles
@@ -122,7 +122,12 @@ def _build_source_dataframe(
     fingerprint_log_path: Path,
 ) -> pd.DataFrame:
     category_name = category_display_name.split(":")[-1].strip()
-    df = ynab_api.category_transactions_to_dataframe(transactions, accounts)
+    canonical_df = ynab_api.transactions_to_dataframe(transactions, accounts)
+    df = ynab_api.project_category_transactions_to_source_rows(
+        canonical_df,
+        category_id=category_id,
+        category_name=category_name,
+    )
     if df.empty:
         return df
     if "category_id" not in df.columns:
@@ -354,10 +359,15 @@ def main() -> None:
         args.since or None,
         args.until or None,
     )
-    canonical_txns = [txn for txn in txns if _transaction_matches_category(txn, category_id)]
-    canonical_table = ynab_api.transactions_to_canonical_table(canonical_txns, accounts)
+    category_name = category_display_name.split(":")[-1].strip()
+    canonical_df = ynab_api.transactions_to_dataframe(txns, accounts)
+    canonical_table = ynab_api.extract_category_transactions(
+        canonical_df,
+        category_id=category_id,
+        category_name=category_name,
+    )
     parquet_path = _parquet_out_path(out_path)
-    write_transactions_parquet(canonical_table, parquet_path)
+    write_transactions_parquet(normalize_transaction_table(canonical_table), parquet_path)
     export.write_dataframe(df, out_path)
     print(f"Wrote canonical parquet to {parquet_path}")
     print(export.wrote_message(out_path, len(df)))

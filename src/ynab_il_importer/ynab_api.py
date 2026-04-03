@@ -17,6 +17,7 @@ from ynab_il_importer.artifacts.transaction_schema import (
     TRANSACTION_ARTIFACT_VERSION,
     TRANSACTION_SCHEMA,
 )
+from ynab_il_importer.artifacts.transaction_io import normalize_transaction_table
 import ynab_il_importer.io_ynab as ynab
 import ynab_il_importer.normalize as normalize
 
@@ -338,34 +339,49 @@ def transactions_to_dataframe(
     transactions: list[dict[str, Any]],
     accounts: list[dict[str, Any]] | None = None,
 ) -> pd.DataFrame:
-    account_name_map = {acc.get("id"): acc.get("name") for acc in accounts or []}
+    canonical = transactions_to_canonical_table(transactions, accounts)
+    return canonical.to_pandas()
+
+
+def _canonical_rows(data: Any) -> list[dict[str, Any]]:
+    return normalize_transaction_table(data).to_pylist()
+
+
+def project_transactions_to_flat_dataframe(data: Any) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
-    for txn in transactions:
-        if bool(txn.get("deleted", False)):
-            continue
+    for txn in _canonical_rows(data):
         rows.append(
-            _base_transaction_row(
-                txn,
-                account_name_map=account_name_map,
-                amount_milliunits=txn.get("amount", 0),
-                payee_name=txn.get("payee_name", "") or "",
-                category_name=txn.get("category_name", "") or "",
-                category_id=txn.get("category_id", "") or "",
-                memo=txn.get("memo", "") or "",
-                ynab_id=txn.get("id", "") or "",
-                parent_ynab_id=txn.get("id", "") or "",
-                is_subtransaction=False,
-            )
+            {
+                "source": "ynab",
+                "ynab_id": txn.get("ynab_id", "") or txn.get("transaction_id", "") or "",
+                "account_id": txn.get("account_id", "") or "",
+                "account_name": txn.get("account_name", "") or "",
+                "date": txn.get("date", "") or "",
+                "payee_raw": txn.get("payee_raw", "") or "",
+                "category_raw": txn.get("category_raw", "") or "",
+                "fingerprint": txn.get("fingerprint", "")
+                or normalize.normalize_text(txn.get("payee_raw", "") or ""),
+                "outflow_ils": txn.get("outflow_ils", 0.0) or 0.0,
+                "inflow_ils": txn.get("inflow_ils", 0.0) or 0.0,
+                "txn_kind": txn.get("txn_kind", "") or "",
+                "currency": "ILS",
+                "amount_bucket": "",
+                "memo": txn.get("memo", "") or "",
+                "import_id": txn.get("import_id", "") or "",
+                "matched_transaction_id": txn.get("matched_transaction_id", "") or "",
+                "cleared": txn.get("cleared", "") or "",
+                "approved": bool(txn.get("approved", False)),
+            }
         )
 
     df = pd.DataFrame(rows)
     if df.empty:
         return df
     df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
-    df["txn_kind"] = ynab._infer_txn_kind(
-        df["inflow_ils"], df["outflow_ils"], df["payee_raw"], df["category_raw"]
-    )
-    df["fingerprint"] = df["payee_raw"].map(normalize.normalize_text)
+    if "txn_kind" not in df.columns or df["txn_kind"].astype("string").fillna("").eq("").any():
+        df["txn_kind"] = ynab._infer_txn_kind(
+            df["inflow_ils"], df["outflow_ils"], df["payee_raw"], df["category_raw"]
+        )
     return df[
         [
             "source",
@@ -390,64 +406,143 @@ def transactions_to_dataframe(
     ]
 
 
-def category_transactions_to_dataframe(
-    transactions: list[dict[str, Any]],
-    accounts: list[dict[str, Any]] | None = None,
+def _matches_category(
+    txn: dict[str, Any],
+    *,
+    category_id: str | None = None,
+    category_name: str | None = None,
+) -> bool:
+    wanted_id = str(category_id or "").strip()
+    wanted_name = str(category_name or "").strip()
+    if wanted_id and str(txn.get("category_id", "") or "").strip() == wanted_id:
+        return True
+    if wanted_name and str(txn.get("category_raw", "") or "").strip() == wanted_name:
+        return True
+    for split in txn.get("splits") or []:
+        if wanted_id and str(split.get("category_id", "") or "").strip() == wanted_id:
+            return True
+        if wanted_name and str(split.get("category_raw", "") or "").strip() == wanted_name:
+            return True
+    return False
+
+
+def extract_category_transactions(
+    data: Any,
+    *,
+    category_id: str | None = None,
+    category_name: str | None = None,
 ) -> pd.DataFrame:
-    account_name_map = {acc.get("id"): acc.get("name") for acc in accounts or []}
-    rows: list[dict[str, Any]] = []
-    for txn in transactions:
-        if bool(txn.get("deleted", False)):
-            continue
-        txn_id = txn.get("id", "") or ""
-        payee_name = txn.get("payee_name", "") or ""
-        memo = txn.get("memo", "") or ""
-        subtransactions = txn.get("subtransactions") or []
-        emitted = False
-        for index, subtxn in enumerate(subtransactions):
-            if bool(subtxn.get("deleted", False)):
-                continue
-            subtxn_id = subtxn.get("id") or f"{txn_id}::sub::{index}"
-            rows.append(
-                _base_transaction_row(
-                    txn,
-                    account_name_map=account_name_map,
-                    amount_milliunits=subtxn.get("amount", 0),
-                    payee_name=subtxn.get("payee_name", "") or payee_name,
-                    category_name=subtxn.get("category_name", "") or "",
-                    category_id=subtxn.get("category_id", "") or "",
-                    memo=subtxn.get("memo", "") or memo,
-                    ynab_id=subtxn_id,
-                    parent_ynab_id=txn_id,
-                    is_subtransaction=True,
-                )
-            )
-            emitted = True
-        if emitted:
-            continue
-        rows.append(
-            _base_transaction_row(
-                txn,
-                account_name_map=account_name_map,
-                amount_milliunits=txn.get("amount", 0),
-                payee_name=payee_name,
-                category_name=txn.get("category_name", "") or "",
-                category_id=txn.get("category_id", "") or "",
-                memo=memo,
-                ynab_id=txn_id,
-                parent_ynab_id=txn_id,
-                is_subtransaction=False,
-            )
+    if not str(category_id or "").strip() and not str(category_name or "").strip():
+        raise ValueError("extract_category_transactions() requires category_id or category_name.")
+    rows = [
+        txn
+        for txn in _canonical_rows(data)
+        if _matches_category(
+            txn,
+            category_id=category_id,
+            category_name=category_name,
         )
+    ]
+    return pd.DataFrame(rows)
+
+
+def project_category_transactions_to_source_rows(
+    data: Any,
+    *,
+    category_id: str | None = None,
+    category_name: str | None = None,
+) -> pd.DataFrame:
+    if not str(category_id or "").strip() and not str(category_name or "").strip():
+        raise ValueError(
+            "project_category_transactions_to_source_rows() requires category_id or category_name."
+        )
+
+    wanted_id = str(category_id or "").strip()
+    wanted_name = str(category_name or "").strip()
+    rows: list[dict[str, Any]] = []
+    for txn in _canonical_rows(data):
+        txn_id = txn.get("transaction_id", "") or txn.get("ynab_id", "") or ""
+        parent_match = False
+        if not txn.get("splits"):
+            parent_match = _matches_category(
+                txn,
+                category_id=wanted_id or None,
+                category_name=wanted_name or None,
+            )
+        if parent_match:
+            rows.append(
+                {
+                    "source": "ynab",
+                    "ynab_id": txn_id,
+                    "parent_ynab_id": txn.get("parent_transaction_id", "") or txn_id,
+                    "is_subtransaction": False,
+                    "account_id": txn.get("account_id", "") or "",
+                    "account_name": txn.get("account_name", "") or "",
+                    "date": txn.get("date", "") or "",
+                    "payee_raw": txn.get("payee_raw", "") or "",
+                    "category_raw": txn.get("category_raw", "") or "",
+                    "category_id": txn.get("category_id", "") or "",
+                    "fingerprint": txn.get("fingerprint", "")
+                    or normalize.normalize_text(txn.get("payee_raw", "") or ""),
+                    "outflow_ils": txn.get("outflow_ils", 0.0) or 0.0,
+                    "inflow_ils": txn.get("inflow_ils", 0.0) or 0.0,
+                    "txn_kind": txn.get("txn_kind", "") or "",
+                    "currency": "ILS",
+                    "amount_bucket": "",
+                    "memo": txn.get("memo", "") or "",
+                    "import_id": txn.get("import_id", "") or "",
+                    "matched_transaction_id": txn.get("matched_transaction_id", "") or "",
+                    "cleared": txn.get("cleared", "") or "",
+                    "approved": bool(txn.get("approved", False)),
+                }
+            )
+            continue
+
+        for index, split in enumerate(txn.get("splits") or []):
+            if not _matches_category(
+                {"category_id": split.get("category_id", ""), "category_raw": split.get("category_raw", "")},
+                category_id=wanted_id or None,
+                category_name=wanted_name or None,
+            ):
+                continue
+            split_id = split.get("ynab_subtransaction_id") or split.get("split_id") or f"{txn_id}::sub::{index}"
+            payee_raw = split.get("payee_raw", "") or txn.get("payee_raw", "") or ""
+            rows.append(
+                {
+                    "source": "ynab",
+                    "ynab_id": split_id,
+                    "parent_ynab_id": txn.get("parent_transaction_id", "") or txn_id,
+                    "is_subtransaction": True,
+                    "account_id": txn.get("account_id", "") or "",
+                    "account_name": txn.get("account_name", "") or "",
+                    "date": txn.get("date", "") or "",
+                    "payee_raw": payee_raw,
+                    "category_raw": split.get("category_raw", "") or "",
+                    "category_id": split.get("category_id", "") or "",
+                    "fingerprint": normalize.normalize_text(payee_raw),
+                    "outflow_ils": split.get("outflow_ils", 0.0) or 0.0,
+                    "inflow_ils": split.get("inflow_ils", 0.0) or 0.0,
+                    "txn_kind": txn.get("txn_kind", "") or "",
+                    "currency": "ILS",
+                    "amount_bucket": "",
+                    "memo": split.get("memo", "") or txn.get("memo", "") or "",
+                    "import_id": split.get("import_id", "") or txn.get("import_id", "") or "",
+                    "matched_transaction_id": split.get("matched_transaction_id", "")
+                    or txn.get("matched_transaction_id", "")
+                    or "",
+                    "cleared": txn.get("cleared", "") or "",
+                    "approved": bool(txn.get("approved", False)),
+                }
+            )
 
     df = pd.DataFrame(rows)
     if df.empty:
         return df
     df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
-    df["txn_kind"] = ynab._infer_txn_kind(
-        df["inflow_ils"], df["outflow_ils"], df["payee_raw"], df["category_raw"]
-    )
-    df["fingerprint"] = df["payee_raw"].map(normalize.normalize_text)
+    if "txn_kind" not in df.columns or df["txn_kind"].astype("string").fillna("").eq("").any():
+        df["txn_kind"] = ynab._infer_txn_kind(
+            df["inflow_ils"], df["outflow_ils"], df["payee_raw"], df["category_raw"]
+        )
     return df[
         [
             "source",

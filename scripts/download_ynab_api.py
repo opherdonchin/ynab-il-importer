@@ -79,7 +79,7 @@ def main() -> None:
         args.since_date or None,
         args.until_date or None,
     )
-    df = ynab_api.transactions_to_dataframe(txns, accounts)
+    df = ynab_api.project_transactions_to_flat_dataframe(canonical)
     df = _filter_by_date(df, args.since_date or None, args.until_date or None)
 
     parquet_path = _parquet_out_path(out_path)

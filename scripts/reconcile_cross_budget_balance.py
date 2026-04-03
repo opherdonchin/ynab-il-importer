@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 import argparse
 import sys
 from pathlib import Path
@@ -9,7 +11,6 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-import ynab_il_importer.cross_budget_pairing as cross_budget_pairing
 import ynab_il_importer.cross_budget_reconciliation as cross_budget_reconciliation
 import ynab_il_importer.export as export
 import ynab_il_importer.workflow_profiles as workflow_profiles
@@ -35,6 +36,26 @@ def _default_sibling(summary_out: Path, suffix_name: str) -> Path:
     suffix = summary_out.suffix or ".csv"
     stem = summary_out.with_suffix("") if summary_out.suffix else summary_out
     return Path(f"{stem}_{suffix_name}{suffix}")
+
+
+def _resolve_source_category_id(
+    category_groups: list[dict[str, object]],
+    *,
+    category_name: str,
+) -> str:
+    wanted = str(category_name or "").strip()
+    matches: list[str] = []
+    for group in category_groups or []:
+        for category in group.get("categories", []) or []:
+            if bool(category.get("deleted", False)):
+                continue
+            if str(category.get("name", "") or "").strip() == wanted:
+                matches.append(str(category.get("id", "") or "").strip())
+    if not matches:
+        raise ValueError(f"Could not find YNAB category named {wanted!r}.")
+    if len(matches) > 1:
+        raise ValueError(f"Multiple YNAB categories share the name {wanted!r}.")
+    return matches[0]
 
 
 def _signed_amount_ils(df: pd.DataFrame) -> pd.Series:
@@ -148,7 +169,7 @@ def _print_summary(summary_row: dict[str, object]) -> None:
             f"ambiguous={int(summary_row.get('ambiguous_count', 0) or 0)}"
         )
     if str(summary_row.get("reason", "")).strip():
-        _safe_print(f"  Status:                       blocked")
+        _safe_print("  Status:                       blocked")
         _safe_print(f"  Reason:                       {summary_row['reason']}")
 
 
@@ -312,8 +333,18 @@ def main() -> None:
     target_accounts = ynab_api.fetch_accounts(plan_id=target_plan_id or None)
     target_transactions = ynab_api.fetch_transactions(plan_id=target_plan_id or None)
 
-    source_df = ynab_api.category_transactions_to_dataframe(source_transactions, source_accounts)
-    target_df = ynab_api.transactions_to_dataframe(target_transactions, target_accounts)
+    source_category_id = _resolve_source_category_id(
+        source_categories,
+        category_name=args.source_category,
+    )
+    source_canonical_df = ynab_api.transactions_to_dataframe(source_transactions, source_accounts)
+    target_canonical_df = ynab_api.transactions_to_dataframe(target_transactions, target_accounts)
+    source_df = ynab_api.project_category_transactions_to_source_rows(
+        source_canonical_df,
+        category_id=source_category_id,
+        category_name=args.source_category,
+    )
+    target_df = ynab_api.project_transactions_to_flat_dataframe(target_canonical_df)
     working_source_df = source_df.copy()
     working_target_df = target_df.copy()
     ignore_source_ids = {
