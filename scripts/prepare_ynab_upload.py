@@ -162,8 +162,13 @@ def main() -> None:
         raise ValueError(
             "No create_target rows remain after applying the selected upload filters."
         )
-    payload = upload_prep.upload_payload_records(prepared)
     preflight = upload_prep.upload_preflight(prepared, existing_transactions)
+    if preflight["unsupported_transaction_unit_ids"]:
+        raise ValueError(
+            "Unsupported upload transaction units: "
+            + ", ".join(preflight["unsupported_transaction_unit_ids"])
+        )
+    payload = upload_prep.upload_payload_records(prepared)
 
     export.write_dataframe(prepared, out_path)
     json_out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -185,6 +190,7 @@ def main() -> None:
         [
             ("prepared rows", preflight["prepared_count"]),
             ("transfer rows", preflight["transfer_count"]),
+            ("split rows", preflight["split_count"]),
             ("duplicate payload keys", len(preflight["payload_duplicate_import_keys"])),
             ("existing import_id hits", len(preflight["existing_import_id_hits"])),
             ("possible manual matches", len(preflight["potential_match_import_ids"])),

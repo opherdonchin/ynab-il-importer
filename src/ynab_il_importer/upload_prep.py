@@ -44,6 +44,7 @@ TRANSACTION_UNIT_COLUMNS = [
     "category_id",
     "target_category_selected",
     "transfer_target_account_id",
+    "subtransactions",
 ]
 
 
@@ -526,29 +527,60 @@ def assemble_upload_transaction_units(prepared_df: pd.DataFrame) -> pd.DataFrame
         "upload_transaction_id", sort=False, dropna=False
     ):
         first = group.iloc[0]
+        is_split = len(group) > 1
+        unsupported_reason = ""
+        unit_kind = _normalize_text(first.get("upload_kind", ""))
+        parent_category_id = _normalize_text(first.get("category_id", ""))
+        parent_target_category = _normalize_text(first.get("target_category_selected", ""))
+        subtransactions: list[dict[str, Any]] = []
+
+        if is_split:
+            unit_kind = "split"
+            if (
+                group["upload_kind"].astype("string").fillna("").str.strip() == "transfer"
+            ).any() or group["transfer_target_account_id"].astype("string").fillna("").str.strip().ne("").any():
+                unsupported_reason = "split_transfer_unsupported"
+            elif group["category_id"].astype("string").fillna("").str.strip().eq("").any():
+                unsupported_reason = "split_missing_category"
+            parent_category_id = ""
+            parent_target_category = ""
+            for _, split_row in group.iterrows():
+                split_payload: dict[str, Any] = {
+                    "amount": int(split_row.get("amount_milliunits", 0) or 0),
+                    "memo": _normalize_text(split_row.get("memo", "")) or None,
+                    "category_id": _normalize_text(split_row.get("category_id", "")),
+                }
+                split_payee_id = _normalize_text(split_row.get("payee_id", ""))
+                split_payee_name = _normalize_text(split_row.get("payee_name_upload", ""))
+                if split_payee_id:
+                    split_payload["payee_id"] = split_payee_id
+                elif split_payee_name:
+                    split_payload["payee_name"] = split_payee_name
+                subtransactions.append(split_payload)
+
+        unit_amount = int(group["amount_milliunits"].sum()) if is_split else int(first.get("amount_milliunits", 0) or 0)
         unit_rows.append(
             {
                 "upload_transaction_id": _normalize_text(upload_transaction_id),
                 "source_row_count": len(group),
-                "upload_kind": _normalize_text(first.get("upload_kind", "")),
-                "unsupported_reason": "",
+                "upload_kind": unit_kind,
+                "unsupported_reason": unsupported_reason,
                 "account_id": _normalize_text(first.get("account_id", "")),
                 "account_name": _normalize_text(first.get("account_name", "")),
                 "date": _normalize_text(first.get("date", "")),
-                "amount_milliunits": int(first.get("amount_milliunits", 0) or 0),
+                "amount_milliunits": unit_amount,
                 "memo": _normalize_text(first.get("memo", "")),
                 "cleared": _normalize_text(first.get("cleared", "")) or "cleared",
                 "approved": bool(first.get("approved", False)),
                 "import_id": _normalize_text(first.get("import_id", "")),
                 "payee_id": _normalize_text(first.get("payee_id", "")),
                 "payee_name_upload": _normalize_text(first.get("payee_name_upload", "")),
-                "category_id": _normalize_text(first.get("category_id", "")),
-                "target_category_selected": _normalize_text(
-                    first.get("target_category_selected", "")
-                ),
+                "category_id": parent_category_id,
+                "target_category_selected": parent_target_category,
                 "transfer_target_account_id": _normalize_text(
                     first.get("transfer_target_account_id", "")
                 ),
+                "subtransactions": subtransactions,
             }
         )
 
@@ -564,6 +596,12 @@ def upload_payload_records(prepared_df: pd.DataFrame) -> list[dict[str, Any]]:
     units = assemble_upload_transaction_units(prepared_df)
     records: list[dict[str, Any]] = []
     for _, row in units.iterrows():
+        unsupported_reason = _normalize_text(row.get("unsupported_reason", ""))
+        if unsupported_reason:
+            raise ValueError(
+                "Unsupported upload transaction unit "
+                f"{_normalize_text(row.get('upload_transaction_id', ''))}: {unsupported_reason}"
+            )
         payload: dict[str, Any] = {
             "account_id": _normalize_text(row.get("account_id", "")),
             "date": _normalize_text(row.get("date", "")),
@@ -576,12 +614,22 @@ def upload_payload_records(prepared_df: pd.DataFrame) -> list[dict[str, Any]]:
         payee_id = _normalize_text(row.get("payee_id", ""))
         payee_name = _normalize_text(row.get("payee_name_upload", ""))
         category_id = _normalize_text(row.get("category_id", ""))
-        if payee_id:
-            payload["payee_id"] = payee_id
-        elif payee_name:
-            payload["payee_name"] = payee_name
-        if category_id:
-            payload["category_id"] = category_id
+        upload_kind = _normalize_text(row.get("upload_kind", ""))
+        if upload_kind == "split":
+            subtransactions = row.get("subtransactions", []) or []
+            if payee_id:
+                payload["payee_id"] = payee_id
+            elif payee_name:
+                payload["payee_name"] = payee_name
+            payload["category_id"] = None
+            payload["subtransactions"] = subtransactions
+        else:
+            if payee_id:
+                payload["payee_id"] = payee_id
+            elif payee_name:
+                payload["payee_name"] = payee_name
+            if category_id:
+                payload["category_id"] = category_id
         records.append(payload)
     return records
 
@@ -687,14 +735,23 @@ def upload_preflight(
     transfer_payload_issue_ids = sorted(
         prepared.loc[transfer_payload_issue_mask, "import_id"].tolist()
     )
+    split_mask = prepared["upload_kind"] == "split"
+    unsupported_transaction_unit_ids = sorted(
+        prepared.loc[
+            prepared["unsupported_reason"].astype("string").fillna("").str.strip() != "",
+            "upload_transaction_id",
+        ].tolist()
+    )
 
     return {
         "prepared_count": len(prepared),
         "transfer_count": int(is_transfer.sum()),
+        "split_count": int(split_mask.sum()),
         "payload_duplicate_import_keys": payload_duplicate_keys,
         "existing_import_id_hits": existing_import_id_hits,
         "potential_match_import_ids": potential_match_import_ids,
         "transfer_payload_issue_ids": transfer_payload_issue_ids,
+        "unsupported_transaction_unit_ids": unsupported_transaction_unit_ids,
     }
 
 

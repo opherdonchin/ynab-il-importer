@@ -113,19 +113,49 @@ def test_assemble_upload_transaction_units_preserves_regular_and_transfer_rows()
 def test_upload_payload_records_uses_transaction_units() -> None:
     prepared = pd.DataFrame(
         {
-            "upload_transaction_id": ["u1", "u1"],
+            "upload_transaction_id": ["u1"],
+            "account_id": ["acc-bank"],
+            "account_name": ["Bank Leumi"],
+            "date": ["2026-03-01"],
+            "amount_milliunits": [-10500],
+            "memo": ["groceries"],
+            "cleared": ["cleared"],
+            "approved": [False],
+            "import_id": ["YNAB:-10500:2026-03-01:1"],
+            "upload_kind": ["regular"],
+            "payee_id": [""],
+            "payee_name_upload": ["Superpharm"],
+            "category_id": ["cat-groceries"],
+            "transfer_target_account_id": [""],
+        }
+    )
+
+    units = upload_prep.assemble_upload_transaction_units(prepared)
+    payload = upload_prep.upload_payload_records(prepared)
+
+    assert len(units) == 1
+    assert units.loc[0, "source_row_count"] == 1
+    assert len(payload) == 1
+    assert payload[0]["payee_name"] == "Superpharm"
+    assert payload[0]["category_id"] == "cat-groceries"
+
+
+def test_assemble_upload_transaction_units_builds_split_units_from_grouped_rows() -> None:
+    prepared = pd.DataFrame(
+        {
+            "upload_transaction_id": ["split-1", "split-1"],
             "account_id": ["acc-bank", "acc-bank"],
             "account_name": ["Bank Leumi", "Bank Leumi"],
             "date": ["2026-03-01", "2026-03-01"],
-            "amount_milliunits": [-10500, -10500],
-            "memo": ["groceries", "groceries"],
+            "amount_milliunits": [-8000, -4000],
+            "memo": ["books", "gift"],
             "cleared": ["cleared", "cleared"],
             "approved": [False, False],
-            "import_id": ["YNAB:-10500:2026-03-01:1", "YNAB:-10500:2026-03-01:1"],
+            "import_id": ["YNAB:-12000:2026-03-01:1", "YNAB:-12000:2026-03-01:1"],
             "upload_kind": ["regular", "regular"],
             "payee_id": ["", ""],
-            "payee_name_upload": ["Superpharm", "Superpharm"],
-            "category_id": ["cat-groceries", "cat-groceries"],
+            "payee_name_upload": ["Tsomet Sfarim", "Tsomet Sfarim"],
+            "category_id": ["cat-books", "cat-gifts"],
             "transfer_target_account_id": ["", ""],
         }
     )
@@ -134,10 +164,41 @@ def test_upload_payload_records_uses_transaction_units() -> None:
     payload = upload_prep.upload_payload_records(prepared)
 
     assert len(units) == 1
-    assert units.loc[0, "source_row_count"] == 2
-    assert len(payload) == 1
-    assert payload[0]["payee_name"] == "Superpharm"
-    assert payload[0]["category_id"] == "cat-groceries"
+    assert units.loc[0, "upload_kind"] == "split"
+    assert units.loc[0, "amount_milliunits"] == -12000
+    assert units.loc[0, "category_id"] == ""
+    assert len(units.loc[0, "subtransactions"]) == 2
+    assert payload[0]["category_id"] is None
+    assert len(payload[0]["subtransactions"]) == 2
+    assert payload[0]["subtransactions"][0]["category_id"] == "cat-books"
+    assert payload[0]["subtransactions"][1]["category_id"] == "cat-gifts"
+
+
+def test_upload_payload_records_rejects_unsupported_split_transfer_units() -> None:
+    prepared = pd.DataFrame(
+        {
+            "upload_transaction_id": ["split-transfer", "split-transfer"],
+            "account_id": ["acc-bank", "acc-bank"],
+            "account_name": ["Bank Leumi", "Bank Leumi"],
+            "date": ["2026-03-01", "2026-03-01"],
+            "amount_milliunits": [-8000, -4000],
+            "memo": ["books", "gift"],
+            "cleared": ["cleared", "cleared"],
+            "approved": [False, False],
+            "import_id": ["YNAB:-12000:2026-03-01:1", "YNAB:-12000:2026-03-01:1"],
+            "upload_kind": ["regular", "transfer"],
+            "payee_id": ["", "payee-cash"],
+            "payee_name_upload": ["Tsomet Sfarim", ""],
+            "category_id": ["cat-books", ""],
+            "transfer_target_account_id": ["", "acc-cash"],
+        }
+    )
+
+    units = upload_prep.assemble_upload_transaction_units(prepared)
+
+    assert units.loc[0, "unsupported_reason"] == "split_transfer_unsupported"
+    with pytest.raises(ValueError, match="Unsupported upload transaction unit"):
+        upload_prep.upload_payload_records(prepared)
 
 
 def test_prepare_upload_transactions_generates_stable_occurrence_import_ids() -> None:
