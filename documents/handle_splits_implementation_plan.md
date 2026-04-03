@@ -3,7 +3,7 @@
 ## Status
 
 - Branch: `handle_splits`
-- Current phase: Step 1 is implemented and verified; detailed Step 2 planning is in progress
+- Current phase: Steps 1 and 2 are implemented; detailed Step 3 planning is in progress
 - Goal of this document: guide the staged implementation of split handling in a way that matches the actual repository structure
 
 ## Executive Summary
@@ -846,13 +846,41 @@ When Step 2 implementation begins, the safest first slice is:
 
 ### Step 3 goal
 
-Show split transactions clearly in the review app without enabling split editing yet, and do it in a way that keeps the review unit centered on canonical parent transactions.
+Show split transactions clearly in the review app without enabling split editing yet, while keeping the authoritative review artifact canonical from app input through app output.
 
-### Current reality
+Concretely:
 
-- the app is flat-row-oriented
-- current review cases assume scalar source/target payee/category fields
-- grouped/fingerprint views operate on flat rows
+- the app should load canonical review artifacts directly
+- the app should save canonical review artifacts directly
+- any flattening needed for the current pandas/Streamlit logic should happen only inside the review-app boundary
+- the visible review unit should remain the parent transaction, not an exploded split child row
+
+### Step 3 scope boundary
+
+#### In scope for Step 3
+
+- canonical review artifacts remain the app’s true input and output
+- the app displays split structure on source and target transactions
+- cross-budget review shows why a parent transaction is in scope when the category match came from one or more split lines
+- builders and review-schema metadata are extended where needed so the app has enough context to render split detail without inventing it
+- the current decision/review workflow remains parent-row based
+
+#### Out of scope for Step 3
+
+- editing split structure
+- changing upload semantics beyond what Step 2 already supports
+- making matching algorithms split-aware in a new way
+- replacing Streamlit
+- moving the app internals from pandas to Polars
+
+### Current reality after Step 2
+
+The app boundary is already partway to the desired model:
+
+- canonical review artifacts exist in Parquet via `src/ynab_il_importer/artifacts/review_schema.py`
+- review rows now carry nested `source_transaction` and `target_transaction`
+- `src/ynab_il_importer/review_app/io.py` already projects canonical review artifacts into the flat pandas shape that `app.py`, `state.py`, and `validation.py` consume
+- `scripts/build_proposed_transactions.py` and `scripts/build_cross_budget_review_rows.py` already attach canonical source/target snapshots to each review row
 
 Two review flows matter here:
 
@@ -863,9 +891,13 @@ Two review flows matter here:
   - source is itself a YNAB transaction or a category extraction from YNAB
   - target is another YNAB transaction
 
-Step 3 should make both of those flows transaction-oriented rather than line-item-oriented.
+The main remaining Step 3 gap is display/context:
 
-### Step 3 implementation direction
+- the app still renders mostly scalar source/target fields and ignores nested split structure
+- cross-budget extraction context is not explicit enough yet to tell the UI which split lines made a parent transaction relevant
+- `app.py` currently computes and renders almost everything inline, so split display needs to be added carefully to avoid making the file even more monolithic
+
+### Step 3 design direction
 
 Keep the current review flow, but make the display transaction-oriented:
 
@@ -873,7 +905,71 @@ Keep the current review flow, but make the display transaction-oriented:
 - split structure should appear as expandable detail within that case
 - category extraction should be shown as context on the parent, not as a replacement object
 
-Recommended display modes:
+### Canonical-through-app contract
+
+This is the key implementation rule for Step 3.
+
+- The app should consume the canonical review artifact, not a pre-flattened workflow export.
+- The app may continue using a pandas dataframe internally for now.
+- The flattening/projection step should live inside `src/ynab_il_importer/review_app/io.py` and nowhere else.
+- The save path should rehydrate from that pandas working frame back into the canonical review artifact, preserving nested source/target transactions and any split-display metadata.
+
+That means the app should internally operate on:
+
+- canonical `source_transaction` object
+- canonical `target_transaction` object
+- flat review-control fields for the existing widget logic
+- derived display helpers computed from the canonical source/target objects
+
+rather than on exploded split rows pretending to be independent transactions.
+
+### Required review-artifact metadata additions
+
+The current review artifact contains nested source/target transactions, but Step 3 will need a little more relationship context for correct display, especially in cross-budget flows.
+
+Recommended additions to `src/ynab_il_importer/artifacts/review_schema.py`:
+
+- source-side extraction context
+  - `source_context_kind`
+    - examples: `direct_source`, `ynab_category_extract`, `ynab_parent_category_match`, `ynab_split_category_match`
+  - `source_context_category_id`
+  - `source_context_category_name`
+  - `source_context_matching_split_ids`
+- optional target-side context if later needed for highlighting or explanation
+  - `target_context_kind`
+  - `target_context_matching_split_ids`
+
+These fields should be canonical review-artifact fields, not ad hoc app-only state, because the builder is the right place to know why a row exists.
+
+### Step 3 review-artifact projection strategy
+
+`src/ynab_il_importer/review_app/io.py` should stay the canonical translation boundary, but it needs to become more explicit about the display projection it builds.
+
+Recommended direction:
+
+- keep `load_review_artifact(...)` as the canonical reader
+- keep `save_review_artifact(...)` as the canonical writer
+- expand `project_review_artifact_to_flat_dataframe(...)` so it derives display helper columns from the nested transactions and new context fields
+- keep the nested `source_transaction` and `target_transaction` mappings attached to each internal row so `app.py` can render expanded split detail without recomputing from disk
+
+Useful derived display helper columns:
+
+- `source_is_split`
+- `target_is_split`
+- `source_split_count`
+- `target_split_count`
+- `source_split_total`
+- `target_split_total`
+- `source_context_kind`
+- `source_context_category_name`
+- `source_matching_split_ids`
+- `target_matching_split_ids`
+
+These are internal app-boundary helpers, not a second authoritative artifact.
+
+### Step 3 display model
+
+Recommended row display modes:
 
 - folded transaction view
   - shows parent transaction summary
@@ -886,6 +982,19 @@ Recommended display modes:
   - lists split lines beneath the parent
   - shows payee/category/amount/memo per split line
   - highlights which lines are relevant to the current review case
+
+### Folded summary requirements
+
+The row or group summary should remain readable even before expansion.
+
+Recommended summary additions:
+
+- a split badge on source and target sides independently
+- split count for each side when non-zero
+- short scope text for cross-budget source rows, for example:
+  - `parent category match`
+  - `2 split lines matched category`
+- preserve the current primary-state/readiness emphasis so split display does not drown out review priority
 
 ### Display requirements
 
@@ -905,6 +1014,34 @@ More specifically:
   - target YNAB parent summary
   - extraction context indicating why this source transaction is in scope for the current category-based workflow
 
+### Expanded detail requirements
+
+Expanded row detail should render split structure clearly but read-only:
+
+- parent transaction summary first
+- split section beneath it only when `splits` is non-empty
+- one row per split line showing:
+  - amount
+  - payee
+  - category
+  - memo
+  - split identifier where useful for debugging
+- visual highlight for matched split lines in YNAB-as-source review when the source row was included because of child-line category matches
+- clear fallback text when the transaction is not split
+
+### Grouped-view behavior
+
+Grouped/fingerprint view should continue to group parent review rows exactly as it does today.
+
+Step 3 should not introduce split-line grouping.
+
+Specific grouped-view rules:
+
+- one parent review row remains one row in the group
+- split lines are only visible inside the row expander
+- group counts and primary-state summaries must not multiply because a parent has several split lines
+- `Accept` / `Apply` actions stay at the parent-row level
+
 ### Metadata the UI will need
 
 - parent transaction id
@@ -918,33 +1055,152 @@ More specifically:
   - whether the match came from the parent category or child lines
   - which child lines matched
 
-### Canonical-through-review shape
+### File-by-file Step 3 change inventory
 
-Step 3 should make the review builder boundaries explicit:
+#### `src/ynab_il_importer/artifacts/review_schema.py`
 
-- The app should consume the canonical structure and transform it internally to the relevant data structures for presentation
-- The internal representaiton should carry references to canonical source/target transaction objects
-- the app should render from those attached canonical objects when split detail is needed
+- add the explicit source/target display-context fields listed above
+- keep `source_transaction` and `target_transaction` as canonical nested objects
+- do not add editable split state yet
 
-This means the future function shape should trend toward:
+#### `scripts/build_proposed_transactions.py`
 
-- source canonical transaction
-- target canonical transaction
-- review-row facade for current app controls
+- keep emitting one review row per parent transaction relation
+- populate any new source/target context metadata needed for display
+- for institutional rows, populate enough context to show whether the source or target side is split, even if no special match highlighting is needed
 
-rather than:
+#### `scripts/build_cross_budget_review_rows.py`
 
-- many exploded source/target child rows pretending to be separate transactions
+- this is the builder that most needs Step 3 metadata work
+- when a source transaction is included because a split child matched the chosen category, record:
+  - that the source context is a split-category match
+  - which split ids matched
+  - which category id/name drove inclusion
+- when the parent category itself matched, record that distinctly
 
-That setup will let Step 4 add editing without needing to redesign the outer review case a second time.
+This prevents the app from needing to guess why a canonical parent transaction is on screen.
+
+#### `src/ynab_il_importer/review_app/io.py`
+
+- remain the only flatten/unflatten boundary
+- extend the flat projection with split-display helper columns derived from nested canonical transactions
+- preserve new source/target context metadata across save/resume
+- ensure untouched rows round-trip without losing nested split structure or context annotations
+
+#### `src/ynab_il_importer/review_app/app.py`
+
+- add source/target transaction summary render helpers instead of continuing to inline every field
+- add read-only split detail renderers for source and target transactions
+- use the nested transaction objects already carried in each row instead of rebuilding transaction views from scalar flat fields
+- keep existing editing widgets and decision controls attached to the parent review row
+- keep widget count under control by rendering split details only inside expanded rows
+
+Recommended refactor bias:
+
+- move split-rendering helpers into small focused functions, even if they stay in `app.py` initially
+- avoid mixing split-detail rendering with selection-widget mutation logic any more than necessary
+
+#### `src/ynab_il_importer/review_app/state.py`
+
+- keep primary-state logic parent-row based
+- ignore split children for readiness/blocker semantics in Step 3
+- add helper series only if needed for filtering on split presence, for example:
+  - `source_is_split`
+  - `target_is_split`
+
+#### `src/ynab_il_importer/review_app/validation.py`
+
+- keep validation parent-row based for Step 3
+- do not introduce split-line editing or split-balance validation yet
+- ensure any new context/display columns are ignored by decision validation unless they carry actual review semantics
+
+#### `tests/test_review_io.py`
+
+- add round-trip coverage for the new context fields
+- add projection tests for split helper columns derived from canonical transactions
+
+#### `tests/test_build_proposed_transactions.py`
+
+- add coverage that builder output preserves split source/target snapshots and any new context metadata
+
+#### `tests/test_build_cross_budget_review_rows.py`
+
+- add explicit coverage for:
+  - parent-category source matches
+  - split-child source matches
+  - matching split ids/category context carried into the review artifact
+
+#### `tests/test_review_app.py` and `tests/test_review_app_wrapper.py`
+
+- add app-level tests that split rows render and remain reviewable
+- keep tests focused on behavior, not Streamlit implementation details
+- verify grouped mode does not multiply or miscount parent rows because of splits
+
+### Step 3 internal representation
+
+The app should continue to use a pandas dataframe internally in Step 3, but that dataframe should be understood as a view over canonical review rows, not as the authoritative model.
+
+Recommended internal row shape:
+
+- existing flat control fields
+  - selected payees/categories
+  - decisions
+  - reviewed flags
+  - filter/search text
+- nested canonical objects
+  - `source_transaction`
+  - `target_transaction`
+- derived display-only fields
+  - split counts
+  - split badges
+  - match/extraction context text
+
+This means Step 3 should not require new external callers or new pre-flattened artifacts. Only the app boundary changes.
+
+### Step 3 save/resume rules
+
+- saving from the app must write a canonical review artifact
+- resuming must reconstruct the same nested source/target transactions and the same split-display context
+- flat compatibility CSV output can still exist if explicitly requested, but it should remain secondary
+- if a user changes only payee/category/decision fields, the canonical source/target transaction snapshots should remain unchanged unless Step 4 later introduces explicit transaction editing
+
+### Step 3 migration sequence
+
+1. extend the canonical review schema with explicit display-context fields
+2. update the builders to populate that context, especially for cross-budget source extraction
+3. extend `review_app/io.py` to project split-display helper columns from canonical rows
+4. add read-only split rendering helpers in `app.py`
+5. render split detail in row mode first
+6. verify grouped mode still behaves correctly with split-bearing parent rows
+7. only after display is stable, consider small cleanup refactors inside `app.py`
 
 ### Step 3 testing
 
-- app loads transactions with and without splits
-- folded and expanded rendering are stable
+- app loads canonical review artifacts with and without split transactions
+- canonical review artifacts round-trip through `review_app/io.py` without losing split lines or display context
+- folded summaries show split status without changing decision behavior
+- expanded rendering shows split lines correctly on source and target sides
 - grouped view does not duplicate or miscount split parents
 - accept/review flow remains unchanged for non-editable split display
 - cross-budget YNAB-as-source cases remain parent-transaction-oriented even when the source category match comes from a split child
+- save/resume preserves nested split context and does not regress to flat-only behavior
+
+### Step 3 risks
+
+- `app.py` is already large and performance-sensitive; adding split rendering naively could worsen rerun cost
+- cross-budget source extraction context is easy to under-specify; if the builder does not record why a parent row is in scope, the UI will be forced to guess
+- the current parent-row validation logic could become harder to reason about if split display leaks into decision semantics too early
+- Streamlit widget count could grow noticeably if split detail renders eagerly instead of only when expanded
+
+### Recommended first implementation slice for Step 3
+
+The safest first Step 3 slice is:
+
+1. extend the canonical review schema with source extraction context
+2. populate that context in `scripts/build_cross_budget_review_rows.py`
+3. extend `review_app/io.py` to expose split badges/counts and context text
+4. add a read-only expanded split section for the target side first
+5. then add source-side split/context display once the rendering pattern is stable
 
 ## Step 4 Plan: Add Split Transaction Editing
 
@@ -1001,33 +1257,30 @@ Allow the review workflow to create, edit, and remove split structure.
 - Matching and cross-budget pairing are strongly flat and row-based today. Attempting split-aware matching before the representation layer is stable would multiply risk.
 - YNAB split semantics may force decisions about how parent-vs-child matching should work earlier than expected.
 
-## Recommended Open Questions Before Implementation
+## Recommended Open Questions Before Step 3 Implementation
 
-1. **Should Step 1 review artifacts stay CSV-authoritative, or should they become Parquet-backed with a pandas adapter?**
-   My recommendation is: keep reviewed app files flat and CSV-authoritative in Step 1, then revisit after the core transaction artifacts are stable.
+1. **Should source/target display context live as top-level review fields or as a nested relationship struct?**
+   My recommendation is: use top-level review-schema fields in Step 3 because they are simpler to populate, test, and project through the current pandas-based app boundary. A deeper relationship struct can wait until Step 4 if it still feels necessary.
 
-2. **Do we want one canonical schema with many optional fields, or a small family of related schemas?**
-   My recommendation is: start with one canonical transaction schema plus optional fields and nested `splits`, because the existing code is already organized around a shared flat transaction vocabulary.
+2. **Do we need explicit target-side split-match highlighting in Step 3, or only source-side extraction highlighting?**
+   My recommendation is: source-side highlighting is required for cross-budget explainability; target-side highlighting can stay optional unless a concrete workflow needs it.
 
-3. **Should parser modules move fully to Polars immediately, or can some emit pandas temporarily and canonicalize at the artifact boundary?**
-   My recommendation is: allow temporary boundary conversion where needed, but ensure all authoritative persistence flows through the new Parquet artifact layer.
+3. **Should Step 3 add split-related filters immediately, or only display split detail inside rows?**
+   My recommendation is: start with display only. Add split filters only if they prove useful once the display is working, to avoid making `state.py` and the UI filters more complex prematurely.
 
-4. **Should proposed/review work items ever become the same artifact type as canonical transactions?**
-   My recommendation is: no. Review rows are workflow artifacts derived from transactions, not the canonical transaction model itself.
+4. **How much refactoring should be bundled with the Step 3 display work inside `app.py`?**
+   My recommendation is: do only the small structural refactors needed to keep split rendering comprehensible. A broader app decomposition should remain a separate performance/maintainability follow-up.
 
-5. **What is the exact policy for matching split parent transactions to non-split source transactions and vice versa?**
-   This can wait until Step 2/3, but it should be called out early because it will affect matching semantics.
+5. **What is the exact later policy for matching split parent transactions to non-split source transactions and vice versa?**
+   This is still a real open question, but it no longer blocks Step 3 display. The UI can show the structures clearly before the matching policy is expanded.
 
-6. **How much performance work should be bundled into the migration?**
-   My recommendation is: Step 1 should improve data-layer structure first and only take low-risk performance wins. UI performance work should be a separate tracked concern unless a migration change naturally simplifies it.
+## Recommended Next Implementation Slice
 
-## Recommended First Implementation Slice
+The safest next slice is the first Step 3 slice:
 
-When implementation begins, the safest first slice is:
+1. extend the canonical review schema with source extraction context
+2. populate that context in `scripts/build_cross_budget_review_rows.py`
+3. extend `review_app/io.py` to expose split badges/counts and context text
+4. add a read-only expanded split section for the target side first
 
-1. add `polars` and `pyarrow`
-2. add canonical transaction schema + IO modules
-3. refactor YNAB download construction behind canonical artifact + projections
-4. add equivalence tests for current top-level and exploded YNAB exports
-
-That creates the foundation for the rest of the migration without destabilizing the review workflow first.
+That keeps the app canonical at the boundary, adds the missing explanation metadata, and introduces split display without changing review decisions yet.

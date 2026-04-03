@@ -2,239 +2,73 @@
 
 ## Workstream
 
-Finish Step 2 of split-transaction support on the `handle_splits` branch, then prepare a detailed Step 3 implementation plan before changing the review UI internals.
+Split-transaction support on the `handle_splits` branch.
 
 Current intent:
-- establish canonical Parquet transaction artifacts with nested split support
-- move transaction-processing boundaries toward Polars and PyArrow
-- preserve current workflow behavior while the storage and loading layers change underneath
-- keep the review app pandas-based internally for now, but make canonical review artifacts the real app input/output, with flat translation only inside the app boundary
+- keep canonical Parquet transaction artifacts and canonical review artifacts as the real data model
+- keep the review app pandas-based internally for now, but make flattening happen only inside the app boundary
+- preserve parent-transaction review semantics until split display is in place and split editing is designed
 
 ## Current Goal
 
-Close Step 2 cleanly and get the repo ready for Step 3 planning.
+Close out Step 2 cleanly and prepare for the first Step 3 implementation slice.
 
 That means:
-1. keep the Step 1 migration green and performant on representative real data
-2. ensure the institutional parser boundary can emit canonical transaction artifacts directly
-3. keep review input/output canonical, with flat translation only inside the review app boundary
-4. treat Step 2 as complete only once the parser, builder, app-boundary, and upload paths all align on canonical artifacts
+1. keep the completed canonical transaction/review/upload path green
+2. make the Step 3 plan detailed enough to implement safely
+3. only then start changing the review app display layer
 
 ## Current Status
 
 Done:
-- read project context, prior plan state, and split-handling design notes
-- created `handle_splits` branch from the prior working branch
-- wrote the staged split implementation plan:
-  - `documents/handle_splits_implementation_plan.md`
-- updated dependency management in `pixi.toml` and `pixi.lock`:
-  - added `polars`
-  - added `pyarrow`
-- added canonical transaction artifact foundations:
-  - `src/ynab_il_importer/artifacts/transaction_schema.py`
-  - `src/ynab_il_importer/artifacts/transaction_io.py`
-  - `src/ynab_il_importer/artifacts/transaction_projection.py`
-- added review-app boundary adapters:
-  - `src/ynab_il_importer/review_app/io.py` now accepts CSV paths, pandas DataFrames, Polars DataFrames, and Arrow tables, then normalizes once to pandas
-- added a first canonical YNAB producer:
-  - `src/ynab_il_importer/ynab_api.py::transactions_to_canonical_table(...)`
-- updated YNAB producer scripts to write canonical Parquet sidecars alongside the current CSV projections:
-  - `scripts/download_ynab_api.py`
-  - `scripts/io_ynab_as_source.py`
-- added a shared flat-to-canonical transaction helper:
-  - `src/ynab_il_importer/artifacts/transaction_io.py::flat_projection_to_canonical_table(...)`
-- updated normalized source producers to write canonical Parquet sidecars alongside current CSV projections:
-  - `scripts/normalize_file.py`
-  - `src/ynab_il_importer/cli.py` parse commands
-- added centralized flat transaction loading for top-level compatibility projections:
-  - `src/ynab_il_importer/artifacts/transaction_io.py::load_flat_transaction_projection(...)`
-- updated main review builders to consume top-level Parquet sidecars where safe:
-  - `scripts/build_proposed_transactions.py`
-  - `scripts/build_cross_budget_review_rows.py` target-side loader
-- updated pairing/bootstrap entry points to consume top-level Parquet sidecars where safe:
-  - `src/ynab_il_importer/cli.py`
-  - `scripts/bootstrap_pairs.py`
-  - `scripts/bootstrap_cross_budget_pairs.py` target-side loader
-- added regression coverage for the new artifact and script behavior:
-  - `tests/test_transaction_artifacts.py`
-  - `tests/test_review_io.py`
-  - `tests/test_ynab_api.py`
-  - `tests/test_io_ynab_as_source.py`
-  - `tests/test_download_ynab_api_script.py`
-  - `tests/test_normalize_file_script.py`
-  - `tests/test_cli_normalized_outputs.py`
-  - `tests/test_build_proposed_transactions.py`
-  - `tests/test_build_cross_budget_review_rows.py`
-  - `tests/test_pairing_loaders.py`
-- completed a broad Step 1 verification pass across the migrated modules and tests:
-  - focused ruff checks passed
-  - `61` targeted tests passed
-- completed a dedicated builder performance and correctness pass:
-  - identified the main bottleneck in `build_review_rows(...)` as repeated full payee-map scans inside review-target suggestion generation
-  - fixed `rules.apply_payee_map_rules(...)` to index active rules by fingerprint before matching
-  - removed the second redundant rule-matching pass in `build_target_suggestions(...)` by deriving option lists from the first applied match result
-  - added regression coverage for the new option-building path
-- real-data performance result:
-  - Family `2026_04_01` `build_review_rows(...)` dropped from about `21.6s` to about `0.8s`
-  - the full Family builder command now completes successfully in a few seconds on the representative dataset
-- cross-budget builder status:
-  - targeted tests passed
-  - medium synthetic timing stayed fast, with no separate hotspot or correctness regression uncovered in this pass
-- expanded `documents/handle_splits_implementation_plan.md` with a detailed Step 2 plan:
-  - standardized YNAB download and upload around the canonical transaction artifact
-  - spelled out transaction-level upload assembly for split payloads
-  - identified file-by-file implementation slices, round-trip guarantees, tests, and open design questions
-- tightened the Step 2 and Step 3 plan after rechecking the actual YNAB API model and the repo’s current YNAB-facing scripts:
-  - Step 2 now assumes one canonical YNAB transaction constructor plus post-download category extraction
-  - `category_transactions_to_dataframe(...)` is now planned for removal rather than preservation
-  - flat YNAB CSV downloads and upload previews are no longer assumed to survive by default unless they still serve a real workflow purpose
-  - Step 2 now explicitly treats existing split-composition edits as unsupported because the official API does not support updating `subtransactions` on an existing split transaction
-  - Step 3 now describes canonical parent transactions flowing through review for both institutional and cross-budget workflows
-- started Step 2 implementation on the download/extraction side:
-  - `src/ynab_il_importer/ynab_api.py::transactions_to_dataframe(...)` now returns the canonical YNAB transaction dataframe rather than a flat compatibility projection
-  - removed the legacy `category_transactions_to_dataframe(...)` path
-  - added `project_transactions_to_flat_dataframe(...)` for the still-needed top-level flat YNAB projection
-  - added `extract_category_transactions(...)` to preserve canonical parent transactions when filtering by category
-  - added `project_category_transactions_to_source_rows(...)` as the transitional bridge for category-source and cross-budget flat row consumers
-- migrated the first real Step 2 consumers onto the new extraction/projection boundary:
-  - `scripts/io_ynab_as_source.py`
-  - `scripts/reconcile_cross_budget_balance.py`
-  - `scripts/download_ynab_api.py`
-- verified the first Step 2 slice with focused tests and lint:
-  - `tests/test_ynab_api.py`
-  - `tests/test_io_ynab_as_source.py`
-  - `tests/test_download_ynab_api_script.py`
-  - `tests/test_build_cross_budget_review_rows.py`
-- tightened category extraction semantics after the first Step 2 slice:
-  - `extract_category_transactions(...)` now explicitly treats a transaction as in-scope when either the parent category matches or any nested split line matches
-  - added regression coverage proving that one extraction pass includes both unsplit parent matches and split-parent matches
-- started the upload-side Step 2 refactor:
-  - added `assemble_upload_transaction_units(...)` in `src/ynab_il_importer/upload_prep.py`
-  - regular and transfer payload serialization now flows through transaction units instead of going directly from prepared rows to payload dicts
-  - `upload_preflight(...)` and `verify_upload_response(...)` now reason over those transaction units while staying compatible with the existing prepared-row test fixtures
-  - `scripts/prepare_ynab_upload.py` remains behaviorally the same for users, but its JSON payload now clearly reflects the transaction-unit boundary
-- verified the upload refactor slice with focused tests and lint:
-  - `tests/test_upload_prep.py`
-  - `tests/test_prepare_ynab_upload_script.py`
-- added the first split-create upload path on top of the transaction-unit boundary:
-  - multi-row upload units now classify as `split`
-  - split units serialize to a parent payload with `category_id = null` and `subtransactions`
-  - split transfer units are explicitly blocked as unsupported
-  - `scripts/prepare_ynab_upload.py` now fails early on unsupported upload units rather than emitting ambiguous payloads
-- verified the split-create upload slice with focused tests and lint:
-  - added coverage for split payload serialization and unsupported split-transfer cases in `tests/test_upload_prep.py`
-- extended upload result handling for split responses:
-  - `summarize_upload_response(...)` now counts split rows returned by YNAB
-  - `verify_upload_response(...)` now checks split parents and child structure against the transaction-unit split payload
-  - `scripts/prepare_ynab_upload.py` now surfaces split rows returned and split verification mismatches in its console summary
-- verified split-response handling with focused tests and lint:
-  - added split verification coverage in `tests/test_upload_prep.py`
-- added the first canonical review artifact layer:
-  - `src/ynab_il_importer/artifacts/review_schema.py`
-  - `src/ynab_il_importer/review_app/io.py` now understands a nested canonical review Parquet artifact carrying `source_transaction` and `target_transaction`
-  - `load_proposed_transactions(...)` now projects canonical review artifacts into the app’s flat pandas shape
-  - `save_reviewed_transactions(...)` now writes canonical Parquet when given a `.parquet` path, while preserving CSV as compatibility-only output
-- verified the canonical review IO layer with focused tests:
-  - `tests/test_review_io.py`
-  - `tests/test_review.py`
-- moved the institutional review builder onto canonical review output:
-  - `scripts/build_proposed_transactions.py` now preserves nested `source_transaction` and `target_transaction` snapshots inside review rows
-  - the institutional builder now prefers canonical transaction Parquet inputs when present
-  - the institutional builder default output is now `outputs/proposed_transactions.parquet`
-  - builder output writes canonical review artifacts for `.parquet` destinations and only falls back to flat CSV for compatibility paths
-- verified the institutional builder canonical-output slice with focused tests and lint:
-  - `tests/test_build_proposed_transactions.py`
-  - `tests/test_review_io.py`
-- moved upload prep onto canonical review artifacts:
-  - `src/ynab_il_importer/upload_prep.py` now starts from canonical review artifacts and derives only the scalar upload-working fields it needs internally
-  - canonical review artifacts now preserve extra source-side upload context:
-    - `source_bank_txn_id`
-    - `source_card_txn_id`
-    - `source_card_suffix`
-    - `source_secondary_date`
-    - `source_ref`
-  - `scripts/prepare_ynab_upload.py` now loads canonical review artifacts directly instead of the app’s flat review projection
-  - `src/ynab_il_importer/review_app/app.py` default input/output paths now use Parquet review artifacts
-- verified the canonical upload-prep slice with focused tests and lint:
-  - `tests/test_upload_prep.py`
-  - `tests/test_prepare_ynab_upload_script.py`
-  - `tests/test_review_app_wrapper.py`
-- brought the cross-budget builder onto the same canonical review-artifact shape:
-  - `scripts/build_cross_budget_review_rows.py` now prefers canonical transaction Parquet inputs when present
-  - cross-budget review rows now carry nested `source_transaction` and `target_transaction` snapshots
-  - the cross-budget builder default proposed output is now `proposed_transactions.parquet`
-  - cross-budget proposed rows write canonical review artifacts for `.parquet` destinations and only fall back to flat CSV for compatibility paths
-- verified the cross-budget canonical-builder slice with focused tests and lint:
-  - `tests/test_build_cross_budget_review_rows.py`
-  - `tests/test_upload_prep.py`
-  - `tests/test_review_io.py`
-- completed a real-data sanity pass on the canonical Family path:
-  - built `data/paired/2026_04_01/family_proposed_transactions.parquet`
-  - converted the existing reviewed Family artifact to `data/paired/2026_04_01/family_proposed_transactions_reviewed.parquet`
-  - ran `scripts/prepare_ynab_upload.py` in dry-run mode directly from the canonical reviewed Parquet artifact
-  - dry-run result: `22` prepared rows, `0` transfer payload issues, `0` duplicate payload keys, `0` possible manual matches
-  - fixed one real integration bug from that pass:
-    - `scripts/prepare_ynab_upload.py` now converts the canonical review artifact to pandas before applying CLI-side filters
-    - `src/ynab_il_importer/upload_prep.py` now preserves the caller’s index when deriving its internal upload-working frame from canonical review data
-- finished the institutional parser boundary for Step 2:
-  - `src/ynab_il_importer/io_leumi.py`
-  - `src/ynab_il_importer/io_leumi_xls.py`
-  - `src/ynab_il_importer/io_leumi_card_html.py`
-  - `src/ynab_il_importer/io_max.py`
-  - `src/ynab_il_importer/io_ynab.py`
-  now expose `read_canonical(...)` alongside their existing flat `read_raw(...)` functions
-- added a shared canonical-write path for normalized transaction outputs:
-  - `src/ynab_il_importer/artifacts/transaction_io.py::write_canonical_transaction_artifacts(...)`
-- updated the normalization command boundaries to prefer canonical parser output:
-  - `scripts/normalize_file.py`
-  - `src/ynab_il_importer/cli.py`
-  now use `read_canonical(...)` when available and only emit flat CSV as an explicit compatibility projection
-- verified the parser-boundary completion slice with focused tests and lint:
-  - `tests/test_normalize_file_script.py`
-  - `tests/test_cli_normalized_outputs.py`
-  - `tests/test_transaction_artifacts.py`
+- Step 1 is implemented and verified:
+  - canonical transaction Parquet artifacts exist
+  - parser/normalizer boundaries can emit canonical transaction artifacts directly
+  - builder performance on representative Family data is healthy again
+- Step 2 is implemented:
+  - YNAB download is centered on canonical transactions
+  - uploads are assembled from canonical review artifacts and support new split creation
+  - canonical review artifacts are the real input/output of the review app boundary
+  - institutional parser modules now expose `read_canonical(...)`
+- real-data Family sanity checks succeeded:
+  - canonical Family proposed-review artifact built successfully
+  - reviewed Family artifact was converted to canonical Parquet successfully
+  - upload prep dry-run from canonical reviewed Parquet completed successfully
+- `documents/handle_splits_implementation_plan.md` now has a detailed Step 3 section covering:
+  - canonical-through-app contract
+  - required review-schema context additions
+  - file-by-file Step 3 change inventory
+  - migration sequence, testing plan, and risks
+
+In progress:
+- refresh the planning documents so they match the completed Step 2 state cleanly
+- get the branch ready for the first Step 3 implementation slice after plan review
 
 ## Working Rules For This Phase
 
-- Keep Step 1 behavior-preserving.
-- Prefer compatibility boundaries over deep rewrites.
-- Treat Parquet artifacts as authoritative for transaction-like data as new paths are migrated.
+- Keep canonical review artifacts as the app’s real input/output.
+- Keep flattening inside the review-app boundary only.
+- Preserve parent-transaction review semantics until Step 4 editing work begins.
 - Keep human-edited control files such as maps in CSV.
 - Commit after each successful sub-step.
 - Update `documents/plan.md` before each commit on this branch.
 
-## Step 1 Closeout
-
-Intentional Step 1 boundaries:
-- category-source compatibility CSVs remain the reviewable flat source for cross-budget source inputs
-- review rows remain flat CSV workflow artifacts
-- human-edited control files remain CSV
-
-Step 1 status:
-- representation/plumbing migration is in place
-- main builder performance regression uncovered during verification has been fixed
-- representative real-data builder timing is healthy again
-- Step 2 planning has been revised against the official YNAB split API model
-- Step 2 implementation has begun with the download-side canonicalization slice
-
 ## Risks To Watch
 
-- accidental semantic drift in matching caused by loader or dtype changes
-- writing canonical artifacts that do not preserve enough lineage for later split-aware phases
-- widening scope by trying to make pairing or the review UI split-aware too early
-- destabilizing the review app by moving more than the IO boundary in Step 1
-- silently preserving stale flat download/report artifacts that no longer serve a workflow purpose
-- under-handling unsupported existing-split edits instead of surfacing them clearly
-- letting transitional flat category-source projections calcify instead of staying clearly secondary to canonical YNAB transactions
-- breaking cross-budget operational scripts while the source-side category extraction path is in transition
-- letting the new transaction-unit layer drift into a second ad hoc model instead of keeping it a clear staging boundary on the way to split payloads
-- leaving builders or upload prep pointed at flat review rows after the canonical review artifact now exists
-- under-specifying how split upload responses should be verified compared with the new split-create payload shape
-- leaving existing-split edit/update behavior half-implemented instead of blocking it explicitly
+- under-specifying cross-budget source extraction context, which would force the app to guess why a parent transaction is in scope
+- letting Step 3 leak split display into split editing or validation semantics too early
+- making `app.py` significantly slower or harder to reason about while adding split display
+- losing nested source/target context on save/resume through the app boundary
+- letting transitional flat category-source projections calcify instead of remaining secondary to canonical YNAB transactions
 
 ## Next Step
 
-Step 2 status is ready to close:
-- keep any flat review CSV as an explicit compatibility/debug projection rather than the authoritative artifact
-- decide whether to keep the newly generated Family canonical artifacts as checked-in examples or treat them as local runtime outputs only
-- then expand `documents/handle_splits_implementation_plan.md` with a Step 3 plan at the same level of detail as Steps 1 and 2
+Step 2 is complete enough to move on.
+
+Next:
+1. review the detailed Step 3 plan in `documents/handle_splits_implementation_plan.md`
+2. start the first Step 3 implementation slice:
+   - extend canonical review schema with source extraction context
+   - populate that context in `scripts/build_cross_budget_review_rows.py`
+   - extend `src/ynab_il_importer/review_app/io.py` with split-display helper projection
+   - add the first read-only split display in the review app
