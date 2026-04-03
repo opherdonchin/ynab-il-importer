@@ -696,3 +696,56 @@ def test_canonical_review_helpers_derive_split_and_display_fields() -> None:
     assert rows[1]["target_is_split"] is True
     assert rows[1]["target_split_count"] == 2
     assert rows[1]["target_display_payee"] == "Manual Split"
+
+
+def test_canonical_search_text_series_includes_context_and_split_text() -> None:
+    df = pl.DataFrame(
+        {
+            "review_transaction_id": ["txn-1"],
+            "payee_options": ["Cafe;Bakery"],
+            "category_options": ["Food;Dining"],
+            "match_status": ["ambiguous"],
+            "decision_action": ["keep_match"],
+            "update_maps": ["payee_add_fingerprint"],
+            "source_context_kind": ["ynab_split_category_match"],
+            "source_context_category_name": ["Food"],
+            "source_context_matching_split_ids": ["split-1"],
+            "target_context_kind": [""],
+            "target_context_matching_split_ids": [""],
+            "memo_append": ["note"],
+            "source_transaction": [
+                {
+                    "payee_raw": "Cafe source",
+                    "category_raw": "Food",
+                    "account_name": "Source account",
+                    "date": "2026-03-01",
+                    "memo": "source memo",
+                    "splits": [
+                        {
+                            "split_id": "split-1",
+                            "payee_raw": "Split payee",
+                            "category_raw": "Split category",
+                            "memo": "split memo",
+                        }
+                    ],
+                }
+            ],
+            "target_transaction": [
+                {
+                    "payee_raw": "Cafe target",
+                    "category_raw": "Dining",
+                    "account_name": "Target account",
+                    "date": "2026-03-01",
+                    "memo": "target memo",
+                    "splits": None,
+                }
+            ],
+        }
+    )
+
+    text = review_state.canonical_search_text_series(df)
+
+    assert "ynab_split_category_match" in text.iloc[0]
+    assert "split-1" in text.iloc[0]
+    assert "split payee" in text.iloc[0]
+    assert "target account" in text.iloc[0]

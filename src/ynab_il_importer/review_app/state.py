@@ -24,6 +24,16 @@ def _txn_splits(txn: dict[str, Any]) -> list[dict[str, Any]]:
     return [split for split in splits if isinstance(split, dict)]
 
 
+def _txn_split_text(txn: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for split in _txn_splits(txn):
+        for field in ["split_id", "payee_raw", "category_raw", "memo"]:
+            text = _txn_text(split, field)
+            if text:
+                parts.append(text)
+    return " ".join(parts)
+
+
 def canonical_review_helpers(df: pl.DataFrame) -> pl.DataFrame:
     if df.is_empty():
         return df.with_columns(
@@ -140,6 +150,81 @@ def canonical_review_helpers(df: pl.DataFrame) -> pl.DataFrame:
             .alias("target_display_date"),
         ]
     )
+
+
+def canonical_search_text_series(df: pl.DataFrame) -> pd.Series:
+    if df.is_empty():
+        return pd.Series(dtype="string")
+
+    helpers = canonical_review_helpers(df)
+    table = df.with_columns(
+        [
+            pl.col("source_transaction")
+            .map_elements(
+                lambda txn: _txn_text(_txn_mapping(txn), "memo"),
+                return_dtype=pl.String,
+                skip_nulls=False,
+            )
+            .alias("source_transaction_memo"),
+            pl.col("target_transaction")
+            .map_elements(
+                lambda txn: _txn_text(_txn_mapping(txn), "memo"),
+                return_dtype=pl.String,
+                skip_nulls=False,
+            )
+            .alias("target_transaction_memo"),
+            pl.col("source_transaction")
+            .map_elements(
+                lambda txn: _txn_split_text(_txn_mapping(txn)),
+                return_dtype=pl.String,
+                skip_nulls=False,
+            )
+            .alias("source_split_text"),
+            pl.col("target_transaction")
+            .map_elements(
+                lambda txn: _txn_split_text(_txn_mapping(txn)),
+                return_dtype=pl.String,
+                skip_nulls=False,
+            )
+            .alias("target_split_text"),
+        ]
+    )
+    search_columns = [
+        "review_transaction_id",
+        "payee_options",
+        "category_options",
+        "match_status",
+        "decision_action",
+        "update_maps",
+        "source_context_kind",
+        "source_context_category_name",
+        "source_context_matching_split_ids",
+        "target_context_kind",
+        "target_context_matching_split_ids",
+        "memo_append",
+        "source_transaction_memo",
+        "target_transaction_memo",
+        "source_split_text",
+        "target_split_text",
+    ]
+    view = table.select(search_columns).to_pandas()
+    helper_view = helpers.select(
+        [
+            "source_display_payee",
+            "target_display_payee",
+            "source_display_category",
+            "target_display_category",
+            "source_display_account",
+            "target_display_account",
+            "source_display_date",
+            "target_display_date",
+        ]
+    ).to_pandas()
+    text = pd.Series([""] * len(view), index=view.index, dtype="string")
+    for column in list(view.columns) + list(helper_view.columns):
+        frame = view if column in view.columns else helper_view
+        text = text + " " + frame[column].astype("string").fillna("")
+    return text.str.casefold()
 
 
 def series_or_default(df: pd.DataFrame, col: str) -> pd.Series:

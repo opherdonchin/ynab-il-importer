@@ -751,6 +751,8 @@ def _compute_derived_state(
     df: pd.DataFrame,
     original: pd.DataFrame | None,
     base: pd.DataFrame | None,
+    *,
+    review_table: pl.DataFrame | None = None,
 ) -> dict[str, Any]:
     counts = review_state.summary_counts(df)
     modified = review_state.modified_count(df, original)
@@ -769,7 +771,11 @@ def _compute_derived_state(
     action_series = review_state.action_series(df)
     suggestion_series = review_state.suggestion_series(df)
     map_update_series = review_state.map_update_filter_series(df)
-    search_text = review_state.search_text_series(df)
+    if isinstance(review_table, pl.DataFrame):
+        search_text = review_state.canonical_search_text_series(review_table)
+        search_text.index = df.index
+    else:
+        search_text = review_state.search_text_series(df)
     save_state = pd.Series(
         ["Saved" if bool(value) else "Unsaved" for value in saved_mask],
         index=df.index,
@@ -820,12 +826,14 @@ def _get_cached_derived_state(
     df: pd.DataFrame,
     original: pd.DataFrame | None,
     base: pd.DataFrame | None,
+    *,
+    review_table: pl.DataFrame | None = None,
 ) -> dict[str, Any]:
     current_generation = int(cache.get("_df_generation", 0))
     cached_generation = int(cache.get("_series_generation", -1))
     cached = cache.get("_cached_series")
     if cached_generation != current_generation or not isinstance(cached, dict):
-        cached = _compute_derived_state(df, original, base)
+        cached = _compute_derived_state(df, original, base, review_table=review_table)
         cache["_cached_series"] = cached
         cache["_cached_component_map"] = cached.get("component_map", {})
         cache["_series_generation"] = current_generation
@@ -1458,7 +1466,13 @@ def main() -> None:
     category_list: list[str] = st.session_state.get("category_list", [])
     category_group_map: dict[str, str] = st.session_state.get("category_group_map", {})
     category_error = st.session_state.get("category_error", "")
-    derived = _get_cached_derived_state(st.session_state, df, original, base)
+    derived = _get_cached_derived_state(
+        st.session_state,
+        df,
+        original,
+        base,
+        review_table=review_table,
+    )
     counts = derived["counts"]
     modified = derived["modified"]
     unsaved_mask = derived["unsaved_mask"]
