@@ -13,6 +13,12 @@ from ynab_il_importer.artifacts.transaction_projection import (
     explode_split_lines,
     project_top_level_transactions,
 )
+from ynab_il_importer.artifacts.review_schema import (
+    REVIEW_ARTIFACT_VERSION,
+    REVIEW_SCHEMA,
+    TRANSACTION_STRUCT,
+    empty_review_table,
+)
 from ynab_il_importer.artifacts.transaction_schema import (
     SPLIT_LINE_STRUCT,
     TRANSACTION_ARTIFACT_VERSION,
@@ -25,6 +31,10 @@ __all__ = [
     "TRANSACTION_ARTIFACT_VERSION",
     "TRANSACTION_SCHEMA",
     "empty_transaction_table",
+    "REVIEW_ARTIFACT_VERSION",
+    "REVIEW_SCHEMA",
+    "TRANSACTION_STRUCT",
+    "empty_review_table",
     "explode_split_lines",
     "flat_projection_to_canonical_table",
     "load_flat_transaction_projection",

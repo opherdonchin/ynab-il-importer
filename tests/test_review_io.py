@@ -152,6 +152,63 @@ def test_save_then_load_round_trip_preserves_review_fields(tmp_path) -> None:
     assert bool(loaded.loc[0, "target_present"]) is False
 
 
+def test_save_review_artifact_parquet_round_trip_preserves_nested_transactions(tmp_path) -> None:
+    path = tmp_path / "review.parquet"
+    df = pd.DataFrame(
+        [
+            {
+                "transaction_id": "t1",
+                "account_name": "Account 1",
+                "date": "2026-03-01",
+                "outflow_ils": "10",
+                "inflow_ils": "0",
+                "memo": "memo",
+                "payee_options": "Cafe",
+                "category_options": "Food",
+                "match_status": "source_only",
+                "update_maps": "",
+                "decision_action": "create_target",
+                "fingerprint": "fp1",
+                "workflow_type": "institutional",
+                "source_payee_selected": "Cafe source",
+                "source_category_selected": "",
+                "target_payee_selected": "Cafe target",
+                "target_category_selected": "Food",
+                "reviewed": True,
+                "source_present": True,
+                "target_present": False,
+                "source_row_id": "src-1",
+                "source_transaction": {
+                    "artifact_kind": "normalized_source",
+                    "artifact_version": "transaction_v1",
+                    "source_system": "bank",
+                    "transaction_id": "src-1",
+                    "parent_transaction_id": "src-1",
+                    "account_name": "Account 1",
+                    "source_account": "Account 1",
+                    "date": "2026-03-01",
+                    "inflow_ils": 0.0,
+                    "outflow_ils": 10.0,
+                    "signed_amount_ils": -10.0,
+                    "payee_raw": "Cafe source",
+                    "category_raw": "",
+                    "memo": "memo",
+                    "fingerprint": "fp1",
+                    "approved": False,
+                    "is_subtransaction": False,
+                },
+            }
+        ]
+    )
+
+    review_io.save_reviewed_transactions(df, path)
+    loaded = review_io.load_proposed_transactions(path)
+
+    assert loaded.loc[0, "target_payee_selected"] == "Cafe target"
+    assert loaded.loc[0, "source_transaction"]["transaction_id"] == "src-1"
+    assert loaded.loc[0, "source_transaction"]["payee_raw"] == "Cafe source"
+
+
 def _legacy_institutional_df() -> pd.DataFrame:
     return pd.DataFrame(
         [
