@@ -26,6 +26,25 @@ REQUIRED_REVIEW_COLUMNS = [
 ]
 _LEADING_SYMBOL_RE = re.compile(r"^[^\w\u0590-\u05FF]+")
 _CREATE_TARGET_ACTION = "create_target"
+TRANSACTION_UNIT_COLUMNS = [
+    "upload_transaction_id",
+    "source_row_count",
+    "upload_kind",
+    "unsupported_reason",
+    "account_id",
+    "account_name",
+    "date",
+    "amount_milliunits",
+    "memo",
+    "cleared",
+    "approved",
+    "import_id",
+    "payee_id",
+    "payee_name_upload",
+    "category_id",
+    "target_category_selected",
+    "transfer_target_account_id",
+]
 
 
 def _normalize_text(value: Any) -> str:
@@ -385,7 +404,19 @@ def prepare_upload_transactions(
 
     df["upload_kind"] = "regular"
     df.loc[is_transfer, "upload_kind"] = "transfer"
+    df["upload_transaction_id"] = _normalize_text_series(
+        df.get("transaction_id", pd.Series([""] * len(df), index=df.index))
+    )
+    blank_upload_id = df["upload_transaction_id"] == ""
+    if blank_upload_id.any():
+        generated = pd.Series(
+            [f"upload_txn_{idx}" for idx in range(len(df))],
+            index=df.index,
+            dtype="string",
+        )
+        df.loc[blank_upload_id, "upload_transaction_id"] = generated.loc[blank_upload_id]
     columns = [
+        "upload_transaction_id",
         "transaction_id",
         "decision_action",
         "account_name",
@@ -430,9 +461,109 @@ def prepare_upload_transactions(
     return df[columns].copy()
 
 
+def assemble_upload_transaction_units(prepared_df: pd.DataFrame) -> pd.DataFrame:
+    if prepared_df.empty:
+        return pd.DataFrame(columns=TRANSACTION_UNIT_COLUMNS)
+
+    required = ["upload_kind", "account_id", "date", "amount_milliunits", "import_id"]
+    _validate_columns(prepared_df, required)
+
+    prepared = prepared_df.copy()
+    if "upload_transaction_id" not in prepared.columns:
+        prepared["upload_transaction_id"] = _normalize_text_series(
+            prepared.get("transaction_id", pd.Series([""] * len(prepared), index=prepared.index))
+        )
+        blank_mask = prepared["upload_transaction_id"] == ""
+        if blank_mask.any():
+            generated = pd.Series(
+                [f"upload_txn_{idx}" for idx in range(len(prepared))],
+                index=prepared.index,
+                dtype="string",
+            )
+            prepared.loc[blank_mask, "upload_transaction_id"] = generated.loc[blank_mask]
+    if "account_name" not in prepared.columns:
+        prepared["account_name"] = ""
+    if "memo" not in prepared.columns:
+        prepared["memo"] = ""
+    if "cleared" not in prepared.columns:
+        prepared["cleared"] = "cleared"
+    if "approved" not in prepared.columns:
+        prepared["approved"] = False
+    if "payee_id" not in prepared.columns:
+        prepared["payee_id"] = ""
+    if "payee_name_upload" not in prepared.columns:
+        prepared["payee_name_upload"] = ""
+    if "category_id" not in prepared.columns:
+        prepared["category_id"] = ""
+    if "target_category_selected" not in prepared.columns:
+        prepared["target_category_selected"] = ""
+    if "transfer_target_account_id" not in prepared.columns:
+        prepared["transfer_target_account_id"] = ""
+    prepared["upload_transaction_id"] = _normalize_text_series(prepared["upload_transaction_id"])
+    prepared["upload_kind"] = _normalize_text_series(prepared["upload_kind"])
+    prepared["account_id"] = _normalize_text_series(prepared["account_id"])
+    prepared["account_name"] = _normalize_text_series(prepared["account_name"])
+    prepared["date"] = _normalize_text_series(prepared["date"])
+    prepared["memo"] = _normalize_text_series(prepared["memo"])
+    prepared["cleared"] = _normalize_text_series(prepared["cleared"])
+    prepared["import_id"] = _normalize_text_series(prepared["import_id"])
+    prepared["payee_id"] = _normalize_text_series(prepared["payee_id"])
+    prepared["payee_name_upload"] = _normalize_text_series(prepared["payee_name_upload"])
+    prepared["category_id"] = _normalize_text_series(prepared["category_id"])
+    prepared["target_category_selected"] = _normalize_text_series(
+        prepared["target_category_selected"]
+    )
+    prepared["transfer_target_account_id"] = _normalize_text_series(
+        prepared["transfer_target_account_id"]
+    )
+    prepared["approved"] = normalize_flag_series(prepared["approved"])
+    prepared["amount_milliunits"] = (
+        pd.to_numeric(prepared["amount_milliunits"], errors="coerce").fillna(0).astype(int)
+    )
+
+    unit_rows: list[dict[str, Any]] = []
+    for upload_transaction_id, group in prepared.groupby(
+        "upload_transaction_id", sort=False, dropna=False
+    ):
+        first = group.iloc[0]
+        unit_rows.append(
+            {
+                "upload_transaction_id": _normalize_text(upload_transaction_id),
+                "source_row_count": len(group),
+                "upload_kind": _normalize_text(first.get("upload_kind", "")),
+                "unsupported_reason": "",
+                "account_id": _normalize_text(first.get("account_id", "")),
+                "account_name": _normalize_text(first.get("account_name", "")),
+                "date": _normalize_text(first.get("date", "")),
+                "amount_milliunits": int(first.get("amount_milliunits", 0) or 0),
+                "memo": _normalize_text(first.get("memo", "")),
+                "cleared": _normalize_text(first.get("cleared", "")) or "cleared",
+                "approved": bool(first.get("approved", False)),
+                "import_id": _normalize_text(first.get("import_id", "")),
+                "payee_id": _normalize_text(first.get("payee_id", "")),
+                "payee_name_upload": _normalize_text(first.get("payee_name_upload", "")),
+                "category_id": _normalize_text(first.get("category_id", "")),
+                "target_category_selected": _normalize_text(
+                    first.get("target_category_selected", "")
+                ),
+                "transfer_target_account_id": _normalize_text(
+                    first.get("transfer_target_account_id", "")
+                ),
+            }
+        )
+
+    units = pd.DataFrame(unit_rows, columns=TRANSACTION_UNIT_COLUMNS)
+    duplicate_ids = units["upload_transaction_id"].duplicated(keep=False)
+    if duplicate_ids.any():
+        duplicates = sorted(units.loc[duplicate_ids, "upload_transaction_id"].unique().tolist())
+        raise ValueError(f"Duplicate upload_transaction_id values: {duplicates}")
+    return units
+
+
 def upload_payload_records(prepared_df: pd.DataFrame) -> list[dict[str, Any]]:
+    units = assemble_upload_transaction_units(prepared_df)
     records: list[dict[str, Any]] = []
-    for _, row in prepared_df.iterrows():
+    for _, row in units.iterrows():
         payload: dict[str, Any] = {
             "account_id": _normalize_text(row.get("account_id", "")),
             "date": _normalize_text(row.get("date", "")),
@@ -495,21 +626,8 @@ def upload_preflight(
     prepared_df: pd.DataFrame,
     existing_transactions: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    prepared = prepared_df.copy()
-    prepared["import_id"] = _normalize_text_series(prepared["import_id"])
-    prepared["account_id"] = _normalize_text_series(prepared["account_id"])
-    prepared["upload_kind"] = _normalize_text_series(prepared["upload_kind"])
-    prepared["payee_id"] = _normalize_text_series(prepared["payee_id"])
-    prepared["payee_name_upload"] = _normalize_text_series(
-        prepared["payee_name_upload"]
-    )
-    prepared["category_id"] = _normalize_text_series(prepared["category_id"])
+    prepared = assemble_upload_transaction_units(prepared_df)
     prepared["date_key"] = pd.to_datetime(prepared["date"], errors="coerce")
-    prepared["amount_milliunits"] = (
-        pd.to_numeric(prepared["amount_milliunits"], errors="coerce")
-        .fillna(0)
-        .astype(int)
-    )
 
     payload_duplicates = prepared.groupby(
         ["account_id", "import_id"], dropna=False
@@ -637,20 +755,7 @@ def verify_upload_response(
     prepared_df: pd.DataFrame,
     response: dict[str, Any],
 ) -> dict[str, Any]:
-    prepared = prepared_df.copy()
-    prepared["import_id"] = _normalize_text_series(prepared["import_id"])
-    prepared["account_id"] = _normalize_text_series(prepared["account_id"])
-    prepared["category_id"] = _normalize_text_series(prepared["category_id"])
-    prepared["transfer_target_account_id"] = _normalize_text_series(
-        prepared["transfer_target_account_id"]
-    )
-    prepared["date"] = _normalize_text_series(prepared["date"])
-    prepared["amount_milliunits"] = (
-        pd.to_numeric(prepared["amount_milliunits"], errors="coerce")
-        .fillna(0)
-        .astype(int)
-    )
-    prepared["upload_kind"] = _normalize_text_series(prepared["upload_kind"])
+    prepared = assemble_upload_transaction_units(prepared_df)
 
     response_df = _transactions_frame(response.get("transactions", []) or [])
     if response_df.empty:

@@ -82,6 +82,64 @@ def test_prepare_upload_transactions_maps_regular_and_transfer_rows() -> None:
     assert "category_id" not in payload[1]
 
 
+def test_assemble_upload_transaction_units_preserves_regular_and_transfer_rows() -> None:
+    reviewed = _reviewed_df(
+        {
+            "transaction_id": ["t1", "t2"],
+            "account_name": ["Bank Leumi", "Bank Leumi"],
+            "date": ["2026-03-01", "2026-03-02"],
+            "outflow_ils": ["10.50", "0"],
+            "inflow_ils": ["0", "25.00"],
+            "memo": ["groceries", "cash deposit"],
+            "payee_selected": ["Superpharm", "Transfer : Cash"],
+            "category_selected": ["Groceries", ""],
+        }
+    )
+
+    prepared = upload_prep.prepare_upload_transactions(
+        reviewed,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+    units = upload_prep.assemble_upload_transaction_units(prepared)
+
+    assert units["upload_transaction_id"].tolist() == ["t1", "t2"]
+    assert units["source_row_count"].tolist() == [1, 1]
+    assert units["upload_kind"].tolist() == ["regular", "transfer"]
+    assert units["payee_name_upload"].tolist() == ["Superpharm", ""]
+    assert units["payee_id"].tolist() == ["", "payee-cash"]
+
+
+def test_upload_payload_records_uses_transaction_units() -> None:
+    prepared = pd.DataFrame(
+        {
+            "upload_transaction_id": ["u1", "u1"],
+            "account_id": ["acc-bank", "acc-bank"],
+            "account_name": ["Bank Leumi", "Bank Leumi"],
+            "date": ["2026-03-01", "2026-03-01"],
+            "amount_milliunits": [-10500, -10500],
+            "memo": ["groceries", "groceries"],
+            "cleared": ["cleared", "cleared"],
+            "approved": [False, False],
+            "import_id": ["YNAB:-10500:2026-03-01:1", "YNAB:-10500:2026-03-01:1"],
+            "upload_kind": ["regular", "regular"],
+            "payee_id": ["", ""],
+            "payee_name_upload": ["Superpharm", "Superpharm"],
+            "category_id": ["cat-groceries", "cat-groceries"],
+            "transfer_target_account_id": ["", ""],
+        }
+    )
+
+    units = upload_prep.assemble_upload_transaction_units(prepared)
+    payload = upload_prep.upload_payload_records(prepared)
+
+    assert len(units) == 1
+    assert units.loc[0, "source_row_count"] == 2
+    assert len(payload) == 1
+    assert payload[0]["payee_name"] == "Superpharm"
+    assert payload[0]["category_id"] == "cat-groceries"
+
+
 def test_prepare_upload_transactions_generates_stable_occurrence_import_ids() -> None:
     reviewed = _reviewed_df(
         {
