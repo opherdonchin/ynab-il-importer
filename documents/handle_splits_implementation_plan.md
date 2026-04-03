@@ -178,21 +178,21 @@ The repo should explicitly distinguish three layers:
 
 2. **Flat compatibility projections**
    - derived from the canonical artifact
-   - used by existing pairing, review-row building, and current upload prep
+   - used only where an active workflow still genuinely needs them
    - includes:
-     - top-level YNAB transaction projection
-     - exploded category-source projection
+     - top-level transaction/debug projection where still useful
+     - category/account extraction views
      - normalized source transaction projection
 
 3. **Human-facing/debug projections**
    - optional CSV flat dumps
    - optional JSON nested dumps for split inspection
 
-This keeps one source of truth while preserving current behavior.
+This keeps one source of truth while avoiding the trap of preserving stale flat exports just because they already exist.
 
 ## Recommended Module Changes
 
-The initial suggestion to create separate schema/IO/projection modules is directionally good, but the repo does not need too many tiny modules at once. A pragmatic first cut would be:
+The initial suggestion to create separate schema/IO/projection modules is directionally good, but the repo does not need too many tiny modules at once. Only keep projection helpers that serve a live workflow purpose.
 
 - `src/ynab_il_importer/artifacts/transaction_schema.py`
   - PyArrow schema definitions
@@ -202,9 +202,8 @@ The initial suggestion to create separate schema/IO/projection modules is direct
   - optional CSV/JSON dump helpers
   - path/format detection helpers
 - `src/ynab_il_importer/artifacts/transaction_projection.py`
-  - canonical -> top-level flat transaction rows
-  - canonical -> exploded category-source rows
-  - canonical -> other compatibility projections
+  - canonical -> only the specific projections/extractions that remain useful
+  - this module can be narrowed or merged later if it becomes a grab bag of legacy helpers
 
 If that feels too fragmented during implementation, `transaction_io.py` and `transaction_projection.py` can be merged, but the schema definition should stay explicit.
 
@@ -440,27 +439,28 @@ Accept only non-semantic differences such as row order or dtype rendering where 
 
 ### Step 2 goal
 
-Make the YNAB boundary coherent in both directions:
+Make the YNAB boundary coherent in both directions while trimming stale flat artifacts instead of preserving them automatically.
 
-- downloads should produce one canonical transaction model with optional nested split lines
-- existing flat download/report shapes should become explicit projections of that model
-- uploads should be able to create or update both regular transactions and split transactions from reviewed canonical state
+Concretely:
 
-This is the stage where split transactions stop being merely preserved and start being meaningfully round-trippable at the YNAB boundary.
+- one canonical YNAB transaction object should be downloaded and stored
+- category and account-oriented views should be derived from that canonical object only when they still serve a functional purpose
+- uploads should operate on canonical transactions, not row-by-row flat approximations
+- Step 2 should support regular transaction upload, transfer upload, and new split creation
+- Step 2 should not promise in-place modification of existing split composition where the official API does not support it
+
+This is the stage where split transactions stop being passively preserved and start being handled deliberately at the YNAB API boundary.
 
 ### Step 2 scope boundary
 
 #### In scope for Step 2
 
 - standardizing YNAB download around the canonical transaction artifact
-- standardizing YNAB upload payload construction around the same canonical model
-- defining how split parent and split child information survives download -> canonical artifact -> upload payload
+- standardizing YNAB upload payload construction around canonical transactions
+- eliminating or demoting YNAB-facing downloads/reports that no longer serve an active workflow purpose
+- defining category extraction as a deliberate operation on canonical transactions
 - generalizing upload preparation from single-category rows to transaction-level payload assembly
-- preserving enough identifiers and lineage to distinguish:
-  - regular transaction
-  - split transaction
-  - updated existing split transaction
-  - newly created split transaction
+- verifying split round-trip through the normal YNAB save response
 
 #### Out of scope for Step 2
 
@@ -471,49 +471,54 @@ This is the stage where split transactions stop being merely preserved and start
 
 The review app can remain flat and mostly split-blind here; Step 2 is about the YNAB-facing boundary and canonical artifact fidelity.
 
+### API facts established before implementation
+
+The official YNAB OpenAPI spec already resolves the main API questions:
+
+- a split transaction is created by using parent `category_id = null` together with `subtransactions`
+- split parent responses come back with `category_name = 'Split'`
+- `TransactionDetail` responses include a `subtransactions` array with child amount/payee/category/memo fields
+- updating `subtransactions` on an existing split transaction is explicitly not supported
+- changing `date`, `amount`, or `category_id` on an existing split transaction is explicitly not supported
+- `SaveSubTransaction.category_id` is nullable in the schema, but this repo does not need to depend on that looseness
+
+Implications for this repo:
+
+- Step 2 should support creating new split transactions
+- Step 2 should not promise in-place edits to existing split composition
+- Step 2 validation can require every split line to carry a category, using `Uncategorized` if needed
+- split transfer lines should be treated as unsupported in Step 2
+
 ### Current code reality to fix
 
-After Step 1, the codebase already preserves split lines in the canonical artifact, but the YNAB boundary is still asymmetrical.
+After Step 1, the canonical artifact can preserve split lines, but the YNAB-facing code still behaves like multiple inconsistent models.
 
-#### Downloads currently have two shapes
+#### Download side
 
-In `src/ynab_il_importer/ynab_api.py`:
+In `src/ynab_il_importer/ynab_api.py` there are still two transaction download constructors:
 
 - `transactions_to_dataframe(...)`
-  - returns top-level parent transactions only
-  - preserves top-level category `Split` on split parents
 - `category_transactions_to_dataframe(...)`
-  - explodes subtransactions into separate flat rows
-  - is category-centric rather than transaction-centric
 
-Those are both derived from the same raw API payload, but today they still behave like separate ad hoc models rather than named projections of one boundary representation.
+That split should be removed. There should be one canonical transaction constructor, and category extraction should happen after that.
 
 #### Category-as-source export discards family structure
 
 In `scripts/io_ynab_as_source.py`:
 
-- the script filters `category_transactions_to_dataframe(...)`
-- it emits a flat source-like CSV keyed to category rows
-- sibling and parent split structure is intentionally discarded after filtering
+- the script currently flattens category-matching rows out of YNAB transactions
+- it emits a source-like CSV
+- sibling and parent split structure is discarded after filtering
 
-That behavior was acceptable in Step 1 because we were preserving current semantics, but Step 2 needs to define that flattening explicitly as a projection and make clear what is lost.
+That is acceptable as a temporary bridge, but it should no longer define the YNAB boundary.
 
 #### Uploads are still single-transaction, single-category only
 
 In `src/ynab_il_importer/upload_prep.py`:
 
-- `prepare_upload_transactions(...)` works row-by-row on flat reviewed rows
-- `upload_payload_records(...)` always emits one payload dict per row
-- each payload can have:
-  - `payee_id` or `payee_name`
-  - one `category_id`
-  - no `subtransactions`
-
-That means the upload path currently cannot express:
-
-- a split transaction with child lines
-- an edit to an existing split parent with revised child lines
-- a parent row whose category is `Split` and whose real categories live only in children
+- upload prep is still row-oriented
+- payload generation is still one reviewed row -> one YNAB payload
+- there is no transaction-level assembly step
 
 #### Existing API write wrappers are generic but not split-aware
 
@@ -532,21 +537,38 @@ So the missing logic is not the HTTP wrapper. The missing logic is the canonical
 - transfer/category checks happen only at the parent row level
 - verification compares scalar parent fields only
 
-That is too narrow for split payloads, where the parent may intentionally have category `Split` or empty category and the meaningful validation lives in child rows.
+That is too narrow once uploads are allowed to carry nested split data.
 
 ### Step 2 design principle
 
-The least disruptive Step 2 design is:
+The simplest coherent Step 2 design is:
 
-- keep the **canonical transaction artifact** authoritative
-- make **download projections** explicit views of that artifact
-- make **upload payload assembly** a transaction-level operation, not a row-level operation
+- use one canonical YNAB transaction constructor
+- keep only the projections that still serve a current workflow purpose
+- treat category extraction as a transformation of canonical transactions, not as a separate YNAB model
+- make upload payload assembly transaction-based
+- accept temporary review-boundary awkwardness if it keeps the API boundary clean
 
-In other words:
+Step 2 should optimize for clean YNAB object flow, not for preserving every flat compatibility output.
 
-- download should start with canonical parent transactions with nested `splits`
-- upload should end with YNAB payload transactions with optional `subtransactions`
-- any flat rows in between are compatibility or review views, not the YNAB boundary model itself
+### Downloads and reports: what to keep, demote, or remove
+
+#### Keep
+
+- canonical Parquet YNAB transaction download artifact
+- `download_ynab_categories.py`
+- JSON payload preview from `prepare_ynab_upload.py`
+
+#### Keep only as transitional compatibility artifacts
+
+- `io_ynab_as_source.py`
+- flat category/account review extracts derived from canonical YNAB transactions where an existing flow still consumes them
+
+#### Demote or remove by default in Step 2
+
+- default flat CSV transaction dump from `download_ynab_api.py`
+- default CSV upload preview from `prepare_ynab_upload.py`
+- `category_transactions_to_dataframe(...)`
 
 ### Canonical YNAB boundary model
 
@@ -567,140 +589,87 @@ For YNAB-origin transactions specifically:
   - `parent_transaction_id`
   - payee/category/memo/amount fields
 
-#### Important refinement for Step 2
+Useful refinements in Step 2:
 
-The existing canonical schema is good enough to start Step 2, but it likely needs a small amount of YNAB-specific refinement before upload round-trip is fully reliable.
-
-Likely additions or clarifications:
-
-- top-level transaction metadata
-  - whether the parent is a split transaction
-  - whether the parent category is a real category or the YNAB sentinel `Split`
-- split-line metadata
-  - stable split-line ordering
-  - explicit child signed amount, not only inflow/outflow pairs, if that simplifies payload construction
-- upload lineage metadata
-  - whether a reviewed transaction should be created, updated, or left unchanged
-
-I would prefer adding those as carefully chosen canonical fields rather than inventing a separate upload-only schema unless code inspection during implementation proves that cleaner.
+- `is_split_transaction`
+- `parent_category_is_split`
+- stable split-line ordering
+- explicit signed split amount
+- upload intent metadata such as create/update/no-op
 
 ### Step 2 download strategy
 
-#### Goal
+#### Core direction
 
-All YNAB download shapes should come from the same canonical constructor.
+There should be one YNAB transaction constructor and one category extraction path layered on top of it.
 
-#### Required download outputs
+Recommended direction:
 
-Step 2 should make these outputs explicit projections:
+- make `transactions_to_dataframe(...)` the single canonical YNAB download constructor name if we keep that name
+- eliminate `category_transactions_to_dataframe(...)`
+- add a general extraction helper that operates on canonical transactions rather than constructing a second YNAB model
 
-1. canonical nested YNAB transaction artifact
-   - authoritative
-   - parent transaction + nested split lines
-
-2. top-level flat transaction projection
-   - current `transactions_to_dataframe(...)` behavior
-   - used by existing matching/reconciliation flows
-
-3. exploded split-line/category projection
-   - current `category_transactions_to_dataframe(...)` behavior
-   - used by category-as-source flows
-
-4. optional nested JSON/debug projection
-   - useful for inspecting split fidelity during Step 2
+That extraction helper should preserve canonical transaction objects, not explode them into unrelated child rows.
 
 #### File-by-file Step 2 download changes
 
 ##### `src/ynab_il_importer/ynab_api.py`
 
 - keep raw fetch functions as they are
-- strengthen `transactions_to_canonical_table(...)` so it becomes the one true download constructor
-- refactor `transactions_to_dataframe(...)` into a wrapper around:
-  - canonical table creation
-  - top-level flat projection helper
-- refactor `category_transactions_to_dataframe(...)` into a wrapper around:
-  - canonical table creation
-  - split-line explosion helper plus compatibility shaping
-
-Recommended design bias:
-
-- avoid duplicating split parsing logic across multiple dataframe builders
-- make projection wrappers visibly depend on the canonical builder
+- consolidate to one canonical transaction constructor
+- make `transactions_to_dataframe(...)` mean the canonical download shape if that name is retained
+- remove `category_transactions_to_dataframe(...)`
+- add a general extraction helper for category-filtered and possibly account-filtered views
 
 ##### `src/ynab_il_importer/artifacts/transaction_projection.py`
 
-- likely needs one additional explicit projection for YNAB exploded category rows
-- the existing `explode_split_lines(...)` is a good foundation, but it currently returns only split lines and not the unsplit-parent fallback rows needed to emulate current `category_transactions_to_dataframe(...)`
-- Step 2 should add a projection helper that reproduces current category-source expectations exactly:
-  - split parents explode into child rows
-  - unsplit parents remain one row
-  - parent and child lineage columns are preserved
+- do not invest heavily in generalized split explosion helpers just to preserve legacy behavior
+- keep this module only if it serves a clear purpose
+- if its remaining job is small, collapse or narrow it
 
 ##### `scripts/download_ynab_api.py`
 
-- should continue writing:
-  - canonical Parquet artifact
-  - flat top-level CSV projection
-- but Step 2 should make that relationship explicit in comments/tests and stop treating the flat CSV as an independent shape
+- make canonical Parquet the primary output
+- make flat CSV optional rather than default if no active workflow requires it
 
 ##### `scripts/io_ynab_as_source.py`
 
-- should derive category-source rows from the canonical YNAB artifact or a named projection helper rather than directly from the legacy flat constructor
-- Step 2 should document and test what is intentionally lost in this projection:
-  - parent category context
-  - sibling split lines outside the selected category
+- rebase it on canonical transaction extraction
+- preserve it as a temporary bridge script only
+- allow it to stay somewhat review-boundary-specific for now
 
-That limitation can remain, but it needs to be named as a deliberate category projection rather than an accident.
+##### `scripts/reconcile_cross_budget_balance.py`
+
+- stop depending on `category_transactions_to_dataframe(...)`
+- pull source-side category data from canonical transactions plus category extraction
 
 ### Step 2 upload strategy
 
-#### Goal
+#### Core direction
 
-Uploads should consume reviewed canonical transaction state and emit valid YNAB API payloads for both:
+Uploads should assemble one payload per canonical parent transaction.
 
-- regular transactions
-- split transactions with `subtransactions`
+There should be a transaction-level upload assembly step that decides:
 
-#### Critical correction to the current upload model
+- regular transaction payload
+- transfer transaction payload
+- new split transaction payload
+- unsupported operation on existing split transaction
 
-The current row-level prepared upload dataframe is too low-level to be the real Step 2 upload boundary.
+#### Supported split behavior in Step 2
 
-Step 2 should split upload work into two layers:
+Step 2 should support:
 
-1. **row-level compatibility preparation**
-   - continues to support current review/export/debug needs
-   - may still produce flat prepared rows where useful
+- creating new split transactions
+- verifying split transactions returned by YNAB
 
-2. **transaction-level payload assembly**
-   - groups reviewed state back into one parent transaction payload
-   - decides whether the payload is regular or split
-   - emits the exact YNAB API structure to send
+Step 2 should not support:
 
-This is the upload-side analogue of the Step 1 projection strategy.
+- in-place mutation of existing split composition
+- split transfer lines
+- uncategorized split lines at the repo workflow level
 
-#### Recommended transaction-level payload model
-
-For a regular transaction payload:
-
-- one parent transaction dict
-- scalar amount/payee/category/memo fields
-- no `subtransactions`
-
-For a split transaction payload:
-
-- one parent transaction dict
-- parent amount equals the total signed amount of the child lines
-- parent category should follow YNAB split semantics rather than forcing a normal category
-- `subtransactions` list contains one dict per child line
-
-Likely child payload fields:
-
-- `amount`
-- `payee_name` or `payee_id` where applicable
-- `category_id`
-- `memo`
-
-The exact final field set should be verified against YNAB API behavior during implementation, but the plan should assume that subtransactions are created as a full child list attached to the parent.
+Even though `SaveSubTransaction.category_id` is nullable in the API schema, this repo should require every split line to have a category and use `Uncategorized` explicitly if needed.
 
 ### Step 2 file-by-file upload change inventory
 
@@ -722,8 +691,8 @@ Recommended additions:
 - a helper that decides whether a group is:
   - regular
   - transfer
-  - split regular
-  - split transfer, if YNAB even permits that shape
+  - new split
+  - unsupported existing-split edit
 - a helper that serializes one upload transaction unit into a YNAB payload dict
 
 Recommended compatibility rule:
@@ -734,16 +703,9 @@ Recommended compatibility rule:
 
 ##### `scripts/prepare_ynab_upload.py`
 
-- should continue to write human-readable dry-run artifacts
-- but Step 2 should distinguish between:
-  - flat prepared inspection output
-  - canonical or grouped transaction payload preview
-
-Recommended output policy:
-
-- keep the current CSV dry-run artifact for inspectability
-- keep JSON as the authoritative preview of the actual payload to be posted
-- if helpful, add an optional nested payload preview file rather than overloading the CSV
+- keep JSON as the main payload preview
+- make CSV preview optional rather than central
+- surface unsupported existing-split-edit cases clearly in dry-run output
 
 ##### `src/ynab_il_importer/ynab_api.py`
 
@@ -756,24 +718,24 @@ My recommendation:
 - keep payload construction in `upload_prep.py`
 - add small validation helpers in `ynab_api.py` only if they encode stable YNAB-specific rules
 
-### Step 2 update-vs-create policy
+### Step 2 create-vs-update policy
 
-This needs to be explicit before implementation.
+This is no longer an open question.
 
-Recommended policy:
+#### Regular transactions
 
-- `create_transactions(...)` is used for reviewed rows that represent new transactions to be created
-- `update_transactions(...)` is used only when the reviewed canonical artifact clearly points at an existing YNAB parent transaction that should be modified
+- create: supported
+- update: supported
 
-For split transactions specifically:
+#### New split transactions
 
-- parent transaction id should be the update identity
-- split child updates should be treated as a whole-parent replacement operation, not a child-by-child patch unless YNAB behavior proves otherwise
+- create: supported
 
-Why this is the safer default:
+#### Existing split transactions
 
-- the repo already reasons mostly in terms of parent transactions
-- it avoids trying to treat subtransactions as independently patchable domain objects before we have verified that model carefully
+- parent metadata updates may be technically possible in narrow cases, but Step 2 should not rely on that
+- changing split composition in place is not supported by the API
+- therefore Step 2 should treat reviewed changes to an existing split structure as unsupported
 
 ### Step 2 round-trip rules
 
@@ -784,128 +746,107 @@ The plan should make these round-trip guarantees explicit.
 - every non-deleted YNAB parent transaction becomes one canonical parent row
 - every non-deleted YNAB subtransaction becomes one nested split line under that parent
 
-#### Canonical -> download projections
+#### Canonical -> extracted review/source views
 
-- top-level projection preserves current parent-row semantics
-- exploded/category projection preserves current subtransaction-row semantics for category-based workflows
+- account/category extractions stay tied to the parent transaction object
+- the extraction may annotate which child lines matched a category, but it should not redefine the transaction model
 
 #### Reviewed canonical -> upload payload
 
-- regular reviewed transaction becomes one regular parent payload
-- split reviewed transaction becomes one parent payload with subtransactions
+- regular canonical transaction becomes one regular parent payload
+- new split canonical transaction becomes one payload with parent `category_id = null` and `subtransactions`
+- attempted edit of existing split composition becomes an explicit unsupported outcome
 
 #### Upload response -> verification
 
-- parent identity should be checked by `(account_id, import_id)` when possible
+- parent identity should be checked by `(account_id, import_id)` or transaction id where applicable
 - split verification should compare:
+  - parent category name `Split`
   - parent amount
-  - parent account/date/import id
   - child count
-  - child amount totals
-  - child categories/payees when available in the response
+  - child amount/category/payee/memo structure
 
-The current verification path is not enough for this and will need a split-capable companion.
+Because the official response model includes `TransactionDetail.subtransactions`, Step 2 does not need to assume a post-upload refetch just to verify split creation.
 
-### Step 2 open design questions to resolve during implementation
+### Step 2 resolved decisions
 
-These are now specific enough that they should be called out before coding.
-
-1. **How much child identity should we expect on update?**
-   - If YNAB requires child ids for updating existing split children, the canonical artifact will need to preserve and round-trip them strictly.
-   - If YNAB treats submitted `subtransactions` as replacement content, parent-level update may be simpler.
-
-2. **What is the correct parent category representation for split uploads?**
-   - We should not assume the parent category behaves like a normal category row.
-   - The implementation should confirm whether the payload should omit parent category, send empty `category_id`, or rely on YNAB to derive `Split`.
-
-3. **Can split lines use transfer semantics in the YNAB API?**
-   - If yes, that needs explicit validation rules.
-   - If no, the upload grouping logic should reject or defer those cases clearly.
-
-4. **What reviewed artifact shape should feed split upload before Step 4 editing exists?**
-   - In Step 2 alone, upload-capable split state may come only from canonical artifacts or synthetic tests, not the review app.
-   - The plan should not overpromise split editing before the UI stages.
-
-5. **How much response detail does YNAB actually return for created or updated split transactions?**
-   - Verification quality will depend on this.
-   - If the response is too shallow, Step 2 may need a post-upload fetch-and-verify path for split transactions.
+1. existing split child composition should be treated as non-updatable in Step 2
+2. split parent uploads should use `category_id = null` and rely on YNAB’s split semantics
+3. split transfer lines are out of scope for Step 2
+4. Step 2 upload-capable split state can come from canonical artifacts and synthetic fixtures before Step 4 editing exists
+5. split-create verification can use the standard save response because the official response model includes split child detail
 
 ### Step 2 migration sequence
 
-1. Refactor YNAB download projections so both top-level and exploded views come from the canonical constructor.
-2. Add explicit projection helpers for unsplit-parent fallback plus split-child explosion.
-3. Add transaction-level upload assembly structures and helpers.
-4. Keep existing regular-transaction payload behavior working through the new transaction-level path.
-5. Add split payload serialization for canonical split transactions.
-6. Extend preflight checks to detect invalid split payloads before execution.
-7. Extend upload verification to reason about split responses or follow-up verification.
-8. Update dry-run scripts to expose the new payload shape clearly without losing inspectability.
-9. Run round-trip and golden tests on representative regular and split YNAB cases before touching review-app behavior.
+1. consolidate YNAB download to one canonical constructor
+2. remove `category_transactions_to_dataframe(...)`
+3. add canonical category extraction that preserves parent transaction objects
+4. rebase `io_ynab_as_source.py` and cross-budget reconciliation on that extraction path
+5. add transaction-level upload assembly for regular transactions first
+6. migrate the current regular upload path onto that transaction-level path
+7. add new-split payload serialization and validation
+8. add unsupported-operation handling for existing split edits
+9. make JSON the primary dry-run artifact and demote flat CSV previews where they no longer serve a real purpose
+10. verify round-trip behavior on representative regular and split examples before touching the review UI
 
 ### Step 2 testing plan
 
-#### Download-side equivalence tests
+#### Download tests
 
-- `transactions_to_dataframe(...)` still matches the current top-level flat shape when driven from canonical input
-- `category_transactions_to_dataframe(...)` still matches the current exploded flat shape when driven from canonical input
-- split parents and unsplit parents both project correctly
-
-#### Canonical fidelity tests
-
-- a downloaded split transaction round-trips:
-  - raw API payload -> canonical table
-  - canonical table -> projection
-  - canonical table -> nested payload preview
-- child line order and amounts are preserved
+- canonical YNAB constructor preserves nested split structure
+- category extraction returns parent transactions with correct match annotations
+- scripts that still need flat/debug views can derive them from canonical transactions without redefining the model
 
 #### Upload serialization tests
 
 - regular reviewed transaction -> one regular YNAB payload
 - transfer reviewed transaction -> one transfer payload
-- split transaction -> one parent payload with expected `subtransactions`
-- split transaction totals reconcile exactly between parent and children
-
-#### Preflight and validation tests
-
-- reject split payloads whose child totals do not equal the parent total
-- reject unsupported split child combinations if YNAB disallows them
-- detect duplicate import ids or conflicting update identities at the parent level
+- new split transaction -> one parent payload with expected `subtransactions`
+- split line validation rejects missing categories at repo-workflow level
+- existing split edit attempt is surfaced as unsupported
 
 #### Response verification tests
 
 - regular saved transaction verifies as before
-- split saved transaction verifies parent identity and child structure
-- idempotent rerun logic still works for regular transactions and has a defined interpretation for split ones
+- new split transaction verifies parent `Split` status and child structure
 
 #### Script-level integration tests
 
-- `scripts/download_ynab_api.py` writes coherent canonical + flat outputs for split data
-- `scripts/io_ynab_as_source.py` writes the expected category projection from canonical split data
-- `scripts/prepare_ynab_upload.py` emits correct JSON for regular and split payload scenarios
+- `scripts/download_ynab_api.py` writes canonical output and only writes flat CSV when explicitly requested, if that option remains
+- `scripts/io_ynab_as_source.py` still serves the temporary bridge workflow without redefining the canonical model
+- `scripts/prepare_ynab_upload.py` emits correct JSON for regular and new-split payload scenarios
+
+#### Optional live smoke tests
+
+It is acceptable during implementation to create clearly-labeled test transactions in the real YNAB budget and delete them immediately afterward.
+
+If used, these live tests should:
+
+- use an easy-to-search payee prefix such as `ZZ_SPLIT_TEST`
+- record created transaction ids immediately
+- delete them at the end of the test, even on partial success when possible
 
 ### Step 2 risks
 
-- YNAB API update semantics for split children may be stricter than the current code assumes.
-- The current review workflow may not yet produce enough structured information to drive split uploads directly.
-- Preflight and verification can easily become misleading if they keep treating split parents like regular rows.
-- It will be tempting to drag split display or editing into this step; that should be resisted.
+- stale scripts may still assume the existence of flat CSV downloads that no longer need to be emitted by default
+- the transitional cross-budget source flow may remain awkward until Step 3
+- existing split edit attempts need to fail clearly rather than being silently mis-serialized
 
 ### Recommended first implementation slice for Step 2
 
 When Step 2 implementation begins, the safest first slice is:
 
-1. refactor `ynab_api.py` so both existing download dataframes are explicit projections from the canonical constructor
-2. add projection tests proving that existing download behavior stays stable
-3. add a transaction-level upload assembly helper for regular transactions only
-4. migrate the existing regular upload path to use that helper before adding split payloads
-
-That creates the download/upload backbone first, then adds split payload behavior on top of a cleaner regular-transaction path.
+1. consolidate `ynab_api.py` to one canonical transaction constructor
+2. remove `category_transactions_to_dataframe(...)`
+3. add a category extraction helper that preserves parent transaction objects
+4. migrate one real consumer of category extraction, ideally `reconcile_cross_budget_balance.py`
+5. only after that, move `prepare_ynab_upload.py` and `upload_prep.py` onto transaction-level upload assembly
 
 ## Step 3 Plan: Display Split Transactions in the Review App
 
 ### Step 3 goal
 
-Show split transactions clearly in the review app without enabling split editing yet.
+Show split transactions clearly in the review app without enabling split editing yet, and do it in a way that keeps the review unit centered on canonical parent transactions.
 
 ### Current reality
 
@@ -913,24 +854,56 @@ Show split transactions clearly in the review app without enabling split editing
 - current review cases assume scalar source/target payee/category fields
 - grouped/fingerprint views operate on flat rows
 
+Two review flows matter here:
+
+- institutional review
+  - source is bank/card-origin data
+  - target is a YNAB transaction
+- cross-budget review
+  - source is itself a YNAB transaction or a category extraction from YNAB
+  - target is another YNAB transaction
+
+Step 3 should make both of those flows transaction-oriented rather than line-item-oriented.
+
 ### Step 3 implementation direction
 
-Keep the current review flow, but add display-aware structure:
+Keep the current review flow, but make the display transaction-oriented:
+
+- the review case should still be one parent transaction case
+- split structure should appear as expandable detail within that case
+- category extraction should be shown as context on the parent, not as a replacement object
+
+Recommended display modes:
 
 - folded transaction view
   - shows parent transaction summary
   - indicates that the transaction is split
-  - shows count of split lines and amount total
+  - shows split count and total amount
+  - shows whether the source-side category extraction matched:
+    - the parent category
+    - one or more child lines
 - expanded transaction view
   - lists split lines beneath the parent
   - shows payee/category/amount/memo per split line
+  - highlights which lines are relevant to the current review case
 
 ### Display requirements
 
 - source side can show whether the source transaction is split
 - target side can show whether the existing YNAB transaction is split
 - ambiguous/matched/source-only states remain understandable at the parent transaction level
-- grouped views should group by the parent transaction identity, not by independent split child rows unless explicitly exploded
+- grouped views should group by the parent transaction identity, not by independent split child rows
+
+More specifically:
+
+- institutional review should show:
+  - source transaction summary
+  - target YNAB parent summary
+  - expandable split detail on the target when present
+- cross-budget review should show:
+  - source YNAB parent summary
+  - target YNAB parent summary
+  - extraction context indicating why this source transaction is in scope for the current category-based workflow
 
 ### Metadata the UI will need
 
@@ -940,6 +913,30 @@ Keep the current review flow, but add display-aware structure:
 - split amount totals
 - split line list with payee/category/memo/amount
 - enough lineage to show whether source and target are both split, only one is split, or neither is split
+- extraction context for YNAB-as-source cases:
+  - matched category name/id
+  - whether the match came from the parent category or child lines
+  - which child lines matched
+
+### Canonical-through-review shape
+
+Step 3 should make the review builder boundaries explicit:
+
+- builders should continue to emit a flat review-row facade for the app
+- but each review row or review case should also carry references to canonical source/target transaction objects
+- the app should render from those attached canonical objects when split detail is needed
+
+This means the future function shape should trend toward:
+
+- source canonical transaction
+- target canonical transaction
+- review-row facade for current app controls
+
+rather than:
+
+- many exploded source/target child rows pretending to be separate transactions
+
+That setup will let Step 4 add editing without needing to redesign the outer review case a second time.
 
 ### Step 3 testing
 
@@ -947,6 +944,7 @@ Keep the current review flow, but add display-aware structure:
 - folded and expanded rendering are stable
 - grouped view does not duplicate or miscount split parents
 - accept/review flow remains unchanged for non-editable split display
+- cross-budget YNAB-as-source cases remain parent-transaction-oriented even when the source category match comes from a split child
 
 ## Step 4 Plan: Add Split Transaction Editing
 
@@ -986,6 +984,7 @@ Allow the review workflow to create, edit, and remove split structure.
 
 - edited split state writes back to the authoritative transaction artifact
 - flat review rows become a view or façade over that edited state rather than the full authoritative model
+- if the reviewed target is an existing YNAB split transaction whose line structure changes, the final write-back may need to use an explicit delete-and-recreate workflow because the API does not support updating `subtransactions` in place
 
 ### Testing
 
