@@ -211,6 +211,53 @@ def _review_table_from_dataframe(df: pd.DataFrame) -> pa.Table:
     ]:
         if column in review_df.columns:
             review_df[column] = review_df[column].map(model.normalize_category_value)
+    if "source_present" not in review_df.columns:
+        inferred_source = (
+            _text_series(review_df, "source_row_id").ne("")
+            | _text_series(review_df, "source").ne("")
+            | _text_series(review_df, "source_account").ne("")
+            | _text_series(review_df, "source_date").ne("")
+            | _text_series(review_df, "source_memo").ne("")
+            | _text_series(review_df, "source_fingerprint").ne("")
+            | ~_text_series(review_df, "match_status").str.casefold().eq("target_only")
+        )
+        review_df["source_present"] = inferred_source
+    if "target_present" not in review_df.columns:
+        inferred_target = (
+            _text_series(review_df, "target_row_id").ne("")
+            | _text_series(review_df, "target_account").ne("")
+            | _text_series(review_df, "target_date").ne("")
+            | _text_series(review_df, "target_memo").ne("")
+            | _text_series(review_df, "target_fingerprint").ne("")
+            | ~_text_series(review_df, "match_status").str.casefold().eq("source_only")
+        )
+        review_df["target_present"] = inferred_target
+    if "source_account" not in review_df.columns:
+        review_df["source_account"] = _text_series(review_df, "account_name")
+    if "target_account" not in review_df.columns:
+        review_df["target_account"] = _text_series(review_df, "account_name")
+    if "source_date" not in review_df.columns:
+        review_df["source_date"] = _text_series(review_df, "date")
+    if "target_date" not in review_df.columns:
+        review_df["target_date"] = _text_series(review_df, "date")
+    if "source_memo" not in review_df.columns:
+        review_df["source_memo"] = _text_series(review_df, "memo")
+    if "target_memo" not in review_df.columns:
+        review_df["target_memo"] = _text_series(review_df, "memo")
+    if "source_fingerprint" not in review_df.columns:
+        review_df["source_fingerprint"] = _text_series(review_df, "fingerprint")
+    if "target_fingerprint" not in review_df.columns:
+        review_df["target_fingerprint"] = _text_series(review_df, "fingerprint")
+    if "source_bank_txn_id" not in review_df.columns:
+        review_df["source_bank_txn_id"] = _text_series(review_df, "bank_txn_id")
+    if "source_card_txn_id" not in review_df.columns:
+        review_df["source_card_txn_id"] = _text_series(review_df, "card_txn_id")
+    if "source_card_suffix" not in review_df.columns:
+        review_df["source_card_suffix"] = _text_series(review_df, "card_suffix")
+    if "source_secondary_date" not in review_df.columns:
+        review_df["source_secondary_date"] = _text_series(review_df, "secondary_date")
+    if "source_ref" not in review_df.columns:
+        review_df["source_ref"] = _text_series(review_df, "ref")
 
     row_count = len(review_df)
 
@@ -408,13 +455,17 @@ def project_review_artifact_to_flat_dataframe(
                 "source_row_id": _normalize_text(record.get("source_row_id")),
                 "target_row_id": _normalize_text(record.get("target_row_id")),
                 "source_account": _normalize_text(
-                    source_txn.get("source_account") or source_txn.get("account_name")
+                    record.get("source_account")
+                    or source_txn.get("source_account")
+                    or source_txn.get("account_name")
                 ),
                 "target_account": _normalize_text(
-                    target_txn.get("account_name") or target_txn.get("source_account")
+                    record.get("target_account")
+                    or target_txn.get("account_name")
+                    or target_txn.get("source_account")
                 ),
-                "source_date": _normalize_text(source_txn.get("date")),
-                "target_date": _normalize_text(target_txn.get("date")),
+                "source_date": _normalize_text(record.get("source_date") or source_txn.get("date")),
+                "target_date": _normalize_text(record.get("target_date") or target_txn.get("date")),
                 "source_payee_current": _normalize_text(source_txn.get("payee_raw")),
                 "target_payee_current": _normalize_text(target_txn.get("payee_raw")),
                 "source_category_current": model.normalize_category_value(
@@ -423,10 +474,19 @@ def project_review_artifact_to_flat_dataframe(
                 "target_category_current": model.normalize_category_value(
                     target_txn.get("category_raw")
                 ),
-                "source_memo": _normalize_text(source_txn.get("memo")),
-                "target_memo": _normalize_text(target_txn.get("memo")),
-                "source_fingerprint": _normalize_text(source_txn.get("fingerprint")),
-                "target_fingerprint": _normalize_text(target_txn.get("fingerprint")),
+                "source_memo": _normalize_text(record.get("source_memo") or source_txn.get("memo")),
+                "target_memo": _normalize_text(record.get("target_memo") or target_txn.get("memo")),
+                "source_fingerprint": _normalize_text(
+                    record.get("source_fingerprint") or source_txn.get("fingerprint")
+                ),
+                "target_fingerprint": _normalize_text(
+                    record.get("target_fingerprint") or target_txn.get("fingerprint")
+                ),
+                "source_bank_txn_id": _normalize_text(record.get("source_bank_txn_id")),
+                "source_card_txn_id": _normalize_text(record.get("source_card_txn_id")),
+                "source_card_suffix": _normalize_text(record.get("source_card_suffix")),
+                "source_secondary_date": _normalize_text(record.get("source_secondary_date")),
+                "source_ref": _normalize_text(record.get("source_ref")),
                 "source_payee_selected": _normalize_text(record.get("source_payee_selected")),
                 "source_category_selected": model.normalize_category_value(
                     record.get("source_category_selected")

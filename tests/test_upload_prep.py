@@ -5,6 +5,7 @@ import pytest
 
 import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.card_identity as card_identity
+import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.upload_prep as upload_prep
 
@@ -80,6 +81,41 @@ def test_prepare_upload_transactions_maps_regular_and_transfer_rows() -> None:
     assert payload[0]["category_id"] == "cat-groceries"
     assert payload[1]["payee_id"] == "payee-cash"
     assert "category_id" not in payload[1]
+
+
+def test_prepare_upload_transactions_accepts_canonical_review_artifact(tmp_path) -> None:
+    reviewed = _reviewed_df(
+        {
+            "transaction_id": ["t1"],
+            "account_name": ["Bank Leumi"],
+            "source_account": ["Bank Leumi"],
+            "target_account": ["Bank Leumi"],
+            "source_date": ["2026-03-01"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["10.50"],
+            "inflow_ils": ["0"],
+            "source_memo": ["groceries"],
+            "memo": ["groceries"],
+            "source_fingerprint": ["shop"],
+            "fingerprint": ["shop"],
+            "source": ["bank"],
+            "source_present": [True],
+            "target_present": [False],
+            "payee_selected": ["Superpharm"],
+            "category_selected": ["Groceries"],
+        }
+    )
+    artifact_path = tmp_path / "review.parquet"
+    review_io.save_review_artifact(reviewed, artifact_path)
+
+    prepared = upload_prep.prepare_upload_transactions(
+        artifact_path,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+
+    assert prepared.loc[0, "account_id"] == "acc-bank"
+    assert prepared.loc[0, "category_id"] == "cat-groceries"
 
 
 def test_assemble_upload_transaction_units_preserves_regular_and_transfer_rows() -> None:

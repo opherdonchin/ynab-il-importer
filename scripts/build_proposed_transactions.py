@@ -79,6 +79,11 @@ REVIEW_ROW_COLUMNS = [
     "target_memo",
     "source_fingerprint",
     "target_fingerprint",
+    "source_bank_txn_id",
+    "source_card_txn_id",
+    "source_card_suffix",
+    "source_secondary_date",
+    "source_ref",
     "source_payee_selected",
     "source_category_selected",
     "target_payee_selected",
@@ -933,6 +938,43 @@ def _prepare_review_source_rows(source_df: pd.DataFrame) -> pd.DataFrame:
         .str.strip()
         .to_numpy()
     )
+    prepared["source_bank_txn_id"] = (
+        aligned.get("bank_txn_id", pd.Series([""] * len(aligned), index=aligned.index))
+        .astype("string")
+        .fillna("")
+        .str.strip()
+        .to_numpy()
+    )
+    prepared["source_card_txn_id"] = (
+        aligned.get("card_txn_id", pd.Series([""] * len(aligned), index=aligned.index))
+        .astype("string")
+        .fillna("")
+        .str.strip()
+        .to_numpy()
+    )
+    prepared["source_card_suffix"] = (
+        aligned.get("card_suffix", pd.Series([""] * len(aligned), index=aligned.index))
+        .astype("string")
+        .fillna("")
+        .str.strip()
+        .to_numpy()
+    )
+    prepared["source_secondary_date"] = (
+        pd.to_datetime(
+            aligned.get("secondary_date", pd.Series([""] * len(aligned), index=aligned.index)),
+            errors="coerce",
+        )
+        .dt.strftime("%Y-%m-%d")
+        .fillna("")
+        .to_numpy()
+    )
+    prepared["source_ref"] = (
+        aligned.get("ref", pd.Series([""] * len(aligned), index=aligned.index))
+        .astype("string")
+        .fillna("")
+        .str.strip()
+        .to_numpy()
+    )
     prepared["source_transaction"] = aligned.apply(
         lambda row: _canonical_transaction_dict(
             row,
@@ -1290,6 +1332,11 @@ def build_review_rows(
                 "target_memo": _optional_text(row.get("target_memo")),
                 "source_fingerprint": _optional_text(row.get("fingerprint")),
                 "target_fingerprint": _optional_text(row.get("ynab_fingerprint")),
+                "source_bank_txn_id": _optional_text(row.get("source_bank_txn_id")),
+                "source_card_txn_id": _optional_text(row.get("source_card_txn_id")),
+                "source_card_suffix": _optional_text(row.get("source_card_suffix")),
+                "source_secondary_date": _optional_text(row.get("source_secondary_date")),
+                "source_ref": _optional_text(row.get("source_ref")),
                 "source_payee_selected": source_payee,
                 "source_category_selected": source_category,
                 "target_payee_selected": target_payee,
@@ -1355,6 +1402,11 @@ def build_review_rows(
                 "target_memo": "",
                 "source_fingerprint": _optional_text(row.get("fingerprint")),
                 "target_fingerprint": "",
+                "source_bank_txn_id": _optional_text(row.get("source_bank_txn_id")),
+                "source_card_txn_id": _optional_text(row.get("source_card_txn_id")),
+                "source_card_suffix": _optional_text(row.get("source_card_suffix")),
+                "source_secondary_date": _optional_text(row.get("source_secondary_date")),
+                "source_ref": _optional_text(row.get("source_ref")),
                 "source_payee_selected": source_payee,
                 "source_category_selected": source_category,
                 "target_payee_selected": "",
@@ -1430,6 +1482,11 @@ def build_review_rows(
                 "target_memo": _optional_text(row.get("target_memo")),
                 "source_fingerprint": "",
                 "target_fingerprint": _optional_text(row.get("ynab_fingerprint")),
+                "source_bank_txn_id": "",
+                "source_card_txn_id": "",
+                "source_card_suffix": "",
+                "source_secondary_date": "",
+                "source_ref": "",
                 "source_payee_selected": "",
                 "source_category_selected": "",
                 "target_payee_selected": target_payee,

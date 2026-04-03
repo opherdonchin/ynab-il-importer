@@ -19,9 +19,8 @@ from ynab_il_importer.safe_types import normalize_flag_series
 
 
 def _default_csv_out(input_path: Path) -> Path:
-    suffix = input_path.suffix or ".csv"
     stem = input_path.with_suffix("") if input_path.suffix else input_path
-    return Path(f"{stem}_upload{suffix}")
+    return Path(f"{stem}_upload.csv")
 
 
 def _default_json_out(csv_out: Path) -> Path:
@@ -58,7 +57,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Prepare reviewed transactions for YNAB upload"
     )
     parser.add_argument(
-        "--in", dest="input_path", required=True, help="Reviewed transactions CSV."
+        "--in", dest="input_path", required=True, help="Reviewed review-artifact path."
     )
     parser.add_argument(
         "--out",
@@ -125,7 +124,7 @@ def main() -> None:
         budget_id=args.budget_id,
     )
 
-    reviewed = review_io.load_proposed_transactions(input_path)
+    reviewed = review_io.load_review_artifact(input_path)
     accounts = ynab_api.fetch_accounts(plan_id=plan_id or None)
     if args.reviewed_only:
         reviewed = reviewed[normalize_flag_series(reviewed["reviewed"])].copy()

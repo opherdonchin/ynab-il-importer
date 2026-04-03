@@ -22,8 +22,8 @@ import ynab_il_importer.workflow_profiles as workflow_profiles
 import ynab_il_importer.ynab_api as ynab_api
 
 
-DEFAULT_SOURCE = Path("outputs/proposed_transactions.csv")
-DEFAULT_SAVE = Path("outputs/proposed_transactions_reviewed.csv")
+DEFAULT_SOURCE = Path("outputs/proposed_transactions.parquet")
+DEFAULT_SAVE = Path("outputs/proposed_transactions_reviewed.parquet")
 DEFAULT_CATEGORIES = Path("outputs/ynab_categories.csv")
 DEFAULT_RESUME_SENTINEL = "__DEFAULT_RESUME__"
 QUIT_REQUEST_FILENAME = "quit_requested.json"
@@ -80,13 +80,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--in",
         dest="input_path",
         default=str(DEFAULT_SOURCE),
-        help="Initial proposed_transactions CSV to load.",
+        help="Initial proposed-transactions artifact to load.",
     )
     parser.add_argument(
         "--out",
         dest="output_path",
         default=str(DEFAULT_SAVE),
-        help="Save path for reviewed CSV. Defaults to <input>_reviewed.csv.",
+        help="Save path for reviewed artifact. Defaults to <input>_reviewed with the same suffix.",
     )
     parser.add_argument(
         "--categories",

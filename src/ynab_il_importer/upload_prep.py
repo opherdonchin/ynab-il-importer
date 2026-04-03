@@ -8,6 +8,7 @@ import pandas as pd
 
 import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.card_identity as card_identity
+import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
 from ynab_il_importer.safe_types import normalize_flag_series
 
@@ -111,6 +112,92 @@ def _combined_memo_series(df: pd.DataFrame) -> pd.Series:
     return combined
 
 
+def _canonical_side_transaction(row: pd.Series, side: str) -> dict[str, Any]:
+    value = row.get(f"{side}_transaction")
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _canonical_context_text(row: pd.Series, *names: str) -> str:
+    for name in names:
+        value = _normalize_text(row.get(name, ""))
+        if value:
+            return value
+    return ""
+
+
+def _review_artifact_to_working_frame(
+    reviewed_source: pd.DataFrame | Any,
+) -> pd.DataFrame:
+    review_df = review_io.load_review_artifact(reviewed_source).to_pandas()
+    if review_df.empty:
+        return pd.DataFrame(columns=REQUIRED_REVIEW_COLUMNS)
+
+    rows: list[dict[str, Any]] = []
+    for _, row in review_df.iterrows():
+        source_txn = _canonical_side_transaction(row, "source")
+        target_txn = _canonical_side_transaction(row, "target")
+        source_present = bool(row.get("source_present", False))
+        target_present = bool(row.get("target_present", False))
+        display_source = source_txn if source_present else {}
+        display_target = target_txn if target_present else {}
+
+        account_name = _canonical_context_text(
+            row,
+            "target_account",
+            "source_account",
+        ) or _normalize_text(
+            display_target.get("account_name") or display_source.get("account_name")
+        )
+        date = _canonical_context_text(row, "source_date", "target_date") or _normalize_text(
+            display_source.get("date") or display_target.get("date")
+        )
+        memo = _canonical_context_text(row, "source_memo", "target_memo") or _normalize_text(
+            display_source.get("memo") or display_target.get("memo")
+        )
+        outflow = pd.to_numeric(
+            display_source.get("outflow_ils", display_target.get("outflow_ils", 0.0)),
+            errors="coerce",
+        )
+        inflow = pd.to_numeric(
+            display_source.get("inflow_ils", display_target.get("inflow_ils", 0.0)),
+            errors="coerce",
+        )
+        rows.append(
+            {
+                "transaction_id": _normalize_text(
+                    row.get("review_transaction_id", row.get("transaction_id", ""))
+                ),
+                "account_name": account_name,
+                "date": date,
+                "outflow_ils": float(0.0 if pd.isna(outflow) else outflow),
+                "inflow_ils": float(0.0 if pd.isna(inflow) else inflow),
+                "memo": memo,
+                "target_payee_selected": _normalize_text(row.get("target_payee_selected", "")),
+                "target_category_selected": review_model.normalize_category_value(
+                    row.get("target_category_selected", "")
+                ),
+                "decision_action": _normalize_text(row.get("decision_action", "")),
+                "reviewed": bool(row.get("reviewed", False)),
+                "source": _normalize_text(display_source.get("source_system", "")),
+                "source_account": _canonical_context_text(row, "source_account")
+                or _normalize_text(display_source.get("source_account", "")),
+                "ynab_account_id": _normalize_text(display_target.get("account_id", "")),
+                "bank_txn_id": _normalize_text(row.get("source_bank_txn_id", "")),
+                "card_txn_id": _normalize_text(row.get("source_card_txn_id", "")),
+                "card_suffix": _normalize_text(row.get("source_card_suffix", "")),
+                "secondary_date": _normalize_text(
+                    row.get("source_secondary_date", display_source.get("secondary_date", ""))
+                ),
+                "ref": _normalize_text(row.get("source_ref", display_source.get("ref", ""))),
+                "workflow_type": _normalize_text(row.get("workflow_type", "")),
+                "match_status": _normalize_text(row.get("match_status", "")),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def _transfer_target(payee: str) -> str:
     if not review_model.is_transfer_payee(payee):
         return ""
@@ -161,8 +248,9 @@ def _account_lookup(
 
 
 def uploadable_account_mask(
-    df: pd.DataFrame, accounts: list[dict[str, Any]]
+    reviewed_source: pd.DataFrame | Any, accounts: list[dict[str, Any]]
 ) -> pd.Series:
+    df = _review_artifact_to_working_frame(reviewed_source)
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
     account_ids, _ = _account_lookup(accounts)
     account_names = _normalize_text_series(df["account_name"])
@@ -235,7 +323,8 @@ def _uncategorized_category_id(categories_df: pd.DataFrame) -> str:
     return category_alias_ids.get("uncategorized", "")
 
 
-def validate_ready_for_upload(df: pd.DataFrame) -> None:
+def validate_ready_for_upload(reviewed_source: pd.DataFrame | Any) -> None:
+    df = _review_artifact_to_working_frame(reviewed_source)
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
     upload_df = df.loc[_decision_action_mask(df)].copy()
     if upload_df.empty:
@@ -259,7 +348,8 @@ def validate_ready_for_upload(df: pd.DataFrame) -> None:
         )
 
 
-def ready_mask(df: pd.DataFrame) -> pd.Series:
+def ready_mask(reviewed_source: pd.DataFrame | Any) -> pd.Series:
+    df = _review_artifact_to_working_frame(reviewed_source)
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
     upload_mask = _decision_action_mask(df)
     payee = _target_payee_series(df)
@@ -271,13 +361,14 @@ def ready_mask(df: pd.DataFrame) -> pd.Series:
 
 
 def prepare_upload_transactions(
-    reviewed_df: pd.DataFrame,
+    reviewed_source: pd.DataFrame | Any,
     *,
     accounts: list[dict[str, Any]],
     categories_df: pd.DataFrame,
     cleared: str = "cleared",
     approved: bool = False,
 ) -> pd.DataFrame:
+    reviewed_df = _review_artifact_to_working_frame(reviewed_source)
     validate_ready_for_upload(reviewed_df)
 
     df = reviewed_df.loc[_decision_action_mask(reviewed_df)].copy()
