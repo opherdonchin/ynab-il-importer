@@ -172,6 +172,70 @@ def test_extract_category_transactions_preserves_parent_split_transaction() -> N
     assert len(df.loc[0, "splits"]) == 2
 
 
+def test_extract_category_transactions_includes_parent_and_split_matches() -> None:
+    transactions = [
+        {
+            "id": "txn-parent-match",
+            "account_id": "acc-1",
+            "date": "2026-03-01",
+            "payee_name": "Office Rent",
+            "category_name": "Pilates",
+            "category_id": "cat-pilates",
+            "amount": -120000,
+            "memo": "",
+            "import_id": "import-parent",
+            "matched_transaction_id": "",
+            "cleared": "cleared",
+            "approved": True,
+        },
+        {
+            "id": "txn-split-match",
+            "account_id": "acc-1",
+            "date": "2026-03-02",
+            "payee_name": "Salary Liya",
+            "category_name": "Split",
+            "category_id": "",
+            "amount": 0,
+            "memo": "",
+            "import_id": "import-split",
+            "matched_transaction_id": "",
+            "cleared": "cleared",
+            "approved": True,
+            "subtransactions": [
+                {
+                    "id": "sub-1",
+                    "amount": -3000000,
+                    "memo": "",
+                    "payee_name": "",
+                    "category_id": "cat-pilates",
+                    "category_name": "Pilates",
+                    "deleted": False,
+                },
+                {
+                    "id": "sub-2",
+                    "amount": 3000000,
+                    "memo": "",
+                    "payee_name": "",
+                    "category_id": "cat-rta",
+                    "category_name": "Inflow: Ready to Assign",
+                    "deleted": False,
+                },
+            ],
+        },
+    ]
+    accounts = [{"id": "acc-1", "name": "Family Leumi"}]
+
+    canonical = ynab_api.transactions_to_dataframe(transactions, accounts)
+    df = ynab_api.extract_category_transactions(
+        canonical,
+        category_id="cat-pilates",
+        category_name="Pilates",
+    )
+
+    assert set(df["transaction_id"].tolist()) == {"txn-parent-match", "txn-split-match"}
+    assert set(df["category_raw"].tolist()) == {"Pilates", "Split"}
+
+
 def test_project_category_transactions_to_source_rows_flattens_matches_for_bridge_workflows() -> None:
     transactions = [
         {

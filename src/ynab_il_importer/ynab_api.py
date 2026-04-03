@@ -414,16 +414,22 @@ def _matches_category(
 ) -> bool:
     wanted_id = str(category_id or "").strip()
     wanted_name = str(category_name or "").strip()
+    parent_match = False
     if wanted_id and str(txn.get("category_id", "") or "").strip() == wanted_id:
-        return True
+        parent_match = True
     if wanted_name and str(txn.get("category_raw", "") or "").strip() == wanted_name:
-        return True
+        parent_match = True
+
+    split_match = False
     for split in txn.get("splits") or []:
         if wanted_id and str(split.get("category_id", "") or "").strip() == wanted_id:
-            return True
+            split_match = True
+            break
         if wanted_name and str(split.get("category_raw", "") or "").strip() == wanted_name:
-            return True
-    return False
+            split_match = True
+            break
+
+    return parent_match or split_match
 
 
 def extract_category_transactions(
@@ -434,6 +440,8 @@ def extract_category_transactions(
 ) -> pd.DataFrame:
     if not str(category_id or "").strip() and not str(category_name or "").strip():
         raise ValueError("extract_category_transactions() requires category_id or category_name.")
+    # Return canonical parent transactions whenever either the parent category
+    # matches directly or one of the nested split rows matches.
     rows = [
         txn
         for txn in _canonical_rows(data)
