@@ -178,6 +178,12 @@ def test_save_review_artifact_parquet_round_trip_preserves_nested_transactions(t
                 "source_present": True,
                 "target_present": False,
                 "source_row_id": "src-1",
+                "source_context_kind": "ynab_split_category_match",
+                "source_context_category_id": "cat-food",
+                "source_context_category_name": "Food",
+                "source_context_matching_split_ids": "sub-1",
+                "target_context_kind": "",
+                "target_context_matching_split_ids": "",
                 "source_transaction": {
                     "artifact_kind": "normalized_source",
                     "artifact_version": "transaction_v1",
@@ -205,6 +211,10 @@ def test_save_review_artifact_parquet_round_trip_preserves_nested_transactions(t
     loaded = review_io.load_proposed_transactions(path)
 
     assert loaded.loc[0, "target_payee_selected"] == "Cafe target"
+    assert loaded.loc[0, "source_context_kind"] == "ynab_split_category_match"
+    assert loaded.loc[0, "source_context_category_id"] == "cat-food"
+    assert loaded.loc[0, "source_context_category_name"] == "Food"
+    assert loaded.loc[0, "source_context_matching_split_ids"] == "sub-1"
     assert loaded.loc[0, "source_transaction"]["transaction_id"] == "src-1"
     assert loaded.loc[0, "source_transaction"]["payee_raw"] == "Cafe source"
 

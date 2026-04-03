@@ -141,6 +141,37 @@ def _canonical_snapshot(
     )
 
 
+def _source_context_from_snapshot(
+    snapshot: dict[str, object] | None,
+) -> dict[str, str]:
+    if not snapshot:
+        return {
+            "source_context_kind": "",
+            "source_context_category_id": "",
+            "source_context_category_name": "",
+            "source_context_matching_split_ids": "",
+        }
+
+    category_id = _text(snapshot.get("category_id"))
+    category_name = _text(snapshot.get("category_raw"))
+    is_subtransaction = bool(snapshot.get("is_subtransaction", False))
+    if is_subtransaction:
+        split_id = _text(snapshot.get("ynab_id")) or _text(snapshot.get("source_row_id"))
+        return {
+            "source_context_kind": "ynab_split_category_match",
+            "source_context_category_id": category_id,
+            "source_context_category_name": category_name,
+            "source_context_matching_split_ids": split_id,
+        }
+
+    return {
+        "source_context_kind": "ynab_parent_category_match",
+        "source_context_category_id": category_id,
+        "source_context_category_name": category_name,
+        "source_context_matching_split_ids": "",
+    }
+
+
 def _expand_ambiguous_relation_rows(
     ambiguous_df: pd.DataFrame,
     *,
@@ -273,8 +304,11 @@ def _expand_ambiguous_relation_rows(
                         "source_card_suffix": "",
                         "source_secondary_date": _text(source_snapshot.get("secondary_date")),
                         "source_ref": _text(source_snapshot.get("ref")),
+                        **_source_context_from_snapshot(source_snapshot),
                         "source_payee_selected": source_payee,
                         "source_category_selected": source_category,
+                        "target_context_kind": "",
+                        "target_context_matching_split_ids": "",
                         "target_payee_selected": target_payee,
                         "target_category_selected": target_category,
                         "source_transaction": _canonical_snapshot(
@@ -359,8 +393,11 @@ def _relation_rows(
                 "source_card_suffix": "",
                 "source_secondary_date": _text(source_snapshot.get("secondary_date")),
                 "source_ref": _text(source_snapshot.get("ref")),
+                **_source_context_from_snapshot(source_snapshot),
                 "source_payee_selected": source_payee,
                 "source_category_selected": source_category,
+                "target_context_kind": "",
+                "target_context_matching_split_ids": "",
                 "target_payee_selected": target_payee,
                 "target_category_selected": target_category,
                 "source_transaction": _canonical_snapshot(
@@ -423,8 +460,11 @@ def _relation_rows(
                 "source_card_suffix": "",
                 "source_secondary_date": _text(row.get("secondary_date")),
                 "source_ref": _text(row.get("ref")),
+                **_source_context_from_snapshot(row.to_dict()),
                 "source_payee_selected": source_payee,
                 "source_category_selected": source_category,
+                "target_context_kind": "",
+                "target_context_matching_split_ids": "",
                 "target_payee_selected": "",
                 "target_category_selected": "",
                 "source_transaction": _canonical_snapshot(
@@ -483,8 +523,14 @@ def _relation_rows(
                 "source_card_suffix": "",
                 "source_secondary_date": "",
                 "source_ref": "",
+                "source_context_kind": "",
+                "source_context_category_id": "",
+                "source_context_category_name": "",
+                "source_context_matching_split_ids": "",
                 "source_payee_selected": "",
                 "source_category_selected": "",
+                "target_context_kind": "",
+                "target_context_matching_split_ids": "",
                 "target_payee_selected": target_payee,
                 "target_category_selected": target_category,
                 "source_transaction": None,

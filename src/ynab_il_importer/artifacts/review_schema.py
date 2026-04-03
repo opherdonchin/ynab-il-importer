@@ -5,7 +5,7 @@ import pyarrow as pa
 from ynab_il_importer.artifacts.transaction_schema import TRANSACTION_SCHEMA
 
 
-REVIEW_ARTIFACT_VERSION = "review_v1"
+REVIEW_ARTIFACT_VERSION = "review_v2"
 TRANSACTION_STRUCT = pa.struct(list(TRANSACTION_SCHEMA))
 
 REVIEW_SCHEMA = pa.schema(
@@ -40,8 +40,14 @@ REVIEW_SCHEMA = pa.schema(
         pa.field("source_card_suffix", pa.string()),
         pa.field("source_secondary_date", pa.string()),
         pa.field("source_ref", pa.string()),
+        pa.field("source_context_kind", pa.string()),
+        pa.field("source_context_category_id", pa.string()),
+        pa.field("source_context_category_name", pa.string()),
+        pa.field("source_context_matching_split_ids", pa.string()),
         pa.field("source_payee_selected", pa.string()),
         pa.field("source_category_selected", pa.string()),
+        pa.field("target_context_kind", pa.string()),
+        pa.field("target_context_matching_split_ids", pa.string()),
         pa.field("target_payee_selected", pa.string()),
         pa.field("target_category_selected", pa.string()),
         pa.field("source_transaction", TRANSACTION_STRUCT),

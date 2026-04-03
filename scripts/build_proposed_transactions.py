@@ -84,8 +84,14 @@ REVIEW_ROW_COLUMNS = [
     "source_card_suffix",
     "source_secondary_date",
     "source_ref",
+    "source_context_kind",
+    "source_context_category_id",
+    "source_context_category_name",
+    "source_context_matching_split_ids",
     "source_payee_selected",
     "source_category_selected",
+    "target_context_kind",
+    "target_context_matching_split_ids",
     "target_payee_selected",
     "target_category_selected",
     "source_transaction",
@@ -1020,6 +1026,18 @@ def _prepare_review_target_rows(ynab_df: pd.DataFrame) -> pd.DataFrame:
     return prepared
 
 
+def _default_source_context(
+    *,
+    source_category: str,
+) -> dict[str, str]:
+    return {
+        "source_context_kind": "direct_source",
+        "source_context_category_id": "",
+        "source_context_category_name": review_model.normalize_category_value(source_category),
+        "source_context_matching_split_ids": "",
+    }
+
+
 def _institutional_candidate_pairs(
     prepared_source: pd.DataFrame,
     prepared_target: pd.DataFrame,
@@ -1337,8 +1355,11 @@ def build_review_rows(
                 "source_card_suffix": _optional_text(row.get("source_card_suffix")),
                 "source_secondary_date": _optional_text(row.get("source_secondary_date")),
                 "source_ref": _optional_text(row.get("source_ref")),
+                **_default_source_context(source_category=source_category),
                 "source_payee_selected": source_payee,
                 "source_category_selected": source_category,
+                "target_context_kind": "",
+                "target_context_matching_split_ids": "",
                 "target_payee_selected": target_payee,
                 "target_category_selected": target_category,
                 "source_transaction": row.get("source_transaction"),
@@ -1407,8 +1428,11 @@ def build_review_rows(
                 "source_card_suffix": _optional_text(row.get("source_card_suffix")),
                 "source_secondary_date": _optional_text(row.get("source_secondary_date")),
                 "source_ref": _optional_text(row.get("source_ref")),
+                **_default_source_context(source_category=source_category),
                 "source_payee_selected": source_payee,
                 "source_category_selected": source_category,
+                "target_context_kind": "",
+                "target_context_matching_split_ids": "",
                 "target_payee_selected": "",
                 "target_category_selected": "",
                 "source_transaction": row.get("source_transaction"),
@@ -1487,8 +1511,14 @@ def build_review_rows(
                 "source_card_suffix": "",
                 "source_secondary_date": "",
                 "source_ref": "",
+                "source_context_kind": "",
+                "source_context_category_id": "",
+                "source_context_category_name": "",
+                "source_context_matching_split_ids": "",
                 "source_payee_selected": "",
                 "source_category_selected": "",
+                "target_context_kind": "",
+                "target_context_matching_split_ids": "",
                 "target_payee_selected": target_payee,
                 "target_category_selected": target_category,
                 "source_transaction": None,

@@ -487,9 +487,23 @@ def project_review_artifact_to_flat_dataframe(
                 "source_card_suffix": _normalize_text(record.get("source_card_suffix")),
                 "source_secondary_date": _normalize_text(record.get("source_secondary_date")),
                 "source_ref": _normalize_text(record.get("source_ref")),
+                "source_context_kind": _normalize_text(record.get("source_context_kind")),
+                "source_context_category_id": _normalize_text(
+                    record.get("source_context_category_id")
+                ),
+                "source_context_category_name": _normalize_text(
+                    record.get("source_context_category_name")
+                ),
+                "source_context_matching_split_ids": _normalize_text(
+                    record.get("source_context_matching_split_ids")
+                ),
                 "source_payee_selected": _normalize_text(record.get("source_payee_selected")),
                 "source_category_selected": model.normalize_category_value(
                     record.get("source_category_selected")
+                ),
+                "target_context_kind": _normalize_text(record.get("target_context_kind")),
+                "target_context_matching_split_ids": _normalize_text(
+                    record.get("target_context_matching_split_ids")
                 ),
                 "target_payee_selected": _normalize_text(record.get("target_payee_selected")),
                 "target_category_selected": model.normalize_category_value(

@@ -33,17 +33,24 @@ def _source_row(
     date: str,
     payee_raw: str,
     fingerprint: str,
+    category_raw: str = "Pilates",
+    category_id: str = "",
     account_name: str = "Family Leumi",
     inflow_ils: float = 0.0,
     outflow_ils: float = 100.0,
+    is_subtransaction: bool = False,
+    parent_ynab_id: str = "",
 ) -> dict[str, object]:
     return {
         "source": "ynab",
         "ynab_id": row_id,
+        "parent_ynab_id": parent_ynab_id or row_id,
+        "is_subtransaction": is_subtransaction,
         "account_name": account_name,
         "date": date,
         "payee_raw": payee_raw,
-        "category_raw": "Pilates",
+        "category_raw": category_raw,
+        "category_id": category_id,
         "outflow_ils": outflow_ils,
         "inflow_ils": inflow_ils,
         "txn_kind": "expense" if outflow_ils else "credit",
@@ -386,6 +393,64 @@ def test_build_review_rows_preserves_repeated_target_candidates() -> None:
     assert set(ambiguous["source_row_id"].tolist()) == {"source-a", "source-b"}
     assert set(ambiguous["target_row_id"].tolist()) == {"target-shared"}
     assert set(ambiguous["target_payee_current"].tolist()) == {"Manual Shared"}
+
+
+def test_build_review_rows_sets_source_context_for_parent_and_split_matches() -> None:
+    tmp_path = _runtime_dir("cross_budget_review_rows_source_context")
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = pd.DataFrame(
+        [
+            _source_row(
+                row_id="parent-match",
+                date="2026-03-01",
+                payee_raw="Parent Match",
+                fingerprint="parent match",
+                category_raw="Pilates",
+                category_id="cat-pilates",
+                is_subtransaction=False,
+            ),
+            _source_row(
+                row_id="split-match",
+                parent_ynab_id="parent-split",
+                date="2026-03-02",
+                payee_raw="Split Match",
+                fingerprint="split match",
+                category_raw="Pilates",
+                category_id="cat-pilates",
+                is_subtransaction=True,
+            ),
+        ]
+    )
+    target_df = pd.DataFrame(
+        columns=list(
+            _target_row(
+                row_id="unused", date="2026-03-13", payee_raw="unused", fingerprint="unused"
+            ).keys()
+        )
+    )
+
+    review_rows, _ = build_cross_budget_review_rows.build_review_rows(
+        source_df,
+        target_df,
+        source_category="Pilates",
+        target_account="In Family",
+        map_path=map_path,
+        date_tolerance_days=0,
+    )
+
+    parent_row = review_rows.loc[review_rows["source_row_id"] == "parent-match"].iloc[0]
+    assert parent_row["source_context_kind"] == "ynab_parent_category_match"
+    assert parent_row["source_context_category_id"] == "cat-pilates"
+    assert parent_row["source_context_category_name"] == "Pilates"
+    assert parent_row["source_context_matching_split_ids"] == ""
+
+    split_row = review_rows.loc[review_rows["source_row_id"] == "split-match"].iloc[0]
+    assert split_row["source_context_kind"] == "ynab_split_category_match"
+    assert split_row["source_context_category_id"] == "cat-pilates"
+    assert split_row["source_context_category_name"] == "Pilates"
+    assert split_row["source_context_matching_split_ids"] == "split-match"
 
 
 def test_read_csv_or_empty_prefers_sidecar_parquet_when_requested(tmp_path: Path) -> None:
