@@ -2,8 +2,10 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 from ynab_il_importer.artifacts.transaction_io import (
     load_flat_transaction_projection,
+    write_canonical_transaction_artifacts,
     write_flat_transaction_artifacts,
 )
 import ynab_il_importer.export as export
@@ -43,6 +45,21 @@ def _write_normalized_with_parquet(df: pd.DataFrame, out_path: Path, *, fmt: str
     )
     print(f"Wrote canonical parquet to {parquet_path}")
     _print_wrote(out_path, len(df))
+
+
+def _write_normalized_from_module(module, in_path: Path, out_path: Path, *, fmt: str) -> None:
+    df = module.read_raw(in_path)
+    if hasattr(module, "read_canonical"):
+        canonical = module.read_canonical(in_path)
+        _, parquet_path = write_canonical_transaction_artifacts(
+            canonical,
+            out_path,
+            csv_projection=df,
+        )
+        print(f"Wrote canonical parquet to {parquet_path}")
+        _print_wrote(out_path, len(df))
+        return
+    _write_normalized_with_parquet(df, out_path, fmt=fmt)
 
 
 def _fill_and_validate_ynab_account(df: pd.DataFrame, fallback_account_name: str) -> pd.DataFrame:
@@ -287,18 +304,16 @@ if typer is not None:
         in_path: Path = typer.Option(..., "--in"),
         out_path: Path = typer.Option(..., "--out"),
     ) -> None:
-        df = leumi_xls.read_raw(in_path)
         _ensure_parent(out_path)
-        _write_normalized_with_parquet(df, out_path, fmt="leumi_xls")
+        _write_normalized_from_module(leumi_xls, in_path, out_path, fmt="leumi_xls")
 
     @app.command("parse-max")
     def parse_max(
         in_path: Path = typer.Option(..., "--in"),
         out_path: Path = typer.Option(..., "--out"),
     ) -> None:
-        df = maxio.read_raw(in_path)
         _ensure_parent(out_path)
-        _write_normalized_with_parquet(df, out_path, fmt="max")
+        _write_normalized_from_module(maxio, in_path, out_path, fmt="max")
 
     @app.command("parse-ynab")
     def parse_ynab(
@@ -308,16 +323,32 @@ if typer is not None:
     ) -> None:
         df = _fill_and_validate_ynab_account(ynab.read_raw(in_path), account_name)
         _ensure_parent(out_path)
-        _write_normalized_with_parquet(df, out_path, fmt="ynab")
+        if hasattr(ynab, "read_canonical"):
+            canonical = ynab.read_canonical(in_path)
+            canonical_df = canonical.to_pandas()
+            canonical_df["account_name"] = (
+                canonical_df["account_name"].astype("string").fillna("").str.strip()
+            )
+            if account_name:
+                canonical_df.loc[canonical_df["account_name"] == "", "account_name"] = account_name
+            canonical = pa.Table.from_pandas(canonical_df, preserve_index=False)
+            _, parquet_path = write_canonical_transaction_artifacts(
+                canonical,
+                out_path,
+                csv_projection=df,
+            )
+            print(f"Wrote canonical parquet to {parquet_path}")
+            _print_wrote(out_path, len(df))
+        else:
+            _write_normalized_with_parquet(df, out_path, fmt="ynab")
 
     @app.command("parse-leumi")
     def parse_leumi(
         in_path: Path = typer.Option(..., "--in"),
         out_path: Path = typer.Option(..., "--out"),
     ) -> None:
-        df = leumi.read_raw(in_path)
         _ensure_parent(out_path)
-        _write_normalized_with_parquet(df, out_path, fmt="leumi")
+        _write_normalized_from_module(leumi, in_path, out_path, fmt="leumi")
 
     @app.command("match-pairs")
     def match_pairs(
@@ -423,25 +454,41 @@ def _fallback_main() -> None:
 
     args = parser.parse_args()
     if args.command == "parse-leumi-xls":
-        df = leumi_xls.read_raw(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
-        _write_normalized_with_parquet(df, out_path, fmt="leumi_xls")
+        _write_normalized_from_module(leumi_xls, Path(args.in_path), out_path, fmt="leumi_xls")
     elif args.command == "parse-max":
-        df = maxio.read_raw(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
-        _write_normalized_with_parquet(df, out_path, fmt="max")
+        _write_normalized_from_module(maxio, Path(args.in_path), out_path, fmt="max")
     elif args.command == "parse-ynab":
         df = _fill_and_validate_ynab_account(ynab.read_raw(args.in_path), args.account_name)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
-        _write_normalized_with_parquet(df, out_path, fmt="ynab")
+        if hasattr(ynab, "read_canonical"):
+            canonical = ynab.read_canonical(args.in_path)
+            canonical_df = canonical.to_pandas()
+            canonical_df["account_name"] = (
+                canonical_df["account_name"].astype("string").fillna("").str.strip()
+            )
+            if args.account_name:
+                canonical_df.loc[canonical_df["account_name"] == "", "account_name"] = (
+                    args.account_name
+                )
+            canonical = pa.Table.from_pandas(canonical_df, preserve_index=False)
+            _, parquet_path = write_canonical_transaction_artifacts(
+                canonical,
+                out_path,
+                csv_projection=df,
+            )
+            print(f"Wrote canonical parquet to {parquet_path}")
+            _print_wrote(out_path, len(df))
+        else:
+            _write_normalized_with_parquet(df, out_path, fmt="ynab")
     elif args.command == "parse-leumi":
-        df = leumi.read_raw(args.in_path)
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
-        _write_normalized_with_parquet(df, out_path, fmt="leumi")
+        _write_normalized_from_module(leumi, Path(args.in_path), out_path, fmt="leumi")
     elif args.command == "match-pairs":
         if not args.source:
             raise ValueError("Provide at least one --source input.")

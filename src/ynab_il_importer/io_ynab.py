@@ -5,6 +5,7 @@ import zipfile
 import pandas as pd
 
 import ynab_il_importer.fingerprint as fingerprint
+from ynab_il_importer.artifacts.transaction_io import flat_projection_to_canonical_table
 
 
 def _read_ynab_csv(path: Path) -> pd.DataFrame:
@@ -52,7 +53,6 @@ def _infer_txn_kind(
     inflow_ils: pd.Series, outflow_ils: pd.Series, payee_raw: pd.Series, category_raw: pd.Series
 ) -> pd.Series:
     inflow = pd.to_numeric(inflow_ils, errors="coerce").fillna(0.0)
-    outflow = pd.to_numeric(outflow_ils, errors="coerce").fillna(0.0)
     payee = payee_raw.astype("string").fillna("").str.strip().str.lower()
     category = category_raw.astype("string").fillna("").str.strip().str.lower()
 
@@ -189,3 +189,15 @@ def read_raw(
             "memo",
         ]
     ]
+
+
+def read_canonical(
+    path: str | Path,
+    **kwargs,
+):
+    df = read_raw(path, **kwargs)
+    return flat_projection_to_canonical_table(
+        df,
+        artifact_kind="normalized_source_transaction",
+        source_system="ynab",
+    )

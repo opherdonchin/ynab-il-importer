@@ -6,6 +6,7 @@ import pandas as pd
 import ynab_il_importer.account_map as account_map
 import ynab_il_importer.card_identity as card_identity
 import ynab_il_importer.fingerprint as fingerprint
+from ynab_il_importer.artifacts.transaction_io import flat_projection_to_canonical_table
 
 
 HEADER_MARKER = "תאריך עסקה"
@@ -202,7 +203,6 @@ def _pick_card_account_column(df: pd.DataFrame) -> str | None:
 
 def _infer_txn_kind(inflow_ils: pd.Series, outflow_ils: pd.Series) -> pd.Series:
     inflow = pd.to_numeric(inflow_ils, errors="coerce").fillna(0.0)
-    outflow = pd.to_numeric(outflow_ils, errors="coerce").fillna(0.0)
     kind = pd.Series(["expense"] * len(inflow), index=inflow.index, dtype="string")
     kind.loc[inflow > 0] = "credit"
     return kind
@@ -428,3 +428,15 @@ def read_raw(
     )
 
     return result[OUTPUT_COLUMNS]
+
+
+def read_canonical(
+    path: str | Path,
+    **kwargs,
+):
+    df = read_raw(path, **kwargs)
+    return flat_projection_to_canonical_table(
+        df,
+        artifact_kind="normalized_source_transaction",
+        source_system="card",
+    )

@@ -7,6 +7,7 @@ import pandas as pd
 import ynab_il_importer.account_map as account_map
 import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.fingerprint as fingerprint
+from ynab_il_importer.artifacts.transaction_io import flat_projection_to_canonical_table
 
 
 _PURCHASE_DATE_RE = re.compile(r"\b(\d{2})/(\d{2})/(\d{2})\b")
@@ -148,7 +149,6 @@ def extract_merchant(description: str) -> tuple[str, str]:
 def _infer_txn_kind(base_kind: str, inflow_ils: float, outflow_ils: float) -> str:
     kind = str(base_kind).strip().lower()
     inflow = float(inflow_ils or 0.0)
-    outflow = float(outflow_ils or 0.0)
 
     if kind in {"transfer", "loan"}:
         return "transfer"
@@ -336,3 +336,15 @@ def read_raw(
             "amount_bucket",
         ]
     ]
+
+
+def read_canonical(
+    path: str | Path,
+    **kwargs,
+):
+    df = read_raw(path, **kwargs)
+    return flat_projection_to_canonical_table(
+        df,
+        artifact_kind="normalized_source_transaction",
+        source_system="bank",
+    )

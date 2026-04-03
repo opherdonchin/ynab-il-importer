@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 
@@ -34,15 +35,43 @@ def test_parse_leumi_command_writes_canonical_parquet(monkeypatch, tmp_path) -> 
         ),
     )
     monkeypatch.setattr(
+        cli.leumi,
+        "read_canonical",
+        lambda path: pa.table(
+            {
+                "artifact_kind": ["normalized_source_transaction"],
+                "artifact_version": ["transaction_v1"],
+                "source_system": ["bank"],
+                "transaction_id": ["BANK:1"],
+                "parent_transaction_id": ["BANK:1"],
+                "account_name": ["Family Leumi"],
+                "source_account": ["Family Leumi"],
+                "date": ["2026-03-01"],
+                "inflow_ils": [0.0],
+                "outflow_ils": [54.0],
+                "signed_amount_ils": [-54.0],
+                "payee_raw": ["Clalit"],
+                "memo": ["Clalit HMO"],
+                "merchant_raw": ["Clalit"],
+                "description_clean": ["Clalit"],
+                "description_raw": ["Clalit HMO"],
+                "description_clean_norm": ["clalit"],
+                "fingerprint": ["clalit"],
+                "approved": [False],
+                "is_subtransaction": [False],
+                "splits": [None],
+            }
+        ),
+    )
+    monkeypatch.setattr(
         cli,
-        "write_flat_transaction_artifacts",
-        lambda df, path, **kwargs: (
+        "write_canonical_transaction_artifacts",
+        lambda table, path, **kwargs: (
             captured.update(
                 {
-                    "csv_path": path,
-                    "rows": len(df),
-                    "artifact_kind": kwargs["artifact_kind"],
-                    "source_system": kwargs["source_system"],
+                    "path": path,
+                    "csv_projection_rows": len(kwargs["csv_projection"]),
+                    "transaction_id": table["transaction_id"].to_pylist()[0],
                 }
             )
             or (path, path.with_suffix(".parquet"))
@@ -57,7 +86,6 @@ def test_parse_leumi_command_writes_canonical_parquet(monkeypatch, tmp_path) -> 
     )
 
     assert result.exit_code == 0
-    assert captured["csv_path"] == out_path
-    assert captured["rows"] == 1
-    assert captured["artifact_kind"] == "normalized_source_transaction"
-    assert captured["source_system"] == "bank"
+    assert captured["path"] == out_path
+    assert captured["csv_projection_rows"] == 1
+    assert captured["transaction_id"] == "BANK:1"

@@ -10,6 +10,7 @@ from lxml import html
 import ynab_il_importer.account_map as account_map
 import ynab_il_importer.card_identity as card_identity
 import ynab_il_importer.fingerprint as fingerprint
+from ynab_il_importer.artifacts.transaction_io import flat_projection_to_canonical_table
 
 
 PENDING_SECTION_TITLE = "עסקאות אחרונות שטרם נקלטו"
@@ -350,3 +351,15 @@ def read_raw(
         "max_is_pending",
     ]
     return result[columns].copy()
+
+
+def read_canonical(
+    path: str | Path,
+    **kwargs,
+):
+    df = read_raw(path, **kwargs)
+    return flat_projection_to_canonical_table(
+        df,
+        artifact_kind="normalized_source_transaction",
+        source_system="card",
+    )

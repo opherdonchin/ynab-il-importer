@@ -161,6 +161,48 @@ def write_flat_transaction_artifacts(
     return output_path, parquet_path
 
 
+def write_canonical_transaction_artifacts(
+    data: Any,
+    path: str | Path,
+    *,
+    csv_projection: Any | None = None,
+    schema: pa.Schema = TRANSACTION_SCHEMA,
+    allow_extra_columns: bool = False,
+) -> tuple[Path | None, Path]:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    table = normalize_transaction_table(
+        data,
+        schema=schema,
+        allow_extra_columns=allow_extra_columns,
+    )
+
+    if output_path.suffix.lower() == ".parquet":
+        write_transactions_parquet(table, output_path, schema=schema, allow_extra_columns=True)
+        return None, output_path
+
+    parquet_path = output_path.with_suffix(".parquet")
+    write_transactions_parquet(table, parquet_path, schema=schema, allow_extra_columns=True)
+    if csv_projection is None:
+        from ynab_il_importer.artifacts.transaction_projection import (
+            project_top_level_transactions,
+        )
+
+        flat_df = project_top_level_transactions(table).to_pandas()
+    elif isinstance(csv_projection, pd.DataFrame):
+        flat_df = csv_projection.copy()
+    elif isinstance(csv_projection, pl.DataFrame):
+        flat_df = csv_projection.to_pandas()
+    elif isinstance(csv_projection, pa.Table):
+        flat_df = csv_projection.to_pandas()
+    else:
+        raise TypeError(
+            "csv_projection must be a pandas DataFrame, polars DataFrame, pyarrow Table, or None"
+        )
+    flat_df.to_csv(output_path, index=False, encoding="utf-8-sig")
+    return output_path, parquet_path
+
+
 def load_flat_transaction_projection(
     path: str | Path,
     *,

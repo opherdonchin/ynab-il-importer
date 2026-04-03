@@ -13,6 +13,7 @@ except ImportError:  # pragma: no cover - optional fallback dependency
 import ynab_il_importer.account_map as account_map
 import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.fingerprint as fingerprint
+from ynab_il_importer.artifacts.transaction_io import flat_projection_to_canonical_table
 from ynab_il_importer.io_leumi import (
     extract_merchant,
     _infer_txn_kind as _infer_txn_kind_leumi,
@@ -422,3 +423,15 @@ def read_raw(
     if "ynab_account_id" in result.columns:
         columns.append("ynab_account_id")
     return result[columns]
+
+
+def read_canonical(
+    path: str | Path,
+    **kwargs,
+):
+    df = read_raw(path, **kwargs)
+    return flat_projection_to_canonical_table(
+        df,
+        artifact_kind="normalized_source_transaction",
+        source_system="bank",
+    )

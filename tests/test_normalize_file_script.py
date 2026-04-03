@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,20 +49,46 @@ def test_normalize_one_writes_canonical_parquet(monkeypatch, tmp_path) -> None:
                     ]
                 )
             ),
+            "read_canonical": staticmethod(
+                lambda *_args, **_kwargs: pa.table(
+                    {
+                        "artifact_kind": ["normalized_source_transaction"],
+                        "artifact_version": ["transaction_v1"],
+                        "source_system": ["bank"],
+                        "transaction_id": ["BANK:1"],
+                        "parent_transaction_id": ["BANK:1"],
+                        "account_name": ["Family Leumi"],
+                        "source_account": ["Family Leumi"],
+                        "date": ["2026-03-01"],
+                        "inflow_ils": [0.0],
+                        "outflow_ils": [90.0],
+                        "signed_amount_ils": [-90.0],
+                        "payee_raw": ["Mega Pet"],
+                        "memo": ["Mega Pet Pet Food"],
+                        "merchant_raw": ["Mega Pet"],
+                        "description_clean": ["Mega Pet"],
+                        "description_raw": ["Mega Pet Pet Food"],
+                        "description_clean_norm": ["mega pet"],
+                        "fingerprint": ["mega pet"],
+                        "approved": [False],
+                        "is_subtransaction": [False],
+                        "splits": [None],
+                    }
+                )
+            ),
         },
     )
 
     monkeypatch.setitem(normalize_file.FORMAT_MODULES, "fake", module)
     monkeypatch.setattr(
         normalize_file,
-        "write_flat_transaction_artifacts",
-        lambda df, path, **kwargs: (
+        "write_canonical_transaction_artifacts",
+        lambda table, path, **kwargs: (
             captured.update(
                 {
-                    "csv_path": path,
-                    "rows": len(df),
-                    "artifact_kind": kwargs["artifact_kind"],
-                    "source_system": kwargs["source_system"],
+                    "path": path,
+                    "csv_projection_rows": len(kwargs["csv_projection"]),
+                    "transaction_id": table["transaction_id"].to_pylist()[0],
                 }
             )
             or (path, path.with_suffix(".parquet"))
@@ -79,7 +106,6 @@ def test_normalize_one_writes_canonical_parquet(monkeypatch, tmp_path) -> None:
         Path("outputs/fingerprint_log.csv"),
     )
 
-    assert captured["csv_path"] == out_path
-    assert captured["rows"] == 1
-    assert captured["artifact_kind"] == "normalized_source_transaction"
-    assert captured["source_system"] == "bank"
+    assert captured["path"] == out_path
+    assert captured["csv_projection_rows"] == 1
+    assert captured["transaction_id"] == "BANK:1"

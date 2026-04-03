@@ -6,6 +6,7 @@ from ynab_il_importer.artifacts.transaction_io import (
     read_transactions_arrow,
     read_transactions_pandas,
     read_transactions_polars,
+    write_canonical_transaction_artifacts,
     write_flat_transaction_artifacts,
     write_transactions_parquet,
 )
@@ -42,6 +43,7 @@ __all__ = [
     "read_transactions_arrow",
     "read_transactions_pandas",
     "read_transactions_polars",
+    "write_canonical_transaction_artifacts",
     "write_flat_transaction_artifacts",
     "write_transactions_parquet",
 ]
