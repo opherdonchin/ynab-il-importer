@@ -3,9 +3,143 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
+import polars as pl
 
 import ynab_il_importer.review_app.model as model
 from ynab_il_importer.safe_types import normalize_flag_series
+
+
+def _txn_mapping(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _txn_text(txn: dict[str, Any], field: str) -> str:
+    return str(txn.get(field, "") or "").strip()
+
+
+def _txn_splits(txn: dict[str, Any]) -> list[dict[str, Any]]:
+    splits = txn.get("splits") or []
+    return [split for split in splits if isinstance(split, dict)]
+
+
+def canonical_review_helpers(df: pl.DataFrame) -> pl.DataFrame:
+    if df.is_empty():
+        return df.with_columns(
+            [
+                pl.lit(False).alias("source_is_split"),
+                pl.lit(False).alias("target_is_split"),
+                pl.lit(0).alias("source_split_count"),
+                pl.lit(0).alias("target_split_count"),
+                pl.lit("").alias("source_display_payee"),
+                pl.lit("").alias("target_display_payee"),
+                pl.lit("").alias("source_display_category"),
+                pl.lit("").alias("target_display_category"),
+                pl.lit("").alias("source_display_account"),
+                pl.lit("").alias("target_display_account"),
+                pl.lit("").alias("source_display_date"),
+                pl.lit("").alias("target_display_date"),
+            ]
+        )
+
+    source_txn = pl.col("source_transaction")
+    target_txn = pl.col("target_transaction")
+
+    return df.with_columns(
+        [
+            source_txn
+            .map_elements(
+                lambda txn: bool(_txn_splits(_txn_mapping(txn))),
+                return_dtype=pl.Boolean,
+                skip_nulls=False,
+            )
+            .alias("source_is_split"),
+            target_txn
+            .map_elements(
+                lambda txn: bool(_txn_splits(_txn_mapping(txn))),
+                return_dtype=pl.Boolean,
+                skip_nulls=False,
+            )
+            .alias("target_is_split"),
+            source_txn
+            .map_elements(
+                lambda txn: len(_txn_splits(_txn_mapping(txn))),
+                return_dtype=pl.Int64,
+                skip_nulls=False,
+            )
+            .alias("source_split_count"),
+            target_txn
+            .map_elements(
+                lambda txn: len(_txn_splits(_txn_mapping(txn))),
+                return_dtype=pl.Int64,
+                skip_nulls=False,
+            )
+            .alias("target_split_count"),
+            source_txn
+            .map_elements(
+                lambda txn: _txn_text(_txn_mapping(txn), "payee_raw"),
+                return_dtype=pl.String,
+                skip_nulls=False,
+            )
+            .alias("source_display_payee"),
+            target_txn
+            .map_elements(
+                lambda txn: _txn_text(_txn_mapping(txn), "payee_raw"),
+                return_dtype=pl.String,
+                skip_nulls=False,
+            )
+            .alias("target_display_payee"),
+            source_txn
+            .map_elements(
+                lambda txn: model.normalize_category_value(
+                    _txn_text(_txn_mapping(txn), "category_raw")
+                ),
+                return_dtype=pl.String,
+                skip_nulls=False,
+            )
+            .alias("source_display_category"),
+            target_txn
+            .map_elements(
+                lambda txn: model.normalize_category_value(
+                    _txn_text(_txn_mapping(txn), "category_raw")
+                ),
+                return_dtype=pl.String,
+                skip_nulls=False,
+            )
+            .alias("target_display_category"),
+            source_txn
+            .map_elements(
+                lambda txn: _txn_text(_txn_mapping(txn), "account_name")
+                or _txn_text(_txn_mapping(txn), "source_account"),
+                return_dtype=pl.String,
+                skip_nulls=False,
+            )
+            .alias("source_display_account"),
+            target_txn
+            .map_elements(
+                lambda txn: _txn_text(_txn_mapping(txn), "account_name")
+                or _txn_text(_txn_mapping(txn), "source_account"),
+                return_dtype=pl.String,
+                skip_nulls=False,
+            )
+            .alias("target_display_account"),
+            source_txn
+            .map_elements(
+                lambda txn: _txn_text(_txn_mapping(txn), "date"),
+                return_dtype=pl.String,
+                skip_nulls=False,
+            )
+            .alias("source_display_date"),
+            target_txn
+            .map_elements(
+                lambda txn: _txn_text(_txn_mapping(txn), "date"),
+                return_dtype=pl.String,
+                skip_nulls=False,
+            )
+            .alias("target_display_date"),
+        ]
+    )
 
 
 def series_or_default(df: pd.DataFrame, col: str) -> pd.Series:

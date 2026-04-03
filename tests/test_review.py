@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
+import polars as pl
 
 import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
@@ -619,3 +622,77 @@ def test_initial_inference_tags_aligns_by_transaction_occurrence() -> None:
     inferred = review_state.initial_inference_tags(current, base)
 
     assert inferred.tolist() == ["ambiguous", "matched_auto"]
+
+
+def test_canonical_review_helpers_derive_split_and_display_fields() -> None:
+    df = pl.DataFrame(
+        {
+            "review_transaction_id": ["row-1", "row-2"],
+            "source_transaction": [
+                {
+                    "transaction_id": "src-1",
+                    "account_name": "Family Leumi",
+                    "source_account": "Family Leumi",
+                    "date": "2026-03-01",
+                    "payee_raw": "Salary Liya",
+                    "category_raw": "Split",
+                    "splits": [
+                        {
+                            "split_id": "sub-1",
+                            "category_raw": "Pilates",
+                            "outflow_ils": 100.0,
+                            "inflow_ils": 0.0,
+                        }
+                    ],
+                },
+                None,
+            ],
+            "target_transaction": [
+                {
+                    "transaction_id": "tgt-1",
+                    "account_name": "In Family",
+                    "source_account": "In Family",
+                    "date": "2026-03-01",
+                    "payee_raw": "Transfer : In Family",
+                    "category_raw": "",
+                    "splits": [],
+                },
+                {
+                    "transaction_id": "tgt-2",
+                    "account_name": "In Family",
+                    "source_account": "In Family",
+                    "date": "2026-03-02",
+                    "payee_raw": "Manual Split",
+                    "category_raw": "Split",
+                    "splits": [
+                        {
+                            "split_id": "sub-2",
+                            "category_raw": "Food",
+                            "outflow_ils": 50.0,
+                            "inflow_ils": 0.0,
+                        },
+                        {
+                            "split_id": "sub-3",
+                            "category_raw": "Pets",
+                            "outflow_ils": 25.0,
+                            "inflow_ils": 0.0,
+                        },
+                    ],
+                },
+            ],
+        }
+    )
+
+    augmented = review_state.canonical_review_helpers(df)
+    rows = augmented.to_dicts()
+
+    assert rows[0]["source_is_split"] is True
+    assert rows[0]["source_split_count"] == 1
+    assert rows[0]["source_display_payee"] == "Salary Liya"
+    assert rows[0]["source_display_category"] == "Split"
+    assert rows[0]["source_display_account"] == "Family Leumi"
+    assert rows[1]["source_is_split"] is False
+    assert rows[1]["source_split_count"] == 0
+    assert rows[1]["target_is_split"] is True
+    assert rows[1]["target_split_count"] == 2
+    assert rows[1]["target_display_payee"] == "Manual Split"
