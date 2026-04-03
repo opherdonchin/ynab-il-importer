@@ -124,7 +124,7 @@ def main() -> None:
         budget_id=args.budget_id,
     )
 
-    reviewed = review_io.load_review_artifact(input_path)
+    reviewed = review_io.load_review_artifact(input_path).to_pandas()
     accounts = ynab_api.fetch_accounts(plan_id=plan_id or None)
     if args.reviewed_only:
         reviewed = reviewed[normalize_flag_series(reviewed["reviewed"])].copy()

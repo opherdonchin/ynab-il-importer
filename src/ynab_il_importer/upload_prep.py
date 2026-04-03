@@ -130,6 +130,7 @@ def _canonical_context_text(row: pd.Series, *names: str) -> str:
 def _review_artifact_to_working_frame(
     reviewed_source: pd.DataFrame | Any,
 ) -> pd.DataFrame:
+    original_index = reviewed_source.index if isinstance(reviewed_source, pd.DataFrame) else None
     review_df = review_io.load_review_artifact(reviewed_source).to_pandas()
     if review_df.empty:
         return pd.DataFrame(columns=REQUIRED_REVIEW_COLUMNS)
@@ -195,7 +196,10 @@ def _review_artifact_to_working_frame(
                 "match_status": _normalize_text(row.get("match_status", "")),
             }
         )
-    return pd.DataFrame(rows)
+    working = pd.DataFrame(rows)
+    if original_index is not None and len(original_index) == len(working):
+        working.index = original_index
+    return working
 
 
 def _transfer_target(payee: str) -> str:
