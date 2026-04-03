@@ -922,8 +922,8 @@ More specifically:
 
 Step 3 should make the review builder boundaries explicit:
 
-- builders should continue to emit a flat review-row facade for the app
-- but each review row or review case should also carry references to canonical source/target transaction objects
+- The app should consume the canonical structure and transform it internally to the relevant data structures for presentation
+- The internal representaiton should carry references to canonical source/target transaction objects
 - the app should render from those attached canonical objects when split detail is needed
 
 This means the future function shape should trend toward:
