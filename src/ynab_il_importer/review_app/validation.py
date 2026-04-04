@@ -6,7 +6,7 @@ import pandas as pd
 import polars as pl
 
 import ynab_il_importer.review_app.state as review_state
-from ynab_il_importer.safe_types import TRUE_VALUES
+from ynab_il_importer.safe_types import TRUE_VALUES, normalize_flag_series as _normalize_flag_series
 
 import ynab_il_importer.review_app.model as model
 
@@ -27,6 +27,10 @@ TARGET_DELETE_ACTIONS = {"delete_target", "delete_both"}
 
 def normalize_update_maps(series: pd.Series) -> pd.Series:
     return series.astype("string").fillna("").str.strip()
+
+
+def normalize_flag_series(series: pd.Series) -> pd.Series:
+    return _normalize_flag_series(series)
 
 
 def normalize_decision_actions(series: pd.Series) -> pd.Series:
@@ -78,12 +82,31 @@ def _truthy(value: Any) -> bool:
     return _text(value).casefold() in TRUE_VALUES or bool(value) is True
 
 
-def _selected_value(row: pd.Series, field: str, *, side: str) -> str:
+def _row_has(row: Any, key: str) -> bool:
+    if isinstance(row, pd.Series):
+        return key in row.index
+    if isinstance(row, dict):
+        return key in row
+    return hasattr(row, "__contains__") and key in row
+
+
+def _row_get(row: Any, key: str, default: Any = "") -> Any:
+    if isinstance(row, pd.Series):
+        return row.get(key, default)
+    if isinstance(row, dict):
+        return row.get(key, default)
+    getter = getattr(row, "get", None)
+    if callable(getter):
+        return getter(key, default)
+    return default
+
+
+def _selected_value(row: Any, field: str, *, side: str) -> str:
     side_key = f"{side}_{field}_selected"
-    if side_key in row.index:
-        value = _text(row.get(side_key))
+    if _row_has(row, side_key):
+        value = _text(_row_get(row, side_key))
     elif side == "target":
-        value = _text(row.get(f"{field}_selected"))
+        value = _text(_row_get(row, f"{field}_selected"))
     else:
         value = ""
     if field == "category":
@@ -268,7 +291,7 @@ def blocker_series_with_components(
     return pd.Series(values, index=df.index, dtype="string"), component_map
 
 
-def validate_row(row: pd.Series) -> tuple[list[str], list[str]]:
+def validate_row(row: Any) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
 
@@ -276,14 +299,14 @@ def validate_row(row: pd.Series) -> tuple[list[str], list[str]]:
     source_category = _selected_value(row, "category", side="source")
     target_payee = _selected_value(row, "payee", side="target")
     target_category = _selected_value(row, "category", side="target")
-    action = normalize_decision_action(row.get("decision_action", ""))
-    reviewed = _truthy(row.get("reviewed", False))
-    workflow_type = _text(row.get("workflow_type")).casefold()
+    action = normalize_decision_action(_row_get(row, "decision_action", ""))
+    reviewed = _truthy(_row_get(row, "reviewed", False))
+    workflow_type = _text(_row_get(row, "workflow_type")).casefold()
     source_category_required = not model.is_transfer_payee(source_payee)
     category_required = not model.is_transfer_payee(target_payee)
     source_no_category_required = model.is_no_category_required(source_category)
     target_no_category_required = model.is_no_category_required(target_category)
-    update_maps = parse_update_maps(row.get("update_maps", ""))
+    update_maps = parse_update_maps(_row_get(row, "update_maps", ""))
 
     if reviewed and action == NO_DECISION:
         errors.append("reviewed row cannot have No decision")
@@ -305,8 +328,8 @@ def validate_row(row: pd.Series) -> tuple[list[str], list[str]]:
     if ";" in target_category:
         warnings.append("category contains ';'")
 
-    payee_options = model.parse_option_string(row.get("payee_options", ""))
-    category_options = model.parse_option_string(row.get("category_options", ""))
+    payee_options = model.parse_option_string(_row_get(row, "payee_options", ""))
+    category_options = model.parse_option_string(_row_get(row, "category_options", ""))
     if target_payee and payee_options and target_payee not in payee_options:
         warnings.append("payee not in options")
     if target_category and category_options and target_category not in category_options:
@@ -318,10 +341,15 @@ def validate_row(row: pd.Series) -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
-def precompute_row_errors(df: pd.DataFrame) -> dict[Any, list[str]]:
+def precompute_row_errors(df: pd.DataFrame | pl.DataFrame) -> dict[Any, list[str]]:
+    if isinstance(df, pd.DataFrame):
+        return {
+            idx: validate_row(row)[0]
+            for idx, row in df.iterrows()
+        }
     return {
         idx: validate_row(row)[0]
-        for idx, row in df.iterrows()
+        for idx, row in enumerate(df.to_dicts())
     }
 
 
@@ -383,7 +411,7 @@ def review_component_errors(
 
 
 def blocker_label(
-    row: pd.Series,
+    row: Any,
     *,
     component_errors: list[str],
     uncategorized: bool,
@@ -391,7 +419,7 @@ def blocker_label(
 ) -> str:
     if row_errors is None:
         row_errors = validate_row(row)[0]
-    action = normalize_decision_action(row.get("decision_action", ""))
+    action = normalize_decision_action(_row_get(row, "decision_action", ""))
     combined_errors = list(row_errors) + list(component_errors)
 
     if any(
@@ -418,10 +446,10 @@ def blocker_series(df: pd.DataFrame) -> pd.Series:
     return blocker_values
 
 
-def allowed_decision_actions(row: pd.Series) -> list[str]:
-    workflow_type = str(row.get("workflow_type", "") or "").strip().casefold()
-    source_present = _truthy(row.get("source_present", False))
-    target_present = _truthy(row.get("target_present", False))
+def allowed_decision_actions(row: Any) -> list[str]:
+    workflow_type = str(_row_get(row, "workflow_type", "") or "").strip().casefold()
+    source_present = _truthy(_row_get(row, "source_present", False))
+    target_present = _truthy(_row_get(row, "target_present", False))
 
     actions = [NO_DECISION, "ignore_row"]
     if source_present and target_present:

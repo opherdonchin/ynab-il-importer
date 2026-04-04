@@ -38,6 +38,26 @@ def test_validate_row_blocks_reviewed_no_decision_and_institutional_source_mutat
     assert warnings == []
 
 
+def test_validate_row_accepts_plain_mapping() -> None:
+    errors, warnings = review_validation.validate_row(
+        {
+            "workflow_type": "cross_budget",
+            "decision_action": "create_target",
+            "reviewed": False,
+            "source_payee_selected": "Cafe",
+            "source_category_selected": "Food",
+            "target_payee_selected": "Cafe",
+            "target_category_selected": "Food",
+            "payee_options": "Cafe;Bakery",
+            "category_options": "Food;Dining",
+            "update_maps": "",
+        }
+    )
+
+    assert errors == []
+    assert warnings == []
+
+
 def test_normalize_decision_action_scalar_defaults_blank_to_no_decision() -> None:
     assert review_validation.normalize_decision_action("") == review_validation.NO_DECISION
     assert review_validation.normalize_decision_action("  keep_match  ") == "keep_match"
@@ -134,6 +154,18 @@ def test_blocker_series_is_none_for_settled_consistent_rows() -> None:
     blockers = review_validation.blocker_series(df)
 
     assert blockers.tolist() == ["None"]
+
+
+def test_allowed_decision_actions_accepts_plain_mapping() -> None:
+    actions = review_validation.allowed_decision_actions(
+        {
+            "workflow_type": "institutional",
+            "source_present": False,
+            "target_present": True,
+        }
+    )
+
+    assert actions == [review_validation.NO_DECISION, "delete_target", "ignore_row"]
 
 
 def test_load_save_roundtrip_uses_side_specific_selected_fields(tmp_path) -> None:
