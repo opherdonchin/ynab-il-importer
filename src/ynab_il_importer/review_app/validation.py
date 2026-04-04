@@ -3,9 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
+import polars as pl
 
 import ynab_il_importer.review_app.state as review_state
-from ynab_il_importer.safe_types import TRUE_VALUES, normalize_flag_series
+from ynab_il_importer.safe_types import TRUE_VALUES
 
 import ynab_il_importer.review_app.model as model
 
@@ -96,26 +97,27 @@ def _id_series(df: pd.DataFrame, column: str) -> pd.Series:
     return df[column].astype("string").fillna("").str.strip()
 
 
-def connected_component_mask(df: pd.DataFrame, start_idx: Any) -> pd.Series:
-    if start_idx not in df.index:
-        return pd.Series([False] * len(df), index=df.index)
-    component_map = precompute_components(df)
-    component_label = component_map.get(start_idx)
-    if component_label is None:
-        return pd.Series([False] * len(df), index=df.index)
-    return pd.Series(
-        [component_map.get(idx) == component_label for idx in df.index],
-        index=df.index,
+def _id_list(frame: pd.DataFrame | pl.DataFrame, column: str) -> list[str]:
+    if isinstance(frame, pd.DataFrame):
+        return _id_series(frame, column).tolist()
+    if column not in frame.columns:
+        return [""] * frame.height
+    return (
+        frame.select(pl.col(column).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars())
+        .to_series()
+        .to_list()
     )
 
 
-def precompute_components(df: pd.DataFrame) -> dict[Any, int]:
-    if df.empty:
+def _component_map_from_lists(
+    *,
+    index_values: list[Any],
+    source_ids: list[str],
+    target_ids: list[str],
+) -> dict[Any, int]:
+    if not index_values:
         return {}
 
-    index_values = list(df.index)
-    source_ids = _id_series(df, "source_row_id").tolist()
-    target_ids = _id_series(df, "target_row_id").tolist()
     parent = list(range(len(index_values)))
     rank = [0] * len(index_values)
 
@@ -170,6 +172,37 @@ def precompute_components(df: pd.DataFrame) -> dict[Any, int]:
     return component_map
 
 
+def connected_component_mask(df: pd.DataFrame, start_idx: Any) -> pd.Series:
+    if start_idx not in df.index:
+        return pd.Series([False] * len(df), index=df.index)
+    component_map = precompute_components(df)
+    component_label = component_map.get(start_idx)
+    if component_label is None:
+        return pd.Series([False] * len(df), index=df.index)
+    return pd.Series(
+        [component_map.get(idx) == component_label for idx in df.index],
+        index=df.index,
+    )
+
+
+def precompute_components(df: pd.DataFrame | pl.DataFrame) -> dict[Any, int]:
+    if isinstance(df, pd.DataFrame):
+        if df.empty:
+            return {}
+        index_values = list(df.index)
+    else:
+        if df.is_empty():
+            return {}
+        index_values = list(range(df.height))
+    source_ids = _id_list(df, "source_row_id")
+    target_ids = _id_list(df, "target_row_id")
+    return _component_map_from_lists(
+        index_values=index_values,
+        source_ids=source_ids,
+        target_ids=target_ids,
+    )
+
+
 def precompute_component_errors(
     df: pd.DataFrame,
     component_map: dict[Any, int],
@@ -211,10 +244,13 @@ def component_error_lookup(df: pd.DataFrame) -> dict[Any, list[str]]:
 
 def blocker_series_with_components(
     df: pd.DataFrame,
+    *,
+    component_map: dict[Any, int] | None = None,
 ) -> tuple[pd.Series, dict[Any, int]]:
     uncategorized = review_state.uncategorized_mask(df)
     row_errors_by_index = precompute_row_errors(df)
-    component_map = precompute_components(df)
+    if component_map is None:
+        component_map = precompute_components(df)
     component_errors = precompute_component_errors(
         df,
         component_map,

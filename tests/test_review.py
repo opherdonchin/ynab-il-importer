@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import polars as pl
@@ -510,6 +511,20 @@ def test_precompute_components_two_components() -> None:
     assert component_map[2] != component_map[0]
 
 
+def test_precompute_components_accepts_polars_review_table() -> None:
+    df = pl.DataFrame(
+        {
+            "source_row_id": ["s1", "s1", "s3"],
+            "target_row_id": ["t1", "t2", "t2"],
+        }
+    )
+
+    component_map = review_validation.precompute_components(df)
+
+    assert set(component_map.keys()) == {0, 1, 2}
+    assert set(component_map.values()) == {0}
+
+
 def test_precompute_component_errors_propagates() -> None:
     df = _review_rows(
         [
@@ -574,6 +589,29 @@ def test_blocker_series_with_components_returns_series_and_component_map() -> No
     assert blockers.index.tolist() == df.index.tolist()
     assert component_map[0] == component_map[1]
     assert component_map[2] != component_map[0]
+
+
+def test_blocker_series_with_components_uses_supplied_component_map(monkeypatch) -> None:
+    df = _review_rows(
+        [
+            {"source_row_id": "s1", "target_row_id": "t1", "decision_action": "keep_match"},
+            {"source_row_id": "s1", "target_row_id": "t2", "decision_action": "ignore_row"},
+        ]
+    )
+    component_map = {0: 7, 1: 7}
+
+    def fail(_: pd.DataFrame | pl.DataFrame) -> dict[Any, int]:
+        raise AssertionError("precompute_components should not be called")
+
+    monkeypatch.setattr(review_validation, "precompute_components", fail)
+
+    blockers, reused_map = review_validation.blocker_series_with_components(
+        df,
+        component_map=component_map,
+    )
+
+    assert blockers.index.tolist() == df.index.tolist()
+    assert reused_map == component_map
 
 
 def test_derive_inference_tags_marks_missing_rows() -> None:

@@ -804,7 +804,15 @@ def _compute_derived_state(
     updated_mask = (changed_mask | reviewed_mask).astype(bool)
     inconsistent = review_validation.inconsistent_fingerprints(df)
     uncategorized_mask = review_state.uncategorized_mask(df)
-    blocker_series, component_map = review_validation.blocker_series_with_components(df)
+    component_map = (
+        review_validation.precompute_components(review_table)
+        if isinstance(review_table, pl.DataFrame)
+        else review_validation.precompute_components(df)
+    )
+    blocker_series, component_map = review_validation.blocker_series_with_components(
+        df,
+        component_map=component_map,
+    )
     primary_state_series = review_state.primary_state_series(df, blocker_series)
     row_kind_series = review_state.row_kind_series(df)
     action_series = review_state.action_series(df)
