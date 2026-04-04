@@ -3,11 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 from streamlit.testing.v1 import AppTest
 
+from ynab_il_importer.artifacts.review_schema import REVIEW_SCHEMA
 import ynab_il_importer.review_app.app as review_app
 import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.review_app.state as review_state
+import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.validation as review_validation
 
 
@@ -97,6 +100,31 @@ def _build_app_test(
     return app, reviewed
 
 
+def _build_canonical_app_test(
+    tmp_path: Path,
+    *,
+    records: list[dict[str, object]],
+) -> tuple[AppTest, Path]:
+    proposed = tmp_path / "proposed.parquet"
+    reviewed = tmp_path / "proposed_reviewed.parquet"
+    categories = tmp_path / "categories.csv"
+
+    table = pa.Table.from_pylist(records, schema=REVIEW_SCHEMA)
+    review_io.save_review_artifact(table, proposed)
+    _write_categories(categories)
+
+    argv = ["app.py", "--in", str(proposed), "--categories", str(categories)]
+    script = (
+        "import sys\n"
+        f"sys.path.insert(0, r\"{Path('src').resolve()}\")\n"
+        f"sys.argv = {argv!r}\n"
+        "from ynab_il_importer.review_app.app import main\n"
+        "main()\n"
+    )
+    app = AppTest.from_string(script, default_timeout=30)
+    return app, reviewed
+
+
 def _find_selectbox(container, prefix: str):
     return next(widget for widget in container.selectbox if str(widget.key).startswith(prefix))
 
@@ -111,6 +139,14 @@ def _find_button_by_label(container, label: str):
 
 def _find_multiselect_by_label(container, label: str):
     return next(widget for widget in container.multiselect if widget.label == label)
+
+
+def _markdown_values(container) -> list[str]:
+    return [str(widget.value) for widget in getattr(container, "markdown", [])]
+
+
+def _caption_values(container) -> list[str]:
+    return [str(widget.value) for widget in getattr(container, "caption", [])]
 
 
 def _show_all_primary_states(app: AppTest) -> None:
@@ -336,6 +372,177 @@ def test_grouped_row_indices_only_include_filtered_rows() -> None:
 
     assert fingerprints == ["fp-a", "fp-b"]
     assert group_indices == {"fp-a": [10, 30], "fp-b": [20]}
+
+
+def test_app_renders_canonical_split_detail_from_parquet(tmp_path: Path) -> None:
+    records = [
+        {
+            "artifact_kind": "review_artifact",
+            "artifact_version": "review_v2",
+            "review_transaction_id": "demo-split",
+            "workflow_type": "cross_budget",
+            "relation_kind": "source_target_pair",
+            "match_status": "ambiguous",
+            "match_method": "category_extract",
+            "payee_options": "Bookstore Combo",
+            "category_options": "Books;Gifts",
+            "update_maps": "",
+            "decision_action": review_validation.NO_DECISION,
+            "reviewed": False,
+            "memo_append": "",
+            "source_present": True,
+            "target_present": True,
+            "source_row_id": "src-split-1",
+            "target_row_id": "tgt-split-1",
+            "source_account": "Shared Budget",
+            "target_account": "Family Leumi",
+            "source_date": "2026-03-02",
+            "target_date": "2026-03-02",
+            "source_memo": "books and gifts",
+            "target_memo": "house and groceries",
+            "source_fingerprint": "bookstore combo",
+            "target_fingerprint": "mega store",
+            "source_bank_txn_id": "",
+            "source_card_txn_id": "",
+            "source_card_suffix": "",
+            "source_secondary_date": "",
+            "source_ref": "",
+            "source_context_kind": "ynab_split_category_match",
+            "source_context_category_id": "cat-books",
+            "source_context_category_name": "Books",
+            "source_context_matching_split_ids": "split-book-1",
+            "source_payee_selected": "Bookstore Combo",
+            "source_category_selected": "Books",
+            "target_context_kind": "",
+            "target_context_matching_split_ids": "split-house-1",
+            "target_payee_selected": "Mega Store",
+            "target_category_selected": "House and stuff",
+            "source_transaction": {
+                "artifact_kind": "demo_transaction",
+                "artifact_version": "transaction_v1",
+                "source_system": "ynab",
+                "transaction_id": "src-split-1",
+                "ynab_id": "src-split-1",
+                "import_id": "",
+                "parent_transaction_id": "src-split-1",
+                "account_id": "acct-shared",
+                "account_name": "Shared Budget",
+                "source_account": "Shared Budget",
+                "date": "2026-03-02",
+                "secondary_date": "",
+                "inflow_ils": 0.0,
+                "outflow_ils": 140.0,
+                "signed_amount_ils": -140.0,
+                "payee_raw": "Bookstore Combo",
+                "category_id": "",
+                "category_raw": "Split",
+                "memo": "books and gifts",
+                "txn_kind": "",
+                "fingerprint": "bookstore combo",
+                "description_raw": "books and gifts",
+                "description_clean": "books and gifts",
+                "description_clean_norm": "",
+                "merchant_raw": "Bookstore Combo",
+                "ref": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+                "is_subtransaction": False,
+                "splits": [
+                    {
+                        "split_id": "split-book-1",
+                        "parent_transaction_id": "src-split-1",
+                        "ynab_subtransaction_id": "split-book-1",
+                        "payee_raw": "Bookstore Combo",
+                        "category_id": "",
+                        "category_raw": "Books",
+                        "memo": "novel",
+                        "inflow_ils": 0.0,
+                        "outflow_ils": 90.0,
+                        "import_id": "",
+                        "matched_transaction_id": "",
+                    },
+                    {
+                        "split_id": "split-gift-1",
+                        "parent_transaction_id": "src-split-1",
+                        "ynab_subtransaction_id": "split-gift-1",
+                        "payee_raw": "Bookstore Combo",
+                        "category_id": "",
+                        "category_raw": "Gifts",
+                        "memo": "card",
+                        "inflow_ils": 0.0,
+                        "outflow_ils": 50.0,
+                        "import_id": "",
+                        "matched_transaction_id": "",
+                    },
+                ],
+            },
+            "target_transaction": {
+                "artifact_kind": "demo_transaction",
+                "artifact_version": "transaction_v1",
+                "source_system": "ynab",
+                "transaction_id": "tgt-split-1",
+                "ynab_id": "tgt-split-1",
+                "import_id": "",
+                "parent_transaction_id": "tgt-split-1",
+                "account_id": "acct-family",
+                "account_name": "Family Leumi",
+                "source_account": "Family Leumi",
+                "date": "2026-03-02",
+                "secondary_date": "",
+                "inflow_ils": 0.0,
+                "outflow_ils": 180.0,
+                "signed_amount_ils": -180.0,
+                "payee_raw": "Mega Store",
+                "category_id": "",
+                "category_raw": "Split",
+                "memo": "house and groceries",
+                "txn_kind": "",
+                "fingerprint": "mega store",
+                "description_raw": "house and groceries",
+                "description_clean": "house and groceries",
+                "description_clean_norm": "",
+                "merchant_raw": "Mega Store",
+                "ref": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": False,
+                "is_subtransaction": False,
+                "splits": [
+                    {
+                        "split_id": "split-house-1",
+                        "parent_transaction_id": "tgt-split-1",
+                        "ynab_subtransaction_id": "split-house-1",
+                        "payee_raw": "Mega Store",
+                        "category_id": "",
+                        "category_raw": "House and stuff",
+                        "memo": "supplies",
+                        "inflow_ils": 0.0,
+                        "outflow_ils": 120.0,
+                        "import_id": "",
+                        "matched_transaction_id": "",
+                    }
+                ],
+            },
+        }
+    ]
+
+    app, _ = _build_canonical_app_test(tmp_path, records=records)
+
+    app.run()
+    app.sidebar.radio[0].set_value("Row")
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    row = app.expander[0]
+    markdown_text = "\n".join(_markdown_values(row))
+    caption_text = "\n".join(_caption_values(row))
+
+    assert "Source split detail" in markdown_text
+    assert "Target split detail" in markdown_text
+    assert "Matching split split-book-1" in caption_text
+    assert "Matching split split-house-1" in caption_text
 
 
 def test_changed_mask_aligns_duplicate_transaction_ids() -> None:
