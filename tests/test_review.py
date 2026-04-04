@@ -630,7 +630,7 @@ def test_apply_competing_row_resolution_ignores_conflicts() -> None:
         ]
     )
 
-    touched = review_model.apply_competing_row_resolution(df, [0])
+    df, touched = review_model.apply_competing_row_resolution(df, [0])
 
     assert touched == [1, 2]
     assert df["decision_action"].tolist() == ["keep_match", "ignore_row", "ignore_row"]
@@ -758,7 +758,7 @@ def test_apply_row_edit_propagates_to_related_indices() -> None:
         ]
     )
 
-    review_state.apply_row_edit(
+    df = review_state.apply_row_edit(
         df,
         0,
         source_payee="Source Cafe",
@@ -769,6 +769,76 @@ def test_apply_row_edit_propagates_to_related_indices() -> None:
     assert df["source_payee_selected"].tolist() == ["Source Cafe", "Source Cafe", ""]
     assert df["target_payee_selected"].tolist() == ["Target Cafe", "", "Target Cafe"]
     assert df["target_category_selected"].tolist() == ["Food", "", "Food"]
+
+
+def test_apply_row_edit_accepts_polars_review_table() -> None:
+    df = pl.DataFrame(
+        {
+            "source_row_id": ["s1", "s1", "s3"],
+            "target_row_id": ["t1", "t2", "t1"],
+            "source_payee_selected": ["", "", ""],
+            "target_payee_selected": ["", "", ""],
+            "target_category_selected": ["", "", ""],
+        }
+    )
+
+    updated = review_state.apply_row_edit(
+        df,
+        0,
+        source_payee="Source Cafe",
+        target_payee="Target Cafe",
+        target_category="Food",
+    )
+
+    assert isinstance(updated, pl.DataFrame)
+    assert updated["source_payee_selected"].to_list() == ["Source Cafe", "Source Cafe", ""]
+    assert updated["target_payee_selected"].to_list() == ["Target Cafe", "", "Target Cafe"]
+    assert updated["target_category_selected"].to_list() == ["Food", "", "Food"]
+
+
+def test_apply_review_state_accepts_polars_review_table() -> None:
+    df = pl.DataFrame(
+        {
+            "source_row_id": ["s1", "s1"],
+            "target_row_id": ["t1", "t2"],
+            "workflow_type": ["cross_budget", "cross_budget"],
+            "decision_action": ["keep_match", "ignore_row"],
+            "reviewed": [False, False],
+            "source_payee_selected": ["Cafe", "Cafe"],
+            "source_category_selected": ["Food", "Food"],
+            "target_payee_selected": ["Cafe", "Cafe"],
+            "target_category_selected": ["Food", "Food"],
+            "update_maps": ["", ""],
+        }
+    )
+    component_map = review_validation.precompute_components(df)
+
+    updated, errors = review_validation.apply_review_state(
+        df,
+        [0],
+        reviewed=True,
+        component_map=component_map,
+    )
+
+    assert isinstance(updated, pl.DataFrame)
+    assert errors == []
+    assert updated["reviewed"].to_list() == [True, True]
+
+
+def test_apply_competing_row_resolution_accepts_polars_review_table() -> None:
+    df = pl.DataFrame(
+        {
+            "source_row_id": ["s1", "s1", "s3"],
+            "target_row_id": ["t1", "t2", "t1"],
+            "decision_action": ["keep_match", review_validation.NO_DECISION, review_validation.NO_DECISION],
+        }
+    )
+
+    updated, touched = review_model.apply_competing_row_resolution(df, [0])
+
+    assert isinstance(updated, pl.DataFrame)
+    assert touched == [1, 2]
+    assert updated["decision_action"].to_list() == ["keep_match", "ignore_row", "ignore_row"]
 
 
 def test_precompute_components_accepts_polars_review_table() -> None:

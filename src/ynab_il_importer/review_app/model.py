@@ -4,6 +4,7 @@ import math
 from typing import Any
 
 import pandas as pd
+import polars as pl
 
 
 NO_CATEGORY_REQUIRED = "None"
@@ -54,8 +55,62 @@ def is_no_category_required(value: Any) -> bool:
 
 
 def apply_to_same_fingerprint(
+    df: pd.DataFrame | pl.DataFrame,
+    fingerprint: str,
+    payee: str | None = None,
+    category: str | None = None,
+    update_maps: str | None = None,
+    decision_action: str | None = None,
+    reviewed: bool | None = None,
+    eligible_mask: pd.Series | pl.Series | list[bool] | None = None,
+) -> pd.DataFrame | pl.DataFrame:
+    if isinstance(df, pl.DataFrame):
+        pandas_df = df.to_pandas()
+        updated = _apply_to_same_fingerprint_pandas(
+            pandas_df,
+            fingerprint,
+            payee=payee,
+            category=category,
+            update_maps=update_maps,
+            decision_action=decision_action,
+            reviewed=reviewed,
+            eligible_mask=_eligible_mask_for_index(eligible_mask, pandas_df.index),
+        )
+        return pl.from_pandas(updated)
+    return _apply_to_same_fingerprint_pandas(
+        df,
+        fingerprint,
+        payee=payee,
+        category=category,
+        update_maps=update_maps,
+        decision_action=decision_action,
+        reviewed=reviewed,
+        eligible_mask=_eligible_mask_for_index(eligible_mask, df.index),
+    )
+
+
+def _eligible_mask_for_index(
+    eligible_mask: pd.Series | pl.Series | list[bool] | None,
+    index: pd.Index,
+) -> pd.Series | None:
+    if eligible_mask is None:
+        return None
+    if isinstance(eligible_mask, pd.Series):
+        return eligible_mask.reindex(index, fill_value=False).astype(bool)
+    if isinstance(eligible_mask, pl.Series):
+        values = eligible_mask.cast(pl.Boolean, strict=False).fill_null(False).to_list()
+    else:
+        values = [bool(value) for value in eligible_mask]
+    series = pd.Series(values, dtype=bool)
+    if len(series) < len(index):
+        series = series.reindex(range(len(index)), fill_value=False)
+    return pd.Series(series.iloc[: len(index)].to_list(), index=index, dtype=bool)
+
+
+def _apply_to_same_fingerprint_pandas(
     df: pd.DataFrame,
     fingerprint: str,
+    *,
     payee: str | None = None,
     category: str | None = None,
     update_maps: str | None = None,
@@ -63,25 +118,25 @@ def apply_to_same_fingerprint(
     reviewed: bool | None = None,
     eligible_mask: pd.Series | None = None,
 ) -> pd.DataFrame:
-    mask = df["fingerprint"].astype("string").fillna("").str.strip() == str(fingerprint).strip()
+    updated = df.copy()
+    mask = updated["fingerprint"].astype("string").fillna("").str.strip() == str(fingerprint).strip()
     if eligible_mask is not None:
-        eligible = eligible_mask.reindex(df.index, fill_value=False).astype(bool)
-        mask = mask & eligible
+        mask = mask & eligible_mask
     if payee is not None:
-        df.loc[mask, "payee_selected"] = payee
-        if "target_payee_selected" in df.columns:
-            df.loc[mask, "target_payee_selected"] = payee
+        updated.loc[mask, "payee_selected"] = payee
+        if "target_payee_selected" in updated.columns:
+            updated.loc[mask, "target_payee_selected"] = payee
     if category is not None:
-        df.loc[mask, "category_selected"] = category
-        if "target_category_selected" in df.columns:
-            df.loc[mask, "target_category_selected"] = category
-    if update_maps is not None and "update_maps" in df.columns:
-        df.loc[mask, "update_maps"] = str(update_maps).strip()
-    if decision_action is not None and "decision_action" in df.columns:
-        df.loc[mask, "decision_action"] = str(decision_action).strip()
+        updated.loc[mask, "category_selected"] = category
+        if "target_category_selected" in updated.columns:
+            updated.loc[mask, "target_category_selected"] = category
+    if update_maps is not None and "update_maps" in updated.columns:
+        updated.loc[mask, "update_maps"] = str(update_maps).strip()
+    if decision_action is not None and "decision_action" in updated.columns:
+        updated.loc[mask, "decision_action"] = str(decision_action).strip()
     if reviewed is not None:
-        df.loc[mask, "reviewed"] = bool(reviewed)
-    return df
+        updated.loc[mask, "reviewed"] = bool(reviewed)
+    return updated
 
 
 def competing_row_scope(decision_action: str) -> tuple[bool, bool]:
@@ -98,18 +153,30 @@ def competing_row_scope(decision_action: str) -> tuple[bool, bool]:
 
 
 def apply_competing_row_resolution(
+    df: pd.DataFrame | pl.DataFrame,
+    indices: list[Any],
+) -> tuple[pd.DataFrame | pl.DataFrame, list[Any]]:
+    if isinstance(df, pl.DataFrame):
+        pandas_df = df.to_pandas()
+        updated, touched = _apply_competing_row_resolution_pandas(pandas_df, indices)
+        return pl.from_pandas(updated), touched
+    return _apply_competing_row_resolution_pandas(df, indices)
+
+
+def _apply_competing_row_resolution_pandas(
     df: pd.DataFrame,
     indices: list[Any],
-) -> list[Any]:
+) -> tuple[pd.DataFrame, list[Any]]:
     import ynab_il_importer.review_app.state as review_state
     import ynab_il_importer.review_app.validation as review_validation
 
+    updated = df.copy()
     touched: list[Any] = []
     for idx in dict.fromkeys(indices):
-        if idx not in df.index:
+        if idx not in updated.index:
             continue
         action = review_validation.normalize_decision_action(
-            df.loc[idx, "decision_action"] if "decision_action" in df.columns else ""
+            updated.loc[idx, "decision_action"] if "decision_action" in updated.columns else ""
         )
         if action in {review_validation.NO_DECISION, "ignore_row"}:
             continue
@@ -117,7 +184,7 @@ def apply_competing_row_resolution(
         if not include_source and not include_target:
             continue
         competing_indices = review_state.related_row_indices(
-            df,
+            updated,
             idx,
             include_source=include_source,
             include_target=include_target,
@@ -125,7 +192,7 @@ def apply_competing_row_resolution(
         competing_indices = [current_idx for current_idx in competing_indices if current_idx != idx]
         if not competing_indices:
             continue
-        if "decision_action" in df.columns:
-            df.loc[competing_indices, "decision_action"] = "ignore_row"
+        if "decision_action" in updated.columns:
+            updated.loc[competing_indices, "decision_action"] = "ignore_row"
         touched.extend(competing_indices)
-    return list(dict.fromkeys(touched))
+    return updated, list(dict.fromkeys(touched))

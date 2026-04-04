@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import polars as pl
 
 import ynab_il_importer.review_reconcile as review_reconcile
 
@@ -181,3 +182,47 @@ def test_reconcile_reviewed_transactions_matches_duplicate_transaction_ids_by_oc
     assert merged["decision_action"].tolist() == ["keep_match", "ignore_row"]
     assert merged["reviewed"].tolist() == [True, True]
     assert stats["direct_matches"] == 2
+
+
+def test_reconcile_reviewed_transactions_accepts_polars_frames() -> None:
+    old = pl.DataFrame(
+        {
+            "transaction_id": ["t1"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["10"],
+            "inflow_ils": ["0"],
+            "fingerprint": ["fp1"],
+            "source_payee_selected": ["Source A"],
+            "source_category_selected": ["Cat Source"],
+            "target_payee_selected": ["Payee A"],
+            "target_category_selected": ["Cat A"],
+            "decision_action": ["keep_match"],
+            "update_maps": ["fingerprint_add_source"],
+            "reviewed": ["TRUE"],
+        }
+    )
+    new = pl.DataFrame(
+        {
+            "transaction_id": ["t1", "t2"],
+            "date": ["2026-03-01", "2026-03-02"],
+            "outflow_ils": ["10", "12"],
+            "inflow_ils": ["0", "0"],
+            "fingerprint": ["fp1", "fp2"],
+            "source_payee_selected": ["", ""],
+            "source_category_selected": ["", ""],
+            "target_payee_selected": ["", ""],
+            "target_category_selected": ["", ""],
+            "decision_action": ["", ""],
+            "update_maps": ["", ""],
+            "reviewed": ["", ""],
+        }
+    )
+
+    merged, stats = review_reconcile.reconcile_reviewed_transactions(old, new)
+
+    assert isinstance(merged, pl.DataFrame)
+    assert merged["source_payee_selected"].to_list() == ["Source A", ""]
+    assert merged["target_payee_selected"].to_list() == ["Payee A", ""]
+    assert merged["decision_action"].to_list() == ["keep_match", ""]
+    assert merged["reviewed"].to_list() == [True, False]
+    assert stats["direct_matches"] == 1

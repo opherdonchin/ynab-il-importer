@@ -1078,6 +1078,56 @@ def related_rows_mask(
 
 
 def apply_row_edit(
+    df: pd.DataFrame | pl.DataFrame,
+    idx: Any,
+    *,
+    payee: str | None = None,
+    category: str | None = None,
+    source_payee: str | None = None,
+    source_category: str | None = None,
+    target_payee: str | None = None,
+    target_category: str | None = None,
+    memo_append: str | None = None,
+    update_maps: str | None = None,
+    reviewed: bool | None = None,
+    decision_action: str | None = None,
+    component_map: dict[Any, int] | None = None,
+) -> pd.DataFrame | pl.DataFrame:
+    if isinstance(df, pl.DataFrame):
+        updated = _apply_row_edit_pandas(
+            df.to_pandas(),
+            idx,
+            payee=payee,
+            category=category,
+            source_payee=source_payee,
+            source_category=source_category,
+            target_payee=target_payee,
+            target_category=target_category,
+            memo_append=memo_append,
+            update_maps=update_maps,
+            reviewed=reviewed,
+            decision_action=decision_action,
+            component_map=component_map,
+        )
+        return pl.from_pandas(updated)
+    return _apply_row_edit_pandas(
+        df,
+        idx,
+        payee=payee,
+        category=category,
+        source_payee=source_payee,
+        source_category=source_category,
+        target_payee=target_payee,
+        target_category=target_category,
+        memo_append=memo_append,
+        update_maps=update_maps,
+        reviewed=reviewed,
+        decision_action=decision_action,
+        component_map=component_map,
+    )
+
+
+def _apply_row_edit_pandas(
     df: pd.DataFrame,
     idx: Any,
     *,
@@ -1093,44 +1143,45 @@ def apply_row_edit(
     decision_action: str | None = None,
     component_map: dict[Any, int] | None = None,
 ) -> pd.DataFrame:
+    updated = df.copy()
     target_payee = payee if target_payee is None else target_payee
     target_category = category if target_category is None else target_category
 
-    source_indices = related_row_indices(df, idx, include_source=True, include_target=False) or [idx]
-    target_indices = related_row_indices(df, idx, include_source=False, include_target=True) or [idx]
+    source_indices = related_row_indices(updated, idx, include_source=True, include_target=False) or [idx]
+    target_indices = related_row_indices(updated, idx, include_source=False, include_target=True) or [idx]
 
     if source_payee is not None or source_category is not None:
-        if source_payee is not None and "source_payee_selected" in df.columns:
-            df.loc[source_indices, "source_payee_selected"] = str(source_payee).strip()
-        if source_category is not None and "source_category_selected" in df.columns:
-            df.loc[source_indices, "source_category_selected"] = str(source_category).strip()
+        if source_payee is not None and "source_payee_selected" in updated.columns:
+            updated.loc[source_indices, "source_payee_selected"] = str(source_payee).strip()
+        if source_category is not None and "source_category_selected" in updated.columns:
+            updated.loc[source_indices, "source_category_selected"] = str(source_category).strip()
 
     if target_payee is not None or target_category is not None:
         if target_payee is not None:
-            if "payee_selected" in df.columns:
-                df.loc[target_indices, "payee_selected"] = str(target_payee).strip()
-            if "target_payee_selected" in df.columns:
-                df.loc[target_indices, "target_payee_selected"] = str(target_payee).strip()
+            if "payee_selected" in updated.columns:
+                updated.loc[target_indices, "payee_selected"] = str(target_payee).strip()
+            if "target_payee_selected" in updated.columns:
+                updated.loc[target_indices, "target_payee_selected"] = str(target_payee).strip()
         if target_category is not None:
-            if "category_selected" in df.columns:
-                df.loc[target_indices, "category_selected"] = str(target_category).strip()
-            if "target_category_selected" in df.columns:
-                df.loc[target_indices, "target_category_selected"] = str(target_category).strip()
+            if "category_selected" in updated.columns:
+                updated.loc[target_indices, "category_selected"] = str(target_category).strip()
+            if "target_category_selected" in updated.columns:
+                updated.loc[target_indices, "target_category_selected"] = str(target_category).strip()
 
-    if update_maps is not None and "update_maps" in df.columns:
-        df.at[idx, "update_maps"] = str(update_maps).strip()
-    if memo_append is not None and "memo_append" in df.columns:
-        df.at[idx, "memo_append"] = str(memo_append).strip()
+    if update_maps is not None and "update_maps" in updated.columns:
+        updated.at[idx, "update_maps"] = str(update_maps).strip()
+    if memo_append is not None and "memo_append" in updated.columns:
+        updated.at[idx, "memo_append"] = str(memo_append).strip()
 
-    if decision_action is not None and "decision_action" in df.columns:
-        df.at[idx, "decision_action"] = str(decision_action).strip()
-    if reviewed is not None and "reviewed" in df.columns:
+    if decision_action is not None and "decision_action" in updated.columns:
+        updated.at[idx, "decision_action"] = str(decision_action).strip()
+    if reviewed is not None and "reviewed" in updated.columns:
         if component_map is None:
             from ynab_il_importer.review_app.validation import connected_component_mask
 
-            reviewed_mask = connected_component_mask(df, idx)
-            reviewed_indices = df.index[reviewed_mask].tolist()
+            reviewed_mask = connected_component_mask(updated, idx)
+            reviewed_indices = updated.index[reviewed_mask].tolist()
         else:
             reviewed_indices = [current_idx for current_idx, label in component_map.items() if label == component_map.get(idx)]
-        df.loc[reviewed_indices, "reviewed"] = bool(reviewed)
-    return df
+        updated.loc[reviewed_indices, "reviewed"] = bool(reviewed)
+    return updated

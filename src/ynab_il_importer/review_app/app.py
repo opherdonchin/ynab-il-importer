@@ -1086,7 +1086,7 @@ def _apply_staged_row_widget_values(df: pd.DataFrame, indices: list[Any]) -> pd.
         )
         final_update_maps = review_validation.join_update_maps(list(update_maps_tokens))
 
-        review_state.apply_row_edit(
+        updated = review_state.apply_row_edit(
             updated,
             idx,
             source_payee=source_payee_value,
@@ -1548,7 +1548,7 @@ def _render_row_controls(
             st.session_state["expanded_row_id"] = idx
 
         working_df = df.copy()
-        review_state.apply_row_edit(
+        working_df = review_state.apply_row_edit(
             working_df,
             idx,
             source_payee=source_payee_value,
@@ -1561,7 +1561,8 @@ def _render_row_controls(
         )
 
         review_indices = [idx]
-        review_indices.extend(review_model.apply_competing_row_resolution(working_df, [idx]))
+        working_df, competing_indices = review_model.apply_competing_row_resolution(working_df, [idx])
+        review_indices.extend(competing_indices)
 
         if apply_all and show_apply:
             untouched_mask = None
@@ -1572,7 +1573,7 @@ def _render_row_controls(
             )
             if untouched_mask is not None:
                 applied_mask &= untouched_mask
-            review_model.apply_to_same_fingerprint(
+            working_df = review_model.apply_to_same_fingerprint(
                 working_df,
                 row.get("fingerprint", ""),
                 payee=final_target_payee,
@@ -1584,7 +1585,10 @@ def _render_row_controls(
             )
             applied_indices = working_df.index[applied_mask].tolist()
             review_indices.extend(applied_indices)
-            review_indices.extend(review_model.apply_competing_row_resolution(working_df, applied_indices))
+            working_df, competing_indices = review_model.apply_competing_row_resolution(
+                working_df, applied_indices
+            )
+            review_indices.extend(competing_indices)
 
         row_errors, warnings = review_validation.validate_row(working_df.loc[idx])
         final_df, review_errors = review_validation.apply_review_state(
@@ -2310,7 +2314,7 @@ def main() -> None:
                     applied_mask = eligible_mask & review_state.series_or_default(
                         working_df, "fingerprint"
                     ).eq(fp)
-                    review_model.apply_to_same_fingerprint(
+                    working_df = review_model.apply_to_same_fingerprint(
                         working_df,
                         fp,
                         payee=payee_to_apply,
@@ -2321,9 +2325,10 @@ def main() -> None:
                         eligible_mask=eligible_mask,
                     )
                     affected_indices = working_df.index[applied_mask].tolist()
-                    affected_indices.extend(
-                        review_model.apply_competing_row_resolution(working_df, affected_indices)
+                    working_df, competing_indices = review_model.apply_competing_row_resolution(
+                        working_df, affected_indices
                     )
+                    affected_indices.extend(competing_indices)
                     final_df, review_errors = review_validation.apply_review_state(
                         working_df,
                         affected_indices,
@@ -2363,9 +2368,10 @@ def main() -> None:
                             "No rows in this group have a decision to accept yet."
                         )
                     else:
-                        review_indices.extend(
-                            review_model.apply_competing_row_resolution(working_df, review_indices)
+                        working_df, competing_indices = review_model.apply_competing_row_resolution(
+                            working_df, review_indices
                         )
+                        review_indices.extend(competing_indices)
                         final_df, review_errors, reviewed_indices = _accept_reviewed_components(
                             working_df,
                             review_indices,

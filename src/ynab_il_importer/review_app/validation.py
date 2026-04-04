@@ -498,6 +498,29 @@ def allowed_decision_actions(row: Any) -> list[str]:
 
 
 def apply_review_state(
+    edited_df: pd.DataFrame | pl.DataFrame,
+    indices: list[Any],
+    *,
+    reviewed: bool,
+    component_map: dict[Any, int] | None = None,
+) -> tuple[pd.DataFrame | pl.DataFrame, list[str]]:
+    if isinstance(edited_df, pl.DataFrame):
+        updated, errors = _apply_review_state_pandas(
+            edited_df.to_pandas(),
+            indices,
+            reviewed=reviewed,
+            component_map=component_map,
+        )
+        return pl.from_pandas(updated), errors
+    return _apply_review_state_pandas(
+        edited_df,
+        indices,
+        reviewed=reviewed,
+        component_map=component_map,
+    )
+
+
+def _apply_review_state_pandas(
     edited_df: pd.DataFrame,
     indices: list[Any],
     *,
@@ -510,7 +533,7 @@ def apply_review_state(
 
     updated = edited_df.copy()
     for idx in touched:
-        review_state.apply_row_edit(
+        updated = review_state.apply_row_edit(
             updated,
             idx,
             reviewed=reviewed,
@@ -538,7 +561,7 @@ def apply_review_state(
     if errors:
         reverted = edited_df.copy()
         for idx in touched:
-            review_state.apply_row_edit(
+            reverted = review_state.apply_row_edit(
                 reverted,
                 idx,
                 reviewed=False,
@@ -551,6 +574,29 @@ def apply_review_state(
 
 
 def apply_review_state_best_effort(
+    edited_df: pd.DataFrame | pl.DataFrame,
+    indices: list[Any],
+    *,
+    reviewed: bool,
+    component_map: dict[Any, int] | None = None,
+) -> tuple[pd.DataFrame | pl.DataFrame, list[str], list[Any]]:
+    if isinstance(edited_df, pl.DataFrame):
+        updated, errors, reviewed_indices = _apply_review_state_best_effort_pandas(
+            edited_df.to_pandas(),
+            indices,
+            reviewed=reviewed,
+            component_map=component_map,
+        )
+        return pl.from_pandas(updated), errors, reviewed_indices
+    return _apply_review_state_best_effort_pandas(
+        edited_df,
+        indices,
+        reviewed=reviewed,
+        component_map=component_map,
+    )
+
+
+def _apply_review_state_best_effort_pandas(
     edited_df: pd.DataFrame,
     indices: list[Any],
     *,
@@ -562,7 +608,7 @@ def apply_review_state_best_effort(
         return edited_df.copy(), [], []
 
     if not reviewed:
-        updated, errors = apply_review_state(
+        updated, errors = _apply_review_state_pandas(
             edited_df,
             touched,
             reviewed=reviewed,
@@ -585,7 +631,7 @@ def apply_review_state_best_effort(
 
     for component_label in sorted(grouped_indices):
         component_indices = grouped_indices[component_label]
-        updated, component_errors = apply_review_state(
+        updated, component_errors = _apply_review_state_pandas(
             working,
             component_indices,
             reviewed=True,

@@ -4,6 +4,7 @@ from collections import Counter
 from typing import Any
 
 import pandas as pd
+import polars as pl
 
 
 DECISION_COLUMNS = [
@@ -105,6 +106,19 @@ def _should_preserve_new_row(old_row: pd.Series, new_row: pd.Series) -> bool:
 
 
 def reconcile_reviewed_transactions(
+    old_reviewed: pd.DataFrame | pl.DataFrame,
+    new_proposed: pd.DataFrame | pl.DataFrame,
+) -> tuple[pd.DataFrame | pl.DataFrame, dict[str, Any]]:
+    result_type = pl.DataFrame if isinstance(new_proposed, pl.DataFrame) else pd.DataFrame
+    old_pandas = old_reviewed.to_pandas() if isinstance(old_reviewed, pl.DataFrame) else old_reviewed
+    new_pandas = new_proposed.to_pandas() if isinstance(new_proposed, pl.DataFrame) else new_proposed
+    merged, stats = _reconcile_reviewed_transactions_pandas(old_pandas, new_pandas)
+    if result_type is pl.DataFrame:
+        return pl.from_pandas(merged), stats
+    return merged, stats
+
+
+def _reconcile_reviewed_transactions_pandas(
     old_reviewed: pd.DataFrame,
     new_proposed: pd.DataFrame,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:

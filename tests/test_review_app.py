@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import polars as pl
 import pyarrow as pa
 from streamlit.testing.v1 import AppTest
 
@@ -166,7 +167,7 @@ def test_apply_to_same_fingerprint_respects_eligible_mask() -> None:
     )
     eligible_mask = pd.Series([True, False, True], index=df.index)
 
-    review_model.apply_to_same_fingerprint(
+    df = review_model.apply_to_same_fingerprint(
         df,
         "fp1",
         payee="X",
@@ -178,6 +179,31 @@ def test_apply_to_same_fingerprint_respects_eligible_mask() -> None:
     assert df.loc[0, "target_category_selected"] == "Y"
     assert df.loc[1, "target_payee_selected"] == "A"
     assert df.loc[1, "target_category_selected"] == "C"
+
+
+def test_apply_to_same_fingerprint_accepts_polars_frame() -> None:
+    df = pl.DataFrame(
+        {
+            "fingerprint": ["fp1", "fp1", "fp2"],
+            "target_payee_selected": ["A", "A", "B"],
+            "target_category_selected": ["C", "C", "D"],
+            "update_maps": ["", "", ""],
+            "reviewed": [False, False, False],
+        }
+    )
+    eligible_mask = pl.Series([True, False, True])
+
+    updated = review_model.apply_to_same_fingerprint(
+        df,
+        "fp1",
+        payee="X",
+        category="Y",
+        eligible_mask=eligible_mask,
+    )
+
+    assert isinstance(updated, pl.DataFrame)
+    assert updated["target_payee_selected"].to_list() == ["X", "A", "B"]
+    assert updated["target_category_selected"].to_list() == ["Y", "C", "D"]
 
 
 def test_default_row_kind_selection_hides_matched_cleared_by_default() -> None:
