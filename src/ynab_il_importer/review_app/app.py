@@ -1068,6 +1068,90 @@ def _render_detail_section(title: str, entries: list[tuple[str, Any]]) -> None:
         st.caption(f"{label}: {text}")
 
 
+def _split_id_set(value: str) -> set[str]:
+    text = str(value or "").strip()
+    if not text:
+        return set()
+    normalized = text.replace(",", ";")
+    return {part.strip() for part in normalized.split(";") if part.strip()}
+
+
+def _split_amount_text(split: dict[str, Any]) -> str:
+    outflow = float(pd.to_numeric(split.get("outflow_ils", 0.0), errors="coerce") or 0.0)
+    inflow = float(pd.to_numeric(split.get("inflow_ils", 0.0), errors="coerce") or 0.0)
+    if outflow > 0:
+        return f"-{outflow:g}"
+    if inflow > 0:
+        return f"+{inflow:g}"
+    return ""
+
+
+def _source_context_caption(row: pd.Series) -> str:
+    context_kind = str(row.get("source_context_kind", "") or "").strip()
+    category_name = str(row.get("source_context_category_name", "") or "").strip()
+    matching_ids = str(row.get("source_context_matching_split_ids", "") or "").strip()
+    if context_kind == "ynab_parent_category_match":
+        if category_name:
+            return f"Source included because the parent YNAB transaction matches category {category_name}."
+        return "Source included because the parent YNAB transaction matches the selected category context."
+    if context_kind == "ynab_split_category_match":
+        matched_text = f" Matching split ids: {matching_ids}." if matching_ids else ""
+        if category_name:
+            return (
+                "Source included because one or more YNAB split lines match "
+                f"category {category_name}.{matched_text}"
+            )
+        return f"Source included because one or more YNAB split lines match the selected category context.{matched_text}"
+    return context_kind
+
+
+def _split_caption_lines(
+    txn: dict[str, Any] | None,
+    *,
+    matching_split_ids: str = "",
+) -> list[str]:
+    if not isinstance(txn, dict):
+        return []
+    split_ids = _split_id_set(matching_split_ids)
+    splits = txn.get("splits") or []
+    lines: list[str] = []
+    for index, split in enumerate(splits, start=1):
+        if not isinstance(split, dict):
+            continue
+        split_id = str(split.get("split_id", "") or "").strip()
+        matched = split_id and split_id in split_ids
+        prefix = "Matching split" if matched else "Split"
+        amount = _split_amount_text(split)
+        payee = str(split.get("payee_raw", "") or "").strip() or "—"
+        category = str(split.get("category_raw", "") or "").strip() or "—"
+        memo = str(split.get("memo", "") or "").strip() or "—"
+        split_label = split_id or str(index)
+        lines.append(
+            f"{prefix} {split_label}: {amount or '—'} | Payee: {payee} | Category: {category} | Memo: {memo}"
+        )
+    return lines
+
+
+def _render_split_section(
+    title: str,
+    *,
+    txn: dict[str, Any] | None,
+    context_caption: str = "",
+    matching_split_ids: str = "",
+) -> None:
+    split_lines = _split_caption_lines(txn, matching_split_ids=matching_split_ids)
+    if not context_caption and not split_lines:
+        return
+    st.markdown(f"**{title}**")
+    if context_caption:
+        st.caption(context_caption)
+    if not split_lines:
+        st.caption("No split lines.")
+        return
+    for line in split_lines:
+        st.caption(line)
+
+
 def _render_row_details(
     row: pd.Series,
     *,
@@ -1141,6 +1225,33 @@ def _render_row_details(
                 ("Memo", row.get("target_memo", "")),
             ],
         )
+
+    source_txn = row.get("source_transaction")
+    target_txn = row.get("target_transaction")
+    source_context_caption = _source_context_caption(row)
+    source_matching_split_ids = str(row.get("source_context_matching_split_ids", "") or "").strip()
+    target_matching_split_ids = str(row.get("target_context_matching_split_ids", "") or "").strip()
+    has_source_split_detail = bool(source_context_caption) or bool(
+        _split_caption_lines(source_txn, matching_split_ids=source_matching_split_ids)
+    )
+    has_target_split_detail = bool(
+        _split_caption_lines(target_txn, matching_split_ids=target_matching_split_ids)
+    )
+    if has_source_split_detail or has_target_split_detail:
+        split_source_col, split_target_col = st.columns(2)
+        with split_source_col:
+            _render_split_section(
+                "Source split detail",
+                txn=source_txn if isinstance(source_txn, dict) else None,
+                context_caption=source_context_caption,
+                matching_split_ids=source_matching_split_ids,
+            )
+        with split_target_col:
+            _render_split_section(
+                "Target split detail",
+                txn=target_txn if isinstance(target_txn, dict) else None,
+                matching_split_ids=target_matching_split_ids,
+            )
 
 
 def _render_row_controls(

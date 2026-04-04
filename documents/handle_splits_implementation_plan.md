@@ -1370,63 +1370,158 @@ This means Step 3 should not require new external callers or new flattened artif
 
 ### Step 3 phased implementation plan
 
-Because this is now a larger refactor, it should be done in explicit phases.
+Because this is now a larger refactor, it should be done in explicit phases. In reality these phases are not four clean handoffs. They are four layers of work with different dependency shapes:
+
+- `3A` is foundational and has to exist before the app can sensibly move inward.
+- `3B` is the main refactor and is the real critical path now.
+- `3C` can start before `3B` is finished, but it should not outrun `3B`; split display should be built on top of the canonical model as it becomes real, not on top of temporary flat scaffolding.
+- `3D` is intentionally last and should only begin after `3B` and the useful parts of `3C` have stabilized.
+
+So the reality of the plan is:
+
+- `3A` is mostly in place, though a few edges may still get revisited as `3B` proceeds.
+- `3B` is where the main work now sits.
+- `3C` should continue in parallel only where it directly reinforces the canonical refactor.
+- `3D` is cleanup and should stay deferred.
 
 #### Phase 3A: establish the canonical app boundary
 
-Goals:
+Purpose:
 
 - stop treating flat projection as the primary app boundary
 - load/save canonical review artifacts directly in a Polars-native path
-- identify the minimal derived helper fields needed for app display and filtering
+- identify the minimum derived helper fields needed for app display and filtering
 
-Main work:
+What completion means:
 
-1. extend the canonical review schema with explicit display-context fields
-2. update the builders to populate that context, especially for cross-budget source extraction
-3. refactor `review_app/io.py` so the native app load/save path is canonical and Polars-based
-4. define the initial derived helper fields allowed for app use
+- canonical review artifacts are the real app input/output
+- builders populate enough source/target context for split-aware display later
+- `review_app/io.py` can load canonical artifacts natively and produce Polars review tables
+- the app can carry canonical review data without immediately flattening it into the only working model
+
+Reality right now:
+
+- mostly complete
+- may still reopen in small ways if later `3B`/`3C` work exposes missing context or a bad boundary choice
+
+Completed work:
+
+1. canonical review schema was extended with explicit source/target context fields
+2. institutional and cross-budget builders now populate those context fields
+3. `review_app/io.py` now has a canonical Polars load path
+4. the app now keeps canonical review tables in session state and saves from the canonical object
+
+Remaining work before `3A` can be treated as fully closed:
+
+1. audit any remaining app load/reload/save edges that still quietly assume flat review rows first
+2. finish demoting flat review projection from “default mental model” to “temporary derived helper”
 
 #### Phase 3B: make app state, validation, and model canonical-aware
 
-Goals:
+Purpose:
 
 - remove flattened transaction representation from the app core
 - replace pandas with Polars in the app’s main state/model/validation flow
 - keep review semantics parent-row based while changing the substrate
 
-Main work:
+What completion means:
 
-1. refactor `review_app/state.py` away from flattened pandas assumptions
-2. refactor `review_app/validation.py` away from flattened pandas assumptions
-3. refactor `review_app/model.py` away from direct dataframe mutation assumptions
-4. refactor `review_app/app.py` session state to hold canonical review data plus derived view/index state
+- app state and derived state are driven primarily by canonical review tables plus lightweight helper/index data
+- review semantics do not depend on flattened transaction columns as the authoritative model
+- validation/model/state code no longer assumes flat pandas review rows are the core data structure
+
+Reality right now:
+
+- in progress
+- this is the main Step 3 workstream and the main thing that should guide implementation order
+
+Completed work:
+
+1. `review_app/state.py` now has canonical/Polars helper derivations for split flags, counts, and display fields
+2. app session state now carries canonical review tables alongside the editable view
+3. canonical review data now drives search/filter text when available
+4. summary construction has started moving onto canonical helper data
+
+Remaining work:
+
+1. refactor more core derived-state logic away from flat-only assumptions
+2. refactor grouped metadata and/or component/precompute logic onto canonical/Polars-backed state
+3. move `validation.py` away from depending on flattened transaction columns as the real substrate
+4. move `model.py` away from direct flat-dataframe mutation assumptions
 5. migrate `review_reconcile.py` and any remaining app-adjacent helpers that still assume flattened reviewed rows
+
+This phase is not “after `3A` and before `3C`” in a strict sense. It is the core refactor that `3C` should progressively lean on.
+
+Preferred order from here:
+
+1. grouped metadata and component/precompute logic
+2. validation/model layer
+3. reconcile/resume path
 
 #### Phase 3C: add split display
 
-Goals:
+Purpose:
 
 - use canonical source/target transactions to show folded and expanded split detail
 - make cross-budget source context understandable when inclusion came from child split lines
 
-Main work:
+What completion means:
 
-1. add read-only split rendering helpers in `app.py`
-2. render target-side split detail first
-3. render source-side split/context detail next
-4. add split/context badges in folded summaries
-5. verify grouped mode remains transaction-row-oriented
+- folded row/group summaries clearly indicate split status
+- expanded views show parent transaction detail plus nested split lines cleanly
+- source-side extraction context is understandable in cross-budget cases
+- grouped mode remains transaction-row-oriented, not split-line-oriented
+
+Reality right now:
+
+- started lightly
+- should continue only where it helps prove or exercise the canonical app model
+- should not become a separate UI branch built on transitional flat assumptions
+
+Completed work:
+
+1. split/context badges and counts now appear in row/group summaries and row details
+2. summary text can already fall back to canonical nested transaction and split content
+
+Remaining work:
+
+1. add explicit read-only split rendering blocks in `app.py`
+2. render target-side split detail clearly in expanded rows
+3. render source-side split/context detail clearly in expanded rows
+4. show matching-split/context cues for cross-budget source extraction
+5. verify grouped mode remains readable when split parents are visible
+
+This phase is partly parallel to `3B`, but not independent of it. The intent is:
+
+- do enough `3C` work to validate that the canonical transaction model really supports the UI we want
+- avoid polishing split presentation on top of code that `3B` is about to replace
+
+Preferred order from here:
+
+1. target-side expanded split rendering
+2. source-side expanded split/context rendering
+3. folded-summary polish and grouped-mode cleanup
 
 #### Phase 3D: cleanup after the canonical refactor
 
-Goals:
+Purpose:
 
 - remove or demote stale flat compatibility helpers where safe
 - keep only the scalar fields that are true review controls or relation metadata
 - leave the codebase ready for Step 4 split editing
 
-Main work:
+What completion means:
+
+- the canonical review object is unambiguously the app’s working model
+- flat compatibility helpers are either gone or obviously secondary
+- the codebase is ready for a split editor without another internal model rewrite
+
+Reality right now:
+
+- not started
+- intentionally deferred until the canonical refactor is stable enough that cleanup will not just be rework
+
+Planned work:
 
 1. remove or demote no-longer-needed flat compatibility columns/helpers
 2. simplify remaining app surfaces around the field classification above

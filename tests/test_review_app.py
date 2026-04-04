@@ -281,6 +281,49 @@ def test_summary_date_and_account_prefer_canonical_helpers() -> None:
     assert review_app._summary_account(row, helper_row) == "Canonical account"
 
 
+def test_source_context_caption_explains_split_category_match() -> None:
+    row = pd.Series(
+        {
+            "source_context_kind": "ynab_split_category_match",
+            "source_context_category_name": "Food",
+            "source_context_matching_split_ids": "split-1;split-2",
+        }
+    )
+
+    caption = review_app._source_context_caption(row)
+
+    assert "one or more YNAB split lines match category Food" in caption
+    assert "split-1;split-2" in caption
+
+
+def test_split_caption_lines_marks_matching_split_ids() -> None:
+    txn = {
+        "splits": [
+            {
+                "split_id": "split-1",
+                "outflow_ils": 12.5,
+                "inflow_ils": 0.0,
+                "payee_raw": "Cafe",
+                "category_raw": "Food",
+                "memo": "beans",
+            },
+            {
+                "split_id": "split-2",
+                "outflow_ils": 0.0,
+                "inflow_ils": 9.0,
+                "payee_raw": "Refund",
+                "category_raw": "Ready to Assign",
+                "memo": "",
+            },
+        ]
+    }
+
+    lines = review_app._split_caption_lines(txn, matching_split_ids="split-2")
+
+    assert lines[0].startswith("Split split-1: -12.5")
+    assert lines[1].startswith("Matching split split-2: +9")
+
+
 def test_grouped_row_indices_only_include_filtered_rows() -> None:
     filtered = pd.DataFrame(
         {
