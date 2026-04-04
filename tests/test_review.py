@@ -14,7 +14,7 @@ import ynab_il_importer.review_app.validation as review_validation
 
 
 def _review_rows(rows: list[dict[str, object]]) -> pd.DataFrame:
-    return pd.DataFrame(rows)
+    return review_io.load_proposed_transactions(pd.DataFrame(rows))
 
 
 def test_validate_row_blocks_reviewed_no_decision_and_institutional_source_mutation() -> None:
