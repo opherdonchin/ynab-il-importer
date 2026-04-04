@@ -13,7 +13,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-import ynab_il_importer.review_app.app as review_app
+import ynab_il_importer.review_app.app as review_app  # noqa: E402
 
 
 SESSION_ROOT = ROOT / "outputs" / "review_app_sessions"
@@ -69,12 +69,6 @@ def _wait_for_exit(pid: int, timeout_seconds: float) -> bool:
 def _terminate_pid(pid: int) -> None:
     if not _pid_exists(pid):
         return
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except OSError:
-        return
-    if _wait_for_exit(pid, timeout_seconds=5.0):
-        return
     if sys.platform.startswith("win"):
         subprocess.run(
             ["taskkill", "/PID", str(pid), "/T", "/F"],
@@ -82,18 +76,28 @@ def _terminate_pid(pid: int) -> None:
             stderr=subprocess.DEVNULL,
             check=False,
         )
-    else:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except OSError:
-            pass
+        _wait_for_exit(pid, timeout_seconds=5.0)
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return
+    if _wait_for_exit(pid, timeout_seconds=5.0):
+        return
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
 
 
 def _watch_quit_request(control_dir: Path, pid: int) -> int:
     quit_path = _quit_request_path(control_dir)
     while True:
         if quit_path.exists():
-            _terminate_pid(pid)
+            try:
+                _terminate_pid(pid)
+            except KeyboardInterrupt:
+                return 0
             return 0
         if not _pid_exists(pid):
             return 0
@@ -244,7 +248,6 @@ def _launch_review_app(args: argparse.Namespace) -> int:
         port=port,
     )
 
-    popen_kwargs: dict[str, object] = {}
     if args.foreground:
         process = subprocess.Popen(command)
         return _wait_foreground(process, control_dir)
@@ -275,7 +278,10 @@ def _wait_foreground(process: subprocess.Popen[object], control_dir: Path) -> in
     quit_path = _quit_request_path(control_dir)
     while True:
         if quit_path.exists():
-            _terminate_pid(process.pid)
+            try:
+                _terminate_pid(process.pid)
+            except KeyboardInterrupt:
+                return 0
             return 0
         code = process.poll()
         if code is not None:
