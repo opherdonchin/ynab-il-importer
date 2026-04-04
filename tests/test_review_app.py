@@ -199,7 +199,7 @@ def test_format_category_label_special_cases_no_category_required() -> None:
     )
 
 
-def test_canonical_review_bundle_preserves_nested_transactions_and_aligns_helpers() -> None:
+def test_canonical_review_bundle_preserves_flat_splits_and_aligns_helpers() -> None:
     df = pd.DataFrame(
         [
             {
@@ -223,39 +223,27 @@ def test_canonical_review_bundle_preserves_nested_transactions_and_aligns_helper
                 "decision_action": "create_target",
                 "update_maps": "",
                 "reviewed": False,
-                "source_transaction": {
-                    "artifact_kind": "normalized_source",
-                    "artifact_version": "transaction_v1",
-                    "source_system": "bank",
-                    "transaction_id": "src-1",
-                    "parent_transaction_id": "src-1",
-                    "account_name": "Account 1",
-                    "source_account": "Account 1",
-                    "date": "2026-03-01",
-                    "inflow_ils": 0.0,
-                    "outflow_ils": 10.0,
-                    "signed_amount_ils": -10.0,
-                    "payee_raw": "Cafe source",
-                    "category_raw": "",
-                    "memo": "memo",
-                    "fingerprint": "fp1",
-                    "approved": False,
-                    "is_subtransaction": False,
-                    "splits": [
-                        {
-                            "split_id": "sub-1",
-                            "parent_transaction_id": "src-1",
-                            "inflow_ils": 0.0,
-                            "outflow_ils": 6.0,
-                            "signed_amount_ils": -6.0,
-                            "payee_raw": "Cafe source",
-                            "category_id": "cat-food",
-                            "category_raw": "Food",
-                            "memo": "split memo",
-                            "matched_transaction_id": "",
-                        }
-                    ],
-                },
+                "source_transaction_id": "src-1",
+                "source_source_system": "bank",
+                "source_account": "Account 1",
+                "source_date": "2026-03-01",
+                "source_payee_current": "Cafe source",
+                "source_category_current": "",
+                "source_memo": "memo",
+                "source_fingerprint": "fp1",
+                "source_splits": [
+                    {
+                        "split_id": "sub-1",
+                        "parent_transaction_id": "src-1",
+                        "inflow_ils": 0.0,
+                        "outflow_ils": 6.0,
+                        "payee_raw": "Cafe source",
+                        "category_id": "cat-food",
+                        "category_raw": "Food",
+                        "memo": "split memo",
+                        "matched_transaction_id": "",
+                    }
+                ],
             }
         ],
         index=[42],
@@ -264,7 +252,7 @@ def test_canonical_review_bundle_preserves_nested_transactions_and_aligns_helper
     bundle = review_app._canonical_review_bundle(df)
 
     assert bundle["table"] is not None
-    assert bundle["table"].row(0, named=True)["source_transaction"]["splits"][0]["split_id"] == "sub-1"
+    assert bundle["table"].row(0, named=True)["source_splits"][0]["split_id"] == "sub-1"
     helpers = bundle["helpers"]
     assert helpers is not None
     assert helpers.index.tolist() == [42]
@@ -283,19 +271,14 @@ def test_pick_summary_text_falls_back_to_canonical_transaction_data() -> None:
         {
             "memo": "",
             "fingerprint": "",
-            "source_transaction": {
-                "memo": "",
-                "payee_raw": "",
-                "category_raw": "",
-                "splits": [
-                    {
-                        "memo": "split memo",
-                        "payee_raw": "",
-                        "category_raw": "",
-                    }
-                ],
-            },
-            "target_transaction": None,
+            "source_splits": [
+                {
+                    "memo": "split memo",
+                    "payee_raw": "",
+                    "category_raw": "",
+                }
+            ],
+            "target_splits": None,
         }
     )
 
@@ -333,28 +316,26 @@ def test_source_context_caption_explains_split_category_match() -> None:
 
 
 def test_split_caption_lines_marks_matching_split_ids() -> None:
-    txn = {
-        "splits": [
-            {
-                "split_id": "split-1",
-                "outflow_ils": 12.5,
-                "inflow_ils": 0.0,
-                "payee_raw": "Cafe",
-                "category_raw": "Food",
-                "memo": "beans",
-            },
-            {
-                "split_id": "split-2",
-                "outflow_ils": 0.0,
-                "inflow_ils": 9.0,
-                "payee_raw": "Refund",
-                "category_raw": "Ready to Assign",
-                "memo": "",
-            },
-        ]
-    }
+    splits = [
+        {
+            "split_id": "split-1",
+            "outflow_ils": 12.5,
+            "inflow_ils": 0.0,
+            "payee_raw": "Cafe",
+            "category_raw": "Food",
+            "memo": "beans",
+        },
+        {
+            "split_id": "split-2",
+            "outflow_ils": 0.0,
+            "inflow_ils": 9.0,
+            "payee_raw": "Refund",
+            "category_raw": "Ready to Assign",
+            "memo": "",
+        },
+    ]
 
-    lines = review_app._split_caption_lines(txn, matching_split_ids="split-2")
+    lines = review_app._split_caption_lines(splits, matching_split_ids="split-2")
 
     assert lines[0].startswith("Split split-1: -12.5")
     assert lines[1].startswith("Matching split split-2: +9")
@@ -378,8 +359,15 @@ def test_app_renders_canonical_split_detail_from_parquet(tmp_path: Path) -> None
     records = [
         {
             "artifact_kind": "review_artifact",
-            "artifact_version": "review_v2",
+            "artifact_version": "review_v3",
             "review_transaction_id": "demo-split",
+            "source": "cross_budget",
+            "account_name": "Family Leumi",
+            "date": "2026-03-02",
+            "outflow_ils": 140.0,
+            "inflow_ils": 0.0,
+            "memo": "books and gifts",
+            "fingerprint": "bookstore combo",
             "workflow_type": "cross_budget",
             "relation_kind": "source_target_pair",
             "match_status": "ambiguous",
@@ -407,6 +395,21 @@ def test_app_renders_canonical_split_detail_from_parquet(tmp_path: Path) -> None
             "source_card_suffix": "",
             "source_secondary_date": "",
             "source_ref": "",
+            "source_source_system": "ynab",
+            "source_transaction_id": "src-split-1",
+            "source_ynab_id": "src-split-1",
+            "source_import_id": "",
+            "source_parent_transaction_id": "src-split-1",
+            "source_account_id": "acct-shared",
+            "source_payee_current": "Bookstore Combo",
+            "source_category_id": "",
+            "source_category_current": "Split",
+            "source_description_raw": "books and gifts",
+            "source_description_clean": "books and gifts",
+            "source_merchant_raw": "Bookstore Combo",
+            "source_cleared": "uncleared",
+            "source_approved": True,
+            "source_is_subtransaction": False,
             "source_context_kind": "ynab_split_category_match",
             "source_context_category_id": "cat-books",
             "source_context_category_name": "Books",
@@ -417,113 +420,66 @@ def test_app_renders_canonical_split_detail_from_parquet(tmp_path: Path) -> None
             "target_context_matching_split_ids": "split-house-1",
             "target_payee_selected": "Mega Store",
             "target_category_selected": "House and stuff",
-            "source_transaction": {
-                "artifact_kind": "demo_transaction",
-                "artifact_version": "transaction_v1",
-                "source_system": "ynab",
-                "transaction_id": "src-split-1",
-                "ynab_id": "src-split-1",
-                "import_id": "",
-                "parent_transaction_id": "src-split-1",
-                "account_id": "acct-shared",
-                "account_name": "Shared Budget",
-                "source_account": "Shared Budget",
-                "date": "2026-03-02",
-                "secondary_date": "",
-                "inflow_ils": 0.0,
-                "outflow_ils": 140.0,
-                "signed_amount_ils": -140.0,
-                "payee_raw": "Bookstore Combo",
-                "category_id": "",
-                "category_raw": "Split",
-                "memo": "books and gifts",
-                "txn_kind": "",
-                "fingerprint": "bookstore combo",
-                "description_raw": "books and gifts",
-                "description_clean": "books and gifts",
-                "description_clean_norm": "",
-                "merchant_raw": "Bookstore Combo",
-                "ref": "",
-                "matched_transaction_id": "",
-                "cleared": "uncleared",
-                "approved": True,
-                "is_subtransaction": False,
-                "splits": [
-                    {
-                        "split_id": "split-book-1",
-                        "parent_transaction_id": "src-split-1",
-                        "ynab_subtransaction_id": "split-book-1",
-                        "payee_raw": "Bookstore Combo",
-                        "category_id": "",
-                        "category_raw": "Books",
-                        "memo": "novel",
-                        "inflow_ils": 0.0,
-                        "outflow_ils": 90.0,
-                        "import_id": "",
-                        "matched_transaction_id": "",
-                    },
-                    {
-                        "split_id": "split-gift-1",
-                        "parent_transaction_id": "src-split-1",
-                        "ynab_subtransaction_id": "split-gift-1",
-                        "payee_raw": "Bookstore Combo",
-                        "category_id": "",
-                        "category_raw": "Gifts",
-                        "memo": "card",
-                        "inflow_ils": 0.0,
-                        "outflow_ils": 50.0,
-                        "import_id": "",
-                        "matched_transaction_id": "",
-                    },
-                ],
-            },
-            "target_transaction": {
-                "artifact_kind": "demo_transaction",
-                "artifact_version": "transaction_v1",
-                "source_system": "ynab",
-                "transaction_id": "tgt-split-1",
-                "ynab_id": "tgt-split-1",
-                "import_id": "",
-                "parent_transaction_id": "tgt-split-1",
-                "account_id": "acct-family",
-                "account_name": "Family Leumi",
-                "source_account": "Family Leumi",
-                "date": "2026-03-02",
-                "secondary_date": "",
-                "inflow_ils": 0.0,
-                "outflow_ils": 180.0,
-                "signed_amount_ils": -180.0,
-                "payee_raw": "Mega Store",
-                "category_id": "",
-                "category_raw": "Split",
-                "memo": "house and groceries",
-                "txn_kind": "",
-                "fingerprint": "mega store",
-                "description_raw": "house and groceries",
-                "description_clean": "house and groceries",
-                "description_clean_norm": "",
-                "merchant_raw": "Mega Store",
-                "ref": "",
-                "matched_transaction_id": "",
-                "cleared": "uncleared",
-                "approved": False,
-                "is_subtransaction": False,
-                "splits": [
-                    {
-                        "split_id": "split-house-1",
-                        "parent_transaction_id": "tgt-split-1",
-                        "ynab_subtransaction_id": "split-house-1",
-                        "payee_raw": "Mega Store",
-                        "category_id": "",
-                        "category_raw": "House and stuff",
-                        "memo": "supplies",
-                        "inflow_ils": 0.0,
-                        "outflow_ils": 120.0,
-                        "import_id": "",
-                        "matched_transaction_id": "",
-                    }
-                ],
-            },
+            "target_source_system": "ynab",
+            "target_transaction_id": "tgt-split-1",
+            "target_ynab_id": "tgt-split-1",
+            "target_import_id": "",
+            "target_parent_transaction_id": "tgt-split-1",
+            "target_account_id": "acct-family",
+            "target_secondary_date": "",
+            "target_payee_current": "Mega Store",
+            "target_category_id": "",
+            "target_category_current": "Split",
+            "target_description_raw": "house and groceries",
+            "target_description_clean": "house and groceries",
+            "target_merchant_raw": "Mega Store",
+            "target_ref": "",
+            "target_cleared": "uncleared",
+            "target_approved": False,
+            "target_is_subtransaction": False,
+            "source_splits": [
+                {
+                    "split_id": "split-book-1",
+                    "parent_transaction_id": "src-split-1",
+                    "ynab_subtransaction_id": "split-book-1",
+                    "payee_raw": "Bookstore Combo",
+                    "category_id": "",
+                    "category_raw": "Books",
+                    "memo": "novel",
+                    "inflow_ils": 0.0,
+                    "outflow_ils": 90.0,
+                    "import_id": "",
+                    "matched_transaction_id": "",
+                },
+                {
+                    "split_id": "split-gift-1",
+                    "parent_transaction_id": "src-split-1",
+                    "ynab_subtransaction_id": "split-gift-1",
+                    "payee_raw": "Bookstore Combo",
+                    "category_id": "",
+                    "category_raw": "Gifts",
+                    "memo": "card",
+                    "inflow_ils": 0.0,
+                    "outflow_ils": 50.0,
+                    "import_id": "",
+                    "matched_transaction_id": "",
+                },
+            ],
+            "target_splits": [
+                {
+                    "split_id": "split-house-1",
+                    "parent_transaction_id": "tgt-split-1",
+                    "ynab_subtransaction_id": "split-house-1",
+                    "payee_raw": "Mega Store",
+                    "category_id": "",
+                    "category_raw": "House and stuff",
+                    "memo": "supplies",
+                    "inflow_ils": 0.0,
+                    "outflow_ils": 120.0,
+                    "import_id": "",
+                    "matched_transaction_id": "",
+                }
+            ],
         }
     ]
 

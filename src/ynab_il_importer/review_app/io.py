@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -11,11 +12,9 @@ import pyarrow.parquet as pq
 from ynab_il_importer.artifacts.review_schema import (
     REVIEW_ARTIFACT_VERSION,
     REVIEW_SCHEMA,
+    REVIEW_SIDE_SCALAR_FIELDS,
 )
-from ynab_il_importer.artifacts.transaction_schema import (
-    TRANSACTION_ARTIFACT_VERSION,
-    TRANSACTION_SCHEMA,
-)
+from ynab_il_importer.artifacts.transaction_schema import SPLIT_LINE_STRUCT
 import ynab_il_importer.review_app.model as model
 import ynab_il_importer.review_app.validation as validation
 
@@ -57,6 +56,11 @@ LEGACY_INSTITUTIONAL_REQUIRED_COLUMNS = [
     "reviewed",
 ]
 
+REVIEW_FIELD_NAMES = [field.name for field in REVIEW_SCHEMA]
+REVIEW_SIDE_SCALAR_FIELD_NAMES = [field.name for field in REVIEW_SIDE_SCALAR_FIELDS]
+SPLIT_FIELD_NAMES = [field.name for field in SPLIT_LINE_STRUCT]
+SPLIT_COLUMNS = ["source_splits", "target_splits"]
+
 
 def _missing_columns(df: pd.DataFrame, required: Iterable[str]) -> list[str]:
     return [col for col in required if col not in df.columns]
@@ -72,6 +76,14 @@ def _normalize_text(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _normalize_bool(value: Any) -> bool:
+    return bool(validation.normalize_flag_series(pd.Series([value])).iloc[0])
+
+
+def _normalize_float(value: Any) -> float:
+    return float(pd.to_numeric(pd.Series([value]), errors="coerce").fillna(0.0).iloc[0])
 
 
 def _legacy_source_row_ids(df: pd.DataFrame) -> pd.Series:
@@ -125,6 +137,8 @@ def _translate_legacy_institutional_review(df: pd.DataFrame) -> pd.DataFrame:
     out["target_memo"] = ""
     out["source_fingerprint"] = _text_series(out, "fingerprint")
     out["target_fingerprint"] = ""
+    out["source_splits"] = None
+    out["target_splits"] = None
     return out
 
 
@@ -164,9 +178,13 @@ def _input_to_pandas_dataframe(
 
 
 def _is_review_artifact_table(table: pa.Table) -> bool:
-    return {"review_transaction_id", "source_transaction", "target_transaction"}.issubset(
-        set(table.column_names)
-    )
+    return {
+        "review_transaction_id",
+        "source_row_id",
+        "target_row_id",
+        "source_splits",
+        "target_splits",
+    }.issubset(set(table.column_names))
 
 
 def _coerce_review_artifact_table(table: pa.Table) -> pa.Table:
@@ -176,35 +194,268 @@ def _coerce_review_artifact_table(table: pa.Table) -> pa.Table:
     )
 
 
-def _normalize_transaction_mapping(value: Any) -> dict[str, Any] | None:
+def _normalize_split_records(value: Any) -> list[dict[str, Any]] | None:
     if value is None or value is pd.NA:
         return None
-    if isinstance(value, pd.Series):
-        mapping = value.to_dict()
-    elif isinstance(value, dict):
-        mapping = dict(value)
-    else:
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            decoded = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+        value = decoded
+    if not isinstance(value, list):
         return None
-
-    normalized: dict[str, Any] = {}
-    for field in TRANSACTION_SCHEMA:
-        raw = mapping.get(field.name)
-        if raw is None or raw is pd.NA:
-            normalized[field.name] = None
+    normalized: list[dict[str, Any]] = []
+    for raw in value:
+        if not isinstance(raw, dict):
             continue
-        if pa.types.is_boolean(field.type):
-            normalized[field.name] = bool(raw)
-        elif pa.types.is_floating(field.type):
-            normalized[field.name] = float(pd.to_numeric(raw, errors="coerce") or 0.0)
-        elif pa.types.is_list(field.type):
-            normalized[field.name] = list(raw) if isinstance(raw, list) else None
-        else:
-            normalized[field.name] = str(raw).strip()
-    return normalized
+        normalized.append(
+            {
+                name: (
+                    _normalize_float(raw.get(name))
+                    if name in {"inflow_ils", "outflow_ils"}
+                    else _normalize_text(raw.get(name))
+                )
+                for name in SPLIT_FIELD_NAMES
+            }
+        )
+    return normalized or None
+
+
+def _flat_side_snapshot(row: pd.Series, *, side: str) -> dict[str, Any]:
+    txn = row.get(f"{side}_transaction")
+    txn_map = txn if isinstance(txn, dict) else {}
+
+    def pick_row(*names: str, default: str = "") -> str:
+        for name in names:
+            if name in row.index:
+                text = _normalize_text(row.get(name))
+                if text:
+                    return text
+        return default
+
+    def pick_txn(*names: str, default: str = "") -> str:
+        for name in names:
+            text = _normalize_text(txn_map.get(name))
+            if text:
+                return text
+        return default
+
+    return {
+        f"{side}_source_system": pick_row(
+            f"{side}_source_system",
+            default=pick_txn("source_system", default="ynab" if side == "target" else ""),
+        ),
+        f"{side}_transaction_id": pick_row(
+            f"{side}_transaction_id",
+            f"{side}_row_id",
+            default=pick_txn("transaction_id", default=_normalize_text(row.get("transaction_id"))),
+        ),
+        f"{side}_ynab_id": pick_row(f"{side}_ynab_id", default=pick_txn("ynab_id")),
+        f"{side}_import_id": pick_row(f"{side}_import_id", default=pick_txn("import_id")),
+        f"{side}_parent_transaction_id": pick_row(
+            f"{side}_parent_transaction_id",
+            default=pick_txn(
+                "parent_transaction_id",
+                default=pick_row(
+                    f"{side}_transaction_id",
+                    f"{side}_row_id",
+                    default=_normalize_text(row.get("transaction_id")),
+                ),
+            ),
+        ),
+        f"{side}_account_id": pick_row(
+            f"{side}_account_id",
+            "ynab_account_id",
+            default=pick_txn("account_id"),
+        ),
+        f"{side}_account": pick_row(
+            f"{side}_account",
+            "account_name",
+            default=pick_txn("account_name", "source_account"),
+        ),
+        f"{side}_date": pick_row(f"{side}_date", "date", default=pick_txn("date")),
+        f"{side}_secondary_date": pick_row(
+            f"{side}_secondary_date",
+            "secondary_date",
+            default=pick_txn("secondary_date"),
+        ),
+        f"{side}_payee_current": pick_row(
+            f"{side}_payee_current", default=pick_txn("payee_raw")
+        ),
+        f"{side}_category_id": pick_row(
+            f"{side}_category_id", default=pick_txn("category_id")
+        ),
+        f"{side}_category_current": pick_row(
+            f"{side}_category_current", default=pick_txn("category_raw")
+        ),
+        f"{side}_memo": pick_row(f"{side}_memo", "memo", default=pick_txn("memo")),
+        f"{side}_fingerprint": pick_row(
+            f"{side}_fingerprint", "fingerprint", default=pick_txn("fingerprint")
+        ),
+        f"{side}_description_raw": pick_row(
+            f"{side}_description_raw", "description_raw", default=pick_txn("description_raw")
+        ),
+        f"{side}_description_clean": pick_row(
+            f"{side}_description_clean",
+            "description_clean",
+            default=pick_txn("description_clean"),
+        ),
+        f"{side}_merchant_raw": pick_row(
+            f"{side}_merchant_raw", "merchant_raw", default=pick_txn("merchant_raw")
+        ),
+        f"{side}_ref": pick_row(f"{side}_ref", "ref", default=pick_txn("ref")),
+        f"{side}_cleared": pick_row(f"{side}_cleared", default=pick_txn("cleared")),
+        f"{side}_approved": _normalize_bool(
+            row.get(f"{side}_approved", txn_map.get("approved", False))
+        ),
+        f"{side}_is_subtransaction": _normalize_bool(
+            row.get(f"{side}_is_subtransaction", txn_map.get("is_subtransaction", False))
+        ),
+        f"{side}_bank_txn_id": pick_row(f"{side}_bank_txn_id", "bank_txn_id"),
+        f"{side}_card_txn_id": pick_row(f"{side}_card_txn_id", "card_txn_id"),
+        f"{side}_card_suffix": pick_row(f"{side}_card_suffix", "card_suffix"),
+        f"{side}_splits": _normalize_split_records(
+            row.get(f"{side}_splits", txn_map.get("splits"))
+        ),
+    }
+
+
+def _infer_source_present(row: pd.Series) -> bool:
+    if "source_present" in row.index:
+        return _normalize_bool(row.get("source_present", False))
+    for name in [
+        "source_row_id",
+        "source_transaction",
+        "source",
+        "source_account",
+        "source_date",
+        "source_memo",
+        "source_fingerprint",
+        "source_payee_current",
+        "source_category_current",
+        "source_bank_txn_id",
+        "source_card_txn_id",
+        "bank_txn_id",
+        "card_txn_id",
+        "card_suffix",
+        "transaction_id",
+        "account_name",
+        "date",
+        "memo",
+        "fingerprint",
+    ]:
+        if _normalize_text(row.get(name, "")):
+            return True
+    return False
+
+
+def _infer_target_present(row: pd.Series) -> bool:
+    if "target_present" in row.index:
+        return _normalize_bool(row.get("target_present", False))
+    for name in [
+        "target_row_id",
+        "target_transaction",
+        "target_date",
+        "target_memo",
+        "target_fingerprint",
+        "target_payee_current",
+        "target_category_current",
+        "target_splits",
+    ]:
+        value = row.get(name, "")
+        if name == "target_splits":
+            if _normalize_split_records(value):
+                return True
+            continue
+        if _normalize_text(value):
+            return True
+    return False
+
+
+def _review_record_from_row(row: pd.Series) -> dict[str, Any]:
+    source_side = _flat_side_snapshot(row, side="source")
+    target_side = _flat_side_snapshot(row, side="target")
+    source_present = _infer_source_present(row)
+    target_present = _infer_target_present(row)
+    record: dict[str, Any] = {
+        "artifact_kind": "review_artifact",
+        "artifact_version": REVIEW_ARTIFACT_VERSION,
+        "review_transaction_id": _normalize_text(
+            row.get("review_transaction_id", row.get("transaction_id", ""))
+        ),
+        "source": _normalize_text(row.get("source")),
+        "account_name": _normalize_text(row.get("account_name")),
+        "date": _normalize_text(row.get("date")),
+        "outflow_ils": _normalize_float(row.get("outflow_ils")),
+        "inflow_ils": _normalize_float(row.get("inflow_ils")),
+        "memo": _normalize_text(row.get("memo")),
+        "fingerprint": _normalize_text(row.get("fingerprint")),
+        "workflow_type": _normalize_text(row.get("workflow_type")),
+        "relation_kind": _normalize_text(row.get("relation_kind")),
+        "match_status": _normalize_text(row.get("match_status")),
+        "match_method": _normalize_text(row.get("match_method")),
+        "payee_options": _normalize_text(row.get("payee_options")),
+        "category_options": _normalize_text(row.get("category_options")),
+        "update_maps": validation.join_update_maps(
+            validation.parse_update_maps(row.get("update_maps", ""))
+        ),
+        "decision_action": validation.normalize_decision_action(row.get("decision_action")),
+        "reviewed": _normalize_bool(row.get("reviewed", False)),
+        "memo_append": _normalize_text(row.get("memo_append")),
+        "source_present": source_present,
+        "target_present": target_present,
+        "source_row_id": _normalize_text(row.get("source_row_id")),
+        "target_row_id": _normalize_text(row.get("target_row_id")),
+        "source_context_kind": _normalize_text(row.get("source_context_kind")),
+        "source_context_category_id": _normalize_text(row.get("source_context_category_id")),
+        "source_context_category_name": _normalize_text(row.get("source_context_category_name")),
+        "source_context_matching_split_ids": _normalize_text(
+            row.get("source_context_matching_split_ids")
+        ),
+        "source_payee_selected": _normalize_text(row.get("source_payee_selected")),
+        "source_category_selected": model.normalize_category_value(
+            row.get("source_category_selected")
+        ),
+        "target_context_kind": _normalize_text(row.get("target_context_kind")),
+        "target_context_matching_split_ids": _normalize_text(
+            row.get("target_context_matching_split_ids")
+        ),
+        "target_payee_selected": _normalize_text(row.get("target_payee_selected")),
+        "target_category_selected": model.normalize_category_value(
+            row.get("target_category_selected")
+        ),
+    }
+    record.update(source_side)
+    record.update(target_side)
+    if not source_present:
+        for name in REVIEW_SIDE_SCALAR_FIELD_NAMES:
+            if name.startswith("source_"):
+                if name.endswith("_approved") or name.endswith("_is_subtransaction"):
+                    record[name] = False
+                elif name == "source_splits":
+                    record[name] = None
+                else:
+                    record[name] = ""
+    if not target_present:
+        for name in REVIEW_SIDE_SCALAR_FIELD_NAMES:
+            if name.startswith("target_"):
+                if name in {"target_account", "target_account_id"}:
+                    continue
+                if name.endswith("_approved") or name.endswith("_is_subtransaction"):
+                    record[name] = False
+                elif name == "target_splits":
+                    record[name] = None
+                else:
+                    record[name] = ""
+    return record
 
 
 def _review_table_from_dataframe(df: pd.DataFrame) -> pa.Table:
-    review_df = df.copy()
+    review_df = translate_review_dataframe(df) if detect_review_csv_format(df) != "unknown" else df.copy()
     if "target_payee_selected" not in review_df.columns and "payee_selected" in review_df.columns:
         review_df["target_payee_selected"] = _text_series(review_df, "payee_selected")
     if (
@@ -212,157 +463,21 @@ def _review_table_from_dataframe(df: pd.DataFrame) -> pa.Table:
         and "category_selected" in review_df.columns
     ):
         review_df["target_category_selected"] = _text_series(review_df, "category_selected")
-    for column in [
-        "source_category_selected",
-        "target_category_selected",
-    ]:
-        if column in review_df.columns:
-            review_df[column] = review_df[column].map(model.normalize_category_value)
-    if "source_present" not in review_df.columns:
-        inferred_source = (
-            _text_series(review_df, "source_row_id").ne("")
-            | _text_series(review_df, "source").ne("")
-            | _text_series(review_df, "source_account").ne("")
-            | _text_series(review_df, "source_date").ne("")
-            | _text_series(review_df, "source_memo").ne("")
-            | _text_series(review_df, "source_fingerprint").ne("")
-            | ~_text_series(review_df, "match_status").str.casefold().eq("target_only")
+    records = [_review_record_from_row(row) for _, row in review_df.iterrows()]
+    if not records:
+        return pa.Table.from_arrays(
+            [pa.array([], type=field.type) for field in REVIEW_SCHEMA],
+            schema=REVIEW_SCHEMA,
         )
-        review_df["source_present"] = inferred_source
-    if "target_present" not in review_df.columns:
-        inferred_target = (
-            _text_series(review_df, "target_row_id").ne("")
-            | _text_series(review_df, "target_account").ne("")
-            | _text_series(review_df, "target_date").ne("")
-            | _text_series(review_df, "target_memo").ne("")
-            | _text_series(review_df, "target_fingerprint").ne("")
-            | ~_text_series(review_df, "match_status").str.casefold().eq("source_only")
-        )
-        review_df["target_present"] = inferred_target
-    if "source_account" not in review_df.columns:
-        review_df["source_account"] = _text_series(review_df, "account_name")
-    if "target_account" not in review_df.columns:
-        review_df["target_account"] = _text_series(review_df, "account_name")
-    if "source_date" not in review_df.columns:
-        review_df["source_date"] = _text_series(review_df, "date")
-    if "target_date" not in review_df.columns:
-        review_df["target_date"] = _text_series(review_df, "date")
-    if "source_memo" not in review_df.columns:
-        review_df["source_memo"] = _text_series(review_df, "memo")
-    if "target_memo" not in review_df.columns:
-        review_df["target_memo"] = _text_series(review_df, "memo")
-    if "source_fingerprint" not in review_df.columns:
-        review_df["source_fingerprint"] = _text_series(review_df, "fingerprint")
-    if "target_fingerprint" not in review_df.columns:
-        review_df["target_fingerprint"] = _text_series(review_df, "fingerprint")
-    if "source_bank_txn_id" not in review_df.columns:
-        review_df["source_bank_txn_id"] = _text_series(review_df, "bank_txn_id")
-    if "source_card_txn_id" not in review_df.columns:
-        review_df["source_card_txn_id"] = _text_series(review_df, "card_txn_id")
-    if "source_card_suffix" not in review_df.columns:
-        review_df["source_card_suffix"] = _text_series(review_df, "card_suffix")
-    if "source_secondary_date" not in review_df.columns:
-        review_df["source_secondary_date"] = _text_series(review_df, "secondary_date")
-    if "source_ref" not in review_df.columns:
-        review_df["source_ref"] = _text_series(review_df, "ref")
-
-    row_count = len(review_df)
-
-    def _text_column(name: str, default: str = "") -> pa.Array:
-        if name in review_df.columns:
-            return pa.array(
-                review_df[name].astype("string").fillna(default).str.strip().tolist(),
-                type=pa.string(),
-            )
-        return pa.array([default] * row_count, type=pa.string())
-
-    def _bool_column(name: str, default: bool = False) -> pa.Array:
-        if name in review_df.columns:
-            values = validation.normalize_flag_series(review_df[name]).tolist()
-            return pa.array([bool(value) for value in values], type=pa.bool_())
-        return pa.array([default] * row_count, type=pa.bool_())
-
-    def _transaction_array(name: str, side: str) -> pa.Array:
-        values: list[dict[str, Any] | None] = []
-        for _, row in review_df.iterrows():
-            explicit = _normalize_transaction_mapping(row.get(name))
-            if explicit is not None:
-                values.append(explicit)
-                continue
-            present = bool(row.get(f"{side}_present", False))
-            if not present:
-                values.append(None)
-                continue
-            values.append(_transaction_from_flat_row(row, side=side))
-        return pa.array(values, type=REVIEW_SCHEMA.field(name).type)
-
-    arrays: list[pa.Array] = []
-    for field in REVIEW_SCHEMA:
-        if field.name == "artifact_kind":
-            arrays.append(pa.array(["review_artifact"] * row_count, type=field.type))
-        elif field.name == "artifact_version":
-            arrays.append(pa.array([REVIEW_ARTIFACT_VERSION] * row_count, type=field.type))
-        elif field.name == "review_transaction_id":
-            arrays.append(_text_column("transaction_id"))
-        elif field.name in {"reviewed", "source_present", "target_present"}:
-            arrays.append(_bool_column(field.name))
-        elif field.name == "source_transaction":
-            arrays.append(_transaction_array(field.name, side="source"))
-        elif field.name == "target_transaction":
-            arrays.append(_transaction_array(field.name, side="target"))
-        else:
-            arrays.append(_text_column(field.name))
-    return pa.Table.from_arrays(arrays, schema=REVIEW_SCHEMA)
+    return pa.Table.from_pylist(records, schema=REVIEW_SCHEMA)
 
 
-def _transaction_from_flat_row(row: pd.Series, *, side: str) -> dict[str, Any]:
-    source_system = _normalize_text(row.get("source")) if side == "source" else "ynab"
-    row_id = _normalize_text(row.get(f"{side}_row_id"))
-    account_name = _normalize_text(row.get(f"{side}_account")) or _normalize_text(
-        row.get("account_name")
-    )
-    date = _normalize_text(row.get(f"{side}_date")) or _normalize_text(row.get("date"))
-    memo = _normalize_text(row.get(f"{side}_memo")) or _normalize_text(row.get("memo"))
-    fingerprint = _normalize_text(row.get(f"{side}_fingerprint")) or _normalize_text(
-        row.get("fingerprint")
-    )
-    payee = _normalize_text(row.get(f"{side}_payee_current"))
-    category = _normalize_text(row.get(f"{side}_category_current"))
-    outflow = float(pd.to_numeric(row.get("outflow_ils", 0.0), errors="coerce") or 0.0)
-    inflow = float(pd.to_numeric(row.get("inflow_ils", 0.0), errors="coerce") or 0.0)
-    return {
-        "artifact_kind": f"review_{side}_transaction",
-        "artifact_version": TRANSACTION_ARTIFACT_VERSION,
-        "source_system": source_system or side,
-        "transaction_id": row_id or _normalize_text(row.get("transaction_id")),
-        "ynab_id": row_id if side == "target" else "",
-        "import_id": "",
-        "parent_transaction_id": row_id or _normalize_text(row.get("transaction_id")),
-        "account_id": _normalize_text(row.get("ynab_account_id")) if side == "target" else "",
-        "account_name": account_name,
-        "source_account": account_name,
-        "date": date,
-        "secondary_date": "",
-        "inflow_ils": inflow,
-        "outflow_ils": outflow,
-        "signed_amount_ils": inflow - outflow,
-        "payee_raw": payee,
-        "category_id": "",
-        "category_raw": category,
-        "memo": memo,
-        "txn_kind": "",
-        "fingerprint": fingerprint,
-        "description_raw": memo,
-        "description_clean": memo,
-        "description_clean_norm": "",
-        "merchant_raw": payee,
-        "ref": "",
-        "matched_transaction_id": "",
-        "cleared": "",
-        "approved": False,
-        "is_subtransaction": False,
-        "splits": None,
-    }
+def _decode_split_column_if_needed(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    for column in SPLIT_COLUMNS:
+        if column in out.columns:
+            out[column] = out[column].map(_normalize_split_records)
+    return out
 
 
 def load_review_artifact(
@@ -390,6 +505,7 @@ def load_review_artifact(
         return _coerce_review_artifact_table(table)
 
     df = pd.read_csv(path, dtype="string").fillna("")
+    df = _decode_split_column_if_needed(df)
     detected_format = detect_review_csv_format(df)
     if detected_format != "unified_v1":
         if detected_format.startswith("legacy_"):
@@ -413,121 +529,13 @@ def project_review_artifact_to_flat_dataframe(
     source: str | Path | pd.DataFrame | pl.DataFrame | pa.Table,
 ) -> pd.DataFrame:
     table = load_review_artifact(source)
-    rows: list[dict[str, Any]] = []
-    for record in table.to_pylist():
-        source_txn = record.get("source_transaction") or {}
-        target_txn = record.get("target_transaction") or {}
-        source_present = bool(record.get("source_present", False))
-        target_present = bool(record.get("target_present", False))
-        display_source = source_txn if source_present else {}
-        display_target = target_txn if target_present else {}
-        rows.append(
-            {
-                "transaction_id": _normalize_text(record.get("review_transaction_id")),
-                "source": _normalize_text(
-                    display_source.get("source_system")
-                    or ("ynab" if not source_present and target_present else "")
-                ),
-                "account_name": _normalize_text(
-                    display_target.get("account_name") or display_source.get("account_name")
-                ),
-                "date": _normalize_text(display_source.get("date") or display_target.get("date")),
-                "outflow_ils": float(
-                    pd.to_numeric(
-                        display_source.get("outflow_ils", display_target.get("outflow_ils", 0.0)),
-                        errors="coerce",
-                    )
-                    or 0.0
-                ),
-                "inflow_ils": float(
-                    pd.to_numeric(
-                        display_source.get("inflow_ils", display_target.get("inflow_ils", 0.0)),
-                        errors="coerce",
-                    )
-                    or 0.0
-                ),
-                "memo": _normalize_text(display_source.get("memo") or display_target.get("memo")),
-                "fingerprint": _normalize_text(
-                    display_source.get("fingerprint") or display_target.get("fingerprint")
-                ),
-                "payee_options": _normalize_text(record.get("payee_options")),
-                "category_options": _normalize_text(record.get("category_options")),
-                "match_status": _normalize_text(record.get("match_status")),
-                "update_maps": _normalize_text(record.get("update_maps")),
-                "decision_action": _normalize_text(record.get("decision_action"))
-                or validation.NO_DECISION,
-                "reviewed": bool(record.get("reviewed", False)),
-                "workflow_type": _normalize_text(record.get("workflow_type")),
-                "relation_kind": _normalize_text(record.get("relation_kind")),
-                "match_method": _normalize_text(record.get("match_method")),
-                "source_present": source_present,
-                "target_present": target_present,
-                "source_row_id": _normalize_text(record.get("source_row_id")),
-                "target_row_id": _normalize_text(record.get("target_row_id")),
-                "source_account": _normalize_text(
-                    record.get("source_account")
-                    or source_txn.get("source_account")
-                    or source_txn.get("account_name")
-                ),
-                "target_account": _normalize_text(
-                    record.get("target_account")
-                    or target_txn.get("account_name")
-                    or target_txn.get("source_account")
-                ),
-                "source_date": _normalize_text(record.get("source_date") or source_txn.get("date")),
-                "target_date": _normalize_text(record.get("target_date") or target_txn.get("date")),
-                "source_payee_current": _normalize_text(source_txn.get("payee_raw")),
-                "target_payee_current": _normalize_text(target_txn.get("payee_raw")),
-                "source_category_current": model.normalize_category_value(
-                    source_txn.get("category_raw")
-                ),
-                "target_category_current": model.normalize_category_value(
-                    target_txn.get("category_raw")
-                ),
-                "source_memo": _normalize_text(record.get("source_memo") or source_txn.get("memo")),
-                "target_memo": _normalize_text(record.get("target_memo") or target_txn.get("memo")),
-                "source_fingerprint": _normalize_text(
-                    record.get("source_fingerprint") or source_txn.get("fingerprint")
-                ),
-                "target_fingerprint": _normalize_text(
-                    record.get("target_fingerprint") or target_txn.get("fingerprint")
-                ),
-                "source_bank_txn_id": _normalize_text(record.get("source_bank_txn_id")),
-                "source_card_txn_id": _normalize_text(record.get("source_card_txn_id")),
-                "source_card_suffix": _normalize_text(record.get("source_card_suffix")),
-                "source_secondary_date": _normalize_text(record.get("source_secondary_date")),
-                "source_ref": _normalize_text(record.get("source_ref")),
-                "source_context_kind": _normalize_text(record.get("source_context_kind")),
-                "source_context_category_id": _normalize_text(
-                    record.get("source_context_category_id")
-                ),
-                "source_context_category_name": _normalize_text(
-                    record.get("source_context_category_name")
-                ),
-                "source_context_matching_split_ids": _normalize_text(
-                    record.get("source_context_matching_split_ids")
-                ),
-                "source_payee_selected": _normalize_text(record.get("source_payee_selected")),
-                "source_category_selected": model.normalize_category_value(
-                    record.get("source_category_selected")
-                ),
-                "target_context_kind": _normalize_text(record.get("target_context_kind")),
-                "target_context_matching_split_ids": _normalize_text(
-                    record.get("target_context_matching_split_ids")
-                ),
-                "target_payee_selected": _normalize_text(record.get("target_payee_selected")),
-                "target_category_selected": model.normalize_category_value(
-                    record.get("target_category_selected")
-                ),
-                "memo_append": _normalize_text(record.get("memo_append")),
-                "source_transaction": source_txn or None,
-                "target_transaction": target_txn or None,
-            }
-        )
+    rows = table.to_pylist()
     df = pd.DataFrame(rows)
     if df.empty:
-        df = pd.DataFrame(columns=REQUIRED_COLUMNS + ["payee_selected", "category_selected"])
-    for col in [
+        df = pd.DataFrame(
+            columns=REVIEW_FIELD_NAMES + ["transaction_id", "payee_selected", "category_selected"]
+        )
+    for column in [
         "payee_options",
         "category_options",
         "source_payee_selected",
@@ -538,27 +546,51 @@ def project_review_artifact_to_flat_dataframe(
         "fingerprint",
         "workflow_type",
         "memo_append",
+        "source_context_kind",
+        "source_context_category_id",
+        "source_context_category_name",
+        "source_context_matching_split_ids",
+        "target_context_kind",
+        "target_context_matching_split_ids",
     ]:
-        if col not in df.columns:
-            df[col] = ""
-        df[col] = df[col].astype("string").fillna("").str.strip()
-    for col in ["source_category_selected", "target_category_selected"]:
-        if col in df.columns:
-            df[col] = df[col].map(model.normalize_category_value)
-    if "update_maps" not in df.columns:
-        df["update_maps"] = ""
-    df["update_maps"] = validation.normalize_update_maps(df["update_maps"])
+        if column not in df.columns:
+            df[column] = ""
+        df[column] = df[column].astype("string").fillna("").str.strip()
+    for column in [
+        "reviewed",
+        "source_present",
+        "target_present",
+        "source_approved",
+        "source_is_subtransaction",
+        "target_approved",
+        "target_is_subtransaction",
+    ]:
+        if column in df.columns:
+            df[column] = validation.normalize_flag_series(df[column])
+    for column in ["source_category_selected", "target_category_selected"]:
+        if column in df.columns:
+            df[column] = df[column].map(model.normalize_category_value)
+    df["update_maps"] = validation.normalize_update_maps(
+        df.get("update_maps", pd.Series([""] * len(df), index=df.index))
+    )
+    df["decision_action"] = validation.normalize_decision_actions(
+        df.get("decision_action", pd.Series([""] * len(df), index=df.index))
+    )
     if "reviewed" not in df.columns:
         df["reviewed"] = False
-    else:
-        df["reviewed"] = validation.normalize_flag_series(df["reviewed"])
-    if "source_present" in df.columns:
-        df["source_present"] = validation.normalize_flag_series(df["source_present"])
-    if "target_present" in df.columns:
-        df["target_present"] = validation.normalize_flag_series(df["target_present"])
-    df["decision_action"] = validation.normalize_decision_actions(df["decision_action"])
-    df["payee_selected"] = df["target_payee_selected"]
-    df["category_selected"] = df["target_category_selected"]
+    if "source_present" not in df.columns:
+        df["source_present"] = False
+    if "target_present" not in df.columns:
+        df["target_present"] = False
+    df["payee_selected"] = df.get("target_payee_selected", pd.Series([""] * len(df), index=df.index))
+    df["category_selected"] = df.get(
+        "target_category_selected",
+        pd.Series([""] * len(df), index=df.index),
+    )
+    if "transaction_id" not in df.columns:
+        df["transaction_id"] = df.get(
+            "review_transaction_id", pd.Series([""] * len(df), index=df.index)
+        )
     return df
 
 
@@ -575,6 +607,7 @@ def load_proposed_transactions(
         return project_review_artifact_to_flat_dataframe(source)
 
     df = _input_to_pandas_dataframe(source, label="proposed transactions")
+    df = _decode_split_column_if_needed(df)
     detected_format = detect_review_csv_format(df)
     if detected_format != "unified_v1":
         if detected_format.startswith("legacy_"):
@@ -620,22 +653,25 @@ def save_reviewed_transactions(
 
     out = load_proposed_transactions(df)
     out = out.drop(
-        columns=[
-            col
-            for col in [
-                "payee_selected",
-                "category_selected",
-                "source_transaction",
-                "target_transaction",
-            ]
-            if col in out.columns
-        ]
-    )
+        columns=[col for col in ["payee_selected", "category_selected"] if col in out.columns]
+    ).copy()
     out["update_maps"] = validation.normalize_update_maps(out["update_maps"])
-    out["reviewed"] = out["reviewed"].map(lambda v: "TRUE" if bool(v) else "")
-    for flag_col in ["source_present", "target_present"]:
+    out["reviewed"] = out["reviewed"].map(lambda value: "TRUE" if bool(value) else "")
+    for flag_col in [
+        "source_present",
+        "target_present",
+        "source_approved",
+        "source_is_subtransaction",
+        "target_approved",
+        "target_is_subtransaction",
+    ]:
         if flag_col in out.columns:
-            out[flag_col] = out[flag_col].map(lambda v: "TRUE" if bool(v) else "")
+            out[flag_col] = out[flag_col].map(lambda value: "TRUE" if bool(value) else "")
+    for column in SPLIT_COLUMNS:
+        if column in out.columns:
+            out[column] = out[column].map(
+                lambda value: json.dumps(value, ensure_ascii=False) if isinstance(value, list) else ""
+            )
 
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
     out.to_csv(tmp_path, index=False, encoding="utf-8-sig")

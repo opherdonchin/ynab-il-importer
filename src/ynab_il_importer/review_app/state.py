@@ -10,29 +10,45 @@ import ynab_il_importer.review_app.model as model
 from ynab_il_importer.safe_types import normalize_flag_series
 
 
-def _txn_mapping(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        return value
-    return {}
+def _text_expr(name: str) -> pl.Expr:
+    return pl.col(name).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
 
 
-def _txn_text(txn: dict[str, Any], field: str) -> str:
-    return str(txn.get(field, "") or "").strip()
+def _bool_expr(name: str) -> pl.Expr:
+    return pl.col(name).cast(pl.Boolean, strict=False).fill_null(False)
 
 
-def _txn_splits(txn: dict[str, Any]) -> list[dict[str, Any]]:
-    splits = txn.get("splits") or []
-    return [split for split in splits if isinstance(split, dict)]
+def _has_list_dtype(df: pl.DataFrame, name: str) -> bool:
+    dtype = df.schema.get(name)
+    return dtype is not None and isinstance(dtype, pl.List)
 
 
-def _txn_split_text(txn: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for split in _txn_splits(txn):
-        for field in ["split_id", "payee_raw", "category_raw", "memo"]:
-            text = _txn_text(split, field)
-            if text:
-                parts.append(text)
-    return " ".join(parts)
+def _split_count_expr(df: pl.DataFrame, name: str) -> pl.Expr:
+    if not _has_list_dtype(df, name):
+        return pl.lit(0, dtype=pl.Int64)
+    return pl.col(name).list.len().fill_null(0).cast(pl.Int64)
+
+
+def _split_text_expr(df: pl.DataFrame, name: str) -> pl.Expr:
+    if not _has_list_dtype(df, name):
+        return pl.lit("").alias(f"{name}_text")
+    return (
+        pl.col(name)
+        .list.eval(
+            pl.concat_str(
+                [
+                    pl.element().struct.field("split_id").fill_null(""),
+                    pl.element().struct.field("payee_raw").fill_null(""),
+                    pl.element().struct.field("category_raw").fill_null(""),
+                    pl.element().struct.field("memo").fill_null(""),
+                ],
+                separator=" ",
+                ignore_nulls=True,
+            )
+        )
+        .list.join(" ")
+        .fill_null("")
+    ).alias(f"{name}_text")
 
 
 def canonical_review_helpers(df: pl.DataFrame) -> pl.DataFrame:
@@ -54,101 +70,20 @@ def canonical_review_helpers(df: pl.DataFrame) -> pl.DataFrame:
             ]
         )
 
-    source_txn = pl.col("source_transaction")
-    target_txn = pl.col("target_transaction")
-
     return df.with_columns(
         [
-            source_txn
-            .map_elements(
-                lambda txn: bool(_txn_splits(_txn_mapping(txn))),
-                return_dtype=pl.Boolean,
-                skip_nulls=False,
-            )
-            .alias("source_is_split"),
-            target_txn
-            .map_elements(
-                lambda txn: bool(_txn_splits(_txn_mapping(txn))),
-                return_dtype=pl.Boolean,
-                skip_nulls=False,
-            )
-            .alias("target_is_split"),
-            source_txn
-            .map_elements(
-                lambda txn: len(_txn_splits(_txn_mapping(txn))),
-                return_dtype=pl.Int64,
-                skip_nulls=False,
-            )
-            .alias("source_split_count"),
-            target_txn
-            .map_elements(
-                lambda txn: len(_txn_splits(_txn_mapping(txn))),
-                return_dtype=pl.Int64,
-                skip_nulls=False,
-            )
-            .alias("target_split_count"),
-            source_txn
-            .map_elements(
-                lambda txn: _txn_text(_txn_mapping(txn), "payee_raw"),
-                return_dtype=pl.String,
-                skip_nulls=False,
-            )
-            .alias("source_display_payee"),
-            target_txn
-            .map_elements(
-                lambda txn: _txn_text(_txn_mapping(txn), "payee_raw"),
-                return_dtype=pl.String,
-                skip_nulls=False,
-            )
-            .alias("target_display_payee"),
-            source_txn
-            .map_elements(
-                lambda txn: model.normalize_category_value(
-                    _txn_text(_txn_mapping(txn), "category_raw")
-                ),
-                return_dtype=pl.String,
-                skip_nulls=False,
-            )
-            .alias("source_display_category"),
-            target_txn
-            .map_elements(
-                lambda txn: model.normalize_category_value(
-                    _txn_text(_txn_mapping(txn), "category_raw")
-                ),
-                return_dtype=pl.String,
-                skip_nulls=False,
-            )
-            .alias("target_display_category"),
-            source_txn
-            .map_elements(
-                lambda txn: _txn_text(_txn_mapping(txn), "account_name")
-                or _txn_text(_txn_mapping(txn), "source_account"),
-                return_dtype=pl.String,
-                skip_nulls=False,
-            )
-            .alias("source_display_account"),
-            target_txn
-            .map_elements(
-                lambda txn: _txn_text(_txn_mapping(txn), "account_name")
-                or _txn_text(_txn_mapping(txn), "source_account"),
-                return_dtype=pl.String,
-                skip_nulls=False,
-            )
-            .alias("target_display_account"),
-            source_txn
-            .map_elements(
-                lambda txn: _txn_text(_txn_mapping(txn), "date"),
-                return_dtype=pl.String,
-                skip_nulls=False,
-            )
-            .alias("source_display_date"),
-            target_txn
-            .map_elements(
-                lambda txn: _txn_text(_txn_mapping(txn), "date"),
-                return_dtype=pl.String,
-                skip_nulls=False,
-            )
-            .alias("target_display_date"),
+            _split_count_expr(df, "source_splits").gt(0).alias("source_is_split"),
+            _split_count_expr(df, "target_splits").gt(0).alias("target_is_split"),
+            _split_count_expr(df, "source_splits").alias("source_split_count"),
+            _split_count_expr(df, "target_splits").alias("target_split_count"),
+            _text_expr("source_payee_current").alias("source_display_payee"),
+            _text_expr("target_payee_current").alias("target_display_payee"),
+            _text_expr("source_category_current").alias("source_display_category"),
+            _text_expr("target_category_current").alias("target_display_category"),
+            _text_expr("source_account").alias("source_display_account"),
+            _text_expr("target_account").alias("target_display_account"),
+            _text_expr("source_date").alias("source_display_date"),
+            _text_expr("target_date").alias("target_display_date"),
         ]
     )
 
@@ -160,34 +95,10 @@ def canonical_search_text_series(df: pl.DataFrame) -> pd.Series:
     helpers = canonical_review_helpers(df)
     table = df.with_columns(
         [
-            pl.col("source_transaction")
-            .map_elements(
-                lambda txn: _txn_text(_txn_mapping(txn), "memo"),
-                return_dtype=pl.String,
-                skip_nulls=False,
-            )
-            .alias("source_transaction_memo"),
-            pl.col("target_transaction")
-            .map_elements(
-                lambda txn: _txn_text(_txn_mapping(txn), "memo"),
-                return_dtype=pl.String,
-                skip_nulls=False,
-            )
-            .alias("target_transaction_memo"),
-            pl.col("source_transaction")
-            .map_elements(
-                lambda txn: _txn_split_text(_txn_mapping(txn)),
-                return_dtype=pl.String,
-                skip_nulls=False,
-            )
-            .alias("source_split_text"),
-            pl.col("target_transaction")
-            .map_elements(
-                lambda txn: _txn_split_text(_txn_mapping(txn)),
-                return_dtype=pl.String,
-                skip_nulls=False,
-            )
-            .alias("target_split_text"),
+            _text_expr("source_memo").alias("source_transaction_memo"),
+            _text_expr("target_memo").alias("target_transaction_memo"),
+            _split_text_expr(df, "source_splits"),
+            _split_text_expr(df, "target_splits"),
         ]
     )
     search_columns = [
@@ -205,8 +116,8 @@ def canonical_search_text_series(df: pl.DataFrame) -> pd.Series:
         "memo_append",
         "source_transaction_memo",
         "target_transaction_memo",
-        "source_split_text",
-        "target_split_text",
+        "source_splits_text",
+        "target_splits_text",
     ]
     helper_columns = [
         "source_display_payee",
@@ -218,23 +129,16 @@ def canonical_search_text_series(df: pl.DataFrame) -> pd.Series:
         "source_display_date",
         "target_display_date",
     ]
-    search_values = table.select(
-        [pl.col(column).cast(pl.Utf8, strict=False).fill_null("").alias(column) for column in search_columns]
-    ).to_dict(as_series=False)
-    helper_values = helpers.select(
-        [pl.col(column).cast(pl.Utf8, strict=False).fill_null("").alias(column) for column in helper_columns]
-    ).to_dict(as_series=False)
-
-    row_count = df.height
-    text_values: list[str] = []
-    for idx in range(row_count):
-        parts: list[str] = []
-        for column in search_columns:
-            parts.append(str(search_values.get(column, [""] * row_count)[idx] or ""))
-        for column in helper_columns:
-            parts.append(str(helper_values.get(column, [""] * row_count)[idx] or ""))
-        text_values.append(" ".join(parts).casefold())
-    return pd.Series(text_values, index=range(row_count), dtype="string")
+    combined = table.with_columns(helpers.select(helper_columns)).select(
+        pl.concat_str(
+            [_text_expr(column) for column in search_columns + helper_columns],
+            separator=" ",
+            ignore_nulls=True,
+        )
+        .str.to_lowercase()
+        .alias("search_text")
+    )
+    return pd.Series(combined["search_text"].to_list(), index=range(df.height), dtype="string")
 
 
 def series_or_default(df: pd.DataFrame, col: str) -> pd.Series:

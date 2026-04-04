@@ -845,57 +845,41 @@ def test_canonical_review_helpers_derive_split_and_display_fields() -> None:
     df = pl.DataFrame(
         {
             "review_transaction_id": ["row-1", "row-2"],
-            "source_transaction": [
-                {
-                    "transaction_id": "src-1",
-                    "account_name": "Family Leumi",
-                    "source_account": "Family Leumi",
-                    "date": "2026-03-01",
-                    "payee_raw": "Salary Liya",
-                    "category_raw": "Split",
-                    "splits": [
-                        {
-                            "split_id": "sub-1",
-                            "category_raw": "Pilates",
-                            "outflow_ils": 100.0,
-                            "inflow_ils": 0.0,
-                        }
-                    ],
-                },
+            "source_account": ["Family Leumi", ""],
+            "source_date": ["2026-03-01", ""],
+            "source_payee_current": ["Salary Liya", ""],
+            "source_category_current": ["Split", ""],
+            "source_splits": [
+                [
+                    {
+                        "split_id": "sub-1",
+                        "category_raw": "Pilates",
+                        "outflow_ils": 100.0,
+                        "inflow_ils": 0.0,
+                    }
+                ],
                 None,
             ],
-            "target_transaction": [
-                {
-                    "transaction_id": "tgt-1",
-                    "account_name": "In Family",
-                    "source_account": "In Family",
-                    "date": "2026-03-01",
-                    "payee_raw": "Transfer : In Family",
-                    "category_raw": "",
-                    "splits": [],
-                },
-                {
-                    "transaction_id": "tgt-2",
-                    "account_name": "In Family",
-                    "source_account": "In Family",
-                    "date": "2026-03-02",
-                    "payee_raw": "Manual Split",
-                    "category_raw": "Split",
-                    "splits": [
-                        {
-                            "split_id": "sub-2",
-                            "category_raw": "Food",
-                            "outflow_ils": 50.0,
-                            "inflow_ils": 0.0,
-                        },
-                        {
-                            "split_id": "sub-3",
-                            "category_raw": "Pets",
-                            "outflow_ils": 25.0,
-                            "inflow_ils": 0.0,
-                        },
-                    ],
-                },
+            "target_account": ["In Family", "In Family"],
+            "target_date": ["2026-03-01", "2026-03-02"],
+            "target_payee_current": ["Transfer : In Family", "Manual Split"],
+            "target_category_current": ["", "Split"],
+            "target_splits": [
+                [],
+                [
+                    {
+                        "split_id": "sub-2",
+                        "category_raw": "Food",
+                        "outflow_ils": 50.0,
+                        "inflow_ils": 0.0,
+                    },
+                    {
+                        "split_id": "sub-3",
+                        "category_raw": "Pets",
+                        "outflow_ils": 25.0,
+                        "inflow_ils": 0.0,
+                    },
+                ],
             ],
         }
     )
@@ -930,33 +914,25 @@ def test_canonical_search_text_series_includes_context_and_split_text() -> None:
             "target_context_kind": [""],
             "target_context_matching_split_ids": [""],
             "memo_append": ["note"],
-            "source_transaction": [
+            "source_payee_current": ["Cafe source"],
+            "source_category_current": ["Food"],
+            "source_account": ["Source account"],
+            "source_date": ["2026-03-01"],
+            "source_memo": ["source memo"],
+            "source_splits": [[
                 {
-                    "payee_raw": "Cafe source",
-                    "category_raw": "Food",
-                    "account_name": "Source account",
-                    "date": "2026-03-01",
-                    "memo": "source memo",
-                    "splits": [
-                        {
-                            "split_id": "split-1",
-                            "payee_raw": "Split payee",
-                            "category_raw": "Split category",
-                            "memo": "split memo",
-                        }
-                    ],
+                    "split_id": "split-1",
+                    "payee_raw": "Split payee",
+                    "category_raw": "Split category",
+                    "memo": "split memo",
                 }
-            ],
-            "target_transaction": [
-                {
-                    "payee_raw": "Cafe target",
-                    "category_raw": "Dining",
-                    "account_name": "Target account",
-                    "date": "2026-03-01",
-                    "memo": "target memo",
-                    "splits": None,
-                }
-            ],
+            ]],
+            "target_payee_current": ["Cafe target"],
+            "target_category_current": ["Dining"],
+            "target_account": ["Target account"],
+            "target_date": ["2026-03-01"],
+            "target_memo": ["target memo"],
+            "target_splits": [None],
         }
     )
 

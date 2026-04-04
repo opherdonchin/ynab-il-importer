@@ -152,7 +152,7 @@ def test_save_then_load_round_trip_preserves_review_fields(tmp_path) -> None:
     assert bool(loaded.loc[0, "target_present"]) is False
 
 
-def test_save_review_artifact_parquet_round_trip_preserves_nested_transactions(tmp_path) -> None:
+def test_save_review_artifact_parquet_round_trip_preserves_flat_sides_and_splits(tmp_path) -> None:
     path = tmp_path / "review.parquet"
     df = pd.DataFrame(
         [
@@ -215,11 +215,12 @@ def test_save_review_artifact_parquet_round_trip_preserves_nested_transactions(t
     assert loaded.loc[0, "source_context_category_id"] == "cat-food"
     assert loaded.loc[0, "source_context_category_name"] == "Food"
     assert loaded.loc[0, "source_context_matching_split_ids"] == "sub-1"
-    assert loaded.loc[0, "source_transaction"]["transaction_id"] == "src-1"
-    assert loaded.loc[0, "source_transaction"]["payee_raw"] == "Cafe source"
+    assert loaded.loc[0, "source_transaction_id"] == "src-1"
+    assert loaded.loc[0, "source_payee_current"] == "Cafe source"
+    assert loaded.loc[0, "source_splits"] is None
 
 
-def test_load_review_artifact_polars_preserves_nested_transactions_and_context(tmp_path) -> None:
+def test_load_review_artifact_polars_preserves_flat_sides_and_context(tmp_path) -> None:
     path = tmp_path / "review_polars.parquet"
     df = pd.DataFrame(
         [
@@ -292,8 +293,8 @@ def test_load_review_artifact_polars_preserves_nested_transactions_and_context(t
     row = loaded.to_dicts()[0]
     assert row["source_context_kind"] == "ynab_split_category_match"
     assert row["source_context_matching_split_ids"] == "sub-1"
-    assert row["source_transaction"]["transaction_id"] == "src-1"
-    assert row["source_transaction"]["splits"][0]["split_id"] == "sub-1"
+    assert row["source_transaction_id"] == "src-1"
+    assert row["source_splits"][0]["split_id"] == "sub-1"
 
 
 def _legacy_institutional_df() -> pd.DataFrame:

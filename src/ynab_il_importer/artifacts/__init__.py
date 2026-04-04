@@ -17,7 +17,7 @@ from ynab_il_importer.artifacts.transaction_projection import (
 from ynab_il_importer.artifacts.review_schema import (
     REVIEW_ARTIFACT_VERSION,
     REVIEW_SCHEMA,
-    TRANSACTION_STRUCT,
+    REVIEW_SIDE_SCALAR_FIELDS,
     empty_review_table,
 )
 from ynab_il_importer.artifacts.transaction_schema import (
@@ -34,7 +34,7 @@ __all__ = [
     "empty_transaction_table",
     "REVIEW_ARTIFACT_VERSION",
     "REVIEW_SCHEMA",
-    "TRANSACTION_STRUCT",
+    "REVIEW_SIDE_SCALAR_FIELDS",
     "empty_review_table",
     "explode_split_lines",
     "flat_projection_to_canonical_table",

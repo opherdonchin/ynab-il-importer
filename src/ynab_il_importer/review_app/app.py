@@ -478,19 +478,24 @@ def _fp_key(fp: str) -> str:
 
 
 def _pick_summary_text(row: pd.Series) -> str:
-    for col in ["description_clean", "merchant_raw", "description_raw", "memo", "fingerprint"]:
+    for col in [
+        "description_clean",
+        "merchant_raw",
+        "description_raw",
+        "memo",
+        "fingerprint",
+        "source_memo",
+        "target_memo",
+        "source_payee_current",
+        "target_payee_current",
+        "source_category_current",
+        "target_category_current",
+    ]:
         value = str(row.get(col, "") or "").strip()
         if value:
             return value
-    for side in ["source_transaction", "target_transaction"]:
-        txn = row.get(side)
-        if not isinstance(txn, dict):
-            continue
-        for key in ["memo", "payee_raw", "category_raw"]:
-            value = str(txn.get(key, "") or "").strip()
-            if value:
-                return value
-        splits = txn.get("splits") or []
+    for side in ["source_splits", "target_splits"]:
+        splits = row.get(side) or []
         if isinstance(splits, list):
             for split in splits:
                 if not isinstance(split, dict):
@@ -1107,14 +1112,13 @@ def _source_context_caption(row: pd.Series) -> str:
 
 
 def _split_caption_lines(
-    txn: dict[str, Any] | None,
+    splits: list[dict[str, Any]] | None,
     *,
     matching_split_ids: str = "",
 ) -> list[str]:
-    if not isinstance(txn, dict):
+    if not isinstance(splits, list):
         return []
     split_ids = _split_id_set(matching_split_ids)
-    splits = txn.get("splits") or []
     lines: list[str] = []
     for index, split in enumerate(splits, start=1):
         if not isinstance(split, dict):
@@ -1136,11 +1140,11 @@ def _split_caption_lines(
 def _render_split_section(
     title: str,
     *,
-    txn: dict[str, Any] | None,
+    splits: list[dict[str, Any]] | None,
     context_caption: str = "",
     matching_split_ids: str = "",
 ) -> None:
-    split_lines = _split_caption_lines(txn, matching_split_ids=matching_split_ids)
+    split_lines = _split_caption_lines(splits, matching_split_ids=matching_split_ids)
     if not context_caption and not split_lines:
         return
     st.markdown(f"**{title}**")
@@ -1227,30 +1231,30 @@ def _render_row_details(
             ],
         )
 
-    source_txn = row.get("source_transaction")
-    target_txn = row.get("target_transaction")
+    source_splits = row.get("source_splits")
+    target_splits = row.get("target_splits")
     source_context_caption = _source_context_caption(row)
     source_matching_split_ids = str(row.get("source_context_matching_split_ids", "") or "").strip()
     target_matching_split_ids = str(row.get("target_context_matching_split_ids", "") or "").strip()
     has_source_split_detail = bool(source_context_caption) or bool(
-        _split_caption_lines(source_txn, matching_split_ids=source_matching_split_ids)
+        _split_caption_lines(source_splits, matching_split_ids=source_matching_split_ids)
     )
     has_target_split_detail = bool(
-        _split_caption_lines(target_txn, matching_split_ids=target_matching_split_ids)
+        _split_caption_lines(target_splits, matching_split_ids=target_matching_split_ids)
     )
     if has_source_split_detail or has_target_split_detail:
         split_source_col, split_target_col = st.columns(2)
         with split_source_col:
             _render_split_section(
                 "Source split detail",
-                txn=source_txn if isinstance(source_txn, dict) else None,
+                splits=source_splits if isinstance(source_splits, list) else None,
                 context_caption=source_context_caption,
                 matching_split_ids=source_matching_split_ids,
             )
         with split_target_col:
             _render_split_section(
                 "Target split detail",
-                txn=target_txn if isinstance(target_txn, dict) else None,
+                splits=target_splits if isinstance(target_splits, list) else None,
                 matching_split_ids=target_matching_split_ids,
             )
 

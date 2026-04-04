@@ -4,20 +4,22 @@
 
 Split-transaction support on the `handle_splits` branch.
 
-Current intent:
-- keep canonical Parquet transaction artifacts and canonical review artifacts as the real data model
-- move the review app itself onto the canonical transaction representation
-- use Polars instead of pandas for the app’s main internal table/state logic
-- preserve parent-transaction review semantics until split display is in place and split editing is designed
+Current direction:
+- keep canonical Parquet transaction artifacts as the real transaction model
+- keep transactions nested only where hierarchy is semantically real, especially `splits`
+- use a mostly flat canonical review artifact with split-only nesting
+- move the review app toward a Polars-first working table instead of pandas
+- keep review semantics parent-transaction-oriented until split editing is designed
 
 ## Current Goal
 
-Push Step 3 from foundations into live review-app behavior.
+Stabilize the Step 3 pivot to a flat Polars review model and keep moving the review app onto that model.
 
 That means:
-1. keep the completed canonical transaction/review/upload path green
-2. keep moving canonical review data inward from the file boundary into real app state
-3. start replacing flat-only display/state logic with canonical + Polars-backed logic in contained slices
+1. keep the completed Step 1 and Step 2 canonical transaction/upload path green
+2. keep the new flat review artifact green across builders, app IO, app helpers, and upload prep
+3. continue replacing pandas-oriented app logic with Polars/dataframe-level logic
+4. preserve split detail as nested data while keeping ordinary review logic mostly flat
 
 ## Current Status
 
@@ -29,121 +31,60 @@ Done:
 - Step 2 is implemented:
   - YNAB download is centered on canonical transactions
   - uploads are assembled from canonical review artifacts and support new split creation
-  - canonical review artifacts are the real input/output of the review app boundary
   - institutional parser modules now expose `read_canonical(...)`
 - real-data Family sanity checks succeeded:
   - canonical Family proposed-review artifact built successfully
   - reviewed Family artifact was converted to canonical Parquet successfully
   - upload prep dry-run from canonical reviewed Parquet completed successfully
-- `documents/handle_splits_implementation_plan.md` now has a detailed Step 3 section covering:
-  - native canonical in-app representation
-  - Polars-based internal app refactor
-  - field classification for canonical data vs review controls vs derived helpers
-  - phased Step 3 breakdown
-  - split-display requirements
-  - file-by-file Step 3 change inventory
-  - migration sequence, testing plan, and risks
+- the earlier nested review-artifact approach has now been corrected:
+  - review artifacts are now mostly flat
+  - `source_transaction` / `target_transaction` are no longer part of the canonical review schema
+  - only `source_splits` / `target_splits` remain nested in review artifacts
 
 In progress:
-- Step 3 implementation has started
-- first slice completed:
-  - canonical review schema now includes source/target context fields for split-aware display
-  - review IO preserves those context fields through canonical round-trip
-  - institutional and cross-budget builders populate the new context fields
-  - focused builder/review-io tests are green
-- second slice completed:
-  - `review_app/io.py` now has a native canonical Polars load path for review artifacts
-  - canonical review artifacts with nested transactions and context fields round-trip through that Polars path
-  - focused review-io tests and lint are green
-- third slice completed:
-  - `review_app/state.py` now has the first canonical/Polars-derived helper layer for split/display metadata
-  - canonical source/target transactions can now produce split flags, split counts, and basic display fields without flattening
-  - focused review/state tests and lint are green
-- fourth slice completed:
-  - `review_app/app.py` now keeps canonical review tables in session state alongside the editable view
-  - save operations now write from the canonical review object rather than only from the flat dataframe
-  - row and grouped expanders now show canonical split-count badges and row details now surface split counts and source/target context
-  - focused review-app/review-io/review-state tests and lint are green
-- fifth slice completed:
-  - canonical review tables now drive the app’s search/filter text when available
-  - search now includes split-line text and source/target context metadata from the canonical transaction object
-  - focused review-app/review-state tests and lint are green
-- sixth slice completed:
-  - row and grouped expander summaries now prefer canonical transaction dates/accounts over flat fallback fields
-  - summary text can now fall back to nested source/target transaction data, including split-line content
-  - focused review-app tests and lint are green
-- seventh slice completed:
-  - expanded row view now renders explicit source/target split detail directly from canonical transaction objects
-  - source-side extraction context is now explained in the UI when a cross-budget source row was included via parent-category or split-category matching
-  - focused review-app/review-io/review-state tests and lint are green
-- eighth slice completed:
-  - added a canonical demo review-artifact generator at `scripts/build_review_app_demo.py`
-  - added a browser-simulator app test that loads a real Parquet review artifact with nested split data and verifies split detail rendering
-  - wrote demo artifact output under `data/demo/review_app/` for manual browser testing
-  - focused review-app/review-io/review-state tests and lint are green
-- ninth slice completed:
-  - component/precompute graph construction can now run from the canonical Polars review table instead of only from the flat pandas view
-  - the app’s derived-state path now uses that canonical component map when a canonical review table is available
-  - focused review-app/review/perf tests and lint are green
-- tenth slice completed:
-  - row-level validation and decision-option logic now accept generic row mappings instead of requiring `pd.Series`
-  - row-error precomputation can now operate on Polars row dictionaries as well as pandas rows
-  - focused review-app/review/perf tests and lint are green
-- eleventh slice completed:
-  - component-level validation now operates on generic row mappings and explicit component membership instead of depending on pandas masks as its primary model
-  - component-error precomputation now accepts Polars review tables as well as pandas dataframes
-  - focused review-app/review/perf tests and lint are green
-- twelfth slice completed:
-  - grouped-row metadata and “most common” helper logic now run through generic helpers rather than pandas-specific `groupby` / `value_counts` patterns
-  - grouped view now consumes those generic helpers through the app layer
-  - focused review-app/review/perf tests and lint are green
-- thirteenth slice completed:
-  - row-edit propagation now uses index-list based helpers instead of relying on pandas masks as the primary mutation mechanism
-  - competing-row resolution now uses the same index-based propagation path
-  - focused review-app/review/perf tests and lint are green
-- fourteenth slice completed:
-  - the review app wrapper now exits cleanly on Windows when the in-app Quit or Save and quit actions request shutdown
-  - foreground quit no longer produces a shell traceback during the wrapper's wait-for-exit path
-  - focused review-app-wrapper tests and lint are green
-- fifteenth slice completed:
-  - the main app filter path now computes selected row indices from aligned derived series instead of relying on dataframe-mask filtering as its primary mechanism
-  - the state-matrix tally now runs through a generic counter helper rather than pandas `value_counts`
-  - focused review-app/review/perf tests and lint are green
-- sixteenth slice completed:
-  - canonical search text generation now stays in the Polars/canonical path instead of converting review tables back to pandas before concatenation
-  - the review model no longer depends on `pandas.isna` just to parse option strings
-  - focused review-app/review/perf tests and lint are green
+- Step 3 implementation is underway against the flatter review model
+- completed pivot slice:
+  - [review_schema.py](src/ynab_il_importer/artifacts/review_schema.py#L1) now defines a mostly flat review artifact with split-only nesting
+  - [review_app/io.py](src/ynab_il_importer/review_app/io.py#L1) now round-trips that flat review artifact and can still flatten older nested review rows during migration
+  - [build_proposed_transactions.py](scripts/build_proposed_transactions.py#L1259) now returns review rows normalized through the flat canonical review artifact
+  - [build_cross_budget_review_rows.py](scripts/build_cross_budget_review_rows.py#L686) now does the same
+  - [upload_prep.py](src/ynab_il_importer/upload_prep.py#L109) now accepts the flat canonical review artifact and preserves compatibility fields needed by upload tests
+- completed app/helper slice:
+  - [state.py](src/ynab_il_importer/review_app/state.py#L1) now derives split counts, split text, and search text from the new flat review schema
+  - [app.py](src/ynab_il_importer/review_app/app.py#L1234) now reads split detail from `source_splits` / `target_splits` instead of nested source/target transactions
+  - focused review/app/upload/builder tests are green against the flat review schema
 
 ## Working Rules For This Phase
 
-- Keep canonical review artifacts as the app’s real input/output.
-- Keep the app’s internal transaction model canonical.
-- Treat any helper projections as disposable view/index data, not as the working transaction model.
-- Preserve parent-transaction review semantics until Step 4 editing work begins.
-- Keep human-edited control files such as maps in CSV.
+- Keep canonical transaction artifacts as the real transaction model.
+- Keep the canonical review artifact mostly flat.
+- Use nested data in review artifacts only where hierarchy is actually needed, currently splits.
+- Prefer Polars/dataframe-level processing over Python dict/list helper logic.
+- Do not spend effort preserving pandas compatibility that does not serve the current app path.
 - Commit after each successful sub-step.
 - Update `documents/plan.md` before each commit on this branch.
 
 ## Risks To Watch
 
-- under-specifying cross-budget source extraction context, which would force the app to guess why a parent transaction is in scope
-- letting Step 3 leak split display into split editing or validation semantics too early
-- making `app.py` significantly slower or harder to reason about while replacing pandas/flat logic with canonical Polars logic
-- losing nested source/target context on save/resume through the app boundary
-- letting transitional flat category-source projections calcify instead of remaining secondary to canonical YNAB transactions
+- drifting back toward embedded nested source/target transaction objects in review artifacts
+- keeping too much app logic in Python row loops instead of Polars/dataframe expressions
+- letting split display force premature split-edit semantics into Step 3
+- losing important target-side creation context when `target_present` is false
+- leaving builders or upload prep on stale nested in-memory review shapes while persisted artifacts are flat
 
 ## Next Step
 
-Step 3 is underway.
+Step 3 remains underway.
 
 Next:
-1. move another core app computation path off pandas-only assumptions and onto canonical/Polars-backed state
-   - the best next candidates are remaining derived-state helpers, more of the app's decision-state flow, or further reduction of flat-dataframe-only summary and row-edit paths
-2. keep reducing the app’s reliance on the flat dataframe as the sole mutable object
-   - preserve the current UI flow while making canonical review tables the clear source of truth
-   - the app is still not pandas-free at runtime; `review_app/app.py`, `state.py`, `validation.py`, `model.py`, and `review_reconcile.py` still have real pandas dependencies
-3. keep split display incremental
-   - parent transaction remains the review unit
-   - folded/expanded split display is now underway, but should still stay read-only until Step 4
-4. keep app-adjacent polish work contained
-   - wrapper/runtime issues like quit handling can be fixed when they block real use, but Step 3 remains centered on the review app itself
+1. continue moving review-app logic onto the flat Polars working model
+   - reduce remaining pandas-heavy paths in [app.py](src/ynab_il_importer/review_app/app.py#L1), [state.py](src/ynab_il_importer/review_app/state.py#L1), [validation.py](src/ynab_il_importer/review_app/validation.py#L1), and [model.py](src/ynab_il_importer/review_app/model.py#L1)
+2. push helper logic further toward dataframe-native expressions
+   - filtering
+   - search
+   - grouping summaries
+   - split badges and split detail support
+3. keep split handling read-only in the app for now
+   - display yes
+   - editing deferred to Step 4
+4. after the flat review model settles, update the longer-form split plan document to match the new Step 3 direction

@@ -1528,6 +1528,7 @@ def build_review_rows(
 
     relations = pd.DataFrame(rows, columns=REVIEW_ROW_COLUMNS)
     relations = _apply_review_target_suggestions(relations, map_path=map_path)
+    relations = review_io.project_review_artifact_to_flat_dataframe(relations)
     return relations, pairs
 
 

@@ -713,10 +713,10 @@ def test_build_review_rows_marks_cleared_exact_matches_as_settled(tmp_path: Path
     assert matched["match_status"] == "matched_cleared"
     assert matched["relation_kind"] == "matched_cleared_pair"
     assert bool(matched["reviewed"]) is True
-    assert matched["source_transaction"]["source_system"] == "bank"
-    assert matched["source_transaction"]["payee_raw"] == "Groceries"
-    assert matched["target_transaction"]["source_system"] == "ynab"
-    assert matched["target_transaction"]["splits"] is None
+    assert matched["source_source_system"] == "bank"
+    assert matched["source_payee_current"] == "Groceries"
+    assert matched["target_source_system"] == "ynab"
+    assert matched["target_splits"] is None
 
 
 def test_build_review_rows_normalizes_transfer_uncategorized_to_explicit_none(

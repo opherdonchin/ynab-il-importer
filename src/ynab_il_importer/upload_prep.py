@@ -112,13 +112,6 @@ def _combined_memo_series(df: pd.DataFrame) -> pd.Series:
     return combined
 
 
-def _canonical_side_transaction(row: pd.Series, side: str) -> dict[str, Any]:
-    value = row.get(f"{side}_transaction")
-    if isinstance(value, dict):
-        return value
-    return {}
-
-
 def _canonical_context_text(row: pd.Series, *names: str) -> str:
     for name in names:
         value = _normalize_text(row.get(name, ""))
@@ -137,32 +130,20 @@ def _review_artifact_to_working_frame(
 
     rows: list[dict[str, Any]] = []
     for _, row in review_df.iterrows():
-        source_txn = _canonical_side_transaction(row, "source")
-        target_txn = _canonical_side_transaction(row, "target")
-        source_present = bool(row.get("source_present", False))
-        target_present = bool(row.get("target_present", False))
-        display_source = source_txn if source_present else {}
-        display_target = target_txn if target_present else {}
-
         account_name = _canonical_context_text(
             row,
             "target_account",
             "source_account",
-        ) or _normalize_text(
-            display_target.get("account_name") or display_source.get("account_name")
+            "account_name",
         )
-        date = _canonical_context_text(row, "source_date", "target_date") or _normalize_text(
-            display_source.get("date") or display_target.get("date")
-        )
-        memo = _canonical_context_text(row, "source_memo", "target_memo") or _normalize_text(
-            display_source.get("memo") or display_target.get("memo")
-        )
+        date = _canonical_context_text(row, "source_date", "target_date", "date")
+        memo = _canonical_context_text(row, "source_memo", "target_memo", "memo")
         outflow = pd.to_numeric(
-            display_source.get("outflow_ils", display_target.get("outflow_ils", 0.0)),
+            row.get("outflow_ils", 0.0),
             errors="coerce",
         )
         inflow = pd.to_numeric(
-            display_source.get("inflow_ils", display_target.get("inflow_ils", 0.0)),
+            row.get("inflow_ils", 0.0),
             errors="coerce",
         )
         rows.append(
@@ -181,17 +162,16 @@ def _review_artifact_to_working_frame(
                 ),
                 "decision_action": _normalize_text(row.get("decision_action", "")),
                 "reviewed": bool(row.get("reviewed", False)),
-                "source": _normalize_text(display_source.get("source_system", "")),
-                "source_account": _canonical_context_text(row, "source_account")
-                or _normalize_text(display_source.get("source_account", "")),
-                "ynab_account_id": _normalize_text(display_target.get("account_id", "")),
-                "bank_txn_id": _normalize_text(row.get("source_bank_txn_id", "")),
-                "card_txn_id": _normalize_text(row.get("source_card_txn_id", "")),
-                "card_suffix": _normalize_text(row.get("source_card_suffix", "")),
+                "source": _canonical_context_text(row, "source_source_system", "source"),
+                "source_account": _canonical_context_text(row, "source_account"),
+                "ynab_account_id": _canonical_context_text(row, "target_account_id", "ynab_account_id"),
+                "bank_txn_id": _canonical_context_text(row, "source_bank_txn_id", "bank_txn_id"),
+                "card_txn_id": _canonical_context_text(row, "source_card_txn_id", "card_txn_id"),
+                "card_suffix": _canonical_context_text(row, "source_card_suffix", "card_suffix"),
                 "secondary_date": _normalize_text(
-                    row.get("source_secondary_date", display_source.get("secondary_date", ""))
+                    _canonical_context_text(row, "source_secondary_date", "secondary_date")
                 ),
-                "ref": _normalize_text(row.get("source_ref", display_source.get("ref", ""))),
+                "ref": _canonical_context_text(row, "source_ref", "ref"),
                 "workflow_type": _normalize_text(row.get("workflow_type", "")),
                 "match_status": _normalize_text(row.get("match_status", "")),
             }
