@@ -168,6 +168,21 @@ def test_allowed_decision_actions_accepts_plain_mapping() -> None:
     assert actions == [review_validation.NO_DECISION, "delete_target", "ignore_row"]
 
 
+def test_most_common_value_accepts_polars_series() -> None:
+    series = pl.Series(["Cafe", "Bakery", "Cafe", ""])
+
+    assert review_state.most_common_value(series) == "Cafe"
+
+
+def test_grouped_row_indices_accepts_polars_frame() -> None:
+    df = pl.DataFrame({"fingerprint": ["fp-a", "fp-b", "fp-a", ""]})
+
+    fingerprints, group_indices = review_state.grouped_row_indices(df)
+
+    assert fingerprints == ["fp-a", "fp-b"]
+    assert group_indices == {"fp-a": [0, 2], "fp-b": [1]}
+
+
 def test_load_save_roundtrip_uses_side_specific_selected_fields(tmp_path) -> None:
     src = tmp_path / "review.csv"
     pd.DataFrame(

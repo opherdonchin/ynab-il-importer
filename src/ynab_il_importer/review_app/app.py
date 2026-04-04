@@ -1057,14 +1057,7 @@ def _apply_staged_row_widget_values(df: pd.DataFrame, indices: list[Any]) -> pd.
 
 
 def _grouped_row_indices(filtered: pd.DataFrame) -> tuple[list[str], dict[str, list[Any]]]:
-    filtered_fingerprints = review_state.series_or_default(filtered, "fingerprint").str.strip()
-    group_indices = {
-        fp: group.index.tolist()
-        for fp, group in filtered_fingerprints.groupby(filtered_fingerprints, sort=False)
-    }
-    sizes = filtered_fingerprints.value_counts().sort_values(ascending=False)
-    fingerprints = [fp for fp in sizes.index.tolist() if fp in group_indices]
-    return fingerprints, group_indices
+    return review_state.grouped_row_indices(filtered)
 
 
 def _render_detail_section(title: str, entries: list[tuple[str, Any]]) -> None:

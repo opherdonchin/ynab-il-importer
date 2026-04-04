@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 import pandas as pd
@@ -444,25 +445,94 @@ def apply_filters(df: pd.DataFrame, filters: dict[str, Any]) -> pd.DataFrame:
     return filtered
 
 
-def most_common_value(series: pd.Series) -> str:
-    clean = series.astype("string").fillna("").str.strip()
-    clean = clean[clean != ""]
-    if clean.empty:
+def _clean_text_list(values: Any) -> list[str]:
+    if isinstance(values, pd.Series):
+        raw_values = values.astype("string").fillna("").tolist()
+    elif isinstance(values, pl.Series):
+        raw_values = values.cast(pl.Utf8, strict=False).fill_null("").to_list()
+    elif isinstance(values, list):
+        raw_values = values
+    else:
+        raw_values = list(values) if values is not None else []
+    return [str(value or "").strip() for value in raw_values if str(value or "").strip()]
+
+
+def _most_common_from_values(values: list[str]) -> str:
+    if not values:
         return ""
-    return str(clean.value_counts().idxmax())
+    counts = Counter(values)
+    best_count = max(counts.values())
+    for value in values:
+        if counts[value] == best_count:
+            return value
+    return ""
 
 
-def most_common_by_fingerprint(df: pd.DataFrame, column: str) -> dict[str, str]:
+def most_common_value(series: pd.Series | pl.Series | list[str]) -> str:
+    return _most_common_from_values(_clean_text_list(series))
+
+
+def most_common_by_fingerprint(df: pd.DataFrame | pl.DataFrame, column: str) -> dict[str, str]:
     if "fingerprint" not in df.columns or column not in df.columns:
         return {}
-    result: dict[str, str] = {}
-    for fp, grp in df.groupby("fingerprint"):
-        values = grp[column].astype("string").fillna("").str.strip()
-        values = values[values != ""]
-        if values.empty:
+    if isinstance(df, pd.DataFrame):
+        fingerprints = series_or_default(df, "fingerprint").str.strip().tolist()
+        values = series_or_default(df, column).str.strip().tolist()
+    else:
+        fingerprints = [
+            str(value or "").strip()
+            for value in df.select(
+                pl.col("fingerprint").cast(pl.Utf8, strict=False).fill_null("")
+            ).to_series().to_list()
+        ]
+        values = [
+            str(value or "").strip()
+            for value in df.select(pl.col(column).cast(pl.Utf8, strict=False).fill_null("")).to_series().to_list()
+        ]
+    grouped: dict[str, list[str]] = {}
+    for fp, value in zip(fingerprints, values, strict=False):
+        fp_text = str(fp or "").strip()
+        value_text = str(value or "").strip()
+        if not fp_text or not value_text:
             continue
-        result[fp] = values.value_counts().idxmax()
+        grouped.setdefault(fp_text, []).append(value_text)
+    result: dict[str, str] = {}
+    for fp, grouped_values in grouped.items():
+        best = _most_common_from_values(grouped_values)
+        if best:
+            result[fp] = best
     return result
+
+
+def grouped_row_indices(filtered: pd.DataFrame | pl.DataFrame) -> tuple[list[str], dict[str, list[Any]]]:
+    if isinstance(filtered, pd.DataFrame):
+        indices = list(filtered.index)
+        fingerprints = series_or_default(filtered, "fingerprint").str.strip().tolist()
+    else:
+        indices = list(range(filtered.height))
+        if "fingerprint" in filtered.columns:
+            fingerprints = [
+                str(value or "").strip()
+                for value in filtered.select(
+                    pl.col("fingerprint").cast(pl.Utf8, strict=False).fill_null("")
+                ).to_series().to_list()
+            ]
+        else:
+            fingerprints = [""] * filtered.height
+    group_indices: dict[str, list[Any]] = {}
+    counts: Counter[str] = Counter()
+    first_seen: list[str] = []
+    for idx, fingerprint in zip(indices, fingerprints, strict=False):
+        fp = str(fingerprint or "").strip()
+        if not fp:
+            continue
+        if fp not in group_indices:
+            group_indices[fp] = []
+            first_seen.append(fp)
+        group_indices[fp].append(idx)
+        counts[fp] += 1
+    ordered = sorted(first_seen, key=lambda fp: (-counts[fp], first_seen.index(fp)))
+    return ordered, group_indices
 
 
 def required_category_missing_mask(df: pd.DataFrame) -> pd.Series:
