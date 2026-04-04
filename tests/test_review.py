@@ -380,6 +380,104 @@ def test_filtered_row_indices_follow_series_filters_without_dataframe_masks() ->
     assert indices == [0]
 
 
+def test_review_working_view_exposes_filter_helper_columns() -> None:
+    df = _review_rows(
+        [
+            {
+                "transaction_id": "create-target",
+                "match_status": "source_only",
+                "decision_action": "create_target",
+                "reviewed": False,
+                "target_present": False,
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+                "source_splits": [
+                    {
+                        "split_id": "split-1",
+                        "payee_raw": "Split Cafe",
+                        "category_raw": "Food",
+                        "memo": "split memo",
+                    }
+                ],
+            },
+            {
+                "transaction_id": "ignored",
+                "match_status": "ambiguous",
+                "decision_action": "ignore_row",
+                "reviewed": True,
+                "update_maps": "payee_add_fingerprint",
+                "target_payee_selected": "Shop",
+                "target_category_selected": "Uncategorized",
+            },
+        ]
+    )
+    blocker_series = review_validation.blocker_series(df)
+    save_state = pd.Series(["Unsaved", "Saved"], index=df.index, dtype="string")
+
+    working = review_state.review_working_view(
+        df,
+        blocker_series=blocker_series,
+        save_state=save_state,
+    )
+
+    assert working["primary_state"].to_list() == ["Decide", "Settled"]
+    assert working["row_kind"].to_list() == ["Source only", "Ambiguous"]
+    assert working["suggestion_label"].to_list() == ["Has suggestions", "Has suggestions"]
+    assert working["map_update_label"].to_list() == ["No update_maps", "Has update_maps"]
+    assert working["has_suggestions"].to_list() == [True, True]
+    assert working["has_update_maps"].to_list() == [False, True]
+    assert "split cafe" in working["search_text"].to_list()[0]
+
+
+def test_filtered_row_indices_from_working_view_use_polars_helper_columns() -> None:
+    df = _review_rows(
+        [
+            {
+                "transaction_id": "keep",
+                "match_status": "source_only",
+                "decision_action": "create_target",
+                "reviewed": False,
+                "target_present": False,
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+                "memo": "memo-keep",
+            },
+            {
+                "transaction_id": "hide",
+                "match_status": "ambiguous",
+                "decision_action": "ignore_row",
+                "reviewed": True,
+                "update_maps": "payee_add_fingerprint",
+                "target_payee_selected": "Shop",
+                "target_category_selected": "Food",
+                "memo": "memo-hide",
+            },
+        ]
+    )
+    blocker_series = review_validation.blocker_series(df)
+    save_state = pd.Series(["Unsaved", "Saved"], index=df.index, dtype="string")
+    working = review_state.review_working_view(
+        df,
+        blocker_series=blocker_series,
+        save_state=save_state,
+    )
+
+    indices = review_state.filtered_row_indices_from_view(
+        working,
+        df.index,
+        primary_state=["Decide"],
+        row_kind=["Source only", "Ambiguous"],
+        action_filter=["create_target"],
+        save_status=["Unsaved", "Saved"],
+        blocker_filter=["None"],
+        suggestion_filter=["Has suggestions", "No suggestions"],
+        map_update_filter=["Has update_maps", "No update_maps"],
+        search_query="memo-keep",
+    )
+
+    assert indices == [0]
+
+
 def test_state_matrix_counts_accepts_series_inputs() -> None:
     primary_state = pd.Series(["Fix", "Fix", "Settled"], dtype="string")
     save_state = pd.Series(["Unsaved", "Saved", "Saved"], dtype="string")

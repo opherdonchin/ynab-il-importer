@@ -18,6 +18,23 @@ def _bool_expr(name: str) -> pl.Expr:
     return pl.col(name).cast(pl.Boolean, strict=False).fill_null(False)
 
 
+def _optional_text_expr(df: pl.DataFrame, name: str, default: str = "") -> pl.Expr:
+    if name not in df.columns:
+        return pl.lit(default)
+    return _text_expr(name)
+
+
+def _selected_expr(df: pl.DataFrame, field: str, *, side: str) -> pl.Expr:
+    side_column = f"{side}_{field}_selected"
+    if side_column in df.columns:
+        return _text_expr(side_column)
+    if side == "target":
+        fallback = f"{field}_selected"
+        if fallback in df.columns:
+            return _text_expr(fallback)
+    return pl.lit("")
+
+
 def _has_list_dtype(df: pl.DataFrame, name: str) -> bool:
     dtype = df.schema.get(name)
     return dtype is not None and isinstance(dtype, pl.List)
@@ -76,14 +93,14 @@ def canonical_review_helpers(df: pl.DataFrame) -> pl.DataFrame:
             _split_count_expr(df, "target_splits").gt(0).alias("target_is_split"),
             _split_count_expr(df, "source_splits").alias("source_split_count"),
             _split_count_expr(df, "target_splits").alias("target_split_count"),
-            _text_expr("source_payee_current").alias("source_display_payee"),
-            _text_expr("target_payee_current").alias("target_display_payee"),
-            _text_expr("source_category_current").alias("source_display_category"),
-            _text_expr("target_category_current").alias("target_display_category"),
-            _text_expr("source_account").alias("source_display_account"),
-            _text_expr("target_account").alias("target_display_account"),
-            _text_expr("source_date").alias("source_display_date"),
-            _text_expr("target_date").alias("target_display_date"),
+            _optional_text_expr(df, "source_payee_current").alias("source_display_payee"),
+            _optional_text_expr(df, "target_payee_current").alias("target_display_payee"),
+            _optional_text_expr(df, "source_category_current").alias("source_display_category"),
+            _optional_text_expr(df, "target_category_current").alias("target_display_category"),
+            _optional_text_expr(df, "source_account").alias("source_display_account"),
+            _optional_text_expr(df, "target_account").alias("target_display_account"),
+            _optional_text_expr(df, "source_date").alias("source_display_date"),
+            _optional_text_expr(df, "target_date").alias("target_display_date"),
         ]
     )
 
@@ -139,6 +156,202 @@ def canonical_search_text_series(df: pl.DataFrame) -> pd.Series:
         .alias("search_text")
     )
     return pd.Series(combined["search_text"].to_list(), index=range(df.height), dtype="string")
+
+
+def review_working_view(
+    df: pd.DataFrame,
+    *,
+    blocker_series: pd.Series,
+    save_state: pd.Series,
+) -> pl.DataFrame:
+    if df.empty:
+        return pl.DataFrame(
+            {
+                "_row_pos": pl.Series([], dtype=pl.UInt32),
+                "primary_state": pl.Series([], dtype=pl.Utf8),
+                "row_kind": pl.Series([], dtype=pl.Utf8),
+                "action_label": pl.Series([], dtype=pl.Utf8),
+                "save_state": pl.Series([], dtype=pl.Utf8),
+                "blocker_label": pl.Series([], dtype=pl.Utf8),
+                "suggestion_label": pl.Series([], dtype=pl.Utf8),
+                "map_update_label": pl.Series([], dtype=pl.Utf8),
+                "has_suggestions": pl.Series([], dtype=pl.Boolean),
+                "has_update_maps": pl.Series([], dtype=pl.Boolean),
+                "missing_payee": pl.Series([], dtype=pl.Boolean),
+                "missing_category": pl.Series([], dtype=pl.Boolean),
+                "uncategorized_selected": pl.Series([], dtype=pl.Boolean),
+                "search_text": pl.Series([], dtype=pl.Utf8),
+            }
+        )
+
+    frame = pl.from_pandas(df, include_index=False).with_row_index("_row_pos")
+    helpers = canonical_review_helpers(frame)
+
+    target_payee_selected = _selected_expr(frame, "payee", side="target")
+    target_category_selected = _selected_expr(frame, "category", side="target")
+    source_payee_selected = _selected_expr(frame, "payee", side="source")
+    source_category_selected = _selected_expr(frame, "category", side="source")
+    source_present = _bool_expr("source_present") if "source_present" in frame.columns else pl.lit(False)
+    target_present = _bool_expr("target_present") if "target_present" in frame.columns else pl.lit(False)
+    action_expr = pl.when(_optional_text_expr(frame, "decision_action").eq("")).then(
+        pl.lit("No decision")
+    ).otherwise(_optional_text_expr(frame, "decision_action"))
+    update_maps_expr = _optional_text_expr(frame, "update_maps")
+    has_update_maps = update_maps_expr.ne("")
+    is_transfer = target_payee_selected.str.starts_with("Transfer :")
+    no_category_required = target_category_selected.str.to_lowercase().eq(
+        model.NO_CATEGORY_REQUIRED.casefold()
+    )
+    missing_payee = action_expr.eq("create_target") & target_payee_selected.eq("")
+    missing_category = (
+        action_expr.eq("create_target")
+        & (target_category_selected.eq("") | no_category_required)
+        & ~is_transfer
+    )
+    uncategorized_selected = (
+        target_category_selected.str.to_lowercase().str.contains("uncategorized", literal=True)
+        & ~is_transfer
+    )
+    has_suggestions = (
+        (~source_present) & (source_payee_selected.ne("") | source_category_selected.ne(""))
+    ) | (
+        (~target_present)
+        & (
+            target_payee_selected.ne("")
+            | target_category_selected.ne("")
+            | _optional_text_expr(frame, "payee_options").ne("")
+            | _optional_text_expr(frame, "category_options").ne("")
+        )
+    )
+
+    row_kind = (
+        pl.when(_optional_text_expr(frame, "match_status").str.to_lowercase().eq("matched_cleared"))
+        .then(pl.lit("Matched cleared"))
+        .when(_optional_text_expr(frame, "match_status").str.to_lowercase().eq("matched_auto"))
+        .then(pl.lit("Matched"))
+        .when(_optional_text_expr(frame, "match_status").str.to_lowercase().eq("source_only"))
+        .then(pl.lit("Source only"))
+        .when(_optional_text_expr(frame, "match_status").str.to_lowercase().eq("target_only"))
+        .then(pl.lit("Target only"))
+        .when(_optional_text_expr(frame, "match_status").str.to_lowercase().eq("ambiguous"))
+        .then(pl.lit("Ambiguous"))
+        .when(_optional_text_expr(frame, "match_status").str.to_lowercase().eq("unrecognized"))
+        .then(pl.lit("Unrecognized"))
+        .otherwise(pl.lit("Other"))
+    )
+
+    blocker_values = blocker_series.reindex(df.index, fill_value=False).astype("string").fillna("")
+    save_values = save_state.reindex(df.index, fill_value="Unsaved").astype("string").fillna(
+        "Unsaved"
+    )
+    working = helpers.with_columns(
+        [
+            pl.Series("blocker_label", blocker_values.tolist()),
+            pl.Series("save_state", save_values.tolist()),
+            action_expr.alias("action_label"),
+            row_kind.alias("row_kind"),
+            has_suggestions.alias("has_suggestions"),
+            has_update_maps.alias("has_update_maps"),
+            missing_payee.alias("missing_payee"),
+            missing_category.alias("missing_category"),
+            uncategorized_selected.alias("uncategorized_selected"),
+            pl.when(has_suggestions)
+            .then(pl.lit("Has suggestions"))
+            .otherwise(pl.lit("No suggestions"))
+            .alias("suggestion_label"),
+            pl.when(has_update_maps)
+            .then(pl.lit("Has update_maps"))
+            .otherwise(pl.lit("No update_maps"))
+            .alias("map_update_label"),
+            _optional_text_expr(frame, "source_memo").alias("source_transaction_memo"),
+            _optional_text_expr(frame, "target_memo").alias("target_transaction_memo"),
+            _split_text_expr(frame, "source_splits"),
+            _split_text_expr(frame, "target_splits"),
+        ]
+    ).with_columns(
+        [
+            pl.when(
+                _bool_expr("reviewed") & pl.col("blocker_label").is_in(["", "None"])
+            )
+            .then(pl.lit("Settled"))
+            .when(~pl.col("blocker_label").is_in(["", "None"]))
+            .then(pl.lit("Fix"))
+            .when(pl.col("action_label").ne("No decision"))
+            .then(pl.lit("Decide"))
+            .otherwise(pl.lit("Fix"))
+            .alias("primary_state"),
+            pl.concat_str(
+                [
+                    _optional_text_expr(frame, "fingerprint"),
+                    _optional_text_expr(frame, "memo"),
+                    _optional_text_expr(frame, "memo_append"),
+                    _optional_text_expr(frame, "description_raw"),
+                    _optional_text_expr(frame, "description_clean"),
+                    _optional_text_expr(frame, "payee_options"),
+                    _optional_text_expr(frame, "category_options"),
+                    _optional_text_expr(frame, "source_payee_current"),
+                    source_payee_selected,
+                    source_category_selected,
+                    _optional_text_expr(frame, "target_payee_current"),
+                    target_payee_selected,
+                    target_category_selected,
+                    _optional_text_expr(frame, "source_memo"),
+                    _optional_text_expr(frame, "target_memo"),
+                    _optional_text_expr(frame, "source_account"),
+                    _optional_text_expr(frame, "target_account"),
+                    _optional_text_expr(frame, "account_name"),
+                    _optional_text_expr(frame, "source"),
+                    action_expr,
+                    update_maps_expr,
+                    pl.col("source_splits_text"),
+                    pl.col("target_splits_text"),
+                ],
+                separator=" ",
+                ignore_nulls=True,
+            )
+            .str.to_lowercase()
+            .alias("search_text"),
+        ]
+    )
+    return working
+
+
+def filtered_row_indices_from_view(
+    working_view: pl.DataFrame,
+    index: pd.Index | list[Any],
+    *,
+    primary_state: list[str],
+    row_kind: list[str],
+    action_filter: list[str],
+    save_status: list[str],
+    blocker_filter: list[str],
+    suggestion_filter: list[str],
+    map_update_filter: list[str],
+    search_query: str,
+) -> list[Any]:
+    index_values = list(index)
+    if working_view.is_empty() or not index_values:
+        return []
+
+    filtered = working_view.filter(
+        pl.col("primary_state").is_in(primary_state)
+        & pl.col("row_kind").is_in(row_kind)
+        & pl.col("action_label").is_in(action_filter)
+        & pl.col("save_state").is_in(save_status)
+        & pl.col("blocker_label").is_in(blocker_filter)
+        & pl.col("suggestion_label").is_in(suggestion_filter)
+        & pl.col("map_update_label").is_in(map_update_filter)
+    )
+    query = str(search_query or "").strip()
+    if query:
+        filtered = filtered.filter(pl.col("search_text").str.contains(query, literal=True))
+
+    positions = filtered.select(pl.col("_row_pos").cast(pl.Int64)).to_series().to_list()
+    return [
+        index_values[pos]
+        for pos in positions
+        if isinstance(pos, int) and 0 <= pos < len(index_values)
+    ]
 
 
 def series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
