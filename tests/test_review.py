@@ -380,7 +380,7 @@ def test_filtered_row_indices_follow_series_filters_without_dataframe_masks() ->
     assert indices == [0]
 
 
-def test_review_working_view_exposes_filter_helper_columns() -> None:
+def test_review_data_and_state_views_separate_data_from_app_state() -> None:
     df = _review_rows(
         [
             {
@@ -414,22 +414,26 @@ def test_review_working_view_exposes_filter_helper_columns() -> None:
     blocker_series = review_validation.blocker_series(df)
     save_state = pd.Series(["Unsaved", "Saved"], index=df.index, dtype="string")
 
-    working = review_state.review_working_view(
-        df,
+    data_view = review_state.review_data_view(df)
+    state_view = review_state.review_filter_state_view(
+        data_view,
         blocker_series=blocker_series,
         save_state=save_state,
     )
 
-    assert working["primary_state"].to_list() == ["Decide", "Settled"]
-    assert working["row_kind"].to_list() == ["Source only", "Ambiguous"]
-    assert working["suggestion_label"].to_list() == ["Has suggestions", "Has suggestions"]
-    assert working["map_update_label"].to_list() == ["No update_maps", "Has update_maps"]
-    assert working["has_suggestions"].to_list() == [True, True]
-    assert working["has_update_maps"].to_list() == [False, True]
-    assert "split cafe" in working["search_text"].to_list()[0]
+    assert state_view["primary_state"].to_list() == ["Decide", "Settled"]
+    assert data_view["row_kind"].to_list() == ["Source only", "Ambiguous"]
+    assert state_view["suggestion_label"].to_list() == ["Has suggestions", "Has suggestions"]
+    assert state_view["map_update_label"].to_list() == ["No update_maps", "Has update_maps"]
+    assert data_view["has_suggestions"].to_list() == [True, True]
+    assert data_view["has_update_maps"].to_list() == [False, True]
+    assert "split cafe" in data_view["search_text"].to_list()[0]
+    assert "primary_state" not in data_view.columns
+    assert "save_state" not in data_view.columns
+    assert "search_text" not in state_view.columns
 
 
-def test_filtered_row_indices_from_working_view_use_polars_helper_columns() -> None:
+def test_filtered_row_indices_from_views_use_polars_helper_columns() -> None:
     df = _review_rows(
         [
             {
@@ -456,14 +460,16 @@ def test_filtered_row_indices_from_working_view_use_polars_helper_columns() -> N
     )
     blocker_series = review_validation.blocker_series(df)
     save_state = pd.Series(["Unsaved", "Saved"], index=df.index, dtype="string")
-    working = review_state.review_working_view(
-        df,
+    data_view = review_state.review_data_view(df)
+    state_view = review_state.review_filter_state_view(
+        data_view,
         blocker_series=blocker_series,
         save_state=save_state,
     )
 
-    indices = review_state.filtered_row_indices_from_view(
-        working,
+    indices = review_state.filtered_row_indices_from_views(
+        data_view,
+        state_view,
         df.index,
         primary_state=["Decide"],
         row_kind=["Source only", "Ambiguous"],

@@ -823,38 +823,39 @@ def _compute_derived_state(
         index=df.index,
         dtype="string",
     )
-    working_view = review_state.review_working_view(
-        df,
+    data_view = review_state.review_data_view(df)
+    state_view = review_state.review_filter_state_view(
+        data_view,
         blocker_series=blocker_series,
         save_state=save_state,
     )
     primary_state_series = pd.Series(
-        working_view["primary_state"].to_list(),
+        state_view["primary_state"].to_list(),
         index=df.index,
         dtype="string",
     )
     row_kind_series = pd.Series(
-        working_view["row_kind"].to_list(),
+        data_view["row_kind"].to_list(),
         index=df.index,
         dtype="string",
     )
     action_series = pd.Series(
-        working_view["action_label"].to_list(),
+        data_view["action_label"].to_list(),
         index=df.index,
         dtype="string",
     )
     suggestion_series = pd.Series(
-        working_view["suggestion_label"].to_list(),
+        state_view["suggestion_label"].to_list(),
         index=df.index,
         dtype="string",
     )
     map_update_series = pd.Series(
-        working_view["map_update_label"].to_list(),
+        state_view["map_update_label"].to_list(),
         index=df.index,
         dtype="string",
     )
     search_text = pd.Series(
-        working_view["search_text"].to_list(),
+        data_view["search_text"].to_list(),
         index=df.index,
         dtype="string",
     )
@@ -887,7 +888,8 @@ def _compute_derived_state(
         "map_update_series": map_update_series,
         "search_text": search_text,
         "save_state": save_state,
-        "working_view": working_view,
+        "data_view": data_view,
+        "state_view": state_view,
         "inference_tag": inference_tag,
         "progress_tag": progress_tag,
         "persistence_tag": persistence_tag,
@@ -1670,7 +1672,8 @@ def main() -> None:
     suggestion_series = derived["suggestion_series"]
     map_update_series = derived["map_update_series"]
     save_state = derived["save_state"]
-    working_view: pl.DataFrame = derived["working_view"]
+    data_view: pl.DataFrame = derived["data_view"]
+    state_view: pl.DataFrame = derived["state_view"]
     inference_tag = derived["inference_tag"]
     progress_tag = derived["progress_tag"]
     persistence_tag = derived["persistence_tag"]
@@ -1941,8 +1944,9 @@ def main() -> None:
     if not inconsistent.empty:
         st.warning(f"Inconsistent repeated transaction selections: {len(inconsistent)}")
 
-    filtered_indices = review_state.filtered_row_indices_from_view(
-        working_view,
+    filtered_indices = review_state.filtered_row_indices_from_views(
+        data_view,
+        state_view,
         df.index,
         primary_state=primary_state,
         row_kind=selected_row_kind,

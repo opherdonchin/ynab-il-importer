@@ -158,23 +158,14 @@ def canonical_search_text_series(df: pl.DataFrame) -> pd.Series:
     return pd.Series(combined["search_text"].to_list(), index=range(df.height), dtype="string")
 
 
-def review_working_view(
-    df: pd.DataFrame,
-    *,
-    blocker_series: pd.Series,
-    save_state: pd.Series,
-) -> pl.DataFrame:
+def review_data_view(df: pd.DataFrame) -> pl.DataFrame:
     if df.empty:
         return pl.DataFrame(
             {
                 "_row_pos": pl.Series([], dtype=pl.UInt32),
-                "primary_state": pl.Series([], dtype=pl.Utf8),
                 "row_kind": pl.Series([], dtype=pl.Utf8),
                 "action_label": pl.Series([], dtype=pl.Utf8),
-                "save_state": pl.Series([], dtype=pl.Utf8),
-                "blocker_label": pl.Series([], dtype=pl.Utf8),
-                "suggestion_label": pl.Series([], dtype=pl.Utf8),
-                "map_update_label": pl.Series([], dtype=pl.Utf8),
+                "reviewed_bool": pl.Series([], dtype=pl.Boolean),
                 "has_suggestions": pl.Series([], dtype=pl.Boolean),
                 "has_update_maps": pl.Series([], dtype=pl.Boolean),
                 "missing_payee": pl.Series([], dtype=pl.Boolean),
@@ -240,29 +231,16 @@ def review_working_view(
         .otherwise(pl.lit("Other"))
     )
 
-    blocker_values = blocker_series.reindex(df.index, fill_value=False).astype("string").fillna("")
-    save_values = save_state.reindex(df.index, fill_value="Unsaved").astype("string").fillna(
-        "Unsaved"
-    )
-    working = helpers.with_columns(
+    return helpers.with_columns(
         [
-            pl.Series("blocker_label", blocker_values.tolist()),
-            pl.Series("save_state", save_values.tolist()),
             action_expr.alias("action_label"),
             row_kind.alias("row_kind"),
+            _bool_expr("reviewed").alias("reviewed_bool"),
             has_suggestions.alias("has_suggestions"),
             has_update_maps.alias("has_update_maps"),
             missing_payee.alias("missing_payee"),
             missing_category.alias("missing_category"),
             uncategorized_selected.alias("uncategorized_selected"),
-            pl.when(has_suggestions)
-            .then(pl.lit("Has suggestions"))
-            .otherwise(pl.lit("No suggestions"))
-            .alias("suggestion_label"),
-            pl.when(has_update_maps)
-            .then(pl.lit("Has update_maps"))
-            .otherwise(pl.lit("No update_maps"))
-            .alias("map_update_label"),
             _optional_text_expr(frame, "source_memo").alias("source_transaction_memo"),
             _optional_text_expr(frame, "target_memo").alias("target_transaction_memo"),
             _split_text_expr(frame, "source_splits"),
@@ -270,16 +248,6 @@ def review_working_view(
         ]
     ).with_columns(
         [
-            pl.when(
-                _bool_expr("reviewed") & pl.col("blocker_label").is_in(["", "None"])
-            )
-            .then(pl.lit("Settled"))
-            .when(~pl.col("blocker_label").is_in(["", "None"]))
-            .then(pl.lit("Fix"))
-            .when(pl.col("action_label").ne("No decision"))
-            .then(pl.lit("Decide"))
-            .otherwise(pl.lit("Fix"))
-            .alias("primary_state"),
             pl.concat_str(
                 [
                     _optional_text_expr(frame, "fingerprint"),
@@ -313,11 +281,65 @@ def review_working_view(
             .alias("search_text"),
         ]
     )
-    return working
 
 
-def filtered_row_indices_from_view(
-    working_view: pl.DataFrame,
+def review_filter_state_view(
+    data_view: pl.DataFrame,
+    *,
+    blocker_series: pd.Series,
+    save_state: pd.Series,
+) -> pl.DataFrame:
+    if data_view.is_empty():
+        return pl.DataFrame(
+            {
+                "_row_pos": pl.Series([], dtype=pl.UInt32),
+                "save_state": pl.Series([], dtype=pl.Utf8),
+                "blocker_label": pl.Series([], dtype=pl.Utf8),
+                "suggestion_label": pl.Series([], dtype=pl.Utf8),
+                "map_update_label": pl.Series([], dtype=pl.Utf8),
+                "primary_state": pl.Series([], dtype=pl.Utf8),
+            }
+        )
+
+    blocker_values = blocker_series.astype("string").fillna("").tolist()
+    save_values = save_state.astype("string").fillna("Unsaved").tolist()
+    return data_view.select("_row_pos", "reviewed_bool", "action_label", "has_suggestions", "has_update_maps").with_columns(
+        [
+            pl.Series("blocker_label", blocker_values),
+            pl.Series("save_state", save_values),
+            pl.when(pl.col("has_suggestions"))
+            .then(pl.lit("Has suggestions"))
+            .otherwise(pl.lit("No suggestions"))
+            .alias("suggestion_label"),
+            pl.when(pl.col("has_update_maps"))
+            .then(pl.lit("Has update_maps"))
+            .otherwise(pl.lit("No update_maps"))
+            .alias("map_update_label"),
+        ]
+    ).with_columns(
+        [
+            pl.when(pl.col("reviewed_bool") & pl.col("blocker_label").is_in(["", "None"]))
+            .then(pl.lit("Settled"))
+            .when(~pl.col("blocker_label").is_in(["", "None"]))
+            .then(pl.lit("Fix"))
+            .when(pl.col("action_label").ne("No decision"))
+            .then(pl.lit("Decide"))
+            .otherwise(pl.lit("Fix"))
+            .alias("primary_state"),
+        ]
+    ).select(
+        "_row_pos",
+        "save_state",
+        "blocker_label",
+        "suggestion_label",
+        "map_update_label",
+        "primary_state",
+    )
+
+
+def filtered_row_indices_from_views(
+    data_view: pl.DataFrame,
+    state_view: pl.DataFrame,
     index: pd.Index | list[Any],
     *,
     primary_state: list[str],
@@ -330,9 +352,10 @@ def filtered_row_indices_from_view(
     search_query: str,
 ) -> list[Any]:
     index_values = list(index)
-    if working_view.is_empty() or not index_values:
+    if data_view.is_empty() or state_view.is_empty() or not index_values:
         return []
 
+    working_view = data_view.join(state_view, on="_row_pos", how="inner")
     filtered = working_view.filter(
         pl.col("primary_state").is_in(primary_state)
         & pl.col("row_kind").is_in(row_kind)
