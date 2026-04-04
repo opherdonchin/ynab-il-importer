@@ -60,25 +60,6 @@ REVIEW_FIELD_NAMES = [field.name for field in REVIEW_SCHEMA]
 REVIEW_SIDE_SCALAR_FIELD_NAMES = [field.name for field in REVIEW_SIDE_SCALAR_FIELDS]
 SPLIT_FIELD_NAMES = [field.name for field in SPLIT_LINE_STRUCT]
 SPLIT_COLUMNS = ["source_splits", "target_splits"]
-REVIEW_BOOL_COLUMNS = {
-    "reviewed",
-    "source_present",
-    "target_present",
-    "source_approved",
-    "source_is_subtransaction",
-    "target_approved",
-    "target_is_subtransaction",
-}
-REVIEW_FLOAT_COLUMNS = {"outflow_ils", "inflow_ils"}
-REVIEW_TEXT_COLUMNS = [
-    name
-    for name in REVIEW_FIELD_NAMES
-    if name not in REVIEW_BOOL_COLUMNS
-    and name not in REVIEW_FLOAT_COLUMNS
-    and name not in SPLIT_COLUMNS
-]
-APP_ALIAS_COLUMNS = ["transaction_id", "payee_selected", "category_selected"]
-APP_REQUIRED_COLUMNS = REVIEW_FIELD_NAMES + APP_ALIAS_COLUMNS
 
 
 def _missing_columns(df: pd.DataFrame, required: Iterable[str]) -> list[str]:
@@ -231,7 +212,12 @@ def _normalize_split_records(value: Any) -> list[dict[str, Any]] | None:
             return None
         value = decoded
     if not isinstance(value, list):
-        return None
+        if isinstance(value, dict):
+            return None
+        try:
+            value = list(value)
+        except TypeError:
+            return None
     normalized: list[dict[str, Any]] = []
     for raw in value:
         if not isinstance(raw, dict):
@@ -496,52 +482,6 @@ def _review_table_from_dataframe(df: pd.DataFrame) -> pa.Table:
     return pa.Table.from_pylist(records, schema=REVIEW_SCHEMA)
 
 
-def ensure_flat_review_dataframe_schema(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-
-    if "target_payee_selected" not in out.columns and "payee_selected" in out.columns:
-        out["target_payee_selected"] = _text_series(out, "payee_selected")
-    if (
-        "target_category_selected" not in out.columns
-        and "category_selected" in out.columns
-    ):
-        out["target_category_selected"] = _text_series(out, "category_selected")
-
-    for column in REVIEW_FIELD_NAMES:
-        if column in out.columns:
-            continue
-        if column in SPLIT_COLUMNS:
-            out[column] = pd.Series([None] * len(out), index=out.index, dtype="object")
-        elif column in REVIEW_BOOL_COLUMNS:
-            out[column] = False
-        elif column in REVIEW_FLOAT_COLUMNS:
-            out[column] = 0.0
-        else:
-            out[column] = ""
-
-    for column in REVIEW_TEXT_COLUMNS:
-        out[column] = _text_series(out, column)
-
-    for column in REVIEW_FLOAT_COLUMNS:
-        out[column] = pd.to_numeric(out[column], errors="coerce").fillna(0.0).astype(float)
-
-    for column in REVIEW_BOOL_COLUMNS:
-        out[column] = validation.normalize_flag_series(out[column])
-
-    for column in SPLIT_COLUMNS:
-        out[column] = out[column].map(_normalize_split_records)
-
-    for column in ["source_category_selected", "target_category_selected"]:
-        out[column] = out[column].map(model.normalize_category_value)
-
-    out["update_maps"] = validation.normalize_update_maps(out["update_maps"])
-    out["decision_action"] = validation.normalize_decision_actions(out["decision_action"])
-    out["transaction_id"] = _text_series(out, "review_transaction_id")
-    out["payee_selected"] = _text_series(out, "target_payee_selected")
-    out["category_selected"] = _text_series(out, "target_category_selected")
-    return out
-
-
 def _decode_split_column_if_needed(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     for column in SPLIT_COLUMNS:
@@ -598,12 +538,17 @@ def load_review_artifact_polars(
 def project_review_artifact_to_flat_dataframe(
     source: str | Path | pd.DataFrame | pl.DataFrame | pa.Table,
 ) -> pd.DataFrame:
-    table = load_review_artifact(source)
-    rows = table.to_pylist()
-    df = pd.DataFrame(rows)
+    df = load_review_artifact(source).to_pandas()
     if df.empty:
-        df = pd.DataFrame(columns=APP_REQUIRED_COLUMNS)
-    return ensure_flat_review_dataframe_schema(df)
+        df = pd.DataFrame(columns=REVIEW_FIELD_NAMES)
+    df = df.copy()
+    for column in SPLIT_COLUMNS:
+        if column in df.columns:
+            df[column] = df[column].map(_normalize_split_records)
+    df["transaction_id"] = _text_series(df, "review_transaction_id")
+    df["payee_selected"] = _text_series(df, "target_payee_selected")
+    df["category_selected"] = _text_series(df, "target_category_selected")
+    return df
 
 
 def load_proposed_transactions(

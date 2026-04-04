@@ -1003,46 +1003,46 @@ def test_canonical_review_helpers_derive_split_and_display_fields() -> None:
     assert rows[1]["target_display_payee"] == "Manual Split"
 
 
-def test_canonical_search_text_series_includes_context_and_split_text() -> None:
-    df = pl.DataFrame(
-        {
-            "review_transaction_id": ["txn-1"],
-            "payee_options": ["Cafe;Bakery"],
-            "category_options": ["Food;Dining"],
-            "match_status": ["ambiguous"],
-            "decision_action": ["keep_match"],
-            "update_maps": ["payee_add_fingerprint"],
-            "source_context_kind": ["ynab_split_category_match"],
-            "source_context_category_name": ["Food"],
-            "source_context_matching_split_ids": ["split-1"],
-            "target_context_kind": [""],
-            "target_context_matching_split_ids": [""],
-            "memo_append": ["note"],
-            "source_payee_current": ["Cafe source"],
-            "source_category_current": ["Food"],
-            "source_account": ["Source account"],
-            "source_date": ["2026-03-01"],
-            "source_memo": ["source memo"],
-            "source_splits": [[
-                {
-                    "split_id": "split-1",
-                    "payee_raw": "Split payee",
-                    "category_raw": "Split category",
-                    "memo": "split memo",
-                }
-            ]],
-            "target_payee_current": ["Cafe target"],
-            "target_category_current": ["Dining"],
-            "target_account": ["Target account"],
-            "target_date": ["2026-03-01"],
-            "target_memo": ["target memo"],
-            "target_splits": [None],
-        }
+def test_review_data_view_search_text_includes_context_and_split_text() -> None:
+    df = _review_rows(
+        [
+            {
+                "transaction_id": "txn-1",
+                "payee_options": "Cafe;Bakery",
+                "category_options": "Food;Dining",
+                "match_status": "ambiguous",
+                "decision_action": "keep_match",
+                "update_maps": "payee_add_fingerprint",
+                "source_context_kind": "ynab_split_category_match",
+                "source_context_category_name": "Food",
+                "source_context_matching_split_ids": "split-1",
+                "memo_append": "note",
+                "source_payee_current": "Cafe source",
+                "source_category_current": "Food",
+                "source_account": "Source account",
+                "source_date": "2026-03-01",
+                "source_memo": "source memo",
+                "source_splits": [
+                    {
+                        "split_id": "split-1",
+                        "payee_raw": "Split payee",
+                        "category_raw": "Split category",
+                        "memo": "split memo",
+                    }
+                ],
+                "target_payee_current": "Cafe target",
+                "target_category_current": "Dining",
+                "target_account": "Target account",
+                "target_date": "2026-03-01",
+                "target_memo": "target memo",
+            }
+        ]
     )
 
-    text = review_state.canonical_search_text_series(df)
+    data_view = review_state.review_data_view(df)
+    text = data_view["search_text"].to_list()[0]
 
-    assert "ynab_split_category_match" in text.iloc[0]
-    assert "split-1" in text.iloc[0]
-    assert "split payee" in text.iloc[0]
-    assert "target account" in text.iloc[0]
+    assert "ynab_split_category_match" in text
+    assert "split-1" in text
+    assert "split payee" in text
+    assert "target account" in text

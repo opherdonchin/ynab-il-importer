@@ -15,14 +15,39 @@ from ynab_il_importer.artifacts.transaction_schema import SPLIT_LINE_STRUCT
 _SPLIT_LIST_DTYPE = pl.from_arrow(
     pa.table({"splits": pa.array([], type=pa.list_(SPLIT_LINE_STRUCT))})
 ).schema["splits"]
-
-
-def _text_column(name: str) -> pl.Expr:
-    return pl.col(name).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
-
-
-def _bool_column(name: str) -> pl.Expr:
-    return pl.col(name).cast(pl.Boolean, strict=False).fill_null(False)
+_REVIEW_DATA_TEXT_COLUMNS = [
+    "fingerprint",
+    "memo",
+    "memo_append",
+    "payee_options",
+    "category_options",
+    "source",
+    "match_status",
+    "decision_action",
+    "update_maps",
+    "account_name",
+    "source_account",
+    "target_account",
+    "source_date",
+    "target_date",
+    "source_payee_current",
+    "target_payee_current",
+    "source_category_current",
+    "target_category_current",
+    "source_payee_selected",
+    "target_payee_selected",
+    "source_category_selected",
+    "target_category_selected",
+    "source_memo",
+    "target_memo",
+    "source_description_raw",
+    "source_description_clean",
+    "source_merchant_raw",
+    "target_description_raw",
+    "target_description_clean",
+    "target_merchant_raw",
+]
+_REVIEW_DATA_BOOL_COLUMNS = ["reviewed", "source_present", "target_present"]
 
 
 def _split_count(name: str) -> pl.Expr:
@@ -58,8 +83,26 @@ def _with_split_schema(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def canonical_review_helpers(df: pl.DataFrame) -> pl.DataFrame:
+def _normalized_review_data_frame(df: pl.DataFrame) -> pl.DataFrame:
     df = _with_split_schema(df)
+    text_columns = [name for name in _REVIEW_DATA_TEXT_COLUMNS if name in df.columns]
+    bool_columns = [name for name in _REVIEW_DATA_BOOL_COLUMNS if name in df.columns]
+    expressions: list[pl.Expr] = []
+    expressions.extend(
+        pl.col(name).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().alias(name)
+        for name in text_columns
+    )
+    expressions.extend(
+        pl.col(name).cast(pl.Boolean, strict=False).fill_null(False).alias(name)
+        for name in bool_columns
+    )
+    if not expressions:
+        return df
+    return df.with_columns(expressions)
+
+
+def canonical_review_helpers(df: pl.DataFrame) -> pl.DataFrame:
+    df = _normalized_review_data_frame(df)
     if df.is_empty():
         return df.with_columns(
             [
@@ -84,70 +127,16 @@ def canonical_review_helpers(df: pl.DataFrame) -> pl.DataFrame:
             _split_count("target_splits").gt(0).alias("target_is_split"),
             _split_count("source_splits").alias("source_split_count"),
             _split_count("target_splits").alias("target_split_count"),
-            _text_column("source_payee_current").alias("source_display_payee"),
-            _text_column("target_payee_current").alias("target_display_payee"),
-            _text_column("source_category_current").alias("source_display_category"),
-            _text_column("target_category_current").alias("target_display_category"),
-            _text_column("source_account").alias("source_display_account"),
-            _text_column("target_account").alias("target_display_account"),
-            _text_column("source_date").alias("source_display_date"),
-            _text_column("target_date").alias("target_display_date"),
+            pl.col("source_payee_current").alias("source_display_payee"),
+            pl.col("target_payee_current").alias("target_display_payee"),
+            pl.col("source_category_current").alias("source_display_category"),
+            pl.col("target_category_current").alias("target_display_category"),
+            pl.col("source_account").alias("source_display_account"),
+            pl.col("target_account").alias("target_display_account"),
+            pl.col("source_date").alias("source_display_date"),
+            pl.col("target_date").alias("target_display_date"),
         ]
     )
-
-
-def canonical_search_text_series(df: pl.DataFrame) -> pd.Series:
-    if df.is_empty():
-        return pd.Series(dtype="string")
-
-    df = _with_split_schema(df)
-    helpers = canonical_review_helpers(df)
-    table = df.with_columns(
-        [
-            _text_column("source_memo").alias("source_transaction_memo"),
-            _text_column("target_memo").alias("target_transaction_memo"),
-            _split_text("source_splits"),
-            _split_text("target_splits"),
-        ]
-    )
-    search_columns = [
-        "review_transaction_id",
-        "payee_options",
-        "category_options",
-        "match_status",
-        "decision_action",
-        "update_maps",
-        "source_context_kind",
-        "source_context_category_name",
-        "source_context_matching_split_ids",
-        "target_context_kind",
-        "target_context_matching_split_ids",
-        "memo_append",
-        "source_transaction_memo",
-        "target_transaction_memo",
-        "source_splits_text",
-        "target_splits_text",
-    ]
-    helper_columns = [
-        "source_display_payee",
-        "target_display_payee",
-        "source_display_category",
-        "target_display_category",
-        "source_display_account",
-        "target_display_account",
-        "source_display_date",
-        "target_display_date",
-    ]
-    combined = table.with_columns(helpers.select(helper_columns)).select(
-        pl.concat_str(
-            [_text_column(column) for column in search_columns + helper_columns],
-            separator=" ",
-            ignore_nulls=True,
-        )
-        .str.to_lowercase()
-        .alias("search_text")
-    )
-    return pd.Series(combined["search_text"].to_list(), index=range(df.height), dtype="string")
 
 
 def review_data_view(df: pd.DataFrame) -> pl.DataFrame:
@@ -175,18 +164,19 @@ def review_data_view(df: pd.DataFrame) -> pl.DataFrame:
             "target_splits": _SPLIT_LIST_DTYPE,
         },
     ).with_row_index("_row_pos")
+    frame = _normalized_review_data_frame(frame)
     helpers = canonical_review_helpers(frame)
 
-    target_payee_selected = _text_column("target_payee_selected")
-    target_category_selected = _text_column("target_category_selected")
-    source_payee_selected = _text_column("source_payee_selected")
-    source_category_selected = _text_column("source_category_selected")
-    source_present = _bool_column("source_present")
-    target_present = _bool_column("target_present")
-    action_expr = pl.when(_text_column("decision_action").eq("")).then(pl.lit("No decision")).otherwise(
-        _text_column("decision_action")
+    target_payee_selected = pl.col("target_payee_selected")
+    target_category_selected = pl.col("target_category_selected")
+    source_payee_selected = pl.col("source_payee_selected")
+    source_category_selected = pl.col("source_category_selected")
+    source_present = pl.col("source_present")
+    target_present = pl.col("target_present")
+    action_expr = pl.when(pl.col("decision_action").eq("")).then(pl.lit("No decision")).otherwise(
+        pl.col("decision_action")
     )
-    update_maps_expr = _text_column("update_maps")
+    update_maps_expr = pl.col("update_maps")
     has_update_maps = update_maps_expr.ne("")
     is_transfer = target_payee_selected.str.starts_with("Transfer :")
     no_category_required = target_category_selected.str.to_lowercase().eq(
@@ -209,23 +199,23 @@ def review_data_view(df: pd.DataFrame) -> pl.DataFrame:
         & (
             target_payee_selected.ne("")
             | target_category_selected.ne("")
-            | _text_column("payee_options").ne("")
-            | _text_column("category_options").ne("")
+            | pl.col("payee_options").ne("")
+            | pl.col("category_options").ne("")
         )
     )
 
     row_kind = (
-        pl.when(_text_column("match_status").str.to_lowercase().eq("matched_cleared"))
+        pl.when(pl.col("match_status").str.to_lowercase().eq("matched_cleared"))
         .then(pl.lit("Matched cleared"))
-        .when(_text_column("match_status").str.to_lowercase().eq("matched_auto"))
+        .when(pl.col("match_status").str.to_lowercase().eq("matched_auto"))
         .then(pl.lit("Matched"))
-        .when(_text_column("match_status").str.to_lowercase().eq("source_only"))
+        .when(pl.col("match_status").str.to_lowercase().eq("source_only"))
         .then(pl.lit("Source only"))
-        .when(_text_column("match_status").str.to_lowercase().eq("target_only"))
+        .when(pl.col("match_status").str.to_lowercase().eq("target_only"))
         .then(pl.lit("Target only"))
-        .when(_text_column("match_status").str.to_lowercase().eq("ambiguous"))
+        .when(pl.col("match_status").str.to_lowercase().eq("ambiguous"))
         .then(pl.lit("Ambiguous"))
-        .when(_text_column("match_status").str.to_lowercase().eq("unrecognized"))
+        .when(pl.col("match_status").str.to_lowercase().eq("unrecognized"))
         .then(pl.lit("Unrecognized"))
         .otherwise(pl.lit("Other"))
     )
@@ -234,14 +224,14 @@ def review_data_view(df: pd.DataFrame) -> pl.DataFrame:
         [
             action_expr.alias("action_label"),
             row_kind.alias("row_kind"),
-            _bool_column("reviewed").alias("reviewed_bool"),
+            pl.col("reviewed").alias("reviewed_bool"),
             has_suggestions.alias("has_suggestions"),
             has_update_maps.alias("has_update_maps"),
             missing_payee.alias("missing_payee"),
             missing_category.alias("missing_category"),
             uncategorized_selected.alias("uncategorized_selected"),
-            _text_column("source_memo").alias("source_transaction_memo"),
-            _text_column("target_memo").alias("target_transaction_memo"),
+            pl.col("source_memo").alias("source_transaction_memo"),
+            pl.col("target_memo").alias("target_transaction_memo"),
             _split_text("source_splits"),
             _split_text("target_splits"),
         ]
@@ -249,29 +239,34 @@ def review_data_view(df: pd.DataFrame) -> pl.DataFrame:
         [
             pl.concat_str(
                 [
-                    _text_column("fingerprint"),
-                    _text_column("memo"),
-                    _text_column("memo_append"),
-                    _text_column("source_description_raw"),
-                    _text_column("source_description_clean"),
-                    _text_column("source_merchant_raw"),
-                    _text_column("target_description_raw"),
-                    _text_column("target_description_clean"),
-                    _text_column("target_merchant_raw"),
-                    _text_column("payee_options"),
-                    _text_column("category_options"),
-                    _text_column("source_payee_current"),
+                    pl.col("fingerprint"),
+                    pl.col("memo"),
+                    pl.col("memo_append"),
+                    pl.col("source_context_kind"),
+                    pl.col("source_context_category_name"),
+                    pl.col("source_context_matching_split_ids"),
+                    pl.col("target_context_kind"),
+                    pl.col("target_context_matching_split_ids"),
+                    pl.col("source_description_raw"),
+                    pl.col("source_description_clean"),
+                    pl.col("source_merchant_raw"),
+                    pl.col("target_description_raw"),
+                    pl.col("target_description_clean"),
+                    pl.col("target_merchant_raw"),
+                    pl.col("payee_options"),
+                    pl.col("category_options"),
+                    pl.col("source_payee_current"),
                     source_payee_selected,
                     source_category_selected,
-                    _text_column("target_payee_current"),
+                    pl.col("target_payee_current"),
                     target_payee_selected,
                     target_category_selected,
-                    _text_column("source_memo"),
-                    _text_column("target_memo"),
-                    _text_column("source_account"),
-                    _text_column("target_account"),
-                    _text_column("account_name"),
-                    _text_column("source"),
+                    pl.col("source_memo"),
+                    pl.col("target_memo"),
+                    pl.col("source_account"),
+                    pl.col("target_account"),
+                    pl.col("account_name"),
+                    pl.col("source"),
                     action_expr,
                     update_maps_expr,
                     pl.col("source_splits_text"),
