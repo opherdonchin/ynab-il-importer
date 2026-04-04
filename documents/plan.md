@@ -13,13 +13,17 @@ Current direction:
 
 ## Current Goal
 
-Close out Step 3 and treat the review app’s split-display / flat-review-model pivot as complete.
+Start Step 4 cleanly:
 
-That means:
-1. keep the completed Step 1 and Step 2 canonical transaction/upload path green
-2. keep the flat canonical review artifact green across builders, app IO, app helpers, and upload prep
-3. keep the review app Polars-first in its data/helper paths while allowing explicit internal pandas islands for hard mutation logic
-4. preserve split detail as nested data while keeping ordinary review logic mostly flat
+1. bring the long-form Step 4 split-editor spec up to the same detail level as Steps 1 through 3
+2. implement the first vertical split-editing slice end to end
+3. keep the existing Step 1-3 path green while the split editor lands
+
+That first Step 4 slice should cover:
+1. canonical review-schema support for reviewed split-edit state
+2. review-app editing of reviewed split state
+3. save/resume persistence of reviewed split edits
+4. upload-prep consumption of reviewed target split edits
 
 ## Current Status
 
@@ -41,7 +45,7 @@ Done:
   - `source_transaction` / `target_transaction` are no longer part of the canonical review schema
   - only `source_splits` / `target_splits` remain nested in review artifacts
 
-- Step 3 is now complete under the current architecture choice:
+- Step 3 is complete under the current architecture choice:
   - the canonical review artifact is flat with split-only nesting
   - the app displays split transactions read-only from that schema
   - the app’s working/helper path is Polars-first
@@ -85,6 +89,15 @@ Done:
   - [app.py](src/ynab_il_importer/review_app/app.py#L540) now uses lookup-driven group summary/default helpers instead of repeated pandas mask slicing for the grouped header badges and defaults
   - easy helper signatures were tightened so the non-island path no longer advertises unnecessary `pandas | polars` flexibility
 
+Step 4 is now beginning.
+
+The next real work is no longer about split display. It is about reviewed split state:
+
+- snapshot split columns remain factual
+- reviewed split-edit columns will carry user intent
+- the app will derive effective split state from mode + snapshot + reviewed selection
+- upload prep will consume explicit reviewed split state rather than inferring everything from grouped flat rows
+
 ## Working Rules For This Phase
 
 - Keep canonical transaction artifacts as the real transaction model.
@@ -99,23 +112,20 @@ Done:
 
 - drifting back toward embedded nested source/target transaction objects in review artifacts
 - keeping too much app logic in Python row loops instead of Polars/dataframe expressions
-- letting split display force premature split-edit semantics into Step 3
+- letting split editing leak into matching semantics
 - losing important target-side creation context when `target_present` is false
 - leaving builders or upload prep on stale nested in-memory review shapes while persisted artifacts are flat
-- keeping too much business logic inside the pandas adapter islands instead of continuing to shrink them from the outside in
+- making split removal ambiguous by relying on `None` vs `[]` instead of an explicit mode field
 
 ## Next Step
 
 Step 3 is complete.
 
-Next:
-1. update the longer-form split plan document so the Step 3 section matches the architecture we actually shipped
-2. begin Step 4 planning and implementation for split editing
-   - split / remove-split controls
-   - split-line payee/category/amount editing
-   - validation that split totals reconcile to the parent transaction
-   - canonical review artifact round-trip for edited splits
-3. keep the existing Step 1-3 path green while Step 4 starts
-   - review app
-   - upload prep
-   - reconcile/resume
+Immediate next steps:
+1. finish the long-form Step 4 specification in `documents/handle_splits_implementation_plan.md`
+2. add explicit reviewed split-edit fields to the canonical review schema:
+   - split mode
+   - reviewed selected split lines
+3. wire the review app to edit and persist reviewed split state
+4. teach upload prep to consume reviewed target split edits
+5. keep review app, upload prep, and save/resume tests green throughout

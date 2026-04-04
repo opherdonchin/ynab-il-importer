@@ -1562,81 +1562,358 @@ The safest first Step 3 slice is:
 
 ### Step 4 goal
 
-Allow the review workflow to create, edit, and remove split structure.
+Allow the review workflow to create, edit, remove, review, save, resume, and upload
+split structure while preserving the current parent-transaction-oriented matching model.
 
-### Minimum editor capabilities
+Step 4 should not redesign matching. It should extend the review model so that a single
+review row can carry:
 
-- split a non-split transaction
-- add split lines
-- remove split lines
-- edit split line payee
-- edit split line category
-- edit split line memo
-- edit split line amount
-- validate that split totals equal the parent amount
-- remove split structure when appropriate
+- the current source-side split snapshot
+- the current target-side split snapshot
+- the reviewed source-side split selection, if the user edits it
+- the reviewed target-side split selection, if the user edits it
 
-### Data model requirements
+The app should remain mostly flat and dataframe-oriented. Split hierarchy should stay
+confined to the split-list columns and to the editor/rendering paths that actually need it.
 
-- review-state model must be able to hold in-progress edited split lines
-- canonical artifact must distinguish:
-  - original source state
-  - current target state
-  - reviewed/edited state destined for upload
-- split edits must survive save/resume
+### Step 4 working assumptions established from the current codebase
 
-### Validation rules
+- The canonical review artifact is already mostly flat in
+  `src/ynab_il_importer/artifacts/review_schema.py`.
+- Source and target split snapshots already exist as top-level nested columns:
+  - `source_splits`
+  - `target_splits`
+- The review app already renders those columns read-only in
+  `src/ynab_il_importer/review_app/app.py`.
+- The upload path in `src/ynab_il_importer/upload_prep.py` already knows how to create
+  split payloads, but it currently infers split upload units from grouped flat rows rather
+  than from explicit reviewed split state on a single review row.
+- The YNAB API does not support in-place editing of `subtransactions` on an existing
+  split transaction, so Step 4 must distinguish between:
+  - creating a new split transaction
+  - keeping an existing split unchanged
+  - replacing an existing split structure with a reviewed split structure
+  - removing split structure from an existing split and replacing it with a non-split row
 
-- sum of child inflow/outflow must equal parent total
-- each child line must satisfy payee/category requirements as applicable
-- transfer semantics remain valid at split-line level where allowed
-- no upload proceeds with inconsistent split totals
+### Step 4 scope
 
-### Write-back direction
+In scope:
 
-- edited split state writes back to the authoritative transaction artifact
-- flat review rows become a view or façade over that edited state rather than the full authoritative model
-- if the reviewed target is an existing YNAB split transaction whose line structure changes, the final write-back may need to use an explicit delete-and-recreate workflow because the API does not support updating `subtransactions` in place
+- target-side split editing for institutional review
+- target-side split editing for cross-budget review where target creation/editing is allowed
+- source-side split editing wherever the current workflow already allows source-side edits
+- split creation from a non-split row
+- split removal back to a non-split reviewed row
+- split-line payee/category/memo/amount editing
+- save/resume persistence for reviewed split edits
+- upload-prep consumption of reviewed split edits
+- validation and review blocking for inconsistent split edits
 
-### Testing
+Out of scope:
 
-- create split from non-split transaction
-- edit existing split transaction
-- remove split structure
-- save/resume preserves edits
-- upload payload reflects reviewed split edits exactly
+- split-aware matching changes
+- split-line-level grouping or case generation
+- transfer subtransactions in split payloads
+- automatic splitting suggestions
+- rewriting the app around a deeply nested transaction relationship model
 
-## Major Risks
+### Canonical review-artifact design for Step 4
 
-- The review app is already performance-sensitive and stateful. Pulling too much of the nested model into Streamlit too early could destabilize the workflow.
-- Some scripts currently blur the line between authoritative artifacts and convenience CSVs. That must be untangled before the migration can stay coherent.
-- Matching and cross-budget pairing are strongly flat and row-based today. Attempting split-aware matching before the representation layer is stable would multiply risk.
-- YNAB split semantics may force decisions about how parent-vs-child matching should work earlier than expected.
+Step 4 should keep the current flat review artifact but extend it with explicit reviewed
+split-edit state. The key design principle is:
 
-## Recommended Open Questions Before Step 3 Implementation
+- current split snapshot columns remain factual
+- reviewed split-edit columns carry the user’s intended edited state
+- a small mode field tells the app and upload layer how to interpret the reviewed split columns
 
-1. **Should source/target display context live as top-level review fields or as a nested relationship struct?**
-   My recommendation is: use top-level review-schema fields in Step 3 because they are simpler to populate, test, and project through the current pandas-based app boundary. A deeper relationship struct can wait until Step 4 if it still feels necessary.
+Recommended top-level additions per side:
 
-2. **Do we need explicit target-side split-match highlighting in Step 3, or only source-side extraction highlighting?**
-   My recommendation is: source-side highlighting is required for cross-budget explainability; target-side highlighting can stay optional unless a concrete workflow needs it.
+- `source_split_mode`
+- `target_split_mode`
+- `source_splits_selected`
+- `target_splits_selected`
 
-3. **Should Step 3 add split-related filters immediately, or only display split detail inside rows?**
-   My recommendation is: start with display only. Add split filters only if they prove useful once the display is working, to avoid making `state.py` and the UI filters more complex prematurely.
+Recommended mode values:
 
-4. **How much refactoring should be bundled with the Step 3 display work inside `app.py`?**
-   My recommendation is: do only the small structural refactors needed to keep split rendering comprehensible. A broader app decomposition should remain a separate performance/maintainability follow-up.
+- `inherit`
+  - use the current snapshot as-is
+  - no reviewed split override is present
+- `split`
+  - use `*_splits_selected` as the reviewed split structure
+- `unsplit`
+  - ignore the current snapshot and treat the row as a reviewed non-split transaction
 
-5. **What is the exact later policy for matching split parent transactions to non-split source transactions and vice versa?**
-   This is still a real open question, but it no longer blocks Step 3 display. The UI can show the structures clearly before the matching policy is expanded.
+Why an explicit mode field is needed:
 
-## Recommended Next Implementation Slice
+- `None` vs `[]` is not enough to distinguish:
+  - untouched rows
+  - reviewed split edits
+  - explicit split removal
+- the app, validator, and upload layer all need the same interpretation
+- save/resume should preserve user intent even when the reviewed split list is empty or when
+  a split is being removed
 
-The safest next slice is the first Step 3 slice:
+Recommended representation of `*_splits_selected`:
 
-1. extend the canonical review schema with source extraction context
-2. populate that context in `scripts/build_cross_budget_review_rows.py`
-3. extend `review_app/io.py` to expose split badges/counts and context text
-4. add a read-only expanded split section for the target side first
+- reuse the existing `SPLIT_LINE_STRUCT` shape for now
+- interpret its fields as the reviewed selected child-line values
+- keep line amounts in the existing `inflow_ils` / `outflow_ils` shape
+- keep `split_id` as the stable editor row id
+- allow synthetic `split_id` values for newly created split lines
 
-That keeps the app canonical at the boundary, adds the missing explanation metadata, and introduces split display without changing review decisions yet.
+This keeps Step 4 low-risk because the app, IO, and upload layers can share one split-line
+shape instead of inventing a second edited-split schema.
+
+### Effective split semantics inside the app
+
+The app should reason about three split views per side:
+
+1. `current_splits`
+   - factual snapshot from the source or target system
+2. `selected_splits`
+   - reviewed edited split state from `*_splits_selected`
+3. `effective_splits`
+   - the split structure currently being reviewed, derived from mode:
+     - `inherit` -> current snapshot
+     - `split` -> selected splits
+     - `unsplit` -> no splits
+
+The app should use `effective_splits` for:
+
+- expanded split display
+- split-count badges
+- split-aware validation
+- any upload-facing reviewed state
+
+It should keep showing `current_splits` alongside `effective_splits` where that helps the
+user understand what has changed.
+
+### Review-app behavior requirements
+
+The editor should support, at minimum:
+
+- `Split transaction`
+  - takes the current parent row and creates an initial editable split structure
+- `Add split line`
+  - appends a new editable split line
+- `Remove split line`
+  - removes one selected line
+- `Remove split structure`
+  - sets split mode to `unsplit`
+- `Revert split edits`
+  - returns split mode to `inherit` and clears `*_splits_selected`
+
+The UI should preserve the current parent-level controls:
+
+- parent payee selection
+- parent category selection
+- memo append
+- decision action
+- review / keep-open / grouped actions
+
+But when split mode is `split`:
+
+- the parent category should not be required for target-side upload
+- the child-line categories should become the authoritative categorized state
+- the parent payee should remain meaningful as the parent payee for YNAB payloads
+
+### File-by-file Step 4 change inventory
+
+#### `src/ynab_il_importer/artifacts/review_schema.py`
+
+- add `source_split_mode`
+- add `target_split_mode`
+- add `source_splits_selected`
+- add `target_splits_selected`
+- keep snapshot split columns unchanged
+- keep the rest of the review artifact flat
+
+#### `src/ynab_il_importer/review_app/io.py`
+
+- normalize the new mode fields
+- round-trip `*_splits_selected`
+- preserve explicit `[]` for reviewed selected split lists
+- project the canonical artifact to the app-facing dataframe without losing split mode intent
+- continue to be the explicit flattening boundary for the review app
+
+#### `src/ynab_il_importer/review_app/state.py`
+
+- extend the Polars data view with:
+  - effective split counts
+  - reviewed-split-present flags
+  - split-mode flags
+  - optional “has split edits” booleans
+- add helper functions for:
+  - deriving effective split lists from mode + current + selected
+  - validating split totals
+  - generating synthetic split ids where needed
+- extend the row-edit mutation adapter to update split mode and selected split lists
+
+#### `src/ynab_il_importer/review_app/validation.py`
+
+- validate reviewed split state at the row level
+- treat target split mode `split` as satisfying parent-category requirements through child lines
+- block review when:
+  - split totals do not match the parent amount
+  - any required child category is missing
+  - any required child payee/category combination is invalid
+  - unsupported transfer split semantics appear
+- keep component-level review rules parent-row-oriented
+
+#### `src/ynab_il_importer/review_app/model.py`
+
+- propagate split edits across related rows when the side being edited is shared
+- make group/apply helpers preserve reviewed split state rather than overwriting it accidentally
+- treat split edits as target-side reviewed values for fingerprint application only when that is
+  unambiguous and intended
+
+#### `src/ynab_il_importer/review_app/app.py`
+
+- add split editor sections for source and target sides
+- keep current read-only detail visible
+- add reviewed/effective split display so the user can see edits before review
+- keep split editing lazy and row-local so widget count stays manageable
+- keep grouped mode parent-row-oriented; do not turn one review row into many UI rows
+
+#### `src/ynab_il_importer/upload_prep.py`
+
+- stop inferring split upload solely from grouped prepared rows
+- instead, derive split upload from explicit reviewed target split state on each review row
+- support:
+  - unchanged non-split upload
+  - reviewed split creation
+  - reviewed split replacement
+  - reviewed split removal back to a non-split upload
+- continue to block unsupported split-transfer payloads
+
+#### `src/ynab_il_importer/review_reconcile.py`
+
+- preserve reviewed split-edit columns across rebuild/resume
+- align rows by review identity without losing selected split state
+
+#### Builder scripts
+
+- `scripts/build_proposed_transactions.py`
+- `scripts/build_cross_budget_review_rows.py`
+
+Step 4 should populate the new split-edit columns with neutral defaults:
+
+- `*_split_mode = inherit`
+- `*_splits_selected = null`
+
+The builders should not invent split edits. They should only populate the snapshot side.
+
+### Validation rules for split editing
+
+For any side in `split` mode:
+
+- the sum of child signed amounts must equal the parent signed amount exactly
+- each split line must have a stable `split_id`
+- each split line must have:
+  - payee if that side/workflow requires one
+  - category unless the line is explicitly no-category-required
+- empty split structures are invalid in `split` mode
+- at least two lines should be required when creating a split from a non-split row
+
+For `unsplit` mode:
+
+- the selected split list is ignored
+- parent payee/category rules revert to the ordinary non-split rules
+
+For `inherit` mode:
+
+- validation should operate on the current snapshot only where needed for display
+- no split-edit validation should block review if the user has not changed split state
+
+### Upload semantics for Step 4
+
+Target-side upload should interpret reviewed split state as follows:
+
+- `inherit`
+  - unchanged existing target:
+    - keep current target split structure if no target mutation is requested
+  - create-target row:
+    - behave as the current non-split or grouped-split path already does
+- `split`
+  - build upload `subtransactions` from `target_splits_selected`
+  - parent `category_id` must be `null`
+  - parent payee comes from the reviewed target payee
+- `unsplit`
+  - build a normal non-split payload from parent selected values
+
+Existing target split transactions whose reviewed split structure changes should be treated as
+“replace, not patch” operations in the upload plan, because the YNAB API does not support
+editing `subtransactions` in place.
+
+That means Step 4 should make the intended action explicit in upload prep, even if the final
+delete/recreate wire-up remains a separate later upload refinement.
+
+### Save/resume semantics
+
+Save/resume must preserve:
+
+- split mode
+- selected split lines
+- synthetic split ids
+- parent selected payee/category values
+- memo append
+- review state
+
+If a row is rebuilt from fresh source/target snapshots:
+
+- reviewed split selections should remain attached to the review row
+- snapshot split columns may change
+- `inherit` mode should continue to mean “use the current fresh snapshot”
+- `split` and `unsplit` should continue to mean “use the reviewed override”
+
+### Testing strategy
+
+Required coverage:
+
+1. review schema round-trip
+   - new split-edit columns persist through Parquet and CSV review save/load
+2. review app state
+   - create split from non-split row
+   - add/remove line
+   - revert to inherit
+   - remove split structure
+3. validation
+   - mismatched totals block review
+   - missing child category blocks review
+   - valid reviewed split can be marked reviewed
+4. save/resume
+   - reviewed split edits survive save and reload
+   - reviewed split edits survive rebuild/reconcile
+5. upload prep
+   - reviewed split state produces correct `subtransactions`
+   - reviewed unsplit state produces normal non-split payload
+   - unsupported split transfer is still blocked
+6. app rendering
+   - folded summary reflects effective split state
+   - expanded split editor shows current and reviewed structure clearly
+
+### Main risks
+
+- making split editing implicit rather than explicit in the schema will create save/resume bugs
+- overloading `None` / `[]` instead of using an explicit mode field will make split removal ambiguous
+- letting split editing leak into matching semantics will enlarge Step 4 unnecessarily
+- replacing too much of the current row editor at once could destabilize ordinary review flow
+- upload replacement semantics for existing YNAB splits need to stay explicit and testable
+
+### Recommended implementation sequence
+
+1. extend the review schema and IO boundary with explicit reviewed split-edit fields
+2. teach the app state/helpers to derive effective split state from mode + snapshot + selected
+3. implement a target-side split editor first
+4. wire validation and review blocking for target split edits
+5. teach upload prep to consume reviewed target split edits
+6. then add source-side split editing using the same editor/state machinery
+
+This keeps the first Step 4 slice vertical and testable:
+
+- schema
+- app
+- save/resume
+- upload
+
+before broader editor polish.
