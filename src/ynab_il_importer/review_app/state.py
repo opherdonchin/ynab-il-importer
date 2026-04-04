@@ -266,6 +266,17 @@ def _id_series(df: pd.DataFrame, col: str) -> pd.Series:
     return series_or_default(df, col).str.strip()
 
 
+def _id_list(df: pd.DataFrame | pl.DataFrame, col: str) -> list[str]:
+    if isinstance(df, pd.DataFrame):
+        return _id_series(df, col).tolist()
+    if col not in df.columns:
+        return [""] * df.height
+    return [
+        str(value or "").strip()
+        for value in df.select(pl.col(col).cast(pl.Utf8, strict=False).fill_null("")).to_series().to_list()
+    ]
+
+
 def _component_mask_from_map(
     df: pd.DataFrame,
     idx: Any,
@@ -743,6 +754,53 @@ def apply_row_filters(
     return df[mask]
 
 
+def related_row_indices(
+    df: pd.DataFrame | pl.DataFrame,
+    idx: Any,
+    *,
+    include_source: bool = False,
+    include_target: bool = False,
+) -> list[Any]:
+    if isinstance(df, pd.DataFrame):
+        if idx not in df.index:
+            return []
+        index_values = list(df.index)
+        source_ids = _id_series(df, "source_row_id").tolist()
+        target_ids = _id_series(df, "target_row_id").tolist()
+        try:
+            pos = index_values.index(idx)
+        except ValueError:
+            return []
+    else:
+        if not isinstance(idx, int) or idx < 0 or idx >= df.height:
+            return []
+        index_values = list(range(df.height))
+        source_ids = _id_list(df, "source_row_id")
+        target_ids = _id_list(df, "target_row_id")
+        pos = idx
+
+    matched: list[Any] = [idx]
+    matched_set = {idx}
+    source_row_id = source_ids[pos] if pos < len(source_ids) else ""
+    target_row_id = target_ids[pos] if pos < len(target_ids) else ""
+
+    for current_idx, current_source_id, current_target_id in zip(
+        index_values,
+        source_ids,
+        target_ids,
+        strict=False,
+    ):
+        include = False
+        if include_source and source_row_id and current_source_id == source_row_id:
+            include = True
+        if include_target and target_row_id and current_target_id == target_row_id:
+            include = True
+        if include and current_idx not in matched_set:
+            matched.append(current_idx)
+            matched_set.add(current_idx)
+    return matched
+
+
 def related_rows_mask(
     df: pd.DataFrame,
     idx: Any,
@@ -750,20 +808,16 @@ def related_rows_mask(
     include_source: bool = False,
     include_target: bool = False,
 ) -> pd.Series:
-    if idx not in df.index:
-        return pd.Series([False] * len(df), index=df.index)
-
+    indices = related_row_indices(
+        df,
+        idx,
+        include_source=include_source,
+        include_target=include_target,
+    )
     mask = pd.Series([False] * len(df), index=df.index)
-    mask.at[idx] = True
-
-    if include_source:
-        source_row_id = _id_series(df, "source_row_id").get(idx, "")
-        if source_row_id:
-            mask |= _id_series(df, "source_row_id").eq(source_row_id)
-    if include_target:
-        target_row_id = _id_series(df, "target_row_id").get(idx, "")
-        if target_row_id:
-            mask |= _id_series(df, "target_row_id").eq(target_row_id)
+    for related_idx in indices:
+        if related_idx in mask.index:
+            mask.loc[related_idx] = True
     return mask
 
 
@@ -786,32 +840,26 @@ def apply_row_edit(
     target_payee = payee if target_payee is None else target_payee
     target_category = category if target_category is None else target_category
 
-    source_row_id = _id_series(df, "source_row_id").get(idx, "")
-    target_row_id = _id_series(df, "target_row_id").get(idx, "")
+    source_indices = related_row_indices(df, idx, include_source=True, include_target=False) or [idx]
+    target_indices = related_row_indices(df, idx, include_source=False, include_target=True) or [idx]
 
     if source_payee is not None or source_category is not None:
-        source_mask = _id_series(df, "source_row_id").eq(source_row_id) if source_row_id else pd.Series([False] * len(df), index=df.index)
-        if not source_row_id:
-            source_mask.at[idx] = True
         if source_payee is not None and "source_payee_selected" in df.columns:
-            df.loc[source_mask, "source_payee_selected"] = str(source_payee).strip()
+            df.loc[source_indices, "source_payee_selected"] = str(source_payee).strip()
         if source_category is not None and "source_category_selected" in df.columns:
-            df.loc[source_mask, "source_category_selected"] = str(source_category).strip()
+            df.loc[source_indices, "source_category_selected"] = str(source_category).strip()
 
     if target_payee is not None or target_category is not None:
-        target_mask = _id_series(df, "target_row_id").eq(target_row_id) if target_row_id else pd.Series([False] * len(df), index=df.index)
-        if not target_row_id:
-            target_mask.at[idx] = True
         if target_payee is not None:
             if "payee_selected" in df.columns:
-                df.loc[target_mask, "payee_selected"] = str(target_payee).strip()
+                df.loc[target_indices, "payee_selected"] = str(target_payee).strip()
             if "target_payee_selected" in df.columns:
-                df.loc[target_mask, "target_payee_selected"] = str(target_payee).strip()
+                df.loc[target_indices, "target_payee_selected"] = str(target_payee).strip()
         if target_category is not None:
             if "category_selected" in df.columns:
-                df.loc[target_mask, "category_selected"] = str(target_category).strip()
+                df.loc[target_indices, "category_selected"] = str(target_category).strip()
             if "target_category_selected" in df.columns:
-                df.loc[target_mask, "target_category_selected"] = str(target_category).strip()
+                df.loc[target_indices, "target_category_selected"] = str(target_category).strip()
 
     if update_maps is not None and "update_maps" in df.columns:
         df.at[idx, "update_maps"] = str(update_maps).strip()
@@ -825,7 +873,8 @@ def apply_row_edit(
             from ynab_il_importer.review_app.validation import connected_component_mask
 
             reviewed_mask = connected_component_mask(df, idx)
+            reviewed_indices = df.index[reviewed_mask].tolist()
         else:
-            reviewed_mask = _component_mask_from_map(df, idx, component_map)
-        df.loc[reviewed_mask, "reviewed"] = bool(reviewed)
+            reviewed_indices = [current_idx for current_idx, label in component_map.items() if label == component_map.get(idx)]
+        df.loc[reviewed_indices, "reviewed"] = bool(reviewed)
     return df

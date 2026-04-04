@@ -84,7 +84,7 @@ def apply_to_same_fingerprint(
 def competing_row_scope(decision_action: str) -> tuple[bool, bool]:
     import ynab_il_importer.review_app.validation as review_validation
 
-    action = review_validation.normalize_decision_actions(pd.Series([decision_action])).iloc[0]
+    action = review_validation.normalize_decision_action(decision_action)
     include_source = action in (
         review_validation.SOURCE_MATCH_ACTIONS | review_validation.SOURCE_DELETE_ACTIONS
     )
@@ -105,26 +105,24 @@ def apply_competing_row_resolution(
     for idx in dict.fromkeys(indices):
         if idx not in df.index:
             continue
-        action = review_validation.normalize_decision_actions(
-            pd.Series([df.loc[idx, "decision_action"] if "decision_action" in df.columns else ""])
-        ).iloc[0]
+        action = review_validation.normalize_decision_action(
+            df.loc[idx, "decision_action"] if "decision_action" in df.columns else ""
+        )
         if action in {review_validation.NO_DECISION, "ignore_row"}:
             continue
         include_source, include_target = competing_row_scope(action)
         if not include_source and not include_target:
             continue
-        mask = review_state.related_rows_mask(
+        competing_indices = review_state.related_row_indices(
             df,
             idx,
             include_source=include_source,
             include_target=include_target,
         )
-        if idx in mask.index:
-            mask.loc[idx] = False
-        competing_indices = df.index[mask].tolist()
+        competing_indices = [current_idx for current_idx in competing_indices if current_idx != idx]
         if not competing_indices:
             continue
         if "decision_action" in df.columns:
-            df.loc[mask, "decision_action"] = "ignore_row"
+            df.loc[competing_indices, "decision_action"] = "ignore_row"
         touched.extend(competing_indices)
     return list(dict.fromkeys(touched))

@@ -529,6 +529,19 @@ def test_related_rows_mask_can_expand_by_source_and_target() -> None:
     assert mask.tolist() == [True, True, True, False]
 
 
+def test_related_row_indices_accept_polars_and_preserve_order() -> None:
+    df = pl.DataFrame(
+        {
+            "source_row_id": ["s1", "s1", "s3", "s4"],
+            "target_row_id": ["t1", "t2", "t1", "t4"],
+        }
+    )
+
+    indices = review_state.related_row_indices(df, 0, include_source=True, include_target=True)
+
+    assert indices == [0, 1, 2]
+
+
 def test_precompute_components_single_component() -> None:
     df = _review_rows(
         [
@@ -556,6 +569,28 @@ def test_precompute_components_two_components() -> None:
 
     assert component_map[0] == component_map[1]
     assert component_map[2] != component_map[0]
+
+
+def test_apply_row_edit_propagates_to_related_indices() -> None:
+    df = _review_rows(
+        [
+            {"source_row_id": "s1", "target_row_id": "t1", "source_payee_selected": "", "target_payee_selected": "", "target_category_selected": ""},
+            {"source_row_id": "s1", "target_row_id": "t2", "source_payee_selected": "", "target_payee_selected": "", "target_category_selected": ""},
+            {"source_row_id": "s3", "target_row_id": "t1", "source_payee_selected": "", "target_payee_selected": "", "target_category_selected": ""},
+        ]
+    )
+
+    review_state.apply_row_edit(
+        df,
+        0,
+        source_payee="Source Cafe",
+        target_payee="Target Cafe",
+        target_category="Food",
+    )
+
+    assert df["source_payee_selected"].tolist() == ["Source Cafe", "Source Cafe", ""]
+    assert df["target_payee_selected"].tolist() == ["Target Cafe", "", "Target Cafe"]
+    assert df["target_category_selected"].tolist() == ["Food", "", "Food"]
 
 
 def test_precompute_components_accepts_polars_review_table() -> None:
