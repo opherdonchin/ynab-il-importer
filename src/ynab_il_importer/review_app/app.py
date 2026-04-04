@@ -268,9 +268,9 @@ def _bump_df_generation() -> None:
     st.session_state.pop("_cached_component_map", None)
 
 
-def _canonical_review_bundle(df: pd.DataFrame | None) -> dict[str, pl.DataFrame | pd.DataFrame | None]:
+def _canonical_review_bundle(df: pd.DataFrame | None) -> dict[str, Any]:
     if df is None:
-        return {"table": None, "helpers": None}
+        return {"table": None, "helpers": None, "helper_lookup": None}
     table = review_io.load_review_artifact_polars(df)
     helper_columns = [
         "source_is_split",
@@ -286,9 +286,11 @@ def _canonical_review_bundle(df: pd.DataFrame | None) -> dict[str, pl.DataFrame 
         "source_display_date",
         "target_display_date",
     ]
-    helpers = review_state.canonical_review_helpers(table).select(helper_columns).to_pandas()
-    helpers.index = df.index
-    return {"table": table, "helpers": helpers}
+    helpers = review_state.canonical_review_helpers(table).with_row_index("_row_pos").select(
+        "_row_pos", *helper_columns
+    )
+    helper_lookup = review_state.view_row_lookup(helpers, df.index)
+    return {"table": table, "helpers": helpers, "helper_lookup": helper_lookup}
 
 
 def _set_review_frames(
@@ -303,18 +305,21 @@ def _set_review_frames(
         st.session_state["df"] = df
         st.session_state["review_table"] = canonical["table"]
         st.session_state["review_helpers"] = canonical["helpers"]
+        st.session_state["review_helper_lookup"] = canonical["helper_lookup"]
         changed = True
     if original is not None:
         canonical = _canonical_review_bundle(original)
         st.session_state["df_original"] = original
         st.session_state["review_table_original"] = canonical["table"]
         st.session_state["review_helpers_original"] = canonical["helpers"]
+        st.session_state["review_helper_lookup_original"] = canonical["helper_lookup"]
         changed = True
     if base is not None:
         canonical = _canonical_review_bundle(base)
         st.session_state["df_base"] = base
         st.session_state["review_table_base"] = canonical["table"]
         st.session_state["review_helpers_base"] = canonical["helpers"]
+        st.session_state["review_helper_lookup_base"] = canonical["helper_lookup"]
         changed = True
     if changed:
         _bump_df_generation()
@@ -528,6 +533,19 @@ def _helper_text(helper_row: pd.Series | None, key: str) -> str:
     return str(helper_row.get(key, "") or "").strip()
 
 
+def _lookup_text(
+    lookup: dict[Any, dict[str, Any]] | None,
+    idx: Any,
+    key: str,
+) -> str:
+    if not isinstance(lookup, dict):
+        return ""
+    row = lookup.get(idx)
+    if not isinstance(row, dict):
+        return ""
+    return str(row.get(key, "") or "").strip()
+
+
 def _summary_date(row: pd.Series, helper_row: pd.Series | None) -> str:
     return (
         _helper_text(helper_row, "source_display_date")
@@ -719,8 +737,20 @@ def _render_primary_state_strip(readiness: str, save_state: str) -> None:
 
 
 def _dominant_group_primary_state(
-    readiness: pd.Series, save_state: pd.Series
+    readiness: pd.Series | pl.Series | list[str], save_state: pd.Series | pl.Series | list[str]
 ) -> tuple[str, str]:
+    if isinstance(readiness, pd.Series):
+        readiness_values = readiness.astype("string").fillna("").tolist()
+    elif isinstance(readiness, pl.Series):
+        readiness_values = readiness.cast(pl.Utf8, strict=False).fill_null("").to_list()
+    else:
+        readiness_values = [str(value or "") for value in readiness]
+    if isinstance(save_state, pd.Series):
+        save_values = save_state.astype("string").fillna("").tolist()
+    elif isinstance(save_state, pl.Series):
+        save_values = save_state.cast(pl.Utf8, strict=False).fill_null("").to_list()
+    else:
+        save_values = [str(value or "") for value in save_state]
     priority = [
         ("Fix", "Unsaved"),
         ("Fix", "Saved"),
@@ -730,8 +760,10 @@ def _dominant_group_primary_state(
         ("Settled", "Saved"),
     ]
     for ready_value, save_value in priority:
-        mask = readiness.eq(ready_value) & save_state.eq(save_value)
-        if bool(mask.any()):
+        if any(
+            str(current_ready or "") == ready_value and str(current_save or "") == save_value
+            for current_ready, current_save in zip(readiness_values, save_values, strict=False)
+        ):
             return ready_value, save_value
     return "Decide", "Unsaved"
 
@@ -829,35 +861,15 @@ def _compute_derived_state(
         blocker_series=blocker_series,
         save_state=save_state,
     )
-    primary_state_series = pd.Series(
-        state_view["primary_state"].to_list(),
-        index=df.index,
-        dtype="string",
-    )
-    row_kind_series = pd.Series(
-        data_view["row_kind"].to_list(),
-        index=df.index,
-        dtype="string",
-    )
-    action_series = pd.Series(
-        data_view["action_label"].to_list(),
-        index=df.index,
-        dtype="string",
-    )
-    suggestion_series = pd.Series(
-        state_view["suggestion_label"].to_list(),
-        index=df.index,
-        dtype="string",
-    )
-    map_update_series = pd.Series(
-        state_view["map_update_label"].to_list(),
-        index=df.index,
-        dtype="string",
-    )
-    search_text = pd.Series(
-        data_view["search_text"].to_list(),
-        index=df.index,
-        dtype="string",
+    state_lookup = review_state.view_row_lookup(
+        state_view.select(
+            "_row_pos",
+            "primary_state",
+            "save_state",
+            "suggestion_label",
+            "map_update_label",
+        ),
+        df.index,
     )
     inference_tag = review_state.initial_inference_tags(df, base)
     progress_tag = pd.Series(
@@ -881,15 +893,9 @@ def _compute_derived_state(
         "inconsistent": inconsistent,
         "uncategorized_mask": uncategorized_mask,
         "blocker_series": blocker_series,
-        "primary_state_series": primary_state_series,
-        "row_kind_series": row_kind_series,
-        "action_series": action_series,
-        "suggestion_series": suggestion_series,
-        "map_update_series": map_update_series,
-        "search_text": search_text,
-        "save_state": save_state,
         "data_view": data_view,
         "state_view": state_view,
+        "state_lookup": state_lookup,
         "inference_tag": inference_tag,
         "progress_tag": progress_tag,
         "persistence_tag": persistence_tag,
@@ -920,8 +926,14 @@ def _get_cached_derived_state(
     return cached
 
 
-def _ordered_filter_options(series: pd.Series, preferred: list[str]) -> list[str]:
-    present = {str(value or "").strip() for value in series.astype("string").tolist() if str(value or "").strip()}
+def _ordered_filter_options(series: pd.Series | pl.Series | list[str], preferred: list[str]) -> list[str]:
+    if isinstance(series, pd.Series):
+        raw_values = series.astype("string").tolist()
+    elif isinstance(series, pl.Series):
+        raw_values = series.cast(pl.Utf8, strict=False).fill_null("").to_list()
+    else:
+        raw_values = list(series)
+    present = {str(value or "").strip() for value in raw_values if str(value or "").strip()}
     ordered = [value for value in preferred if value in present]
     extras = sorted(present - set(ordered))
     return ordered + extras
@@ -1645,7 +1657,7 @@ def main() -> None:
     original: pd.DataFrame = st.session_state.get("df_original")
     base: pd.DataFrame = st.session_state.get("df_base")
     review_table: pl.DataFrame | None = st.session_state.get("review_table")
-    review_helpers: pd.DataFrame | None = st.session_state.get("review_helpers")
+    review_helper_lookup: dict[Any, dict[str, Any]] | None = st.session_state.get("review_helper_lookup")
     category_list: list[str] = st.session_state.get("category_list", [])
     category_group_map: dict[str, str] = st.session_state.get("category_group_map", {})
     category_error = st.session_state.get("category_error", "")
@@ -1666,14 +1678,9 @@ def main() -> None:
     inconsistent = derived["inconsistent"]
     uncategorized_mask = derived["uncategorized_mask"]
     blocker_series = derived["blocker_series"]
-    primary_state_series = derived["primary_state_series"]
-    row_kind_series = derived["row_kind_series"]
-    action_series = derived["action_series"]
-    suggestion_series = derived["suggestion_series"]
-    map_update_series = derived["map_update_series"]
-    save_state = derived["save_state"]
     data_view: pl.DataFrame = derived["data_view"]
     state_view: pl.DataFrame = derived["state_view"]
+    state_lookup: dict[Any, dict[str, Any]] = derived["state_lookup"]
     inference_tag = derived["inference_tag"]
     progress_tag = derived["progress_tag"]
     persistence_tag = derived["persistence_tag"]
@@ -1828,7 +1835,7 @@ def main() -> None:
             key="filter_save_state",
         )
         row_kind_options = _ordered_filter_options(
-            row_kind_series,
+            data_view["row_kind"],
             ["Matched", "Matched cleared", "Source only", "Target only", "Ambiguous", "Unrecognized", "Other"],
         )
         selected_row_kind = st.multiselect(
@@ -1838,7 +1845,7 @@ def main() -> None:
             key="filter_row_kind",
         )
         action_options = _ordered_filter_options(
-            action_series,
+            data_view["action_label"],
             [
                 review_validation.NO_DECISION,
                 "keep_match",
@@ -1877,7 +1884,7 @@ def main() -> None:
             key="filter_blocker",
         )
         suggestion_options = _ordered_filter_options(
-            suggestion_series,
+            state_view["suggestion_label"],
             ["Has suggestions", "No suggestions"],
         )
         selected_suggestions = st.multiselect(
@@ -1887,7 +1894,7 @@ def main() -> None:
             key="filter_suggestions",
         )
         map_update_options = _ordered_filter_options(
-            map_update_series,
+            state_view["map_update_label"],
             ["Has update_maps", "No update_maps"],
         )
         selected_map_updates = st.multiselect(
@@ -1913,7 +1920,7 @@ def main() -> None:
 
     changed_count = int(changed_mask.sum())
     reviewed_count = int(reviewed_mask.sum())
-    matrix_counts = review_state.state_matrix_counts(primary_state_series, save_state)
+    matrix_counts = review_state.state_matrix_counts(state_view["primary_state"], state_view["save_state"])
     st.markdown(
         f"**Total:** {counts['total']} | "
         f"**Missing payee:** {counts['missing_payee']} | "
@@ -1981,12 +1988,12 @@ def main() -> None:
         for idx in indices[start:end]:
             row = df.loc[idx]
             helper_row = (
-                review_helpers.loc[idx]
-                if isinstance(review_helpers, pd.DataFrame) and idx in review_helpers.index
+                review_helper_lookup.get(idx)
+                if isinstance(review_helper_lookup, dict)
                 else None
             )
-            row_readiness = str(primary_state_series.loc[idx] or "")
-            row_save_state = str(save_state.loc[idx] or "")
+            row_readiness = _lookup_text(state_lookup, idx, "primary_state")
+            row_save_state = _lookup_text(state_lookup, idx, "save_state")
             primary_meta = _primary_state_meta(row_readiness, row_save_state)
             summary_text = _pick_summary_text(row)
             memo_snip = summary_text[:80] + ("…" if len(summary_text) > 80 else "")
@@ -2023,7 +2030,7 @@ def main() -> None:
                 )
                 _render_row_details(
                     row,
-                    primary_state=str(primary_state_series.loc[idx] or ""),
+                    primary_state=row_readiness,
                     blocker=str(blocker_series.loc[idx] or ""),
                     category_group_map=category_group_map,
                     helper_row=helper_row,
@@ -2077,8 +2084,8 @@ def main() -> None:
                 limit=3,
             )
             header_fp = fp if len(fp) <= 80 else fp[:77] + "…"
-            group_ready = primary_state_series.loc[group.index].astype("string")
-            group_save = save_state.loc[group.index].astype("string")
+            group_ready = [_lookup_text(state_lookup, idx, "primary_state") for idx in group.index]
+            group_save = [_lookup_text(state_lookup, idx, "save_state") for idx in group.index]
             group_ready_value, group_save_value = _dominant_group_primary_state(
                 group_ready, group_save
             )
@@ -2398,12 +2405,12 @@ def main() -> None:
                 for idx in row_indices[row_start:row_end]:
                     row = df.loc[idx]
                     helper_row = (
-                        review_helpers.loc[idx]
-                        if isinstance(review_helpers, pd.DataFrame) and idx in review_helpers.index
+                        review_helper_lookup.get(idx)
+                        if isinstance(review_helper_lookup, dict)
                         else None
                     )
-                    row_readiness = str(primary_state_series.loc[idx] or "")
-                    row_save_state = str(save_state.loc[idx] or "")
+                    row_readiness = _lookup_text(state_lookup, idx, "primary_state")
+                    row_save_state = _lookup_text(state_lookup, idx, "save_state")
                     primary_meta = _primary_state_meta(row_readiness, row_save_state)
                     summary_text = _pick_summary_text(row)
                     memo_snip = summary_text[:60] + ("…" if len(summary_text) > 60 else "")
@@ -2445,7 +2452,7 @@ def main() -> None:
                         )
                         _render_row_details(
                             row,
-                            primary_state=str(primary_state_series.loc[idx] or ""),
+                            primary_state=row_readiness,
                             blocker=str(blocker_series.loc[idx] or ""),
                             category_group_map=category_group_map,
                             helper_row=helper_row,

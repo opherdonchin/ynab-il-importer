@@ -375,6 +375,22 @@ def filtered_row_indices_from_views(
     ]
 
 
+def view_row_lookup(
+    view: pl.DataFrame,
+    index: pd.Index | list[Any],
+) -> dict[Any, dict[str, Any]]:
+    index_values = list(index)
+    if view.is_empty() or not index_values or "_row_pos" not in view.columns:
+        return {}
+    lookup: dict[Any, dict[str, Any]] = {}
+    for row in view.to_dicts():
+        pos = row.get("_row_pos")
+        if not isinstance(pos, int) or pos < 0 or pos >= len(index_values):
+            continue
+        lookup[index_values[pos]] = row
+    return lookup
+
+
 def series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
     if col in df.columns:
         return df[col].astype("string").fillna("")

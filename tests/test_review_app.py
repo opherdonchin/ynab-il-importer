@@ -255,9 +255,12 @@ def test_canonical_review_bundle_preserves_flat_splits_and_aligns_helpers() -> N
     assert bundle["table"].row(0, named=True)["source_splits"][0]["split_id"] == "sub-1"
     helpers = bundle["helpers"]
     assert helpers is not None
-    assert helpers.index.tolist() == [42]
-    assert int(helpers.loc[42, "source_split_count"]) == 1
-    assert bool(helpers.loc[42, "source_is_split"]) is True
+    assert helpers["source_split_count"].to_list() == [1]
+    assert helpers["source_is_split"].to_list() == [True]
+    helper_lookup = bundle["helper_lookup"]
+    assert helper_lookup is not None
+    assert int(helper_lookup[42]["source_split_count"]) == 1
+    assert bool(helper_lookup[42]["source_is_split"]) is True
 
 
 def test_split_summary_suffix_reports_source_and_target_counts() -> None:
