@@ -118,6 +118,54 @@ def test_prepare_upload_transactions_accepts_canonical_review_artifact(tmp_path)
     assert prepared.loc[0, "category_id"] == "cat-groceries"
 
 
+def test_prepare_upload_transactions_expands_reviewed_target_split_rows() -> None:
+    reviewed = _reviewed_df(
+        {
+            "transaction_id": ["t-split"],
+            "account_name": ["Bank Leumi"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["12.00"],
+            "inflow_ils": ["0"],
+            "memo": ["bookstore"],
+            "payee_selected": ["Tsomet Sfarim"],
+            "category_selected": [""],
+            "target_split_mode": ["split"],
+            "target_splits_selected": [[
+                {
+                    "split_id": "split-1",
+                    "payee_raw": "Tsomet Sfarim",
+                    "category_raw": "Groceries",
+                    "memo": "line 1",
+                    "inflow_ils": 0.0,
+                    "outflow_ils": 7.0,
+                },
+                {
+                    "split_id": "split-2",
+                    "payee_raw": "Tsomet Sfarim",
+                    "category_raw": "Groceries",
+                    "memo": "line 2",
+                    "inflow_ils": 0.0,
+                    "outflow_ils": 5.0,
+                },
+            ]],
+        }
+    )
+
+    prepared = upload_prep.prepare_upload_transactions(
+        reviewed,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+    units = upload_prep.assemble_upload_transaction_units(prepared)
+
+    assert prepared["upload_transaction_id"].tolist() == ["t-split", "t-split"]
+    assert prepared["memo"].tolist() == ["line 1", "line 2"]
+    assert units.loc[0, "upload_kind"] == "split"
+    assert units.loc[0, "memo"] == "bookstore"
+    assert units.loc[0, "payee_name_upload"] == "Tsomet Sfarim"
+    assert len(units.loc[0, "subtransactions"]) == 2
+
+
 def test_assemble_upload_transaction_units_preserves_regular_and_transfer_rows() -> None:
     reviewed = _reviewed_df(
         {

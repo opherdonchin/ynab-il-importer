@@ -10,6 +10,7 @@ import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.card_identity as card_identity
 import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
+import ynab_il_importer.review_app.validation as review_validation
 from ynab_il_importer.safe_types import normalize_flag_series
 
 
@@ -37,11 +38,14 @@ TRANSACTION_UNIT_COLUMNS = [
     "date",
     "amount_milliunits",
     "memo",
+    "parent_memo",
     "cleared",
     "approved",
     "import_id",
     "payee_id",
     "payee_name_upload",
+    "parent_payee_id",
+    "parent_payee_name_upload",
     "category_id",
     "target_category_selected",
     "transfer_target_account_id",
@@ -112,6 +116,34 @@ def _combined_memo_series(df: pd.DataFrame) -> pd.Series:
     return combined
 
 
+def _effective_target_splits(row: pd.Series) -> list[dict[str, Any]] | None:
+    mode = review_model.normalize_split_mode(row.get("target_split_mode", ""))
+    if mode == "split":
+        return review_model.normalize_split_records(row.get("target_splits_selected", None)) or []
+    if mode == "unsplit":
+        return []
+    return review_model.normalize_split_records(row.get("target_splits", None))
+
+
+def _resolve_category_id(
+    category_name: str,
+    *,
+    category_ids: dict[str, str],
+    category_alias_ids: dict[str, str],
+    uncategorized_category_id: str,
+) -> str:
+    text = review_model.normalize_category_value(category_name)
+    if not text or review_model.is_no_category_required(text):
+        return ""
+    category_id = category_ids.get(text, "")
+    if category_id:
+        return category_id
+    alias_id = category_alias_ids.get(_category_alias(text), "")
+    if alias_id:
+        return alias_id
+    return uncategorized_category_id
+
+
 def _canonical_context_text(row: pd.Series, *names: str) -> str:
     for name in names:
         value = _normalize_text(row.get(name, ""))
@@ -159,6 +191,15 @@ def _review_artifact_to_working_frame(
                 "target_payee_selected": _normalize_text(row.get("target_payee_selected", "")),
                 "target_category_selected": review_model.normalize_category_value(
                     row.get("target_category_selected", "")
+                ),
+                "target_split_mode": review_model.normalize_split_mode(
+                    row.get("target_split_mode", "")
+                ),
+                "target_splits_selected": review_model.normalize_split_records(
+                    row.get("target_splits_selected", None)
+                ),
+                "target_splits": review_model.normalize_split_records(
+                    row.get("target_splits", None)
                 ),
                 "decision_action": _normalize_text(row.get("decision_action", "")),
                 "reviewed": bool(row.get("reviewed", False)),
@@ -314,21 +355,43 @@ def validate_ready_for_upload(reviewed_source: pd.DataFrame | Any) -> None:
     if upload_df.empty:
         return
 
-    payee = _target_payee_series(upload_df)
-    category = _target_category_series(upload_df)
-    transfer = payee.map(review_model.is_transfer_payee)
-    category_selected = category.map(_is_selected_category)
-    nonzero_amount = _nonzero_amount_mask(upload_df)
+    missing_payee: list[Any] = []
+    missing_category: list[Any] = []
+    zero_amount = upload_df.index[~_nonzero_amount_mask(upload_df)].tolist()
+    split_errors: list[Any] = []
 
-    missing_payee = upload_df.index[payee == ""].tolist()
-    missing_category = upload_df.index[(~category_selected) & ~transfer].tolist()
-    zero_amount = upload_df.index[~nonzero_amount].tolist()
-    if missing_payee or missing_category or zero_amount:
+    for idx, row in upload_df.iterrows():
+        payee = _normalize_text(row.get("target_payee_selected", ""))
+        split_mode = review_model.normalize_split_mode(row.get("target_split_mode", ""))
+        if not payee:
+            missing_payee.append(idx)
+        if split_mode == "split":
+            splits = _effective_target_splits(row) or []
+            if not splits:
+                split_errors.append(idx)
+                continue
+            row_errors, _ = review_validation.validate_row(row)
+            if row_errors:
+                split_errors.append(idx)
+                continue
+            for split in splits:
+                category_name = review_model.normalize_category_value(split.get("category_raw", ""))
+                if not _is_selected_category(category_name):
+                    missing_category.append(idx)
+                    break
+            continue
+        category = review_model.normalize_category_value(row.get("target_category_selected", ""))
+        transfer = review_model.is_transfer_payee(payee)
+        if (not _is_selected_category(category)) and not transfer:
+            missing_category.append(idx)
+
+    if missing_payee or missing_category or zero_amount or split_errors:
         raise ValueError(
             "Rows selected for create_target are not ready for upload: "
             f"{len(missing_payee)} rows missing payee, "
             f"{len(missing_category)} rows missing category, "
-            f"{len(zero_amount)} rows with zero amount."
+            f"{len(zero_amount)} rows with zero amount, "
+            f"{len(split_errors)} rows with invalid split state."
         )
 
 
@@ -337,11 +400,22 @@ def ready_mask(reviewed_source: pd.DataFrame | Any) -> pd.Series:
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
     upload_mask = _decision_action_mask(df)
     payee = _target_payee_series(df)
+    split_mode = _normalize_text_series(df.get("target_split_mode", pd.Series([""] * len(df), index=df.index))).str.casefold()
     category = _target_category_series(df)
     transfer = payee.map(review_model.is_transfer_payee)
     category_selected = category.map(_is_selected_category)
     nonzero_amount = _nonzero_amount_mask(df)
-    return upload_mask & (payee != "") & (category_selected | transfer) & nonzero_amount
+    split_ready = pd.Series([True] * len(df), index=df.index)
+    split_rows = split_mode.eq("split")
+    if split_rows.any():
+        for idx in df.index[split_rows]:
+            splits = _effective_target_splits(df.loc[idx]) or []
+            row_errors, _ = review_validation.validate_row(df.loc[idx])
+            split_ready.loc[idx] = (not row_errors) and bool(splits) and all(
+                _is_selected_category(split.get("category_raw", "")) and not review_model.is_transfer_payee(split.get("payee_raw", ""))
+                for split in splits
+            )
+    return upload_mask & (payee != "") & ((category_selected | transfer) | split_rows) & nonzero_amount & split_ready
 
 
 def prepare_upload_transactions(
@@ -362,6 +436,7 @@ def prepare_upload_transactions(
         "date",
         "target_payee_selected",
         "target_category_selected",
+        "target_split_mode",
         "decision_action",
     ]:
         df[col] = _normalize_text_series(df[col])
@@ -478,8 +553,6 @@ def prepare_upload_transactions(
     df["cleared"] = cleared
     df["approved"] = bool(approved)
 
-    df["upload_kind"] = "regular"
-    df.loc[is_transfer, "upload_kind"] = "transfer"
     df["upload_transaction_id"] = _normalize_text_series(
         df.get("transaction_id", pd.Series([""] * len(df), index=df.index))
     )
@@ -491,29 +564,7 @@ def prepare_upload_transactions(
             dtype="string",
         )
         df.loc[blank_upload_id, "upload_transaction_id"] = generated.loc[blank_upload_id]
-    columns = [
-        "upload_transaction_id",
-        "transaction_id",
-        "decision_action",
-        "account_name",
-        "account_id",
-        "date",
-        "outflow_ils",
-        "inflow_ils",
-        "amount_milliunits",
-        "memo",
-        "target_payee_selected",
-        "payee_name_upload",
-        "payee_id",
-        "transfer_target",
-        "transfer_target_account_id",
-        "target_category_selected",
-        "category_id",
-        "cleared",
-        "approved",
-        "import_id",
-        "upload_kind",
-    ]
+
     optional_columns = [
         "source",
         "source_account",
@@ -533,8 +584,126 @@ def prepare_upload_transactions(
         "max_report_period",
         "max_report_scope",
     ]
-    columns.extend([col for col in optional_columns if col in df.columns])
-    return df[columns].copy()
+
+    prepared_rows: list[dict[str, Any]] = []
+    for _, row in df.iterrows():
+        parent_payee = _normalize_text(row.get("target_payee_selected", ""))
+        parent_payee_id = _normalize_text(row.get("payee_id", ""))
+        parent_payee_name = _normalize_text(row.get("payee_name_upload", ""))
+        split_mode = review_model.normalize_split_mode(row.get("target_split_mode", ""))
+        effective_splits = _effective_target_splits(row) or []
+        base_row = {
+            "upload_transaction_id": _normalize_text(row.get("upload_transaction_id", "")),
+            "transaction_id": _normalize_text(row.get("transaction_id", "")),
+            "decision_action": _normalize_text(row.get("decision_action", "")),
+            "account_name": _normalize_text(row.get("account_name", "")),
+            "account_id": _normalize_text(row.get("account_id", "")),
+            "date": _normalize_text(row.get("date", "")),
+            "memo": _normalize_text(row.get("memo", "")),
+            "parent_memo": _normalize_text(row.get("memo", "")),
+            "target_payee_selected": parent_payee,
+            "cleared": _normalize_text(row.get("cleared", "")),
+            "approved": bool(row.get("approved", False)),
+            "import_id": _normalize_text(row.get("import_id", "")),
+            "parent_payee_id": parent_payee_id,
+            "parent_payee_name_upload": parent_payee_name,
+            "source": _normalize_text(row.get("source", "")),
+            "source_account": _normalize_text(row.get("source_account", "")),
+            "card_suffix": _normalize_text(row.get("card_suffix", "")),
+            "secondary_date": _normalize_text(row.get("secondary_date", "")),
+            "ref": _normalize_text(row.get("ref", "")),
+            "balance_ils": row.get("balance_ils", ""),
+            "ynab_account_id": _normalize_text(row.get("ynab_account_id", "")),
+            "bank_txn_id": _normalize_text(row.get("bank_txn_id", "")),
+            "card_txn_id": _normalize_text(row.get("card_txn_id", "")),
+            "workflow_type": _normalize_text(row.get("workflow_type", "")),
+            "match_status": _normalize_text(row.get("match_status", "")),
+            "max_sheet": row.get("max_sheet", ""),
+            "max_txn_type": row.get("max_txn_type", ""),
+            "max_original_amount": row.get("max_original_amount", ""),
+            "max_original_currency": row.get("max_original_currency", ""),
+            "max_report_period": row.get("max_report_period", ""),
+            "max_report_scope": row.get("max_report_scope", ""),
+        }
+        if split_mode == "split" and effective_splits:
+            for split in effective_splits:
+                line_payee = _normalize_text(split.get("payee_raw", ""))
+                line_transfer_target = _transfer_target(line_payee)
+                line_category = review_model.normalize_category_value(split.get("category_raw", ""))
+                line_category_id = _resolve_category_id(
+                    line_category,
+                    category_ids=category_ids,
+                    category_alias_ids=category_alias_ids,
+                    uncategorized_category_id=uncategorized_category_id,
+                )
+                prepared_rows.append(
+                    {
+                        **base_row,
+                        "outflow_ils": float(split.get("outflow_ils", 0.0) or 0.0),
+                        "inflow_ils": float(split.get("inflow_ils", 0.0) or 0.0),
+                        "amount_milliunits": int(round(review_model.split_amount_ils(split) * 1000)),
+                        "memo": _normalize_text(split.get("memo", "")),
+                        "payee_name_upload": line_payee if not review_model.is_transfer_payee(line_payee) else "",
+                        "payee_id": transfer_payees.get(line_transfer_target, "")
+                        if review_model.is_transfer_payee(line_payee)
+                        else "",
+                        "transfer_target": line_transfer_target,
+                        "transfer_target_account_id": account_ids.get(line_transfer_target, "")
+                        if review_model.is_transfer_payee(line_payee)
+                        else "",
+                        "target_category_selected": line_category,
+                        "category_id": line_category_id,
+                        "upload_kind": "transfer" if review_model.is_transfer_payee(line_payee) else "regular",
+                    }
+                )
+            continue
+
+        prepared_rows.append(
+            {
+                **base_row,
+                "outflow_ils": float(row.get("outflow_ils", 0.0) or 0.0),
+                "inflow_ils": float(row.get("inflow_ils", 0.0) or 0.0),
+                "amount_milliunits": int(row.get("amount_milliunits", 0) or 0),
+                "payee_name_upload": _normalize_text(row.get("payee_name_upload", "")),
+                "payee_id": _normalize_text(row.get("payee_id", "")),
+                "transfer_target": _normalize_text(row.get("transfer_target", "")),
+                "transfer_target_account_id": _normalize_text(row.get("transfer_target_account_id", "")),
+                "target_category_selected": review_model.normalize_category_value(
+                    row.get("target_category_selected", "")
+                ),
+                "category_id": _normalize_text(row.get("category_id", "")),
+                "upload_kind": "transfer" if review_model.is_transfer_payee(parent_payee) else "regular",
+            }
+        )
+
+    columns = [
+        "upload_transaction_id",
+        "transaction_id",
+        "decision_action",
+        "account_name",
+        "account_id",
+        "date",
+        "outflow_ils",
+        "inflow_ils",
+        "amount_milliunits",
+        "memo",
+        "parent_memo",
+        "target_payee_selected",
+        "payee_name_upload",
+        "payee_id",
+        "parent_payee_name_upload",
+        "parent_payee_id",
+        "transfer_target",
+        "transfer_target_account_id",
+        "target_category_selected",
+        "category_id",
+        "cleared",
+        "approved",
+        "import_id",
+        "upload_kind",
+    ]
+    columns.extend(optional_columns)
+    return pd.DataFrame(prepared_rows, columns=columns)
 
 
 def assemble_upload_transaction_units(prepared_df: pd.DataFrame) -> pd.DataFrame:
@@ -561,6 +730,8 @@ def assemble_upload_transaction_units(prepared_df: pd.DataFrame) -> pd.DataFrame
         prepared["account_name"] = ""
     if "memo" not in prepared.columns:
         prepared["memo"] = ""
+    if "parent_memo" not in prepared.columns:
+        prepared["parent_memo"] = prepared["memo"]
     if "cleared" not in prepared.columns:
         prepared["cleared"] = "cleared"
     if "approved" not in prepared.columns:
@@ -569,6 +740,10 @@ def assemble_upload_transaction_units(prepared_df: pd.DataFrame) -> pd.DataFrame
         prepared["payee_id"] = ""
     if "payee_name_upload" not in prepared.columns:
         prepared["payee_name_upload"] = ""
+    if "parent_payee_id" not in prepared.columns:
+        prepared["parent_payee_id"] = ""
+    if "parent_payee_name_upload" not in prepared.columns:
+        prepared["parent_payee_name_upload"] = ""
     if "category_id" not in prepared.columns:
         prepared["category_id"] = ""
     if "target_category_selected" not in prepared.columns:
@@ -581,10 +756,13 @@ def assemble_upload_transaction_units(prepared_df: pd.DataFrame) -> pd.DataFrame
     prepared["account_name"] = _normalize_text_series(prepared["account_name"])
     prepared["date"] = _normalize_text_series(prepared["date"])
     prepared["memo"] = _normalize_text_series(prepared["memo"])
+    prepared["parent_memo"] = _normalize_text_series(prepared["parent_memo"])
     prepared["cleared"] = _normalize_text_series(prepared["cleared"])
     prepared["import_id"] = _normalize_text_series(prepared["import_id"])
     prepared["payee_id"] = _normalize_text_series(prepared["payee_id"])
     prepared["payee_name_upload"] = _normalize_text_series(prepared["payee_name_upload"])
+    prepared["parent_payee_id"] = _normalize_text_series(prepared["parent_payee_id"])
+    prepared["parent_payee_name_upload"] = _normalize_text_series(prepared["parent_payee_name_upload"])
     prepared["category_id"] = _normalize_text_series(prepared["category_id"])
     prepared["target_category_selected"] = _normalize_text_series(
         prepared["target_category_selected"]
@@ -644,12 +822,14 @@ def assemble_upload_transaction_units(prepared_df: pd.DataFrame) -> pd.DataFrame
                 "account_name": _normalize_text(first.get("account_name", "")),
                 "date": _normalize_text(first.get("date", "")),
                 "amount_milliunits": unit_amount,
-                "memo": _normalize_text(first.get("memo", "")),
+                "memo": _normalize_text(first.get("parent_memo", first.get("memo", ""))),
                 "cleared": _normalize_text(first.get("cleared", "")) or "cleared",
                 "approved": bool(first.get("approved", False)),
                 "import_id": _normalize_text(first.get("import_id", "")),
-                "payee_id": _normalize_text(first.get("payee_id", "")),
-                "payee_name_upload": _normalize_text(first.get("payee_name_upload", "")),
+                "payee_id": _normalize_text(first.get("parent_payee_id", ""))
+                or _normalize_text(first.get("payee_id", "")),
+                "payee_name_upload": _normalize_text(first.get("parent_payee_name_upload", ""))
+                or _normalize_text(first.get("payee_name_upload", "")),
                 "category_id": parent_category_id,
                 "target_category_selected": parent_target_category,
                 "transfer_target_account_id": _normalize_text(

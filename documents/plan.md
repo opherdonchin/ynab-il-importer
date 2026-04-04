@@ -13,13 +13,13 @@ Current direction:
 
 ## Current Goal
 
-Start Step 4 cleanly:
+Push Step 4 forward from planning into working code:
 
 1. bring the long-form Step 4 split-editor spec up to the same detail level as Steps 1 through 3
 2. implement the first vertical split-editing slice end to end
 3. keep the existing Step 1-3 path green while the split editor lands
 
-That first Step 4 slice should cover:
+The active Step 4 slice should cover:
 1. canonical review-schema support for reviewed split-edit state
 2. review-app editing of reviewed split state
 3. save/resume persistence of reviewed split edits
@@ -89,7 +89,7 @@ Done:
   - [app.py](src/ynab_il_importer/review_app/app.py#L540) now uses lookup-driven group summary/default helpers instead of repeated pandas mask slicing for the grouped header badges and defaults
   - easy helper signatures were tightened so the non-island path no longer advertises unnecessary `pandas | polars` flexibility
 
-Step 4 is now beginning.
+Step 4 is now underway.
 
 The next real work is no longer about split display. It is about reviewed split state:
 
@@ -97,6 +97,14 @@ The next real work is no longer about split display. It is about reviewed split 
 - reviewed split-edit columns will carry user intent
 - the app will derive effective split state from mode + snapshot + reviewed selection
 - upload prep will consume explicit reviewed split state rather than inferring everything from grouped flat rows
+
+- the first Step 4 slice is now implemented:
+  - [review_schema.py](src/ynab_il_importer/artifacts/review_schema.py#L1) now has explicit split mode and reviewed selected split columns
+  - [review_app/io.py](src/ynab_il_importer/review_app/io.py#L1) now round-trips those columns and preserves them through review save/load
+  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L1262) now exposes source/target split editors with reviewed split mode controls
+  - [review_app/state.py](src/ynab_il_importer/review_app/state.py#L20) now computes effective split counts/text from split mode + snapshot + reviewed selection
+  - [review_app/validation.py](src/ynab_il_importer/review_app/validation.py#L306) now blocks review for invalid split edits
+  - [upload_prep.py](src/ynab_il_importer/upload_prep.py#L347) now expands reviewed target split edits into split upload units
 
 ## Working Rules For This Phase
 
@@ -115,17 +123,18 @@ The next real work is no longer about split display. It is about reviewed split 
 - letting split editing leak into matching semantics
 - losing important target-side creation context when `target_present` is false
 - leaving builders or upload prep on stale nested in-memory review shapes while persisted artifacts are flat
-- making split removal ambiguous by relying on `None` vs `[]` instead of an explicit mode field
+- making split replacement semantics for existing YNAB split transactions too implicit
+- letting split editor widget state drift from the persisted reviewed split columns
 
 ## Next Step
 
 Step 3 is complete.
 
 Immediate next steps:
-1. finish the long-form Step 4 specification in `documents/handle_splits_implementation_plan.md`
-2. add explicit reviewed split-edit fields to the canonical review schema:
-   - split mode
-   - reviewed selected split lines
-3. wire the review app to edit and persist reviewed split state
-4. teach upload prep to consume reviewed target split edits
-5. keep review app, upload prep, and save/resume tests green throughout
+1. harden the Step 4 editor behavior on real app workflows
+   - verify source-side editing behaves sensibly where source mutation is allowed
+   - tighten grouped-mode behavior around reviewed split edits
+2. clarify the upload plan for existing target split replacement / unsplit replacement
+   - explicit replace semantics
+   - no accidental promise of in-place YNAB subtransaction edits
+3. keep review app, upload prep, and save/resume tests green while broadening Step 4 coverage

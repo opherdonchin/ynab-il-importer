@@ -12,7 +12,9 @@ import pyarrow.parquet as pq
 from ynab_il_importer.artifacts.review_schema import (
     REVIEW_ARTIFACT_VERSION,
     REVIEW_SCHEMA,
+    REVIEW_SPLIT_MODES,
     REVIEW_SIDE_SCALAR_FIELDS,
+    SPLIT_MODE_INHERIT,
 )
 from ynab_il_importer.artifacts.transaction_schema import SPLIT_LINE_STRUCT
 import ynab_il_importer.review_app.model as model
@@ -59,7 +61,13 @@ LEGACY_INSTITUTIONAL_REQUIRED_COLUMNS = [
 REVIEW_FIELD_NAMES = [field.name for field in REVIEW_SCHEMA]
 REVIEW_SIDE_SCALAR_FIELD_NAMES = [field.name for field in REVIEW_SIDE_SCALAR_FIELDS]
 SPLIT_FIELD_NAMES = [field.name for field in SPLIT_LINE_STRUCT]
-SPLIT_COLUMNS = ["source_splits", "target_splits"]
+SPLIT_COLUMNS = [
+    "source_splits",
+    "target_splits",
+    "source_splits_selected",
+    "target_splits_selected",
+]
+SPLIT_MODE_COLUMNS = ["source_split_mode", "target_split_mode"]
 
 
 def _missing_columns(df: pd.DataFrame, required: Iterable[str]) -> list[str]:
@@ -89,6 +97,13 @@ def _normalize_bool(value: Any) -> bool:
 
 def _normalize_float(value: Any) -> float:
     return float(pd.to_numeric(pd.Series([value]), errors="coerce").fillna(0.0).iloc[0])
+
+
+def _normalize_split_mode(value: Any) -> str:
+    text = _normalize_text(value).casefold()
+    if text in REVIEW_SPLIT_MODES:
+        return text
+    return SPLIT_MODE_INHERIT
 
 
 def _legacy_source_row_ids(df: pd.DataFrame) -> pd.Series:
@@ -144,6 +159,10 @@ def _translate_legacy_institutional_review(df: pd.DataFrame) -> pd.DataFrame:
     out["target_fingerprint"] = ""
     out["source_splits"] = None
     out["target_splits"] = None
+    out["source_splits_selected"] = None
+    out["target_splits_selected"] = None
+    out["source_split_mode"] = SPLIT_MODE_INHERIT
+    out["target_split_mode"] = SPLIT_MODE_INHERIT
     return out
 
 
@@ -193,10 +212,13 @@ def _is_review_artifact_table(table: pa.Table) -> bool:
 
 
 def _coerce_review_artifact_table(table: pa.Table) -> pa.Table:
-    return pa.Table.from_arrays(
-        [table[field.name].cast(field.type, safe=False) for field in REVIEW_SCHEMA],
-        schema=REVIEW_SCHEMA,
-    )
+    arrays: list[pa.Array] = []
+    for field in REVIEW_SCHEMA:
+        if field.name in table.column_names:
+            arrays.append(table[field.name].cast(field.type, safe=False))
+        else:
+            arrays.append(pa.array([None] * table.num_rows, type=field.type))
+    return pa.Table.from_arrays(arrays, schema=REVIEW_SCHEMA)
 
 
 def _normalize_split_records(value: Any) -> list[dict[str, Any]] | None:
@@ -232,7 +254,7 @@ def _normalize_split_records(value: Any) -> list[dict[str, Any]] | None:
                 for name in SPLIT_FIELD_NAMES
             }
         )
-    return normalized or None
+    return normalized
 
 
 def _flat_side_snapshot(row: pd.Series, *, side: str) -> dict[str, Any]:
@@ -426,6 +448,7 @@ def _review_record_from_row(row: pd.Series) -> dict[str, Any]:
         "source_context_matching_split_ids": _normalize_text(
             row.get("source_context_matching_split_ids")
         ),
+        "source_split_mode": _normalize_split_mode(row.get("source_split_mode")),
         "source_payee_selected": _normalize_text(row.get("source_payee_selected")),
         "source_category_selected": model.normalize_category_value(
             row.get("source_category_selected")
@@ -434,10 +457,13 @@ def _review_record_from_row(row: pd.Series) -> dict[str, Any]:
         "target_context_matching_split_ids": _normalize_text(
             row.get("target_context_matching_split_ids")
         ),
+        "target_split_mode": _normalize_split_mode(row.get("target_split_mode")),
         "target_payee_selected": _normalize_text(row.get("target_payee_selected")),
         "target_category_selected": model.normalize_category_value(
             row.get("target_category_selected")
         ),
+        "source_splits_selected": _normalize_split_records(row.get("source_splits_selected")),
+        "target_splits_selected": _normalize_split_records(row.get("target_splits_selected")),
     }
     record.update(source_side)
     record.update(target_side)
@@ -545,6 +571,9 @@ def project_review_artifact_to_flat_dataframe(
     for column in SPLIT_COLUMNS:
         if column in df.columns:
             df[column] = df[column].map(_normalize_split_records)
+    for column in SPLIT_MODE_COLUMNS:
+        if column in df.columns:
+            df[column] = df[column].map(_normalize_split_mode)
     df["transaction_id"] = _text_series(df, "review_transaction_id")
     df["payee_selected"] = _text_series(df, "target_payee_selected")
     df["category_selected"] = _text_series(df, "target_category_selected")
@@ -614,6 +643,9 @@ def save_reviewed_transactions(
     ).copy()
     out["update_maps"] = validation.normalize_update_maps(out["update_maps"])
     out["reviewed"] = out["reviewed"].map(lambda value: "TRUE" if bool(value) else "")
+    for column in SPLIT_MODE_COLUMNS:
+        if column in out.columns:
+            out[column] = out[column].map(_normalize_split_mode)
     for flag_col in [
         "source_present",
         "target_present",

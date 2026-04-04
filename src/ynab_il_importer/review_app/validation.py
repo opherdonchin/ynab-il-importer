@@ -82,6 +82,14 @@ def _truthy(value: Any) -> bool:
     return _text(value).casefold() in TRUE_VALUES or bool(value) is True
 
 
+def _numeric(value: Any) -> float:
+    return float(pd.to_numeric(pd.Series([value]), errors="coerce").fillna(0.0).iloc[0])
+
+
+def _row_signed_amount(row: Any) -> float:
+    return _numeric(_row_get(row, "inflow_ils", 0.0)) - _numeric(_row_get(row, "outflow_ils", 0.0))
+
+
 def _row_has(row: Any, key: str) -> bool:
     if isinstance(row, pd.Series):
         return key in row.index
@@ -314,11 +322,16 @@ def validate_row(row: Any) -> tuple[list[str], list[str]]:
     action = normalize_decision_action(_row_get(row, "decision_action", ""))
     reviewed = _truthy(_row_get(row, "reviewed", False))
     workflow_type = _text(_row_get(row, "workflow_type")).casefold()
+    source_split_mode = model.normalize_split_mode(_row_get(row, "source_split_mode", ""))
+    target_split_mode = model.normalize_split_mode(_row_get(row, "target_split_mode", ""))
+    source_splits = model.effective_split_records(row, side="source")
+    target_splits = model.effective_split_records(row, side="target")
     source_category_required = not model.is_transfer_payee(source_payee)
     category_required = not model.is_transfer_payee(target_payee)
     source_no_category_required = model.is_no_category_required(source_category)
     target_no_category_required = model.is_no_category_required(target_category)
     update_maps = parse_update_maps(_row_get(row, "update_maps", ""))
+    parent_signed_amount = _row_signed_amount(row)
 
     if reviewed and action == NO_DECISION:
         errors.append("reviewed row cannot have No decision")
@@ -327,13 +340,47 @@ def validate_row(row: Any) -> tuple[list[str], list[str]]:
     if action == "create_source":
         if not source_payee:
             errors.append("missing source payee")
-        if source_category_required and (not source_category or source_no_category_required):
+        if (
+            source_split_mode != "split"
+            and source_category_required
+            and (not source_category or source_no_category_required)
+        ):
             errors.append("missing source category")
     if action == "create_target":
         if not target_payee:
             errors.append("missing target payee")
-        if category_required and (not target_category or target_no_category_required):
+        if (
+            target_split_mode != "split"
+            and category_required
+            and (not target_category or target_no_category_required)
+        ):
             errors.append("missing target category")
+
+    for side, splits, split_mode in [
+        ("source", source_splits, source_split_mode),
+        ("target", target_splits, target_split_mode),
+    ]:
+        if split_mode != "split":
+            continue
+        if not splits:
+            errors.append(f"{side} split edit has no split lines")
+            continue
+        if len(splits) < 2:
+            errors.append(f"{side} split edit needs at least two split lines")
+        split_total = sum(model.split_amount_ils(split) for split in splits)
+        if round(split_total, 2) != round(parent_signed_amount, 2):
+            errors.append(f"{side} split totals do not match parent amount")
+        for line_index, split in enumerate(splits, start=1):
+            if not _text(split.get("split_id", "")):
+                errors.append(f"{side} split line {line_index} is missing split_id")
+            line_payee = _text(split.get("payee_raw", ""))
+            line_category = model.normalize_category_value(split.get("category_raw", ""))
+            if side == "target" and not line_payee:
+                errors.append(f"{side} split line {line_index} is missing payee")
+            if model.is_transfer_payee(line_payee):
+                errors.append(f"{side} split line {line_index} uses unsupported transfer payee")
+            if not line_category or model.is_no_category_required(line_category):
+                errors.append(f"{side} split line {line_index} is missing category")
 
     if ";" in target_payee:
         warnings.append("payee contains ';'")

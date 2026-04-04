@@ -184,6 +184,22 @@ def test_save_review_artifact_parquet_round_trip_preserves_flat_sides_and_splits
                 "source_context_matching_split_ids": "sub-1",
                 "target_context_kind": "",
                 "target_context_matching_split_ids": "",
+                "target_split_mode": "split",
+                "target_splits_selected": [
+                    {
+                        "split_id": "edited-1",
+                        "parent_transaction_id": "t1",
+                        "ynab_subtransaction_id": "",
+                        "payee_raw": "Cafe target",
+                        "category_id": "",
+                        "category_raw": "Food",
+                        "memo": "edited memo",
+                        "inflow_ils": 0.0,
+                        "outflow_ils": 10.0,
+                        "import_id": "",
+                        "matched_transaction_id": "",
+                    }
+                ],
                 "source_transaction": {
                     "artifact_kind": "normalized_source",
                     "artifact_version": "transaction_v1",
@@ -218,6 +234,8 @@ def test_save_review_artifact_parquet_round_trip_preserves_flat_sides_and_splits
     assert loaded.loc[0, "source_transaction_id"] == "src-1"
     assert loaded.loc[0, "source_payee_current"] == "Cafe source"
     assert loaded.loc[0, "source_splits"] is None
+    assert loaded.loc[0, "target_split_mode"] == "split"
+    assert loaded.loc[0, "target_splits_selected"][0]["split_id"] == "edited-1"
 
 
 def test_load_review_artifact_polars_preserves_flat_sides_and_context(tmp_path) -> None:
