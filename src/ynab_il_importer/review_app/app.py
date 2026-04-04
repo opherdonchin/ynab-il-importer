@@ -1880,17 +1880,7 @@ def main() -> None:
 
     changed_count = int(changed_mask.sum())
     reviewed_count = int(reviewed_mask.sum())
-    matrix_counts = (
-        pd.Series(
-            [
-                f"{str(primary_state_series.loc[idx])} / {str(save_state.loc[idx])}"
-                for idx in df.index
-            ],
-            index=df.index,
-        )
-        .value_counts()
-        .to_dict()
-    )
+    matrix_counts = review_state.state_matrix_counts(primary_state_series, save_state)
     st.markdown(
         f"**Total:** {counts['total']} | "
         f"**Missing payee:** {counts['missing_payee']} | "
@@ -1921,8 +1911,8 @@ def main() -> None:
     if not inconsistent.empty:
         st.warning(f"Inconsistent repeated transaction selections: {len(inconsistent)}")
 
-    filtered = review_state.apply_row_filters(
-        df,
+    filtered_indices = review_state.filtered_row_indices(
+        df.index,
         primary_state=primary_state,
         row_kind=selected_row_kind,
         action_filter=selected_action,
@@ -1940,6 +1930,7 @@ def main() -> None:
         search_query=str(search_query or "").strip().casefold(),
         search_text=search_text,
     )
+    filtered = df.loc[filtered_indices]
 
     payee_defaults = review_state.most_common_by_fingerprint(df, "payee_selected")
     category_defaults = review_state.most_common_by_fingerprint(df, "category_selected")

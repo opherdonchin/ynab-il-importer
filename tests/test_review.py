@@ -319,6 +319,75 @@ def test_summary_counts_and_filters_follow_new_decision_action_rules() -> None:
     assert reviewed_only.index.tolist() == [2]
 
 
+def test_filtered_row_indices_follow_series_filters_without_dataframe_masks() -> None:
+    df = _review_rows(
+        [
+            {
+                "transaction_id": "keep",
+                "match_status": "source_only",
+                "decision_action": "create_target",
+                "reviewed": False,
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+                "update_maps": "",
+            },
+            {
+                "transaction_id": "hide",
+                "match_status": "ambiguous",
+                "decision_action": review_validation.NO_DECISION,
+                "reviewed": False,
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+                "update_maps": "payee_add_fingerprint",
+            },
+        ]
+    )
+
+    blocker_series = review_validation.blocker_series(df)
+    primary_state_series = review_state.primary_state_series(df, blocker_series)
+    row_kind_series = review_state.row_kind_series(df)
+    action_series = review_state.action_series(df)
+    save_state = pd.Series(["Unsaved", "Saved"], index=df.index, dtype="string")
+    suggestion_series = review_state.suggestion_series(df)
+    map_update_series = review_state.map_update_filter_series(df)
+    search_text = pd.Series(["keep me", "hide me"], index=df.index, dtype="string")
+
+    indices = review_state.filtered_row_indices(
+        df.index,
+        primary_state=["Decide"],
+        row_kind=["Source only", "Ambiguous"],
+        action_filter=["create_target"],
+        save_status=["Unsaved", "Saved"],
+        blocker_filter=["None"],
+        suggestion_filter=["No suggestions", "Has suggestions"],
+        map_update_filter=["Has update_maps", "No update_maps"],
+        primary_state_series=primary_state_series,
+        row_kind_series=row_kind_series,
+        action_series=action_series,
+        save_state=save_state,
+        blocker_series=blocker_series,
+        suggestion_series=suggestion_series,
+        map_update_series=map_update_series,
+        search_query="keep",
+        search_text=search_text,
+    )
+
+    assert indices == [0]
+
+
+def test_state_matrix_counts_accepts_series_inputs() -> None:
+    primary_state = pd.Series(["Fix", "Fix", "Settled"], dtype="string")
+    save_state = pd.Series(["Unsaved", "Saved", "Saved"], dtype="string")
+
+    counts = review_state.state_matrix_counts(primary_state, save_state)
+
+    assert counts == {
+        "Fix / Unsaved": 1,
+        "Fix / Saved": 1,
+        "Settled / Saved": 1,
+    }
+
+
 def test_primary_state_series_maps_fix_decide_and_settled() -> None:
     df = _review_rows(
         [

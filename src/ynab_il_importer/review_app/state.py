@@ -647,6 +647,18 @@ def map_update_filter_series(df: pd.DataFrame) -> pd.Series:
     )
 
 
+def state_matrix_counts(
+    primary_state_series: pd.Series | pl.Series | list[str],
+    save_state_series: pd.Series | pl.Series | list[str],
+) -> dict[str, int]:
+    primary_values = _clean_text_list(primary_state_series)
+    save_values = _clean_text_list(save_state_series)
+    counts: Counter[str] = Counter()
+    for primary, save_state in zip(primary_values, save_values, strict=False):
+        counts[f"{primary} / {save_state}"] += 1
+    return dict(counts)
+
+
 def search_text_series(df: pd.DataFrame) -> pd.Series:
     columns = [
         "fingerprint",
@@ -752,6 +764,87 @@ def apply_row_filters(
         mask &= search_text.str.contains(search_query, regex=False)
 
     return df[mask]
+
+
+def filtered_row_indices(
+    index: pd.Index | list[Any],
+    *,
+    primary_state: list[str],
+    row_kind: list[str],
+    action_filter: list[str],
+    save_status: list[str],
+    blocker_filter: list[str],
+    suggestion_filter: list[str],
+    map_update_filter: list[str],
+    primary_state_series: pd.Series,
+    row_kind_series: pd.Series,
+    action_series: pd.Series,
+    save_state: pd.Series,
+    blocker_series: pd.Series,
+    suggestion_series: pd.Series,
+    map_update_series: pd.Series,
+    search_query: str,
+    search_text: pd.Series,
+) -> list[Any]:
+    indices = list(index)
+    if not indices:
+        return []
+
+    allowed_primary = set(primary_state)
+    allowed_row_kind = set(row_kind)
+    allowed_action = set(action_filter)
+    allowed_save_status = set(save_status)
+    allowed_blocker = set(blocker_filter)
+    allowed_suggestion = set(suggestion_filter)
+    allowed_map_update = set(map_update_filter)
+
+    primary_values = (
+        primary_state_series.reindex(indices).astype("string").fillna("").tolist()
+    )
+    row_kind_values = row_kind_series.reindex(indices).astype("string").fillna("").tolist()
+    action_values = action_series.reindex(indices).astype("string").fillna("").tolist()
+    save_values = save_state.reindex(indices).astype("string").fillna("").tolist()
+    blocker_values = blocker_series.reindex(indices).astype("string").fillna("").tolist()
+    suggestion_values = (
+        suggestion_series.reindex(indices).astype("string").fillna("").tolist()
+    )
+    map_update_values = (
+        map_update_series.reindex(indices).astype("string").fillna("").tolist()
+    )
+    search_values = search_text.reindex(indices).astype("string").fillna("").tolist()
+
+    selected: list[Any] = []
+    query = str(search_query or "")
+    for idx, primary, kind, action, save_value, blocker, suggestion, map_update, text in zip(
+        indices,
+        primary_values,
+        row_kind_values,
+        action_values,
+        save_values,
+        blocker_values,
+        suggestion_values,
+        map_update_values,
+        search_values,
+        strict=False,
+    ):
+        if primary not in allowed_primary:
+            continue
+        if kind not in allowed_row_kind:
+            continue
+        if action not in allowed_action:
+            continue
+        if save_value not in allowed_save_status:
+            continue
+        if blocker not in allowed_blocker:
+            continue
+        if suggestion not in allowed_suggestion:
+            continue
+        if map_update not in allowed_map_update:
+            continue
+        if query and query not in str(text or ""):
+            continue
+        selected.append(idx)
+    return selected
 
 
 def related_row_indices(
