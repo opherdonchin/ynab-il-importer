@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import math
 import pandas as pd
 import polars as pl
 
@@ -36,6 +37,10 @@ def test_validate_row_blocks_reviewed_no_decision_and_institutional_source_mutat
     assert "missing source payee" in errors
     assert "missing source category" in errors
     assert warnings == []
+
+
+def test_parse_option_string_ignores_nan_values() -> None:
+    assert review_model.parse_option_string(math.nan) == []
 
 
 def test_validate_row_accepts_plain_mapping() -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import pandas as pd
@@ -9,7 +10,9 @@ NO_CATEGORY_REQUIRED = "None"
 
 
 def parse_option_string(value: Any) -> list[str]:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
+    if value is None:
+        return []
+    if isinstance(value, float) and math.isnan(value):
         return []
     text = str(value).strip()
     if not text:

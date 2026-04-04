@@ -208,24 +208,33 @@ def canonical_search_text_series(df: pl.DataFrame) -> pd.Series:
         "source_split_text",
         "target_split_text",
     ]
-    view = table.select(search_columns).to_pandas()
-    helper_view = helpers.select(
-        [
-            "source_display_payee",
-            "target_display_payee",
-            "source_display_category",
-            "target_display_category",
-            "source_display_account",
-            "target_display_account",
-            "source_display_date",
-            "target_display_date",
-        ]
-    ).to_pandas()
-    text = pd.Series([""] * len(view), index=view.index, dtype="string")
-    for column in list(view.columns) + list(helper_view.columns):
-        frame = view if column in view.columns else helper_view
-        text = text + " " + frame[column].astype("string").fillna("")
-    return text.str.casefold()
+    helper_columns = [
+        "source_display_payee",
+        "target_display_payee",
+        "source_display_category",
+        "target_display_category",
+        "source_display_account",
+        "target_display_account",
+        "source_display_date",
+        "target_display_date",
+    ]
+    search_values = table.select(
+        [pl.col(column).cast(pl.Utf8, strict=False).fill_null("").alias(column) for column in search_columns]
+    ).to_dict(as_series=False)
+    helper_values = helpers.select(
+        [pl.col(column).cast(pl.Utf8, strict=False).fill_null("").alias(column) for column in helper_columns]
+    ).to_dict(as_series=False)
+
+    row_count = df.height
+    text_values: list[str] = []
+    for idx in range(row_count):
+        parts: list[str] = []
+        for column in search_columns:
+            parts.append(str(search_values.get(column, [""] * row_count)[idx] or ""))
+        for column in helper_columns:
+            parts.append(str(helper_values.get(column, [""] * row_count)[idx] or ""))
+        text_values.append(" ".join(parts).casefold())
+    return pd.Series(text_values, index=range(row_count), dtype="string")
 
 
 def series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
