@@ -195,6 +195,25 @@ def _component_map_from_lists(
     return component_map
 
 
+def _component_members(component_map: dict[Any, int]) -> dict[int, list[Any]]:
+    members: dict[int, list[Any]] = {}
+    for idx, label in component_map.items():
+        members.setdefault(label, []).append(idx)
+    return members
+
+
+def _row_items(df: pd.DataFrame | pl.DataFrame, indices: list[Any]) -> list[tuple[Any, Any]]:
+    if isinstance(df, pd.DataFrame):
+        return [(idx, df.loc[idx]) for idx in indices if idx in df.index]
+    rows = df.to_dicts()
+    items: list[tuple[Any, Any]] = []
+    for idx in indices:
+        if not isinstance(idx, int) or idx < 0 or idx >= len(rows):
+            continue
+        items.append((idx, rows[idx]))
+    return items
+
+
 def connected_component_mask(df: pd.DataFrame, start_idx: Any) -> pd.Series:
     if start_idx not in df.index:
         return pd.Series([False] * len(df), index=df.index)
@@ -227,7 +246,7 @@ def precompute_components(df: pd.DataFrame | pl.DataFrame) -> dict[Any, int]:
 
 
 def precompute_component_errors(
-    df: pd.DataFrame,
+    df: pd.DataFrame | pl.DataFrame,
     component_map: dict[Any, int],
     *,
     row_errors_by_index: dict[Any, list[str]] | None = None,
@@ -236,27 +255,20 @@ def precompute_component_errors(
     if not component_map:
         return component_errors
 
-    component_series = pd.Series(component_map).reindex(df.index)
-    first_index_by_component: dict[int, Any] = {}
-    for idx in df.index:
-        label = component_map.get(idx)
-        if label is None or label in first_index_by_component:
-            continue
-        first_index_by_component[label] = idx
-
-    for label, start_idx in first_index_by_component.items():
-        component_mask = component_series.eq(label).fillna(False)
+    component_members = _component_members(component_map)
+    for label, indices in component_members.items():
+        start_idx = indices[0]
         component_errors[label] = review_component_errors(
             df,
             start_idx,
-            component_mask=component_mask,
+            component_indices=indices,
             row_errors_by_index=row_errors_by_index,
         )
 
     return component_errors
 
 
-def component_error_lookup(df: pd.DataFrame) -> dict[Any, list[str]]:
+def component_error_lookup(df: pd.DataFrame | pl.DataFrame) -> dict[Any, list[str]]:
     component_map = precompute_components(df)
     component_errors = precompute_component_errors(df, component_map)
     return {
@@ -354,38 +366,46 @@ def precompute_row_errors(df: pd.DataFrame | pl.DataFrame) -> dict[Any, list[str
 
 
 def review_component_errors(
-    df: pd.DataFrame,
+    df: pd.DataFrame | pl.DataFrame,
     start_idx: Any,
     *,
     component_mask: pd.Series | None = None,
+    component_indices: list[Any] | None = None,
     row_errors_by_index: dict[Any, list[str]] | None = None,
 ) -> list[str]:
-    if component_mask is None:
-        component_mask = connected_component_mask(df, start_idx)
-    else:
-        component_mask = component_mask.reindex(df.index, fill_value=False)
+    if component_indices is None:
+        if isinstance(df, pd.DataFrame):
+            if component_mask is None:
+                component_mask = connected_component_mask(df, start_idx)
+            else:
+                component_mask = component_mask.reindex(df.index, fill_value=False)
+            component_indices = df.index[component_mask].tolist()
+        else:
+            component_map = precompute_components(df)
+            component_label = component_map.get(start_idx)
+            if component_label is None:
+                return []
+            component_indices = _component_members(component_map).get(component_label, [])
 
-    component = df.loc[component_mask].copy()
-    if component.empty:
+    component_rows = _row_items(df, component_indices)
+    if not component_rows:
         return []
 
     errors: list[str] = []
-    actions = normalize_decision_actions(
-        component.get("decision_action", pd.Series([""] * len(component), index=component.index))
-    )
-    source_ids = _id_series(component, "source_row_id")
-    target_ids = _id_series(component, "target_row_id")
-    workflow_type = component.get(
-        "workflow_type",
-        pd.Series([""] * len(component), index=component.index, dtype="string"),
-    ).astype("string").fillna("").str.strip().str.casefold()
+    actions = [normalize_decision_action(_row_get(row, "decision_action", "")) for _, row in component_rows]
+    source_ids = [_text(_row_get(row, "source_row_id", "")) for _, row in component_rows]
+    target_ids = [_text(_row_get(row, "target_row_id", "")) for _, row in component_rows]
+    workflow_types = [_text(_row_get(row, "workflow_type", "")).casefold() for _, row in component_rows]
 
-    if actions.eq(NO_DECISION).any():
+    if any(action == NO_DECISION for action in actions):
         errors.append("connected rows still contain No decision")
-    if ((workflow_type == "institutional") & actions.isin(SOURCE_MUTATION_ACTIONS)).any():
+    if any(
+        workflow_type == "institutional" and action in SOURCE_MUTATION_ACTIONS
+        for workflow_type, action in zip(workflow_types, actions, strict=False)
+    ):
         errors.append("institutional rows cannot create or delete on the source side")
 
-    for idx, row in component.iterrows():
+    for idx, row in component_rows:
         row_errors = (
             row_errors_by_index.get(idx, [])
             if row_errors_by_index is not None
@@ -393,18 +413,22 @@ def review_component_errors(
         )
         errors.extend([f"row {idx}: {message}" for message in row_errors])
 
-    for source_id in sorted({value for value in source_ids.tolist() if value}):
-        group_actions = actions.loc[source_ids == source_id]
-        if int(group_actions.isin(SOURCE_MATCH_ACTIONS).sum()) > 1:
+    for source_id in sorted({value for value in source_ids if value}):
+        group_actions = [action for sid, action in zip(source_ids, actions, strict=False) if sid == source_id]
+        if sum(1 for action in group_actions if action in SOURCE_MATCH_ACTIONS) > 1:
             errors.append(f"source transaction {source_id} has multiple reviewed match outcomes")
-        if group_actions.isin(SOURCE_MATCH_ACTIONS).any() and group_actions.isin(SOURCE_DELETE_ACTIONS).any():
+        if any(action in SOURCE_MATCH_ACTIONS for action in group_actions) and any(
+            action in SOURCE_DELETE_ACTIONS for action in group_actions
+        ):
             errors.append(f"source transaction {source_id} is both matched and deleted")
 
-    for target_id in sorted({value for value in target_ids.tolist() if value}):
-        group_actions = actions.loc[target_ids == target_id]
-        if int(group_actions.isin(TARGET_MATCH_ACTIONS).sum()) > 1:
+    for target_id in sorted({value for value in target_ids if value}):
+        group_actions = [action for tid, action in zip(target_ids, actions, strict=False) if tid == target_id]
+        if sum(1 for action in group_actions if action in TARGET_MATCH_ACTIONS) > 1:
             errors.append(f"target transaction {target_id} has multiple reviewed match outcomes")
-        if group_actions.isin(TARGET_MATCH_ACTIONS).any() and group_actions.isin(TARGET_DELETE_ACTIONS).any():
+        if any(action in TARGET_MATCH_ACTIONS for action in group_actions) and any(
+            action in TARGET_DELETE_ACTIONS for action in group_actions
+        ):
             errors.append(f"target transaction {target_id} is both matched and deleted")
 
     return errors

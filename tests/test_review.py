@@ -607,6 +607,29 @@ def test_precompute_component_errors_propagates() -> None:
     assert component_errors[component_map[2]] == []
 
 
+def test_precompute_component_errors_accepts_polars_review_table() -> None:
+    df = pl.DataFrame(
+        {
+            "source_row_id": ["s1", "s1", "s3"],
+            "target_row_id": ["t1", "t2", "t3"],
+            "workflow_type": ["cross_budget", "cross_budget", "cross_budget"],
+            "decision_action": ["keep_match", review_validation.NO_DECISION, "keep_match"],
+            "reviewed": [True, True, True],
+            "source_payee_selected": ["Cafe", "Cafe", "Cafe"],
+            "source_category_selected": ["Food", "Food", "Food"],
+            "target_payee_selected": ["Cafe", "Cafe", "Cafe"],
+            "target_category_selected": ["Food", "Food", "Food"],
+            "update_maps": ["", "", ""],
+        }
+    )
+
+    component_map = review_validation.precompute_components(df)
+    component_errors = review_validation.precompute_component_errors(df, component_map)
+
+    assert "connected rows still contain No decision" in component_errors[component_map[0]]
+    assert component_errors[component_map[2]] == []
+
+
 def test_blocker_series_with_components_returns_series_and_component_map() -> None:
     df = _review_rows(
         [
