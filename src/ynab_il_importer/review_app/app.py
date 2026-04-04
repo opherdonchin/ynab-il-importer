@@ -231,12 +231,76 @@ def _accept_reviewed_components(
     *,
     component_map: dict[Any, int],
 ) -> tuple[pd.DataFrame, list[str], list[Any]]:
-    return review_validation.apply_review_state_best_effort(
-        df,
+    updated, errors, reviewed_indices = review_validation.apply_review_state_best_effort(
+        pl.from_pandas(df),
         review_indices,
         reviewed=True,
         component_map=component_map,
     )
+    return updated.to_pandas(), errors, reviewed_indices
+
+
+def _call_apply_row_edit(
+    df: pd.DataFrame,
+    idx: Any,
+    **kwargs: Any,
+) -> pd.DataFrame:
+    return review_state.apply_row_edit(pl.from_pandas(df), idx, **kwargs).to_pandas()
+
+
+def _call_apply_to_same_fingerprint(
+    df: pd.DataFrame,
+    fingerprint: str,
+    *,
+    payee: str | None = None,
+    category: str | None = None,
+    update_maps: str | None = None,
+    decision_action: str | None = None,
+    reviewed: bool | None = None,
+    eligible_mask: pd.Series | None = None,
+) -> pd.DataFrame:
+    polars_mask = (
+        pl.Series(eligible_mask.astype(bool).tolist())
+        if isinstance(eligible_mask, pd.Series)
+        else None
+    )
+    return review_model.apply_to_same_fingerprint(
+        pl.from_pandas(df),
+        fingerprint,
+        payee=payee,
+        category=category,
+        update_maps=update_maps,
+        decision_action=decision_action,
+        reviewed=reviewed,
+        eligible_mask=polars_mask,
+    ).to_pandas()
+
+
+def _call_apply_competing_row_resolution(
+    df: pd.DataFrame,
+    indices: list[Any],
+) -> tuple[pd.DataFrame, list[Any]]:
+    updated, touched = review_model.apply_competing_row_resolution(
+        pl.from_pandas(df),
+        indices,
+    )
+    return updated.to_pandas(), touched
+
+
+def _call_apply_review_state(
+    df: pd.DataFrame,
+    indices: list[Any],
+    *,
+    reviewed: bool,
+    component_map: dict[Any, int] | None = None,
+) -> tuple[pd.DataFrame, list[str]]:
+    updated, errors = review_validation.apply_review_state(
+        pl.from_pandas(df),
+        indices,
+        reviewed=reviewed,
+        component_map=component_map,
+    )
+    return updated.to_pandas(), errors
 
 
 def _quit_request_path(control_dir: Path) -> Path:
@@ -546,6 +610,55 @@ def _lookup_text(
     return str(row.get(key, "") or "").strip()
 
 
+def _lookup_bool(
+    lookup: dict[Any, dict[str, Any]] | None,
+    idx: Any,
+    key: str,
+) -> bool:
+    if not isinstance(lookup, dict):
+        return False
+    row = lookup.get(idx)
+    if not isinstance(row, dict):
+        return False
+    return bool(row.get(key, False))
+
+
+def _lookup_rows(
+    lookup: dict[Any, dict[str, Any]] | None,
+    indices: list[Any],
+) -> list[dict[str, Any]]:
+    if not isinstance(lookup, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    for idx in indices:
+        row = lookup.get(idx)
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def _most_common_lookup_value(
+    lookup: dict[Any, dict[str, Any]] | None,
+    indices: list[Any],
+    key: str,
+) -> str:
+    values = [str(row.get(key, "") or "").strip() for row in _lookup_rows(lookup, indices)]
+    return review_state.most_common_value(values)
+
+
+def _group_status_counts(
+    lookup: dict[Any, dict[str, Any]] | None,
+    indices: list[Any],
+) -> dict[str, int]:
+    rows = _lookup_rows(lookup, indices)
+    return {
+        "unsaved": sum(1 for row in rows if str(row.get("save_state", "") or "").strip() == "Unsaved"),
+        "saved": sum(1 for row in rows if str(row.get("save_state", "") or "").strip() == "Saved"),
+        "changed": sum(1 for row in rows if bool(row.get("changed_bool", False))),
+        "uncategorized": sum(1 for row in rows if bool(row.get("uncategorized_bool", False))),
+    }
+
+
 def _summary_date(row: pd.Series, helper_row: pd.Series | None) -> str:
     return (
         _helper_text(helper_row, "source_display_date")
@@ -737,17 +850,13 @@ def _render_primary_state_strip(readiness: str, save_state: str) -> None:
 
 
 def _dominant_group_primary_state(
-    readiness: pd.Series | pl.Series | list[str], save_state: pd.Series | pl.Series | list[str]
+    readiness: pl.Series | list[str], save_state: pl.Series | list[str]
 ) -> tuple[str, str]:
-    if isinstance(readiness, pd.Series):
-        readiness_values = readiness.astype("string").fillna("").tolist()
-    elif isinstance(readiness, pl.Series):
+    if isinstance(readiness, pl.Series):
         readiness_values = readiness.cast(pl.Utf8, strict=False).fill_null("").to_list()
     else:
         readiness_values = [str(value or "") for value in readiness]
-    if isinstance(save_state, pd.Series):
-        save_values = save_state.astype("string").fillna("").tolist()
-    elif isinstance(save_state, pl.Series):
+    if isinstance(save_state, pl.Series):
         save_values = save_state.cast(pl.Utf8, strict=False).fill_null("").to_list()
     else:
         save_values = [str(value or "") for value in save_state]
@@ -860,6 +969,22 @@ def _compute_derived_state(
         data_view,
         blocker_series=blocker_series,
         save_state=save_state,
+        changed_mask=changed_mask,
+        uncategorized_mask=uncategorized_mask,
+    )
+    data_lookup = review_state.view_row_lookup(
+        data_view.select(
+            "_row_pos",
+            "target_payee_selected",
+            "target_category_selected",
+            "action_label",
+            "payee_options",
+            "category_options",
+            "workflow_type",
+            "source_present",
+            "target_present",
+        ),
+        df.index,
     )
     state_lookup = review_state.view_row_lookup(
         state_view.select(
@@ -868,6 +993,8 @@ def _compute_derived_state(
             "save_state",
             "suggestion_label",
             "map_update_label",
+            "changed_bool",
+            "uncategorized_bool",
         ),
         df.index,
     )
@@ -894,6 +1021,7 @@ def _compute_derived_state(
         "uncategorized_mask": uncategorized_mask,
         "blocker_series": blocker_series,
         "data_view": data_view,
+        "data_lookup": data_lookup,
         "state_view": state_view,
         "state_lookup": state_lookup,
         "inference_tag": inference_tag,
@@ -926,10 +1054,8 @@ def _get_cached_derived_state(
     return cached
 
 
-def _ordered_filter_options(series: pd.Series | pl.Series | list[str], preferred: list[str]) -> list[str]:
-    if isinstance(series, pd.Series):
-        raw_values = series.astype("string").tolist()
-    elif isinstance(series, pl.Series):
+def _ordered_filter_options(series: pl.Series | list[str], preferred: list[str]) -> list[str]:
+    if isinstance(series, pl.Series):
         raw_values = series.cast(pl.Utf8, strict=False).fill_null("").to_list()
     else:
         raw_values = list(series)
@@ -955,17 +1081,20 @@ def _merge_category_choices(*values: str) -> list[str]:
     return ordered
 
 
-def _option_list(series: pd.Series) -> list[str]:
-    parts = (
-        series.astype("string")
-        .fillna("")
-        .str.split(";")
-        .explode()
-    )
-    if parts.empty:
-        return []
-    clean = parts.astype("string").fillna("").str.strip()
-    return clean.loc[clean.ne("")].drop_duplicates().tolist()
+def _option_list(values: pl.Series | list[str]) -> list[str]:
+    if isinstance(values, pl.Series):
+        raw_values = values.cast(pl.Utf8, strict=False).fill_null("").to_list()
+    else:
+        raw_values = values
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for value in raw_values:
+        for part in str(value or "").split(";"):
+            text = str(part or "").strip()
+            if text and text not in seen:
+                ordered.append(text)
+                seen.add(text)
+    return ordered
 
 
 def _category_choice_list(
@@ -1086,7 +1215,7 @@ def _apply_staged_row_widget_values(df: pd.DataFrame, indices: list[Any]) -> pd.
         )
         final_update_maps = review_validation.join_update_maps(list(update_maps_tokens))
 
-        updated = review_state.apply_row_edit(
+        updated = _call_apply_row_edit(
             updated,
             idx,
             source_payee=source_payee_value,
@@ -1102,7 +1231,15 @@ def _apply_staged_row_widget_values(df: pd.DataFrame, indices: list[Any]) -> pd.
 
 
 def _grouped_row_indices(filtered: pd.DataFrame) -> tuple[list[str], dict[str, list[Any]]]:
-    return review_state.grouped_row_indices(filtered)
+    if filtered.empty:
+        return [], {}
+    projected = pl.DataFrame({"fingerprint": filtered["fingerprint"].astype("string").fillna("").tolist()})
+    fingerprints, position_map = review_state.grouped_row_indices(projected)
+    index_values = list(filtered.index)
+    return fingerprints, {
+        fp: [index_values[pos] for pos in positions if 0 <= pos < len(index_values)]
+        for fp, positions in position_map.items()
+    }
 
 
 def _render_detail_section(title: str, entries: list[tuple[str, Any]]) -> None:
@@ -1548,7 +1685,7 @@ def _render_row_controls(
             st.session_state["expanded_row_id"] = idx
 
         working_df = df.copy()
-        working_df = review_state.apply_row_edit(
+        working_df = _call_apply_row_edit(
             working_df,
             idx,
             source_payee=source_payee_value,
@@ -1561,7 +1698,7 @@ def _render_row_controls(
         )
 
         review_indices = [idx]
-        working_df, competing_indices = review_model.apply_competing_row_resolution(working_df, [idx])
+        working_df, competing_indices = _call_apply_competing_row_resolution(working_df, [idx])
         review_indices.extend(competing_indices)
 
         if apply_all and show_apply:
@@ -1573,7 +1710,7 @@ def _render_row_controls(
             )
             if untouched_mask is not None:
                 applied_mask &= untouched_mask
-            working_df = review_model.apply_to_same_fingerprint(
+            working_df = _call_apply_to_same_fingerprint(
                 working_df,
                 row.get("fingerprint", ""),
                 payee=final_target_payee,
@@ -1585,13 +1722,13 @@ def _render_row_controls(
             )
             applied_indices = working_df.index[applied_mask].tolist()
             review_indices.extend(applied_indices)
-            working_df, competing_indices = review_model.apply_competing_row_resolution(
+            working_df, competing_indices = _call_apply_competing_row_resolution(
                 working_df, applied_indices
             )
             review_indices.extend(competing_indices)
 
         row_errors, warnings = review_validation.validate_row(working_df.loc[idx])
-        final_df, review_errors = review_validation.apply_review_state(
+        final_df, review_errors = _call_apply_review_state(
             working_df,
             review_indices,
             reviewed=review_requested,
@@ -1677,12 +1814,12 @@ def main() -> None:
     unsaved_mask = derived["unsaved_mask"]
     changed_mask = derived["changed_mask"]
     reviewed_mask = derived["reviewed_mask"]
-    saved_mask = derived["saved_mask"]
     updated_mask = derived["updated_mask"]
     inconsistent = derived["inconsistent"]
     uncategorized_mask = derived["uncategorized_mask"]
     blocker_series = derived["blocker_series"]
     data_view: pl.DataFrame = derived["data_view"]
+    data_lookup: dict[Any, dict[str, Any]] = derived["data_lookup"]
     state_view: pl.DataFrame = derived["state_view"]
     state_lookup: dict[Any, dict[str, Any]] = derived["state_lookup"]
     inference_tag = derived["inference_tag"]
@@ -1970,8 +2107,12 @@ def main() -> None:
     )
     filtered = df.loc[filtered_indices]
 
-    payee_defaults = review_state.most_common_by_fingerprint(df, "payee_selected")
-    category_defaults = review_state.most_common_by_fingerprint(df, "category_selected")
+    working_defaults_view = pl.from_pandas(
+        df[["fingerprint", "payee_selected", "category_selected"]].copy(),
+        include_index=False,
+    )
+    payee_defaults = review_state.most_common_by_fingerprint(working_defaults_view, "payee_selected")
+    category_defaults = review_state.most_common_by_fingerprint(working_defaults_view, "category_selected")
     if view_mode == "Row":
         page_size = st.selectbox("Page size", [25, 50, 100], index=1, key="page_size")
         indices = filtered.index.tolist()
@@ -2077,9 +2218,15 @@ def main() -> None:
         start = (page - 1) * group_page_size
         end = start + group_page_size
         for fp in fingerprints[start:end]:
-            group = df.loc[fp_to_indices.get(fp, [])]
-            group_payee_options = _option_list(group["payee_options"])
-            group_category_options = _option_list(group["category_options"])
+            group_indices = fp_to_indices.get(fp, [])
+            group = df.loc[group_indices]
+            group_rows = _lookup_rows(data_lookup, group_indices)
+            group_payee_options = _option_list(
+                [str(row.get("payee_options", "") or "") for row in group_rows]
+            )
+            group_category_options = _option_list(
+                [str(row.get("category_options", "") or "") for row in group_rows]
+            )
 
             group_payee_summary = _format_option_summary(group_payee_options, limit=3)
             group_category_summary = _format_option_summary(
@@ -2088,8 +2235,8 @@ def main() -> None:
                 limit=3,
             )
             header_fp = fp if len(fp) <= 80 else fp[:77] + "…"
-            group_ready = [_lookup_text(state_lookup, idx, "primary_state") for idx in group.index]
-            group_save = [_lookup_text(state_lookup, idx, "save_state") for idx in group.index]
+            group_ready = [_lookup_text(state_lookup, idx, "primary_state") for idx in group_indices]
+            group_save = [_lookup_text(state_lookup, idx, "save_state") for idx in group_indices]
             group_ready_value, group_save_value = _dominant_group_primary_state(
                 group_ready, group_save
             )
@@ -2104,10 +2251,11 @@ def main() -> None:
                 header, expanded=(st.session_state.get("expanded_group_fp") == fp)
             ):
                 _render_primary_state_banner(group_ready_value, group_save_value)
-                group_unsaved = int(unsaved_mask.loc[group.index].sum())
-                group_changed = int(changed_mask.loc[group.index].sum())
-                group_saved = int(saved_mask.loc[group.index].sum())
-                group_uncategorized = int(uncategorized_mask.loc[group.index].sum())
+                group_status = _group_status_counts(state_lookup, group_indices)
+                group_unsaved = group_status["unsaved"]
+                group_changed = group_status["changed"]
+                group_saved = group_status["saved"]
+                group_uncategorized = group_status["uncategorized"]
                 if group_unsaved or group_changed or group_saved or group_uncategorized:
                     st.markdown(
                         " ".join(
@@ -2134,13 +2282,21 @@ def main() -> None:
                 payee_options = group_payee_options
                 category_options = group_category_options
 
-                group_payee_default = review_state.most_common_value(group["payee_selected"])
+                group_payee_default = _most_common_lookup_value(
+                    data_lookup,
+                    group_indices,
+                    "target_payee_selected",
+                )
                 if not group_payee_default:
                     group_payee_default = fp if fp else ""
                 if not group_payee_default and payee_options:
                     group_payee_default = payee_options[0]
 
-                group_category_default = review_state.most_common_value(group["category_selected"])
+                group_category_default = _most_common_lookup_value(
+                    data_lookup,
+                    group_indices,
+                    "target_category_selected",
+                )
                 if (
                     not group_category_default
                     and review_model.is_transfer_payee(group_payee_default)
@@ -2184,11 +2340,15 @@ def main() -> None:
                 )
                 _ensure_widget_state(group_category_key, group_category_default)
                 group_decision_options: list[str] = []
-                for _, group_row in group.iterrows():
+                for group_row in group_rows:
                     for action in review_validation.allowed_decision_actions(group_row):
                         if action not in group_decision_options:
                             group_decision_options.append(action)
-                group_decision_default = review_state.most_common_value(group["decision_action"])
+                group_decision_default = _most_common_lookup_value(
+                    data_lookup,
+                    group_indices,
+                    "action_label",
+                )
                 if group_decision_default not in group_decision_options:
                     group_decision_default = review_validation.NO_DECISION
                 _ensure_widget_state(group_decision_key, group_decision_default)
@@ -2314,7 +2474,7 @@ def main() -> None:
                     applied_mask = eligible_mask & review_state.series_or_default(
                         working_df, "fingerprint"
                     ).eq(fp)
-                    working_df = review_model.apply_to_same_fingerprint(
+                    working_df = _call_apply_to_same_fingerprint(
                         working_df,
                         fp,
                         payee=payee_to_apply,
@@ -2325,11 +2485,11 @@ def main() -> None:
                         eligible_mask=eligible_mask,
                     )
                     affected_indices = working_df.index[applied_mask].tolist()
-                    working_df, competing_indices = review_model.apply_competing_row_resolution(
+                    working_df, competing_indices = _call_apply_competing_row_resolution(
                         working_df, affected_indices
                     )
                     affected_indices.extend(competing_indices)
-                    final_df, review_errors = review_validation.apply_review_state(
+                    final_df, review_errors = _call_apply_review_state(
                         working_df,
                         affected_indices,
                         reviewed=True,
@@ -2368,7 +2528,7 @@ def main() -> None:
                             "No rows in this group have a decision to accept yet."
                         )
                     else:
-                        working_df, competing_indices = review_model.apply_competing_row_resolution(
+                        working_df, competing_indices = _call_apply_competing_row_resolution(
                             working_df, review_indices
                         )
                         review_indices.extend(competing_indices)

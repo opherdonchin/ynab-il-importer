@@ -563,9 +563,9 @@ def test_apply_review_state_rejects_reviewed_no_decision() -> None:
         ]
     )
 
-    updated, errors = review_validation.apply_review_state(df, [0], reviewed=True)
+    updated, errors = review_validation.apply_review_state(pl.from_pandas(df), [0], reviewed=True)
 
-    assert updated["reviewed"].tolist() == [False]
+    assert updated["reviewed"].to_list() == [False]
     assert errors == [
         "connected rows still contain No decision",
         "row 0: reviewed row cannot have No decision",
@@ -611,14 +611,14 @@ def test_apply_review_state_reuses_provided_component_map(monkeypatch) -> None:
     monkeypatch.setattr(review_validation, "precompute_components", fail)
 
     updated, errors = review_validation.apply_review_state(
-        df,
+        pl.from_pandas(df),
         [0],
         reviewed=True,
         component_map=component_map,
     )
 
     assert errors == []
-    assert updated["reviewed"].tolist() == [True, True]
+    assert updated["reviewed"].to_list() == [True, True]
 
 
 def test_apply_competing_row_resolution_ignores_conflicts() -> None:
@@ -630,10 +630,10 @@ def test_apply_competing_row_resolution_ignores_conflicts() -> None:
         ]
     )
 
-    df, touched = review_model.apply_competing_row_resolution(df, [0])
+    df, touched = review_model.apply_competing_row_resolution(pl.from_pandas(df), [0])
 
     assert touched == [1, 2]
-    assert df["decision_action"].tolist() == ["keep_match", "ignore_row", "ignore_row"]
+    assert df["decision_action"].to_list() == ["keep_match", "ignore_row", "ignore_row"]
 
 
 def test_uncategorized_mask_detects_uncategorized_label() -> None:
@@ -759,16 +759,16 @@ def test_apply_row_edit_propagates_to_related_indices() -> None:
     )
 
     df = review_state.apply_row_edit(
-        df,
+        pl.from_pandas(df),
         0,
         source_payee="Source Cafe",
         target_payee="Target Cafe",
         target_category="Food",
     )
 
-    assert df["source_payee_selected"].tolist() == ["Source Cafe", "Source Cafe", ""]
-    assert df["target_payee_selected"].tolist() == ["Target Cafe", "", "Target Cafe"]
-    assert df["target_category_selected"].tolist() == ["Food", "", "Food"]
+    assert df["source_payee_selected"].to_list() == ["Source Cafe", "Source Cafe", ""]
+    assert df["target_payee_selected"].to_list() == ["Target Cafe", "", "Target Cafe"]
+    assert df["target_category_selected"].to_list() == ["Food", "", "Food"]
 
 
 def test_apply_row_edit_accepts_polars_review_table() -> None:

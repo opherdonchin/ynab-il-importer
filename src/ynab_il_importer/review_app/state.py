@@ -286,6 +286,8 @@ def review_filter_state_view(
     *,
     blocker_series: pd.Series,
     save_state: pd.Series,
+    changed_mask: pd.Series | None = None,
+    uncategorized_mask: pd.Series | None = None,
 ) -> pl.DataFrame:
     if data_view.is_empty():
         return pl.DataFrame(
@@ -296,15 +298,29 @@ def review_filter_state_view(
                 "suggestion_label": pl.Series([], dtype=pl.Utf8),
                 "map_update_label": pl.Series([], dtype=pl.Utf8),
                 "primary_state": pl.Series([], dtype=pl.Utf8),
+                "changed_bool": pl.Series([], dtype=pl.Boolean),
+                "uncategorized_bool": pl.Series([], dtype=pl.Boolean),
             }
         )
 
     blocker_values = blocker_series.astype("string").fillna("").tolist()
     save_values = save_state.astype("string").fillna("Unsaved").tolist()
+    changed_values = (
+        changed_mask.astype(bool).tolist()
+        if isinstance(changed_mask, pd.Series)
+        else [False] * data_view.height
+    )
+    uncategorized_values = (
+        uncategorized_mask.astype(bool).tolist()
+        if isinstance(uncategorized_mask, pd.Series)
+        else [False] * data_view.height
+    )
     return data_view.select("_row_pos", "reviewed_bool", "action_label", "has_suggestions", "has_update_maps").with_columns(
         [
             pl.Series("blocker_label", blocker_values),
             pl.Series("save_state", save_values),
+            pl.Series("changed_bool", changed_values),
+            pl.Series("uncategorized_bool", uncategorized_values),
             pl.when(pl.col("has_suggestions"))
             .then(pl.lit("Has suggestions"))
             .otherwise(pl.lit("No suggestions"))
@@ -332,6 +348,8 @@ def review_filter_state_view(
         "suggestion_label",
         "map_update_label",
         "primary_state",
+        "changed_bool",
+        "uncategorized_bool",
     )
 
 
@@ -642,27 +660,23 @@ def _most_common_from_values(values: list[str]) -> str:
     return ""
 
 
-def most_common_value(series: pd.Series | pl.Series | list[str]) -> str:
+def most_common_value(series: pl.Series | list[str]) -> str:
     return _most_common_from_values(_clean_text_list(series))
 
 
-def most_common_by_fingerprint(df: pd.DataFrame | pl.DataFrame, column: str) -> dict[str, str]:
+def most_common_by_fingerprint(df: pl.DataFrame, column: str) -> dict[str, str]:
     if "fingerprint" not in df.columns or column not in df.columns:
         return {}
-    if isinstance(df, pd.DataFrame):
-        fingerprints = series_or_default(df, "fingerprint").str.strip().tolist()
-        values = series_or_default(df, column).str.strip().tolist()
-    else:
-        fingerprints = [
-            str(value or "").strip()
-            for value in df.select(
-                pl.col("fingerprint").cast(pl.Utf8, strict=False).fill_null("")
-            ).to_series().to_list()
-        ]
-        values = [
-            str(value or "").strip()
-            for value in df.select(pl.col(column).cast(pl.Utf8, strict=False).fill_null("")).to_series().to_list()
-        ]
+    fingerprints = [
+        str(value or "").strip()
+        for value in df.select(
+            pl.col("fingerprint").cast(pl.Utf8, strict=False).fill_null("")
+        ).to_series().to_list()
+    ]
+    values = [
+        str(value or "").strip()
+        for value in df.select(pl.col(column).cast(pl.Utf8, strict=False).fill_null("")).to_series().to_list()
+    ]
     grouped: dict[str, list[str]] = {}
     for fp, value in zip(fingerprints, values, strict=False):
         fp_text = str(fp or "").strip()
@@ -678,21 +692,17 @@ def most_common_by_fingerprint(df: pd.DataFrame | pl.DataFrame, column: str) -> 
     return result
 
 
-def grouped_row_indices(filtered: pd.DataFrame | pl.DataFrame) -> tuple[list[str], dict[str, list[Any]]]:
-    if isinstance(filtered, pd.DataFrame):
-        indices = list(filtered.index)
-        fingerprints = series_or_default(filtered, "fingerprint").str.strip().tolist()
+def grouped_row_indices(filtered: pl.DataFrame) -> tuple[list[str], dict[str, list[Any]]]:
+    indices = list(range(filtered.height))
+    if "fingerprint" in filtered.columns:
+        fingerprints = [
+            str(value or "").strip()
+            for value in filtered.select(
+                pl.col("fingerprint").cast(pl.Utf8, strict=False).fill_null("")
+            ).to_series().to_list()
+        ]
     else:
-        indices = list(range(filtered.height))
-        if "fingerprint" in filtered.columns:
-            fingerprints = [
-                str(value or "").strip()
-                for value in filtered.select(
-                    pl.col("fingerprint").cast(pl.Utf8, strict=False).fill_null("")
-                ).to_series().to_list()
-            ]
-        else:
-            fingerprints = [""] * filtered.height
+        fingerprints = [""] * filtered.height
     group_indices: dict[str, list[Any]] = {}
     counts: Counter[str] = Counter()
     first_seen: list[str] = []
@@ -1078,7 +1088,7 @@ def related_rows_mask(
 
 
 def apply_row_edit(
-    df: pd.DataFrame | pl.DataFrame,
+    df: pl.DataFrame,
     idx: Any,
     *,
     payee: str | None = None,
@@ -1092,26 +1102,9 @@ def apply_row_edit(
     reviewed: bool | None = None,
     decision_action: str | None = None,
     component_map: dict[Any, int] | None = None,
-) -> pd.DataFrame | pl.DataFrame:
-    if isinstance(df, pl.DataFrame):
-        updated = _apply_row_edit_pandas(
-            df.to_pandas(),
-            idx,
-            payee=payee,
-            category=category,
-            source_payee=source_payee,
-            source_category=source_category,
-            target_payee=target_payee,
-            target_category=target_category,
-            memo_append=memo_append,
-            update_maps=update_maps,
-            reviewed=reviewed,
-            decision_action=decision_action,
-            component_map=component_map,
-        )
-        return pl.from_pandas(updated)
-    return _apply_row_edit_pandas(
-        df,
+) -> pl.DataFrame:
+    updated = _apply_row_edit_pandas(
+        df.to_pandas(),
         idx,
         payee=payee,
         category=category,
@@ -1125,6 +1118,7 @@ def apply_row_edit(
         decision_action=decision_action,
         component_map=component_map,
     )
+    return pl.from_pandas(updated)
 
 
 def _apply_row_edit_pandas(

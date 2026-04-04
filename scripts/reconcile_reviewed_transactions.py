@@ -2,14 +2,16 @@ import argparse
 import sys
 from pathlib import Path
 
+import polars as pl
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-import ynab_il_importer.export as export
-import ynab_il_importer.review_app.io as review_io
-import ynab_il_importer.review_reconcile as review_reconcile
+import ynab_il_importer.export as export  # noqa: E402
+import ynab_il_importer.review_app.io as review_io  # noqa: E402
+import ynab_il_importer.review_reconcile as review_reconcile  # noqa: E402
 
 
 def main() -> None:
@@ -21,10 +23,13 @@ def main() -> None:
 
     old_df = review_io.load_proposed_transactions(Path(args.old_reviewed))
     new_df = review_io.load_proposed_transactions(Path(args.new_proposed))
-    merged, stats = review_reconcile.reconcile_reviewed_transactions(old_df, new_df)
-    review_io.save_reviewed_transactions(merged, Path(args.out_path))
+    merged, stats = review_reconcile.reconcile_reviewed_transactions(
+        pl.from_pandas(old_df),
+        pl.from_pandas(new_df),
+    )
+    review_io.save_reviewed_transactions(merged.to_pandas(), Path(args.out_path))
 
-    print(export.wrote_message(args.out_path, len(merged)))
+    print(export.wrote_message(args.out_path, merged.height))
     print(
         "Reconciled decisions: "
         f"direct={stats['direct_matches']}, "

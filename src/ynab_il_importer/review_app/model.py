@@ -55,48 +55,35 @@ def is_no_category_required(value: Any) -> bool:
 
 
 def apply_to_same_fingerprint(
-    df: pd.DataFrame | pl.DataFrame,
+    df: pl.DataFrame,
     fingerprint: str,
     payee: str | None = None,
     category: str | None = None,
     update_maps: str | None = None,
     decision_action: str | None = None,
     reviewed: bool | None = None,
-    eligible_mask: pd.Series | pl.Series | list[bool] | None = None,
-) -> pd.DataFrame | pl.DataFrame:
-    if isinstance(df, pl.DataFrame):
-        pandas_df = df.to_pandas()
-        updated = _apply_to_same_fingerprint_pandas(
-            pandas_df,
-            fingerprint,
-            payee=payee,
-            category=category,
-            update_maps=update_maps,
-            decision_action=decision_action,
-            reviewed=reviewed,
-            eligible_mask=_eligible_mask_for_index(eligible_mask, pandas_df.index),
-        )
-        return pl.from_pandas(updated)
-    return _apply_to_same_fingerprint_pandas(
-        df,
+    eligible_mask: pl.Series | list[bool] | None = None,
+) -> pl.DataFrame:
+    pandas_df = df.to_pandas()
+    updated = _apply_to_same_fingerprint_pandas(
+        pandas_df,
         fingerprint,
         payee=payee,
         category=category,
         update_maps=update_maps,
         decision_action=decision_action,
         reviewed=reviewed,
-        eligible_mask=_eligible_mask_for_index(eligible_mask, df.index),
+        eligible_mask=_eligible_mask_for_index(eligible_mask, pandas_df.index),
     )
+    return pl.from_pandas(updated)
 
 
 def _eligible_mask_for_index(
-    eligible_mask: pd.Series | pl.Series | list[bool] | None,
+    eligible_mask: pl.Series | list[bool] | None,
     index: pd.Index,
 ) -> pd.Series | None:
     if eligible_mask is None:
         return None
-    if isinstance(eligible_mask, pd.Series):
-        return eligible_mask.reindex(index, fill_value=False).astype(bool)
     if isinstance(eligible_mask, pl.Series):
         values = eligible_mask.cast(pl.Boolean, strict=False).fill_null(False).to_list()
     else:
@@ -153,14 +140,12 @@ def competing_row_scope(decision_action: str) -> tuple[bool, bool]:
 
 
 def apply_competing_row_resolution(
-    df: pd.DataFrame | pl.DataFrame,
+    df: pl.DataFrame,
     indices: list[Any],
-) -> tuple[pd.DataFrame | pl.DataFrame, list[Any]]:
-    if isinstance(df, pl.DataFrame):
-        pandas_df = df.to_pandas()
-        updated, touched = _apply_competing_row_resolution_pandas(pandas_df, indices)
-        return pl.from_pandas(updated), touched
-    return _apply_competing_row_resolution_pandas(df, indices)
+) -> tuple[pl.DataFrame, list[Any]]:
+    pandas_df = df.to_pandas()
+    updated, touched = _apply_competing_row_resolution_pandas(pandas_df, indices)
+    return pl.from_pandas(updated), touched
 
 
 def _apply_competing_row_resolution_pandas(

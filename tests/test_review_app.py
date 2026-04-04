@@ -156,7 +156,7 @@ def _show_all_primary_states(app: AppTest) -> None:
 
 
 def test_apply_to_same_fingerprint_respects_eligible_mask() -> None:
-    df = pd.DataFrame(
+    df = pl.DataFrame(
         {
             "fingerprint": ["fp1", "fp1", "fp2"],
             "target_payee_selected": ["A", "A", "B"],
@@ -165,7 +165,7 @@ def test_apply_to_same_fingerprint_respects_eligible_mask() -> None:
             "reviewed": [False, False, False],
         }
     )
-    eligible_mask = pd.Series([True, False, True], index=df.index)
+    eligible_mask = pl.Series([True, False, True])
 
     df = review_model.apply_to_same_fingerprint(
         df,
@@ -175,10 +175,8 @@ def test_apply_to_same_fingerprint_respects_eligible_mask() -> None:
         eligible_mask=eligible_mask,
     )
 
-    assert df.loc[0, "target_payee_selected"] == "X"
-    assert df.loc[0, "target_category_selected"] == "Y"
-    assert df.loc[1, "target_payee_selected"] == "A"
-    assert df.loc[1, "target_category_selected"] == "C"
+    assert df["target_payee_selected"].to_list() == ["X", "A", "B"]
+    assert df["target_category_selected"].to_list() == ["Y", "C", "D"]
 
 
 def test_apply_to_same_fingerprint_accepts_polars_frame() -> None:
