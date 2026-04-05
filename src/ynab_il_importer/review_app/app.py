@@ -1293,6 +1293,13 @@ def _split_caption_lines(
     *,
     matching_split_ids: str = "",
 ) -> list[str]:
+    if splits is None:
+        return []
+    if not isinstance(splits, list):
+        try:
+            splits = list(splits)
+        except TypeError:
+            return []
     if not isinstance(splits, list):
         return []
     split_ids = _split_id_set(matching_split_ids)

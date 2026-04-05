@@ -111,10 +111,14 @@ def _apply_to_same_fingerprint_pandas(
         mask = mask & eligible_mask
     if payee is not None:
         updated.loc[mask, "payee_selected"] = payee
+        if "target_payee_current" in updated.columns:
+            updated.loc[mask, "target_payee_current"] = payee
         if "target_payee_selected" in updated.columns:
             updated.loc[mask, "target_payee_selected"] = payee
     if category is not None:
         updated.loc[mask, "category_selected"] = category
+        if "target_category_current" in updated.columns:
+            updated.loc[mask, "target_category_current"] = category
         if "target_category_selected" in updated.columns:
             updated.loc[mask, "target_category_selected"] = category
     if update_maps is not None and "update_maps" in updated.columns:
@@ -123,6 +127,8 @@ def _apply_to_same_fingerprint_pandas(
         updated.loc[mask, "decision_action"] = str(decision_action).strip()
     if reviewed is not None:
         updated.loc[mask, "reviewed"] = bool(reviewed)
+    if "changed" in updated.columns:
+        updated.loc[mask, "changed"] = True
     return updated
 
 
@@ -179,5 +185,7 @@ def _apply_competing_row_resolution_pandas(
             continue
         if "decision_action" in updated.columns:
             updated.loc[competing_indices, "decision_action"] = "ignore_row"
+        if "changed" in updated.columns:
+            updated.loc[competing_indices, "changed"] = True
         touched.extend(competing_indices)
     return updated, list(dict.fromkeys(touched))

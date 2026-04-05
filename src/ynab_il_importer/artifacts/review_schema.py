@@ -2,98 +2,49 @@ from __future__ import annotations
 
 import pyarrow as pa
 
-from ynab_il_importer.artifacts.transaction_schema import SPLIT_LINE_STRUCT
+from ynab_il_importer.artifacts.transaction_schema import TRANSACTION_STRUCT
 
 
-REVIEW_ARTIFACT_VERSION = "review_v3"
+REVIEW_ARTIFACT_VERSION = "review_v4"
 
-REVIEW_SIDE_SCALAR_FIELDS: list[pa.Field] = [
-    pa.field("source_source_system", pa.string()),
-    pa.field("source_transaction_id", pa.string()),
-    pa.field("source_ynab_id", pa.string()),
-    pa.field("source_import_id", pa.string()),
-    pa.field("source_parent_transaction_id", pa.string()),
-    pa.field("source_account_id", pa.string()),
-    pa.field("source_account", pa.string()),
-    pa.field("source_date", pa.string()),
-    pa.field("source_secondary_date", pa.string()),
-    pa.field("source_payee_current", pa.string()),
-    pa.field("source_category_id", pa.string()),
-    pa.field("source_category_current", pa.string()),
-    pa.field("source_memo", pa.string()),
-    pa.field("source_fingerprint", pa.string()),
-    pa.field("source_description_raw", pa.string()),
-    pa.field("source_description_clean", pa.string()),
-    pa.field("source_merchant_raw", pa.string()),
-    pa.field("source_ref", pa.string()),
-    pa.field("source_cleared", pa.string()),
-    pa.field("source_approved", pa.bool_()),
-    pa.field("source_is_subtransaction", pa.bool_()),
-    pa.field("source_bank_txn_id", pa.string()),
-    pa.field("source_card_txn_id", pa.string()),
-    pa.field("source_card_suffix", pa.string()),
-    pa.field("target_source_system", pa.string()),
-    pa.field("target_transaction_id", pa.string()),
-    pa.field("target_ynab_id", pa.string()),
-    pa.field("target_import_id", pa.string()),
-    pa.field("target_parent_transaction_id", pa.string()),
-    pa.field("target_account_id", pa.string()),
-    pa.field("target_account", pa.string()),
-    pa.field("target_date", pa.string()),
-    pa.field("target_secondary_date", pa.string()),
-    pa.field("target_payee_current", pa.string()),
-    pa.field("target_category_id", pa.string()),
-    pa.field("target_category_current", pa.string()),
-    pa.field("target_memo", pa.string()),
-    pa.field("target_fingerprint", pa.string()),
-    pa.field("target_description_raw", pa.string()),
-    pa.field("target_description_clean", pa.string()),
-    pa.field("target_merchant_raw", pa.string()),
-    pa.field("target_ref", pa.string()),
-    pa.field("target_cleared", pa.string()),
-    pa.field("target_approved", pa.bool_()),
-    pa.field("target_is_subtransaction", pa.bool_()),
+REVIEW_CONTROL_FIELDS: list[pa.Field] = [
+    pa.field("artifact_kind", pa.string()),
+    pa.field("artifact_version", pa.string()),
+    pa.field("review_transaction_id", pa.string()),
+    pa.field("workflow_type", pa.string()),
+    pa.field("relation_kind", pa.string()),
+    pa.field("match_status", pa.string()),
+    pa.field("match_method", pa.string()),
+    pa.field("payee_options", pa.string()),
+    pa.field("category_options", pa.string()),
+    pa.field("update_maps", pa.string()),
+    pa.field("decision_action", pa.string()),
+    pa.field("reviewed", pa.bool_()),
+    pa.field("changed", pa.bool_()),
+    pa.field("memo_append", pa.string()),
+    pa.field("source_present", pa.bool_()),
+    pa.field("target_present", pa.bool_()),
+    pa.field("source_row_id", pa.string()),
+    pa.field("target_row_id", pa.string()),
+    pa.field("source_context_kind", pa.string()),
+    pa.field("source_context_category_id", pa.string()),
+    pa.field("source_context_category_name", pa.string()),
+    pa.field("source_context_matching_split_ids", pa.string()),
+    pa.field("source_payee_selected", pa.string()),
+    pa.field("source_category_selected", pa.string()),
+    pa.field("target_context_kind", pa.string()),
+    pa.field("target_context_matching_split_ids", pa.string()),
+    pa.field("target_payee_selected", pa.string()),
+    pa.field("target_category_selected", pa.string()),
 ]
 
 REVIEW_SCHEMA = pa.schema(
     [
-        pa.field("artifact_kind", pa.string()),
-        pa.field("artifact_version", pa.string()),
-        pa.field("review_transaction_id", pa.string()),
-        pa.field("source", pa.string()),
-        pa.field("account_name", pa.string()),
-        pa.field("date", pa.string()),
-        pa.field("outflow_ils", pa.float64()),
-        pa.field("inflow_ils", pa.float64()),
-        pa.field("memo", pa.string()),
-        pa.field("fingerprint", pa.string()),
-        pa.field("workflow_type", pa.string()),
-        pa.field("relation_kind", pa.string()),
-        pa.field("match_status", pa.string()),
-        pa.field("match_method", pa.string()),
-        pa.field("payee_options", pa.string()),
-        pa.field("category_options", pa.string()),
-        pa.field("update_maps", pa.string()),
-        pa.field("decision_action", pa.string()),
-        pa.field("reviewed", pa.bool_()),
-        pa.field("memo_append", pa.string()),
-        pa.field("source_present", pa.bool_()),
-        pa.field("target_present", pa.bool_()),
-        pa.field("source_row_id", pa.string()),
-        pa.field("target_row_id", pa.string()),
-        *REVIEW_SIDE_SCALAR_FIELDS,
-        pa.field("source_context_kind", pa.string()),
-        pa.field("source_context_category_id", pa.string()),
-        pa.field("source_context_category_name", pa.string()),
-        pa.field("source_context_matching_split_ids", pa.string()),
-        pa.field("source_payee_selected", pa.string()),
-        pa.field("source_category_selected", pa.string()),
-        pa.field("target_context_kind", pa.string()),
-        pa.field("target_context_matching_split_ids", pa.string()),
-        pa.field("target_payee_selected", pa.string()),
-        pa.field("target_category_selected", pa.string()),
-        pa.field("source_splits", pa.list_(SPLIT_LINE_STRUCT)),
-        pa.field("target_splits", pa.list_(SPLIT_LINE_STRUCT)),
+        *REVIEW_CONTROL_FIELDS,
+        pa.field("source_current", TRANSACTION_STRUCT),
+        pa.field("target_current", TRANSACTION_STRUCT),
+        pa.field("source_original", TRANSACTION_STRUCT),
+        pa.field("target_original", TRANSACTION_STRUCT),
     ]
 )
 
@@ -101,3 +52,79 @@ REVIEW_SCHEMA = pa.schema(
 def empty_review_table() -> pa.Table:
     arrays = [pa.array([], type=field.type) for field in REVIEW_SCHEMA]
     return pa.Table.from_arrays(arrays, schema=REVIEW_SCHEMA)
+
+
+def _transaction_amount(txn: dict | None) -> float:
+    if not isinstance(txn, dict):
+        return 0.0
+    inflow = float(txn.get("inflow_ils", 0.0) or 0.0)
+    outflow = float(txn.get("outflow_ils", 0.0) or 0.0)
+    return inflow - outflow
+
+
+def _split_amount(line: dict) -> float:
+    inflow = float(line.get("inflow_ils", 0.0) or 0.0)
+    outflow = float(line.get("outflow_ils", 0.0) or 0.0)
+    return inflow - outflow
+
+
+def _split_category_key(line: dict) -> str:
+    return str(line.get("category_id") or line.get("category_raw") or "").strip()
+
+
+def validate_review_record(record: dict) -> list[str]:
+    errors: list[str] = []
+    changed = bool(record.get("changed", False))
+    current_pairs = [
+        ("source", record.get("source_current"), record.get("source_original")),
+        ("target", record.get("target_current"), record.get("target_original")),
+    ]
+
+    for side, current_txn, original_txn in current_pairs:
+        if not isinstance(current_txn, dict):
+            continue
+        signed_amount = _transaction_amount(current_txn)
+        splits = current_txn.get("splits") or []
+        if splits:
+            category_keys = {
+                _split_category_key(line)
+                for line in splits
+                if isinstance(line, dict) and _split_category_key(line)
+            }
+            if len(splits) > 1 and len(category_keys) <= 1:
+                errors.append(f"{side}_current split must span more than one category")
+            split_total = sum(_split_amount(line) for line in splits if isinstance(line, dict))
+            if abs(split_total - signed_amount) > 1e-9:
+                errors.append(f"{side}_current split amounts do not sum to transaction amount")
+
+        if isinstance(original_txn, dict):
+            original_splits = original_txn.get("splits") or []
+            if original_splits:
+                category_keys = {
+                    _split_category_key(line)
+                    for line in original_splits
+                    if isinstance(line, dict) and _split_category_key(line)
+                }
+                if len(original_splits) > 1 and len(category_keys) <= 1:
+                    errors.append(f"{side}_original split must span more than one category")
+                split_total = sum(
+                    _split_amount(line) for line in original_splits if isinstance(line, dict)
+                )
+                if abs(split_total - _transaction_amount(original_txn)) > 1e-9:
+                    errors.append(
+                        f"{side}_original split amounts do not sum to transaction amount"
+                    )
+
+        if not changed and current_txn != original_txn:
+            errors.append(f"changed is FALSE but {side} current and original differ")
+
+    return errors
+
+
+def validate_review_table(table: pa.Table) -> None:
+    all_errors: list[str] = []
+    for idx, record in enumerate(table.to_pylist()):
+        row_errors = validate_review_record(record)
+        all_errors.extend(f"row {idx}: {message}" for message in row_errors)
+    if all_errors:
+        raise ValueError("Invalid review artifact:\n" + "\n".join(all_errors))

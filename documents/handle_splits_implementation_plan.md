@@ -1586,6 +1586,13 @@ The corrected direction is:
 
 This is the final architectural pass needed before Step 4 split editing resumes.
 
+Validation also belongs with this artifact model, not only in the app. At minimum the
+schema/artifact layer should validate persisted review files for:
+
+- false `changed` on rows whose current and original transactions differ
+- multi-line splits that do not span more than one category
+- split-line signed totals that do not sum to the parent transaction amount
+
 ### Redesign goal
 
 Introduce a four-transaction persisted review artifact and one centralized flat working
@@ -1595,6 +1602,7 @@ projection so that:
 - ordinary app logic remains dataframe-oriented
 - split editing can later operate on a clean model instead of a heavy duplicate-state layer
 - `changed` can be initialized/persisted simply and recomputed only for the row being edited
+- persisted review validation can happen at the schema boundary instead of being only a UI concern
 
 ### Scope
 
@@ -1901,6 +1909,10 @@ Required coverage:
    - four-transaction review artifacts round-trip through Parquet
    - current/original transactions keep split data intact
    - `changed` persists correctly
+   - persisted artifact validation rejects:
+     - false `changed` with differing current/original transactions
+     - multi-line single-category splits
+     - split totals that do not equal the parent transaction amount
 2. builder output
    - builders seed `current == original`
    - new proposed review artifacts start with `changed = False`
@@ -1923,6 +1935,35 @@ Required coverage:
 - recomputing `changed` too broadly instead of confining it to row updates
 - allowing current/original transaction structs to drift out of sync during save/resume
 - leaving upload prep or builders on stale flat review assumptions after the artifact changes
+
+### Redesign status
+
+Completed:
+
+1. persisted review schema and IO
+   - the canonical review artifact is now `review_v4`
+   - persisted review artifacts now carry:
+     - `source_current`
+     - `target_current`
+     - `source_original`
+     - `target_original`
+   - persisted review loads now validate at the schema boundary
+
+2. centralized flat working projection
+   - one working projection now feeds the app and upload prep
+   - flat in-memory review rows still normalize through the same boundary
+   - builder outputs continue to flow through that boundary as well
+
+3. changed-state initialization and persistence
+   - fresh rows default to `original = current`
+   - unchanged rows trust immutable originals
+   - edited rows set `changed = True` in the mutation helpers
+
+Validation now enforced at the artifact layer:
+
+- false `changed` with differing current/original transactions is rejected
+- multi-line single-category splits are rejected
+- split totals that do not equal the parent transaction amount are rejected
 
 ## Step 4 Plan: Add Split Transaction Editing
 

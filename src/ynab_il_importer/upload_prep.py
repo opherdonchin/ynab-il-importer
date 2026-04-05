@@ -124,59 +124,9 @@ def _review_artifact_to_working_frame(
     reviewed_source: pd.DataFrame | Any,
 ) -> pd.DataFrame:
     original_index = reviewed_source.index if isinstance(reviewed_source, pd.DataFrame) else None
-    review_df = review_io.load_review_artifact(reviewed_source).to_pandas()
-    if review_df.empty:
+    working = review_io.project_review_artifact_to_flat_dataframe(reviewed_source)
+    if working.empty:
         return pd.DataFrame(columns=REQUIRED_REVIEW_COLUMNS)
-
-    rows: list[dict[str, Any]] = []
-    for _, row in review_df.iterrows():
-        account_name = _canonical_context_text(
-            row,
-            "target_account",
-            "source_account",
-            "account_name",
-        )
-        date = _canonical_context_text(row, "source_date", "target_date", "date")
-        memo = _canonical_context_text(row, "source_memo", "target_memo", "memo")
-        outflow = pd.to_numeric(
-            row.get("outflow_ils", 0.0),
-            errors="coerce",
-        )
-        inflow = pd.to_numeric(
-            row.get("inflow_ils", 0.0),
-            errors="coerce",
-        )
-        rows.append(
-            {
-                "transaction_id": _normalize_text(
-                    row.get("review_transaction_id", row.get("transaction_id", ""))
-                ),
-                "account_name": account_name,
-                "date": date,
-                "outflow_ils": float(0.0 if pd.isna(outflow) else outflow),
-                "inflow_ils": float(0.0 if pd.isna(inflow) else inflow),
-                "memo": memo,
-                "target_payee_selected": _normalize_text(row.get("target_payee_selected", "")),
-                "target_category_selected": review_model.normalize_category_value(
-                    row.get("target_category_selected", "")
-                ),
-                "decision_action": _normalize_text(row.get("decision_action", "")),
-                "reviewed": bool(row.get("reviewed", False)),
-                "source": _canonical_context_text(row, "source_source_system", "source"),
-                "source_account": _canonical_context_text(row, "source_account"),
-                "ynab_account_id": _canonical_context_text(row, "target_account_id", "ynab_account_id"),
-                "bank_txn_id": _canonical_context_text(row, "source_bank_txn_id", "bank_txn_id"),
-                "card_txn_id": _canonical_context_text(row, "source_card_txn_id", "card_txn_id"),
-                "card_suffix": _canonical_context_text(row, "source_card_suffix", "card_suffix"),
-                "secondary_date": _normalize_text(
-                    _canonical_context_text(row, "source_secondary_date", "secondary_date")
-                ),
-                "ref": _canonical_context_text(row, "source_ref", "ref"),
-                "workflow_type": _normalize_text(row.get("workflow_type", "")),
-                "match_status": _normalize_text(row.get("match_status", "")),
-            }
-        )
-    working = pd.DataFrame(rows)
     if original_index is not None and len(original_index) == len(working):
         working.index = original_index
     return working

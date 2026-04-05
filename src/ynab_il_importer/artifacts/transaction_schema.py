@@ -57,6 +57,8 @@ TRANSACTION_SCHEMA = pa.schema(
     ]
 )
 
+TRANSACTION_STRUCT = pa.struct(list(TRANSACTION_SCHEMA))
+
 
 def empty_transaction_table() -> pa.Table:
     arrays = [pa.array([], type=field.type) for field in TRANSACTION_SCHEMA]

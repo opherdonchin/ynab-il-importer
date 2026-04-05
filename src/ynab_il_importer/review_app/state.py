@@ -537,6 +537,8 @@ def modified_count(df: pd.DataFrame, original: pd.DataFrame | None) -> int:
 
 
 def changed_mask(df: pd.DataFrame, base: pd.DataFrame | None) -> pd.Series:
+    if "changed" in df.columns:
+        return _bool_series(df, "changed")
     if base is None or base.empty:
         return pd.Series([False] * len(df), index=df.index)
     cols = [
@@ -1147,18 +1149,26 @@ def _apply_row_edit_pandas(
     if source_payee is not None or source_category is not None:
         if source_payee is not None and "source_payee_selected" in updated.columns:
             updated.loc[source_indices, "source_payee_selected"] = str(source_payee).strip()
+        if source_payee is not None and "source_payee_current" in updated.columns:
+            updated.loc[source_indices, "source_payee_current"] = str(source_payee).strip()
         if source_category is not None and "source_category_selected" in updated.columns:
             updated.loc[source_indices, "source_category_selected"] = str(source_category).strip()
+        if source_category is not None and "source_category_current" in updated.columns:
+            updated.loc[source_indices, "source_category_current"] = str(source_category).strip()
 
     if target_payee is not None or target_category is not None:
         if target_payee is not None:
             if "payee_selected" in updated.columns:
                 updated.loc[target_indices, "payee_selected"] = str(target_payee).strip()
+            if "target_payee_current" in updated.columns:
+                updated.loc[target_indices, "target_payee_current"] = str(target_payee).strip()
             if "target_payee_selected" in updated.columns:
                 updated.loc[target_indices, "target_payee_selected"] = str(target_payee).strip()
         if target_category is not None:
             if "category_selected" in updated.columns:
                 updated.loc[target_indices, "category_selected"] = str(target_category).strip()
+            if "target_category_current" in updated.columns:
+                updated.loc[target_indices, "target_category_current"] = str(target_category).strip()
             if "target_category_selected" in updated.columns:
                 updated.loc[target_indices, "target_category_selected"] = str(target_category).strip()
 
@@ -1178,4 +1188,9 @@ def _apply_row_edit_pandas(
         else:
             reviewed_indices = [current_idx for current_idx, label in component_map.items() if label == component_map.get(idx)]
         updated.loc[reviewed_indices, "reviewed"] = bool(reviewed)
+        if "changed" in updated.columns:
+            updated.loc[reviewed_indices, "changed"] = True
+    if "changed" in updated.columns:
+        changed_indices = set(source_indices) | set(target_indices) | {idx}
+        updated.loc[list(changed_indices), "changed"] = True
     return updated

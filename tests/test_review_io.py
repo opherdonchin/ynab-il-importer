@@ -349,3 +349,183 @@ def test_translate_review_dataframe_converts_legacy_institutional_review_csv() -
     assert bool(loaded.loc[0, "source_present"]) is True
     assert bool(loaded.loc[0, "target_present"]) is False
     assert bool(loaded.loc[0, "reviewed"]) is True
+
+
+def test_load_review_artifact_rejects_false_changed_when_current_differs() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "review_transaction_id": "row-1",
+                "workflow_type": "institutional",
+                "source_present": True,
+                "changed": False,
+                "source_current": {
+                    "artifact_kind": "transaction",
+                    "artifact_version": "transaction_v1",
+                    "transaction_id": "src-1",
+                    "parent_transaction_id": "src-1",
+                    "account_name": "Account 1",
+                    "source_account": "Account 1",
+                    "date": "2026-03-01",
+                    "inflow_ils": 0.0,
+                    "outflow_ils": 10.0,
+                    "signed_amount_ils": -10.0,
+                    "payee_raw": "Cafe",
+                    "category_raw": "Food",
+                    "memo": "",
+                    "fingerprint": "fp-1",
+                    "approved": False,
+                    "is_subtransaction": False,
+                },
+                "source_original": {
+                    "artifact_kind": "transaction",
+                    "artifact_version": "transaction_v1",
+                    "transaction_id": "src-1",
+                    "parent_transaction_id": "src-1",
+                    "account_name": "Account 1",
+                    "source_account": "Account 1",
+                    "date": "2026-03-01",
+                    "inflow_ils": 0.0,
+                    "outflow_ils": 10.0,
+                    "signed_amount_ils": -10.0,
+                    "payee_raw": "Cafe original",
+                    "category_raw": "Food",
+                    "memo": "",
+                    "fingerprint": "fp-1",
+                    "approved": False,
+                    "is_subtransaction": False,
+                },
+            }
+        ]
+    )
+
+    with pytest.raises(ValueError, match="changed is FALSE"):
+        review_io.load_review_artifact(df)
+
+
+def test_load_review_artifact_rejects_split_sum_mismatch() -> None:
+    split_txn = {
+        "artifact_kind": "transaction",
+        "artifact_version": "transaction_v1",
+        "transaction_id": "src-1",
+        "parent_transaction_id": "src-1",
+        "account_name": "Account 1",
+        "source_account": "Account 1",
+        "date": "2026-03-01",
+        "inflow_ils": 0.0,
+        "outflow_ils": 10.0,
+        "signed_amount_ils": -10.0,
+        "payee_raw": "Cafe",
+        "category_raw": "Split",
+        "memo": "",
+        "fingerprint": "fp-1",
+        "approved": False,
+        "is_subtransaction": False,
+        "splits": [
+            {
+                "split_id": "sub-1",
+                "parent_transaction_id": "src-1",
+                "ynab_subtransaction_id": "sub-1",
+                "payee_raw": "Cafe",
+                "category_id": "cat-a",
+                "category_raw": "Food",
+                "memo": "",
+                "inflow_ils": 0.0,
+                "outflow_ils": 7.0,
+                "import_id": "",
+                "matched_transaction_id": "",
+            },
+            {
+                "split_id": "sub-2",
+                "parent_transaction_id": "src-1",
+                "ynab_subtransaction_id": "sub-2",
+                "payee_raw": "Cafe",
+                "category_id": "cat-b",
+                "category_raw": "Dining",
+                "memo": "",
+                "inflow_ils": 0.0,
+                "outflow_ils": 2.0,
+                "import_id": "",
+                "matched_transaction_id": "",
+            },
+        ],
+    }
+    df = pd.DataFrame(
+        [
+            {
+                "review_transaction_id": "row-1",
+                "workflow_type": "institutional",
+                "source_present": True,
+                "changed": False,
+                "source_current": split_txn,
+                "source_original": split_txn,
+            }
+        ]
+    )
+
+    with pytest.raises(ValueError, match="split amounts do not sum"):
+        review_io.load_review_artifact(df)
+
+
+def test_load_review_artifact_rejects_split_single_category() -> None:
+    split_txn = {
+        "artifact_kind": "transaction",
+        "artifact_version": "transaction_v1",
+        "transaction_id": "src-1",
+        "parent_transaction_id": "src-1",
+        "account_name": "Account 1",
+        "source_account": "Account 1",
+        "date": "2026-03-01",
+        "inflow_ils": 0.0,
+        "outflow_ils": 10.0,
+        "signed_amount_ils": -10.0,
+        "payee_raw": "Cafe",
+        "category_raw": "Split",
+        "memo": "",
+        "fingerprint": "fp-1",
+        "approved": False,
+        "is_subtransaction": False,
+        "splits": [
+            {
+                "split_id": "sub-1",
+                "parent_transaction_id": "src-1",
+                "ynab_subtransaction_id": "sub-1",
+                "payee_raw": "Cafe",
+                "category_id": "cat-a",
+                "category_raw": "Food",
+                "memo": "",
+                "inflow_ils": 0.0,
+                "outflow_ils": 7.0,
+                "import_id": "",
+                "matched_transaction_id": "",
+            },
+            {
+                "split_id": "sub-2",
+                "parent_transaction_id": "src-1",
+                "ynab_subtransaction_id": "sub-2",
+                "payee_raw": "Cafe",
+                "category_id": "cat-a",
+                "category_raw": "Food",
+                "memo": "",
+                "inflow_ils": 0.0,
+                "outflow_ils": 3.0,
+                "import_id": "",
+                "matched_transaction_id": "",
+            },
+        ],
+    }
+    df = pd.DataFrame(
+        [
+            {
+                "review_transaction_id": "row-1",
+                "workflow_type": "institutional",
+                "source_present": True,
+                "changed": False,
+                "source_current": split_txn,
+                "source_original": split_txn,
+            }
+        ]
+    )
+
+    with pytest.raises(ValueError, match="split must span more than one category"):
+        review_io.load_review_artifact(df)

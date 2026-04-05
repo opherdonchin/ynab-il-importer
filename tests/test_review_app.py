@@ -4,10 +4,8 @@ from pathlib import Path
 
 import pandas as pd
 import polars as pl
-import pyarrow as pa
 from streamlit.testing.v1 import AppTest
 
-from ynab_il_importer.artifacts.review_schema import REVIEW_SCHEMA
 import ynab_il_importer.review_app.app as review_app
 import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.review_app.state as review_state
@@ -110,8 +108,7 @@ def _build_canonical_app_test(
     reviewed = tmp_path / "proposed_reviewed.parquet"
     categories = tmp_path / "categories.csv"
 
-    table = pa.Table.from_pylist(records, schema=REVIEW_SCHEMA)
-    review_io.save_review_artifact(table, proposed)
+    review_io.save_review_artifact(pd.DataFrame(records), proposed)
     _write_categories(categories)
 
     argv = ["app.py", "--in", str(proposed), "--categories", str(categories)]
@@ -498,15 +495,15 @@ def test_app_renders_canonical_split_detail_from_parquet(tmp_path: Path) -> None
                     "parent_transaction_id": "tgt-split-1",
                     "ynab_subtransaction_id": "split-house-1",
                     "payee_raw": "Mega Store",
-                    "category_id": "",
-                    "category_raw": "House and stuff",
-                    "memo": "supplies",
-                    "inflow_ils": 0.0,
-                    "outflow_ils": 120.0,
-                    "import_id": "",
-                    "matched_transaction_id": "",
-                }
-            ],
+                        "category_id": "",
+                        "category_raw": "House and stuff",
+                        "memo": "supplies",
+                        "inflow_ils": 0.0,
+                        "outflow_ils": 140.0,
+                        "import_id": "",
+                        "matched_transaction_id": "",
+                    }
+                ],
         }
     ]
 
