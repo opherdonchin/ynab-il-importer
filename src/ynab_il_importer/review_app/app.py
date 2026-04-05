@@ -806,6 +806,60 @@ def _inject_primary_state_css() -> None:
     st.markdown(
         """
 <style>
+.stExpander details > summary {
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+}
+.stExpander details > div[role="group"] {
+  padding-top: 0.35rem;
+}
+.txn-compact p {
+  margin: 0.05rem 0 0.18rem 0;
+  line-height: 1.2;
+}
+.txn-compact .stCaption,
+.txn-compact [data-testid="stCaptionContainer"] {
+  margin-bottom: 0.1rem;
+}
+.txn-compact [data-testid="stHorizontalBlock"] {
+  gap: 0.55rem;
+}
+.txn-compact [data-testid="column"] {
+  padding-top: 0;
+}
+.txn-compact div[data-testid="stMarkdownContainer"] > p {
+  margin-bottom: 0.2rem;
+}
+.txn-compact div[data-testid="stCheckbox"] {
+  margin-top: -0.2rem;
+  margin-bottom: -0.1rem;
+}
+.txn-compact div[data-testid="stTextInput"],
+.txn-compact div[data-testid="stSelectbox"],
+.txn-compact div[data-testid="stTextArea"],
+.txn-compact div[data-testid="stMultiSelect"] {
+  margin-bottom: -0.15rem;
+}
+.txn-compact .txn-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.txn-compact .txn-detail-table td {
+  padding: 0.08rem 0;
+  vertical-align: top;
+}
+.txn-compact .txn-detail-label {
+  width: 5.5rem;
+  color: #6b7280;
+  white-space: nowrap;
+  padding-right: 0.4rem;
+}
+.txn-compact .txn-inline-note {
+  color: #6b7280;
+  font-size: 0.88rem;
+  margin: 0.15rem 0 0.35rem 0;
+}
 .txn-state-anchor { display: none; }
 .txn-state-anchor.txn-pri-fix-us + div[data-testid="stExpander"] {
   border: 2px solid #b91c1c;
@@ -1276,12 +1330,41 @@ def _grouped_row_indices(filtered: pd.DataFrame) -> tuple[list[str], dict[str, l
 
 
 def _render_detail_section(title: str, entries: list[tuple[str, Any]]) -> None:
-    st.markdown(f"**{title}**")
+    rows: list[str] = []
     for label, value in entries:
-        text = str(value or "").strip()
-        if not text:
-            text = "—"
-        st.caption(f"{label}: {text}")
+        text = str(value or "").strip() or "—"
+        rows.append(
+            "<tr>"
+            f"<td class='txn-detail-label'>{label}</td>"
+            f"<td>{text}</td>"
+            "</tr>"
+        )
+    st.markdown(f"**{title}**")
+    st.markdown(
+        "<table class='txn-detail-table'>"
+        + "".join(rows)
+        + "</table>",
+        unsafe_allow_html=True,
+    )
+
+
+def _format_current_selected(current: Any, selected: Any) -> str:
+    current_text = str(current or "").strip()
+    selected_text = str(selected or "").strip()
+    if current_text and selected_text and current_text != selected_text:
+        return f"{current_text} -> {selected_text}"
+    return selected_text or current_text or "—"
+
+
+def _row_context_lines(row: pd.Series) -> list[str]:
+    lines: list[str] = []
+    source_context = str(row.get("source_context_kind", "") or "").strip()
+    target_context = str(row.get("target_context_kind", "") or "").strip()
+    if source_context:
+        lines.append(f"Source context: {source_context}")
+    if target_context:
+        lines.append(f"Target context: {target_context}")
+    return lines
 
 
 def _split_id_set(value: str) -> set[str]:
@@ -1399,35 +1482,45 @@ def _render_row_details(
         category_group_map,
     )
 
-    overview_col, source_col, target_col = st.columns(3)
+    source_payee = _format_current_selected(
+        row.get("source_payee_current", ""),
+        row.get("source_payee_selected", ""),
+    )
+    source_category = _format_current_selected(
+        source_category_current,
+        source_category_selected,
+    )
+    target_payee = _format_current_selected(
+        row.get("target_payee_current", ""),
+        row.get("target_payee_selected", ""),
+    )
+    target_category = _format_current_selected(
+        target_category_current,
+        target_category_selected,
+    )
+
+    overview_col, source_col, target_col = st.columns([1.1, 1.3, 1.3])
     with overview_col:
         _render_detail_section(
             "Overview",
             [
-                ("State", primary_state),
-                ("Blocker", "" if blocker == "None" else blocker),
-                ("Decision", row.get("decision_action", "")),
+                ("Amount", _format_amount(row)),
                 ("Match status", row.get("match_status", "")),
-                ("Relation", row.get("relation_kind", "")),
                 ("Method", row.get("match_method", "")),
                 ("Fingerprint", row.get("fingerprint", "")),
-                ("Amount", _format_amount(row)),
                 ("Memo add", row.get("memo_append", "")),
-                ("Source context", row.get("source_context_kind", "")),
-                ("Target context", row.get("target_context_kind", "")),
             ],
         )
+        if blocker and blocker != "None":
+            st.caption(f"Blocker: {blocker}")
     with source_col:
         _render_detail_section(
             "Source",
             [
                 ("Account", row.get("source_account", "") or row.get("account_name", "")),
-                ("Row id", row.get("source_row_id", "")),
                 ("Date", row.get("source_date", "") or row.get("date", "")),
-                ("Current payee", row.get("source_payee_current", "")),
-                ("Selected payee", row.get("source_payee_selected", "")),
-                ("Current category", source_category_current),
-                ("Selected category", source_category_selected),
+                ("Payee", source_payee),
+                ("Category", source_category),
                 ("Split lines", "" if helper_row is None else helper_row.get("source_split_count", 0)),
                 ("Memo", row.get("source_memo", "")),
             ],
@@ -1437,16 +1530,15 @@ def _render_row_details(
             "Target",
             [
                 ("Account", row.get("target_account", "") or row.get("account_name", "")),
-                ("Row id", row.get("target_row_id", "")),
                 ("Date", row.get("target_date", "") or row.get("date", "")),
-                ("Current payee", row.get("target_payee_current", "")),
-                ("Selected payee", row.get("target_payee_selected", "")),
-                ("Current category", target_category_current),
-                ("Selected category", target_category_selected),
+                ("Payee", target_payee),
+                ("Category", target_category),
                 ("Split lines", "" if helper_row is None else helper_row.get("target_split_count", 0)),
                 ("Memo", row.get("target_memo", "")),
             ],
         )
+    for line in _row_context_lines(row):
+        st.caption(line)
 
     source_splits = row.get("source_splits")
     target_splits = row.get("target_splits")
@@ -1533,28 +1625,18 @@ def _render_row_controls(
         )
     )
     _ensure_widget_state(show_all_categories_key, show_all_categories_default)
-    show_all_categories = st.checkbox(
-        "Show all categories",
-        value=bool(st.session_state.get(show_all_categories_key, show_all_categories_default)),
-        key=show_all_categories_key,
-        on_change=_preserve_expansion_context,
-        kwargs={"idx": idx, "group_fingerprint": group_fingerprint},
+    show_all_categories = bool(
+        st.session_state.get(show_all_categories_key, show_all_categories_default)
     )
 
     use_form = group_fingerprint is None
     form_context = st.form(key=_editor_key(f"row_form_{idx}")) if use_form else nullcontext()
     with form_context:
-        st.markdown("**Source**")
         source_payee_key = _editor_key(f"source_payee_{idx}")
         source_category_key = _editor_key(f"source_category_{idx}")
         _ensure_widget_state(source_payee_key, source_payee_selected)
         _ensure_widget_state(source_category_key, source_category_selected)
 
-        source_payee_input = st.text_input(
-            "Source payee",
-            value=str(st.session_state.get(source_payee_key, source_payee_selected) or ""),
-            key=source_payee_key,
-        )
         source_category_choices = _category_choice_list(
             category_options=[],
             category_choices=category_choices,
@@ -1562,30 +1644,20 @@ def _render_row_controls(
             default_value=source_category_selected,
             show_all=True,
         )
-        source_category_select = st.selectbox(
-            "Source category",
-            options=source_category_choices,
-            index=source_category_choices.index(source_category_selected)
-            if source_category_selected in source_category_choices
-            else 0,
-            format_func=lambda value: _format_category_label(value, category_group_map),
-            key=source_category_key,
-        )
-
-        st.markdown("**Target**")
         target_payee_override_key = _editor_key(f"target_payee_override_{idx}")
         _ensure_widget_state(target_payee_override_key, "")
-        target_payee_override = st.text_input(
-            "Target payee override",
-            value=st.session_state.get(target_payee_override_key, ""),
-            key=target_payee_override_key,
+        target_payee_override_current = str(
+            st.session_state.get(target_payee_override_key, "") or ""
         )
 
         payee_choices = [""] + payee_options
         if target_payee_selected and target_payee_selected not in payee_choices:
             payee_choices = [target_payee_selected] + payee_choices
-        if target_payee_override and target_payee_override not in payee_choices:
-            payee_choices = [target_payee_override] + payee_choices
+        if (
+            target_payee_override_current
+            and target_payee_override_current not in payee_choices
+        ):
+            payee_choices = [target_payee_override_current] + payee_choices
         if target_payee_default and target_payee_default not in payee_choices:
             payee_choices = [target_payee_default] + payee_choices
 
@@ -1603,57 +1675,101 @@ def _render_row_controls(
         _ensure_widget_state(target_payee_select_key, payee_current)
         _ensure_widget_state(target_category_select_key, category_current)
 
-        target_payee_select = st.selectbox(
-            "Target payee option",
-            options=payee_choices,
-            index=payee_choices.index(payee_current) if payee_current in payee_choices else 0,
-            key=target_payee_select_key,
-        )
-        target_category_select = st.selectbox(
-            "Target category",
-            options=category_full,
-            index=category_full.index(category_current) if category_current in category_full else 0,
-            format_func=lambda value: _format_category_label(value, category_group_map),
-            key=target_category_select_key,
-        )
-
         memo_append_key = _editor_key(f"memo_append_{idx}")
         memo_append_default = str(row.get("memo_append", "") or "").strip()
         _ensure_widget_state(memo_append_key, memo_append_default)
-        memo_append_value = st.text_area(
-            "Memo add",
-            value=str(st.session_state.get(memo_append_key, memo_append_default) or ""),
-            key=memo_append_key,
-            height=80,
-        )
-
-        st.markdown("**Decision**")
         decision_action_key = _editor_key(f"decision_action_{idx}")
         decision_options = review_validation.allowed_decision_actions(row)
         if current_action not in decision_options:
             decision_options.append(current_action)
         _ensure_widget_state(decision_action_key, current_action)
-        decision_action = st.selectbox(
-            "Decision",
-            options=decision_options,
-            index=decision_options.index(current_action),
-            key=decision_action_key,
-        )
 
         update_maps_key = _editor_key(f"update_maps_{idx}")
         update_maps_default = review_validation.parse_update_maps(row.get("update_maps", ""))
         _ensure_widget_state(update_maps_key, update_maps_default)
-        update_maps_value = st.multiselect(
-            "Update maps",
-            options=list(review_validation.UPDATE_MAP_TOKENS),
-            default=update_maps_default,
-            key=update_maps_key,
-        )
+        st.markdown("<div class='txn-compact'>", unsafe_allow_html=True)
+        toggle_col, note_col = st.columns([1, 5], vertical_alignment="bottom")
+        checkbox_kwargs: dict[str, Any] = {}
+        if not use_form:
+            checkbox_kwargs = {
+                "on_change": _preserve_expansion_context,
+                "kwargs": {"idx": idx, "group_fingerprint": group_fingerprint},
+            }
+        with toggle_col:
+            st.checkbox(
+                "Show all categories",
+                value=bool(st.session_state.get(show_all_categories_key, show_all_categories_default)),
+                key=show_all_categories_key,
+                **checkbox_kwargs,
+            )
+        with note_col:
+            st.markdown(
+                "<div class='txn-inline-note'>A non-ignore decision automatically pushes competing rows for the same source or target transaction to <code>ignore_row</code>.</div>",
+                unsafe_allow_html=True,
+            )
 
-        st.caption(
-            "Choosing a non-ignore action automatically sets competing rows for the same "
-            "source or target transaction to ignore_row."
-        )
+        source_col, target_col, decision_col = st.columns([1.1, 1.2, 1], vertical_alignment="top")
+        with source_col:
+            st.markdown("**Source**")
+            source_payee_input = st.text_input(
+                "Source payee",
+                value=str(st.session_state.get(source_payee_key, source_payee_selected) or ""),
+                key=source_payee_key,
+            )
+            source_category_select = st.selectbox(
+                "Source category",
+                options=source_category_choices,
+                index=source_category_choices.index(source_category_selected)
+                if source_category_selected in source_category_choices
+                else 0,
+                format_func=lambda value: _format_category_label(value, category_group_map),
+                key=source_category_key,
+            )
+
+        with target_col:
+            st.markdown("**Target**")
+            target_top_left, target_top_right = st.columns(2)
+            with target_top_left:
+                target_payee_override = st.text_input(
+                    "Target payee override",
+                    value=target_payee_override_current,
+                    key=target_payee_override_key,
+                )
+            with target_top_right:
+                target_payee_select = st.selectbox(
+                    "Target payee option",
+                    options=payee_choices,
+                    index=payee_choices.index(payee_current) if payee_current in payee_choices else 0,
+                    key=target_payee_select_key,
+                )
+            target_category_select = st.selectbox(
+                "Target category",
+                options=category_full,
+                index=category_full.index(category_current) if category_current in category_full else 0,
+                format_func=lambda value: _format_category_label(value, category_group_map),
+                key=target_category_select_key,
+            )
+            memo_append_value = st.text_area(
+                "Memo add",
+                value=str(st.session_state.get(memo_append_key, memo_append_default) or ""),
+                key=memo_append_key,
+                height=68,
+            )
+
+        with decision_col:
+            st.markdown("**Decision**")
+            decision_action = st.selectbox(
+                "Decision",
+                options=decision_options,
+                index=decision_options.index(current_action),
+                key=decision_action_key,
+            )
+            update_maps_value = st.multiselect(
+                "Update maps",
+                options=list(review_validation.UPDATE_MAP_TOKENS),
+                default=update_maps_default,
+                key=update_maps_key,
+            )
 
         action_cols = st.columns(2)
         with action_cols[0]:
@@ -1691,6 +1807,7 @@ def _render_row_controls(
                 )
         else:
             apply_all = False
+        st.markdown("</div>", unsafe_allow_html=True)
 
     source_payee_value = str(st.session_state.get(source_payee_key, source_payee_input) or "")
     source_category_value = str(st.session_state.get(source_category_key, source_category_select) or "")
