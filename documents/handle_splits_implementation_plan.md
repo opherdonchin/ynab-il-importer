@@ -1558,373 +1558,389 @@ The safest first Step 3 slice is:
 4. refactor one contained logic layer, preferably `review_app/state.py`, off flattened pandas assumptions
 5. only then add the first read-only split display, starting on the target side
 
-## Step 4 Plan: Add Split Transaction Editing
+## Review-Model Redesign Before Step 4
 
-Status note:
+### Why this redesign is needed
 
-- the first implementation attempt for the design below was reverted
-- the review-model direction is being reconsidered as a final Step 3 correction
-- the likely replacement direction is:
-  - flat working review rows for ordinary app logic
-  - nested split columns only where split editing/display needs them
-  - immutable original source/target transaction structs as reference objects
-- until that redesign is written, treat the detailed Step 4 plan below as superseded by the
-  active notes in `documents/plan.md`
+The first Step 4 attempt exposed a real weakness in the shipped Step 3 review model.
 
-### Step 4 goal
+The current persisted review artifact is mostly flat and works well for ordinary review flow,
+but it does not preserve immutable original source/target transaction history explicitly.
+That leads to two problems:
 
-Allow the review workflow to create, edit, remove, review, save, resume, and upload
-split structure while preserving the current parent-transaction-oriented matching model.
+1. split editing starts to accumulate parallel mutable state just to answer “what changed?”
+2. comparison and restore logic gets spread across multiple app and upload boundaries
 
-Step 4 should not redesign matching. It should extend the review model so that a single
-review row can carry:
+The corrected direction is:
 
-- the current source-side split snapshot
-- the current target-side split snapshot
-- the reviewed source-side split selection, if the user edits it
-- the reviewed target-side split selection, if the user edits it
+- persisted review artifacts should carry four transaction structs from the beginning:
+  - `source_current`
+  - `target_current`
+  - `source_original`
+  - `target_original`
+- each transaction struct should keep ordinary transaction fields flat and keep `splits`
+  nested
+- the app should still work primarily from a flat Polars working table
+- original transactions should be exploded only when change state is computed, and that
+  should happen only when a row is edited
 
-The app should remain mostly flat and dataframe-oriented. Split hierarchy should stay
-confined to the split-list columns and to the editor/rendering paths that actually need it.
+This is the final architectural pass needed before Step 4 split editing resumes.
 
-### Step 4 working assumptions established from the current codebase
+### Redesign goal
 
-- The canonical review artifact is already mostly flat in
-  `src/ynab_il_importer/artifacts/review_schema.py`.
-- Source and target split snapshots already exist as top-level nested columns:
-  - `source_splits`
-  - `target_splits`
-- The review app already renders those columns read-only in
-  `src/ynab_il_importer/review_app/app.py`.
-- The upload path in `src/ynab_il_importer/upload_prep.py` already knows how to create
-  split payloads, but it currently infers split upload units from grouped flat rows rather
-  than from explicit reviewed split state on a single review row.
-- The YNAB API does not support in-place editing of `subtransactions` on an existing
-  split transaction, so Step 4 must distinguish between:
-  - creating a new split transaction
-  - keeping an existing split unchanged
-  - replacing an existing split structure with a reviewed split structure
-  - removing split structure from an existing split and replacing it with a non-split row
+Introduce a four-transaction persisted review artifact and one centralized flat working
+projection so that:
 
-### Step 4 scope
+- review history is explicit and immutable
+- ordinary app logic remains dataframe-oriented
+- split editing can later operate on a clean model instead of a heavy duplicate-state layer
+- `changed` can be initialized/persisted simply and recomputed only for the row being edited
 
-In scope:
+### Scope
 
-- target-side split editing for institutional review
-- target-side split editing for cross-budget review where target creation/editing is allowed
-- source-side split editing wherever the current workflow already allows source-side edits
-- split creation from a non-split row
-- split removal back to a non-split reviewed row
-- split-line payee/category/memo/amount editing
-- save/resume persistence for reviewed split edits
-- upload-prep consumption of reviewed split edits
-- validation and review blocking for inconsistent split edits
+In scope for this redesign:
 
-Out of scope:
+- review schema and review artifact IO
+- builder output shape for proposed review artifacts
+- centralized working projection for the app and upload prep
+- changed-state initialization, persistence, and row-update-only recomputation
+- save/resume and reconcile compatibility with the new artifact shape
 
-- split-aware matching changes
-- split-line-level grouping or case generation
-- transfer subtransactions in split payloads
-- automatic splitting suggestions
-- rewriting the app around a deeply nested transaction relationship model
+Out of scope for this redesign:
 
-### Canonical review-artifact design for Step 4
+- new split editor behavior
+- new split upload semantics
+- matching changes
+- split-line grouping or split-aware case generation
 
-Step 4 should keep the current flat review artifact but extend it with explicit reviewed
-split-edit state. The key design principle is:
+### Canonical review-artifact target
 
-- current split snapshot columns remain factual
-- reviewed split-edit columns carry the user’s intended edited state
-- a small mode field tells the app and upload layer how to interpret the reviewed split columns
+The persisted review artifact should become:
 
-Recommended top-level additions per side:
+- top-level review/control columns
+- four transaction structs:
+  - `source_current`
+  - `target_current`
+  - `source_original`
+  - `target_original`
 
-- `source_split_mode`
-- `target_split_mode`
-- `source_splits_selected`
-- `target_splits_selected`
+Each transaction struct should be based on the canonical transaction vocabulary already used
+elsewhere in the repo:
 
-Recommended mode values:
+- flat scalar transaction fields
+- nested `splits`
 
-- `inherit`
-  - use the current snapshot as-is
-  - no reviewed split override is present
-- `split`
-  - use `*_splits_selected` as the reviewed split structure
-- `unsplit`
-  - ignore the current snapshot and treat the row as a reviewed non-split transaction
+The top-level review/control columns should contain things like:
 
-Why an explicit mode field is needed:
+- artifact metadata:
+  - `artifact_kind`
+  - `artifact_version`
+- review identity and relation:
+  - `review_transaction_id`
+  - `workflow_type`
+  - `relation_kind`
+  - `match_status`
+  - `match_method`
+- review controls:
+  - `decision_action`
+  - `reviewed`
+  - `update_maps`
+  - `memo_append`
+  - `changed`
+- source/target presence and app context:
+  - `source_present`
+  - `target_present`
+  - `source_row_id`
+  - `target_row_id`
+  - source/target context fields already needed by cross-budget review
+- option-list and app-facing control columns that are already review-specific:
+  - `payee_options`
+  - `category_options`
 
-- `None` vs `[]` is not enough to distinguish:
-  - untouched rows
-  - reviewed split edits
-  - explicit split removal
-- the app, validator, and upload layer all need the same interpretation
-- save/resume should preserve user intent even when the reviewed split list is empty or when
-  a split is being removed
+The top-level review artifact should stop carrying broad duplicated scalar snapshots such as:
 
-Recommended representation of `*_splits_selected`:
+- `source_date`
+- `source_payee_current`
+- `target_category_current`
+- similar source/target scalar copies that can be derived from the current transaction structs
 
-- reuse the existing `SPLIT_LINE_STRUCT` shape for now
-- interpret its fields as the reviewed selected child-line values
-- keep line amounts in the existing `inflow_ils` / `outflow_ils` shape
-- keep `split_id` as the stable editor row id
-- allow synthetic `split_id` values for newly created split lines
+### Two-transaction vs four-transaction boundary
 
-This keeps Step 4 low-risk because the app, IO, and upload layers can share one split-line
-shape instead of inventing a second edited-split schema.
+The new persisted review artifact should be four-transaction from the start.
 
-### Effective split semantics inside the app
+There should not be a separate “2-transaction persisted artifact” stage once this redesign is
+implemented.
 
-The app should reason about three split views per side:
+That means:
 
-1. `current_splits`
-   - factual snapshot from the source or target system
-2. `selected_splits`
-   - reviewed edited split state from `*_splits_selected`
-3. `effective_splits`
-   - the split structure currently being reviewed, derived from mode:
-     - `inherit` -> current snapshot
-     - `split` -> selected splits
-     - `unsplit` -> no splits
+- on a newly built proposed review artifact:
+  - `source_current == source_original`
+  - `target_current == target_original`
+  - `changed = False`
+- on a saved/resumed review artifact:
+  - `source_original` and `target_original` remain immutable
+  - `source_current` and `target_current` may reflect the user’s current reviewed state
+  - `changed` is loaded from persisted state and only recomputed when the row is edited
 
-The app should use `effective_splits` for:
+This keeps review history explicit and removes the need to infer “original state” by matching
+against a separate base dataframe later.
 
-- expanded split display
-- split-count badges
-- split-aware validation
-- any upload-facing reviewed state
+### Centralized working projection
 
-It should keep showing `current_splits` alongside `effective_splits` where that helps the
-user understand what has changed.
+The app and other ordinary review logic should not work directly against the four nested
+transaction structs.
 
-### Review-app behavior requirements
+Instead, there should be one centralized flat working projection derived from the persisted
+artifact.
 
-The editor should support, at minimum:
+That working projection should contain:
 
-- `Split transaction`
-  - takes the current parent row and creates an initial editable split structure
-- `Add split line`
-  - appends a new editable split line
-- `Remove split line`
-  - removes one selected line
-- `Remove split structure`
-  - sets split mode to `unsplit`
-- `Revert split edits`
-  - returns split mode to `inherit` and clears `*_splits_selected`
+- top-level review/control columns
+- exploded scalar columns for `source_current`
+- exploded scalar columns for `target_current`
+- nested split columns for the current source and target transactions
+- immutable original transaction structs still attached or accessible as reference columns
+- helper columns for app filtering/grouping/search where appropriate
 
-The UI should preserve the current parent-level controls:
+This working projection is where ordinary dataframe-level app logic should happen.
 
-- parent payee selection
-- parent category selection
-- memo append
-- decision action
-- review / keep-open / grouped actions
+The projection should be used by:
 
-But when split mode is `split`:
+- the review app
+- upload prep
+- other review-row consumers that need flat current transaction columns
 
-- the parent category should not be required for target-side upload
-- the child-line categories should become the authoritative categorized state
-- the parent payee should remain meaningful as the parent payee for YNAB payloads
+The projection should not itself become another persisted artifact.
 
-### File-by-file Step 4 change inventory
+### Where explosion/flattening should happen
+
+The flattening borders should be consolidated.
+
+#### Persisted artifact
+
+Keep:
+
+- top-level review/control columns
+- four transaction structs
+
+Do not spread flattened current/original scalar copies across the persisted artifact.
+
+#### App boundary
+
+Explode current transactions once into the centralized flat working projection.
+
+Use that projection for:
+
+- filtering
+- search
+- grouped summaries
+- row rendering
+- option/default calculation
+
+Do not repeatedly re-explode current transactions ad hoc in multiple helpers.
+
+#### Change computation
+
+Explode original transaction structs only when comparing one edited row against its original.
+
+That should happen:
+
+- when a user edits a row
+- when a mutation helper needs to recompute `changed` for that row
+
+It should not happen eagerly for all rows during initialization.
+
+#### Initialization and resume
+
+- brand-new review artifact:
+  - `changed = False`
+- resumed review artifact:
+  - load persisted `changed`
+
+That means change comparison is a row-update concern, not a startup concern.
+
+### File-by-file redesign inventory
 
 #### `src/ynab_il_importer/artifacts/review_schema.py`
 
-- add `source_split_mode`
-- add `target_split_mode`
-- add `source_splits_selected`
-- add `target_splits_selected`
-- keep snapshot split columns unchanged
-- keep the rest of the review artifact flat
+- replace the current broad flat source/target scalar field list
+- define the persisted review schema around:
+  - review/control top-level fields
+  - `source_current`
+  - `target_current`
+  - `source_original`
+  - `target_original`
+- reuse the transaction struct already defined in
+  `src/ynab_il_importer/artifacts/transaction_schema.py`
+- add explicit `changed` as a top-level persisted review field
 
 #### `src/ynab_il_importer/review_app/io.py`
 
-- normalize the new mode fields
-- round-trip `*_splits_selected`
-- preserve explicit `[]` for reviewed selected split lists
-- project the canonical artifact to the app-facing dataframe without losing split mode intent
-- continue to be the explicit flattening boundary for the review app
-
-#### `src/ynab_il_importer/review_app/state.py`
-
-- extend the Polars data view with:
-  - effective split counts
-  - reviewed-split-present flags
-  - split-mode flags
-  - optional “has split edits” booleans
-- add helper functions for:
-  - deriving effective split lists from mode + current + selected
-  - validating split totals
-  - generating synthetic split ids where needed
-- extend the row-edit mutation adapter to update split mode and selected split lists
-
-#### `src/ynab_il_importer/review_app/validation.py`
-
-- validate reviewed split state at the row level
-- treat target split mode `split` as satisfying parent-category requirements through child lines
-- block review when:
-  - split totals do not match the parent amount
-  - any required child category is missing
-  - any required child payee/category combination is invalid
-  - unsupported transfer split semantics appear
-- keep component-level review rules parent-row-oriented
-
-#### `src/ynab_il_importer/review_app/model.py`
-
-- propagate split edits across related rows when the side being edited is shared
-- make group/apply helpers preserve reviewed split state rather than overwriting it accidentally
-- treat split edits as target-side reviewed values for fingerprint application only when that is
-  unambiguous and intended
-
-#### `src/ynab_il_importer/review_app/app.py`
-
-- add split editor sections for source and target sides
-- keep current read-only detail visible
-- add reviewed/effective split display so the user can see edits before review
-- keep split editing lazy and row-local so widget count stays manageable
-- keep grouped mode parent-row-oriented; do not turn one review row into many UI rows
-
-#### `src/ynab_il_importer/upload_prep.py`
-
-- stop inferring split upload solely from grouped prepared rows
-- instead, derive split upload from explicit reviewed target split state on each review row
-- support:
-  - unchanged non-split upload
-  - reviewed split creation
-  - reviewed split replacement
-  - reviewed split removal back to a non-split upload
-- continue to block unsupported split-transfer payloads
-
-#### `src/ynab_il_importer/review_reconcile.py`
-
-- preserve reviewed split-edit columns across rebuild/resume
-- align rows by review identity without losing selected split state
+- make canonical review load/save operate on the four-transaction artifact
+- keep the app-facing flattening boundary here
+- build the centralized flat working projection from the canonical review artifact
+- stop carrying extra flat snapshot normalization that belongs in the working projection
+- keep CSV compatibility only where still needed for reviewed save/load workflows
 
 #### Builder scripts
 
 - `scripts/build_proposed_transactions.py`
 - `scripts/build_cross_budget_review_rows.py`
 
-Step 4 should populate the new split-edit columns with neutral defaults:
+These builders should emit the new persisted review artifact directly.
 
-- `*_split_mode = inherit`
-- `*_splits_selected = null`
+Initial values should be:
 
-The builders should not invent split edits. They should only populate the snapshot side.
+- `source_current = source_original`
+- `target_current = target_original`
+- `changed = False`
 
-### Validation rules for split editing
+The builders should not invent review history. They should only seed current/original equally.
 
-For any side in `split` mode:
+#### `src/ynab_il_importer/review_app/state.py`
 
-- the sum of child signed amounts must equal the parent signed amount exactly
-- each split line must have a stable `split_id`
-- each split line must have:
-  - payee if that side/workflow requires one
-  - category unless the line is explicitly no-category-required
-- empty split structures are invalid in `split` mode
-- at least two lines should be required when creating a split from a non-split row
+- build the centralized flat working projection helpers on top of current transactions
+- keep app data/state views flat and Polars-first
+- add a row-comparison helper that recomputes `changed` for a single edited row by comparing:
+  - current source vs original source
+  - current target vs original target
+- do not introduce eager all-row original explosion
 
-For `unsplit` mode:
+#### `src/ynab_il_importer/review_app/app.py`
 
-- the selected split list is ignored
-- parent payee/category rules revert to the ordinary non-split rules
+- load the app from the centralized working projection
+- keep ordinary row/group UI on flat current columns
+- keep split display coming from the current transaction splits
+- update mutation call sites so row edits flow back into current transaction structs and then
+  recompute `changed` for the touched row
 
-For `inherit` mode:
+#### `src/ynab_il_importer/review_app/model.py`
 
-- validation should operate on the current snapshot only where needed for display
-- no split-edit validation should block review if the user has not changed split state
+- adapt mutation helpers so they operate on current transaction values and return updated rows
+- ensure the public boundary remains Polars-first
+- update any fingerprint/group propagation helpers so they preserve original transaction structs
 
-### Upload semantics for Step 4
+#### `src/ynab_il_importer/review_app/validation.py`
 
-Target-side upload should interpret reviewed split state as follows:
+- keep ordinary review validation on the flat working projection
+- treat `changed` as a persisted review/control field, not a derived whole-table diff
+- continue to use pandas internally only where the existing mutation-heavy island remains easier
 
-- `inherit`
-  - unchanged existing target:
-    - keep current target split structure if no target mutation is requested
-  - create-target row:
-    - behave as the current non-split or grouped-split path already does
-- `split`
-  - build upload `subtransactions` from `target_splits_selected`
-  - parent `category_id` must be `null`
-  - parent payee comes from the reviewed target payee
-- `unsplit`
-  - build a normal non-split payload from parent selected values
+#### `src/ynab_il_importer/review_reconcile.py`
 
-Existing target split transactions whose reviewed split structure changes should be treated as
-“replace, not patch” operations in the upload plan, because the YNAB API does not support
-editing `subtransactions` in place.
+- preserve immutable original transactions on resume
+- preserve persisted `changed`
+- align incoming rebuilt rows with existing reviewed rows without discarding original history
 
-That means Step 4 should make the intended action explicit in upload prep, even if the final
-delete/recreate wire-up remains a separate later upload refinement.
+#### `src/ynab_il_importer/upload_prep.py`
 
-### Save/resume semantics
+- consume the centralized flat working projection rather than the old flat persisted review schema
+- continue to read current source/target state from the current transactions
+- keep original transaction structs out of normal upload assembly except where comparison or
+  reference context is explicitly needed
 
-Save/resume must preserve:
+### Staged implementation plan
 
-- split mode
-- selected split lines
-- synthetic split ids
-- parent selected payee/category values
-- memo append
-- review state
+#### Stage 1: schema and IO
 
-If a row is rebuilt from fresh source/target snapshots:
+Purpose:
 
-- reviewed split selections should remain attached to the review row
-- snapshot split columns may change
-- `inherit` mode should continue to mean “use the current fresh snapshot”
-- `split` and `unsplit` should continue to mean “use the reviewed override”
+- replace the persisted review artifact with the new four-transaction shape
 
-### Testing strategy
+Deliverables:
+
+- `review_schema.py` defines the new canonical review schema
+- builders emit the new shape
+- `review_app/io.py` loads and saves that shape
+- `changed` is present and persisted
+
+Behavior target:
+
+- app behavior should remain as stable as possible
+- current/original transactions are initially identical on new proposals
+
+#### Stage 2: centralized working projection
+
+Purpose:
+
+- give the app and upload path one flat working dataframe instead of ad hoc flattening
+
+Deliverables:
+
+- one explicit working-projection builder
+- app helper/data views derive from that projection
+- upload prep uses the same projection or a very close sibling
+
+Behavior target:
+
+- ordinary review logic keeps feeling dataframe-centric
+- original transaction structs remain reference-only
+
+#### Stage 3: changed-state logic
+
+Purpose:
+
+- make `changed` explicit, cheap, and correct
+
+Deliverables:
+
+- new reviews initialize `changed = False`
+- resumed reviews preserve persisted `changed`
+- row-edit paths recompute `changed` only for the touched row by comparing current vs original
+
+Behavior target:
+
+- no whole-table diff is required to know whether a row changed
+- no second duplicate mutable review-state layer is introduced
+
+### Testing strategy for the redesign
 
 Required coverage:
 
-1. review schema round-trip
-   - new split-edit columns persist through Parquet and CSV review save/load
-2. review app state
-   - create split from non-split row
-   - add/remove line
-   - revert to inherit
-   - remove split structure
-3. validation
-   - mismatched totals block review
-   - missing child category blocks review
-   - valid reviewed split can be marked reviewed
-4. save/resume
-   - reviewed split edits survive save and reload
-   - reviewed split edits survive rebuild/reconcile
-5. upload prep
-   - reviewed split state produces correct `subtransactions`
-   - reviewed unsplit state produces normal non-split payload
-   - unsupported split transfer is still blocked
-6. app rendering
-   - folded summary reflects effective split state
-   - expanded split editor shows current and reviewed structure clearly
+1. schema and round-trip
+   - four-transaction review artifacts round-trip through Parquet
+   - current/original transactions keep split data intact
+   - `changed` persists correctly
+2. builder output
+   - builders seed `current == original`
+   - new proposed review artifacts start with `changed = False`
+3. working projection
+   - current transaction structs flatten into the expected app/upload working columns
+   - split columns remain available on the working projection
+4. app load/save
+   - review app loads the new artifact and keeps ordinary review behavior working
+   - save/resume preserves originals and `changed`
+5. row update / change detection
+   - editing one row recomputes `changed` only for that row
+   - untouched rows remain unchanged without eager whole-table diff work
+6. reconcile
+   - rebuilt rows can be matched back to saved reviewed rows without losing original history
 
 ### Main risks
 
-- making split editing implicit rather than explicit in the schema will create save/resume bugs
-- overloading `None` / `[]` instead of using an explicit mode field will make split removal ambiguous
-- letting split editing leak into matching semantics will enlarge Step 4 unnecessarily
-- replacing too much of the current row editor at once could destabilize ordinary review flow
-- upload replacement semantics for existing YNAB splits need to stay explicit and testable
+- trying to preserve too much of the old flat persisted review schema during the transition
+- letting the centralized working projection turn into a second persisted artifact by accident
+- recomputing `changed` too broadly instead of confining it to row updates
+- allowing current/original transaction structs to drift out of sync during save/resume
+- leaving upload prep or builders on stale flat review assumptions after the artifact changes
 
-### Recommended implementation sequence
+## Step 4 Plan: Add Split Transaction Editing
 
-1. extend the review schema and IO boundary with explicit reviewed split-edit fields
-2. teach the app state/helpers to derive effective split state from mode + snapshot + selected
-3. implement a target-side split editor first
-4. wire validation and review blocking for target split edits
-5. teach upload prep to consume reviewed target split edits
-6. then add source-side split editing using the same editor/state machinery
+Step 4 should resume only after the redesign above lands.
 
-This keeps the first Step 4 slice vertical and testable:
+The Step 4 design direction is now:
 
-- schema
-- app
-- save/resume
-- upload
+- a separate split editor should operate on one transaction’s split state
+- the main app should expose clear actions such as:
+  - `New split`
+  - `Edit split`
+  - `Remove split`
+- split validation should happen inside the editor where possible and still be enforced again at
+  review/upload boundaries as a safety net
+- Step 4 should build on:
+  - current transaction structs as the mutable reviewed state
+  - original transaction structs as immutable history
+  - the centralized flat working projection for ordinary app logic
 
-before broader editor polish.
+The detailed Step 4 editor specification should be rewritten only after the redesign above is
+implemented and verified.
