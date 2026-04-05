@@ -42,6 +42,8 @@ REQUIRED_COLUMNS = [
     "source_category_selected",
     "target_payee_selected",
     "target_category_selected",
+    "source_present",
+    "target_present",
 ]
 
 LEGACY_INSTITUTIONAL_REQUIRED_COLUMNS = [
@@ -183,6 +185,12 @@ def _normalize_text(value: Any) -> str:
 
 def _normalize_bool(value: Any) -> bool:
     return bool(validation.normalize_flag_series(pd.Series([value])).iloc[0])
+
+
+def _required_mapping_value(row: dict[str, Any], key: str) -> Any:
+    if key not in row:
+        raise ValueError(f"Review rows must include {key}")
+    return row[key]
 
 
 def _normalize_float(value: Any) -> float:
@@ -421,106 +429,13 @@ def _bool_from_row(row: pd.Series, *names: str) -> bool:
 
 def _side_present(row: pd.Series, side: str) -> bool:
     present_key = f"{side}_present"
-    if present_key in row.index:
-        return _normalize_bool(row.get(present_key))
-    if side == "source":
-        return any(
-            _normalize_text(row.get(name, ""))
-            for name in [
-                "source_row_id",
-                "source_transaction_id",
-                "source_date",
-                "source_payee_current",
-                "source_memo",
-                "source_fingerprint",
-                "transaction_id",
-                "date",
-            ]
-        )
-    return any(
-        _normalize_text(row.get(name, ""))
-        for name in [
-            "target_row_id",
-            "target_transaction_id",
-            "target_date",
-            "target_payee_current",
-            "target_memo",
-            "target_fingerprint",
-        ]
-    ) or bool(_normalize_split_records(row.get("target_splits")))
-
-
-def _has_numeric_value(row: pd.Series, *names: str) -> bool:
-    for name in names:
-        if name in row.index:
-            value = row.get(name)
-            if value is None or value is pd.NA:
-                continue
-            try:
-                if pd.isna(value):
-                    continue
-            except TypeError:
-                pass
-            return True
-    return False
-
-
-def _has_current_side_values(row: pd.Series, side: str) -> bool:
-    text_names = [
-        f"{side}_transaction_id",
-        f"{side}_ynab_id",
-        f"{side}_import_id",
-        f"{side}_parent_transaction_id",
-        f"{side}_account_id",
-        f"{side}_account",
-        f"{side}_date",
-        f"{side}_secondary_date",
-        f"{side}_payee_current",
-        f"{side}_category_id",
-        f"{side}_category_current",
-        f"{side}_memo",
-        f"{side}_fingerprint",
-        f"{side}_description_raw",
-        f"{side}_description_clean",
-        f"{side}_description_clean_norm",
-        f"{side}_merchant_raw",
-        f"{side}_ref",
-        f"{side}_matched_transaction_id",
-        f"{side}_cleared",
-    ]
-    if any(_normalize_text(row.get(name, "")) for name in text_names if name in row.index):
-        return True
-    if _bool_from_row(row, f"{side}_approved", f"{side}_is_subtransaction"):
-        return True
-    if _normalize_split_records(row.get(f"{side}_splits")):
-        return True
-    if _has_numeric_value(row, "inflow_ils", "outflow_ils"):
-        return True
-    return False
-
-
-def _has_source_summary_values(row: pd.Series) -> bool:
-    return any(
-        _normalize_text(row.get(name, ""))
-        for name in [
-            "transaction_id",
-            "source_row_id",
-            "account_name",
-            "date",
-            "memo",
-            "fingerprint",
-            "source",
-        ]
-        if name in row.index
-    ) or _has_numeric_value(row, "inflow_ils", "outflow_ils")
+    if present_key not in row.index:
+        raise ValueError(f"Review rows must include {present_key}")
+    return _normalize_bool(row.get(present_key))
 
 
 def _has_current_side_data(row: pd.Series, side: str) -> bool:
-    if _side_present(row, side) or _has_current_side_values(row, side):
-        return True
-    if side == "source":
-        return _has_source_summary_values(row)
-    return False
+    return _side_present(row, side)
 
 
 def _category_id_for_current(
@@ -668,13 +583,11 @@ def _current_transaction_from_row(row: pd.Series, *, side: str) -> dict[str, Any
         if key in row.index:
             explicit_current = True
     original = _original_transaction_from_row(row, side=side)
+    if not _side_present(row, side):
+        return None
     if original is not None and not explicit_current:
         if not _normalize_bool(row.get("changed", False)):
             return original
-        if not _has_current_side_values(row, side):
-            return original
-    if not _has_current_side_data(row, side) and original is None:
-        return None
     return _transaction_from_flat_row(
         row,
         side=side,
@@ -715,6 +628,7 @@ def _review_record_from_row(row: pd.Series) -> dict[str, Any]:
         "target_present": _side_present(row, "target"),
         "source_row_id": _normalize_text(row.get("source_row_id")),
         "target_row_id": _normalize_text(row.get("target_row_id")),
+        "target_account": _normalize_text(row.get("target_account")),
         "source_context_kind": _normalize_text(row.get("source_context_kind")),
         "source_context_category_id": _normalize_text(row.get("source_context_category_id")),
         "source_context_category_name": _normalize_text(row.get("source_context_category_name")),
@@ -772,6 +686,13 @@ def _working_default(column: str) -> Any:
 
 def _ensure_working_dataframe_schema(df: pd.DataFrame) -> pd.DataFrame:
     out = _decode_columns_if_needed(df.copy())
+    missing_presence = [
+        column for column in ("source_present", "target_present") if column not in out.columns
+    ]
+    if missing_presence:
+        raise ValueError(
+            f"Review working rows missing required columns: {missing_presence}"
+        )
     for column in WORKING_COLUMNS:
         if column not in out.columns:
             out[column] = _working_default(column)
@@ -783,29 +704,8 @@ def _ensure_working_dataframe_schema(df: pd.DataFrame) -> pd.DataFrame:
             "institutional"
         )
 
-    if "source_present" in df.columns:
-        out["source_present"] = validation.normalize_flag_series(out["source_present"])
-    else:
-        out["source_present"] = (
-            out["source_row_id"].astype("string").fillna("").str.strip().ne("")
-            | out["source_transaction_id"].astype("string").fillna("").str.strip().ne("")
-            | out["source_payee_current"].astype("string").fillna("").str.strip().ne("")
-            | out["source_account"].astype("string").fillna("").str.strip().ne("")
-            | out["source_date"].astype("string").fillna("").str.strip().ne("")
-            | out["transaction_id"].astype("string").fillna("").str.strip().ne("")
-        )
-
-    if "target_present" in df.columns:
-        out["target_present"] = validation.normalize_flag_series(out["target_present"])
-    else:
-        out["target_present"] = (
-            out["target_row_id"].astype("string").fillna("").str.strip().ne("")
-            | out["target_transaction_id"].astype("string").fillna("").str.strip().ne("")
-            | out["target_payee_current"].astype("string").fillna("").str.strip().ne("")
-            | out["target_account"].astype("string").fillna("").str.strip().ne("")
-            | out["target_date"].astype("string").fillna("").str.strip().ne("")
-            | out["target_splits"].map(lambda value: bool(value) if value is not None else False)
-        )
+    out["source_present"] = validation.normalize_flag_series(out["source_present"])
+    out["target_present"] = validation.normalize_flag_series(out["target_present"])
 
     out["reviewed"] = validation.normalize_flag_series(out["reviewed"])
     out["changed"] = validation.normalize_flag_series(out["changed"])
@@ -967,10 +867,16 @@ def _working_row_from_record(row: dict[str, Any]) -> dict[str, Any]:
         "reviewed": bool(row.get("reviewed", False)),
         "changed": bool(row.get("changed", False)),
         "memo_append": _normalize_text(row.get("memo_append")),
-        "source_present": bool(row.get("source_present", False)),
-        "target_present": bool(row.get("target_present", False)),
+        "source_present": bool(_required_mapping_value(row, "source_present")),
+        "target_present": bool(_required_mapping_value(row, "target_present")),
         "source_row_id": _normalize_text(row.get("source_row_id")),
         "target_row_id": _normalize_text(row.get("target_row_id")),
+        "target_account": _preferred_summary_value(
+            row.get("target_account"),
+            target_current.get("account_name"),
+            target_current.get("source_account"),
+            row.get("account_name"),
+        ),
         "source_context_kind": _normalize_text(row.get("source_context_kind")),
         "source_context_category_id": _normalize_text(row.get("source_context_category_id")),
         "source_context_category_name": _normalize_text(row.get("source_context_category_name")),
@@ -1026,6 +932,12 @@ def _working_row_from_record(row: dict[str, Any]) -> dict[str, Any]:
         working[f"{side}_approved"] = bool(txn.get("approved", False))
         working[f"{side}_is_subtransaction"] = bool(txn.get("is_subtransaction", False))
         working[f"{side}_splits"] = _normalize_split_records(txn.get("splits"))
+    working["target_account"] = _preferred_summary_value(
+        row.get("target_account"),
+        target_current.get("account_name"),
+        target_current.get("source_account"),
+        row.get("account_name"),
+    )
     working["payee_selected"] = working["target_payee_selected"]
     working["category_selected"] = working["target_category_selected"]
     return working

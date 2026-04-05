@@ -52,6 +52,8 @@ def test_load_proposed_transactions_accepts_polars_dataframe() -> None:
             "source_category_selected": [""],
             "target_payee_selected": ["Cafe"],
             "target_category_selected": ["Food"],
+            "source_present": [True],
+            "target_present": [False],
         }
     )
 
@@ -99,6 +101,8 @@ def test_save_reviewed_transactions_accepts_polars_dataframe(tmp_path) -> None:
             "target_payee_selected": ["Cafe"],
             "target_category_selected": ["Food"],
             "reviewed": [True],
+            "source_present": [True],
+            "target_present": [False],
         }
     )
 
@@ -358,6 +362,7 @@ def test_load_review_artifact_rejects_false_changed_when_current_differs() -> No
                 "review_transaction_id": "row-1",
                 "workflow_type": "institutional",
                 "source_present": True,
+                "target_present": False,
                 "changed": False,
                 "source_current": {
                     "artifact_kind": "transaction",
@@ -456,6 +461,7 @@ def test_load_review_artifact_rejects_split_sum_mismatch() -> None:
                 "review_transaction_id": "row-1",
                 "workflow_type": "institutional",
                 "source_present": True,
+                "target_present": False,
                 "changed": False,
                 "source_current": split_txn,
                 "source_original": split_txn,
@@ -520,6 +526,7 @@ def test_load_review_artifact_rejects_split_single_category() -> None:
                 "review_transaction_id": "row-1",
                 "workflow_type": "institutional",
                 "source_present": True,
+                "target_present": False,
                 "changed": False,
                 "source_current": split_txn,
                 "source_original": split_txn,

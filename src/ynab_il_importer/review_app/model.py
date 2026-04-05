@@ -105,6 +105,8 @@ def _apply_to_same_fingerprint_pandas(
     reviewed: bool | None = None,
     eligible_mask: pd.Series | None = None,
 ) -> pd.DataFrame:
+    import ynab_il_importer.review_app.state as review_state
+
     updated = df.copy()
     mask = updated["fingerprint"].astype("string").fillna("").str.strip() == str(fingerprint).strip()
     if eligible_mask is not None:
@@ -125,6 +127,7 @@ def _apply_to_same_fingerprint_pandas(
         updated.loc[mask, "update_maps"] = str(update_maps).strip()
     if decision_action is not None and "decision_action" in updated.columns:
         updated.loc[mask, "decision_action"] = str(decision_action).strip()
+    updated = review_state._recompute_presence(updated, updated.index[mask].tolist())
     if reviewed is not None:
         updated.loc[mask, "reviewed"] = bool(reviewed)
     if "changed" in updated.columns:
@@ -185,6 +188,7 @@ def _apply_competing_row_resolution_pandas(
             continue
         if "decision_action" in updated.columns:
             updated.loc[competing_indices, "decision_action"] = "ignore_row"
+        updated = review_state._recompute_presence(updated, competing_indices)
         if "changed" in updated.columns:
             updated.loc[competing_indices, "changed"] = True
         touched.extend(competing_indices)

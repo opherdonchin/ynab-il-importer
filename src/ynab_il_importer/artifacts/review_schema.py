@@ -26,6 +26,7 @@ REVIEW_CONTROL_FIELDS: list[pa.Field] = [
     pa.field("target_present", pa.bool_()),
     pa.field("source_row_id", pa.string()),
     pa.field("target_row_id", pa.string()),
+    pa.field("target_account", pa.string()),
     pa.field("source_context_kind", pa.string()),
     pa.field("source_context_category_id", pa.string()),
     pa.field("source_context_category_name", pa.string()),

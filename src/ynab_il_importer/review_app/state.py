@@ -1089,6 +1089,68 @@ def related_rows_mask(
     return mask
 
 
+def _original_side_present(df: pd.DataFrame, idx: Any, side: str) -> bool:
+    original_column = f"{side}_original_transaction"
+    if original_column in df.columns:
+        value = df.at[idx, original_column]
+        return isinstance(value, dict) and bool(value)
+    present_column = f"{side}_present"
+    if present_column in df.columns:
+        return bool(df.at[idx, present_column])
+    return False
+
+
+def _presence_after_action(
+    *,
+    source_present_original: bool,
+    target_present_original: bool,
+    action: str,
+) -> tuple[bool, bool]:
+    import ynab_il_importer.review_app.validation as review_validation
+
+    normalized = review_validation.normalize_decision_action(action)
+    source_present = source_present_original
+    target_present = target_present_original
+
+    if normalized == "create_source":
+        source_present = True
+    elif normalized == "create_target":
+        target_present = True
+    elif normalized == "delete_source":
+        source_present = False
+    elif normalized == "delete_target":
+        target_present = False
+    elif normalized == "delete_both":
+        source_present = False
+        target_present = False
+
+    return source_present, target_present
+
+
+def _recompute_presence(df: pd.DataFrame, indices: list[Any]) -> pd.DataFrame:
+    if "source_present" not in df.columns or "target_present" not in df.columns:
+        return df
+    updated = df.copy()
+    import ynab_il_importer.review_app.validation as review_validation
+
+    for idx in indices:
+        if idx not in updated.index:
+            continue
+        action = (
+            updated.at[idx, "decision_action"]
+            if "decision_action" in updated.columns
+            else review_validation.NO_DECISION
+        )
+        source_present, target_present = _presence_after_action(
+            source_present_original=_original_side_present(updated, idx, "source"),
+            target_present_original=_original_side_present(updated, idx, "target"),
+            action=str(action).strip(),
+        )
+        updated.at[idx, "source_present"] = source_present
+        updated.at[idx, "target_present"] = target_present
+    return updated
+
+
 def apply_row_edit(
     df: pl.DataFrame,
     idx: Any,
@@ -1179,6 +1241,7 @@ def _apply_row_edit_pandas(
 
     if decision_action is not None and "decision_action" in updated.columns:
         updated.at[idx, "decision_action"] = str(decision_action).strip()
+    updated = _recompute_presence(updated, [idx])
     if reviewed is not None and "reviewed" in updated.columns:
         if component_map is None:
             from ynab_il_importer.review_app.validation import connected_component_mask

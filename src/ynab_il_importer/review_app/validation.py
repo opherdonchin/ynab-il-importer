@@ -101,6 +101,12 @@ def _row_get(row: Any, key: str, default: Any = "") -> Any:
     return default
 
 
+def _required_row_value(row: Any, key: str) -> Any:
+    if not _row_has(row, key):
+        raise ValueError(f"Review rows must include {key}")
+    return _row_get(row, key)
+
+
 def _selected_value(row: Any, field: str, *, side: str) -> str:
     side_key = f"{side}_{field}_selected"
     if _row_has(row, side_key):
@@ -472,8 +478,8 @@ def blocker_series(df: pd.DataFrame) -> pd.Series:
 
 def allowed_decision_actions(row: Any) -> list[str]:
     workflow_type = str(_row_get(row, "workflow_type", "") or "").strip().casefold()
-    source_present = _truthy(_row_get(row, "source_present", False))
-    target_present = _truthy(_row_get(row, "target_present", False))
+    source_present = _truthy(_required_row_value(row, "source_present"))
+    target_present = _truthy(_required_row_value(row, "target_present"))
 
     actions = [NO_DECISION, "ignore_row"]
     if source_present and target_present:

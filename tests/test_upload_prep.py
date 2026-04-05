@@ -44,6 +44,8 @@ def _reviewed_df(columns: dict[str, list[object]]) -> pd.DataFrame:
     data.setdefault("target_category_selected", category_selected)
     data.setdefault("decision_action", ["create_target"] * row_count)
     data.setdefault("reviewed", [True] * row_count)
+    data.setdefault("source_present", [True] * row_count)
+    data.setdefault("target_present", [False] * row_count)
     return pd.DataFrame(data)
 
 

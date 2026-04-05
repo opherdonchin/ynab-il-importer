@@ -1469,10 +1469,7 @@ def _render_row_controls(
     current_action = review_validation.normalize_decision_actions(
         pd.Series([row.get("decision_action", review_validation.NO_DECISION)])
     ).iloc[0]
-    target_present = (
-        str(row.get("target_present", "") or "").strip().casefold() in review_validation.TRUE_VALUES
-        or bool(row.get("target_present", False))
-    )
+    target_present = bool(row["target_present"])
     create_target_default = current_action == "create_target" and not target_present
     uncategorized_default = "Uncategorized" if "Uncategorized" in category_choices else ""
     target_payee_default = (

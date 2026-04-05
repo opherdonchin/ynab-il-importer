@@ -14,7 +14,13 @@ import ynab_il_importer.review_app.validation as review_validation
 
 
 def _review_rows(rows: list[dict[str, object]]) -> pd.DataFrame:
-    return review_io.load_proposed_transactions(pd.DataFrame(rows))
+    normalized_rows: list[dict[str, object]] = []
+    for row in rows:
+        normalized = dict(row)
+        normalized.setdefault("source_present", True)
+        normalized.setdefault("target_present", True)
+        normalized_rows.append(normalized)
+    return review_io.load_proposed_transactions(pd.DataFrame(normalized_rows))
 
 
 def test_validate_row_blocks_reviewed_no_decision_and_institutional_source_mutation() -> None:
@@ -405,6 +411,7 @@ def test_review_data_and_state_views_separate_data_from_app_state() -> None:
                 "match_status": "ambiguous",
                 "decision_action": "ignore_row",
                 "reviewed": True,
+                "target_present": False,
                 "update_maps": "payee_add_fingerprint",
                 "target_payee_selected": "Shop",
                 "target_category_selected": "Uncategorized",
