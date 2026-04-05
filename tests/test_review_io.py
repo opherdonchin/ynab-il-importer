@@ -536,3 +536,4 @@ def test_load_review_artifact_rejects_split_single_category() -> None:
 
     with pytest.raises(ValueError, match="split must span more than one category"):
         review_io.load_review_artifact(df)
+

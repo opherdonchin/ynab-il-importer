@@ -417,10 +417,22 @@ def _set_review_frames(
         _bump_df_generation()
 
 
+def _require_groupable_review_rows(df: pd.DataFrame) -> None:
+    if "fingerprint" not in df.columns:
+        raise ValueError("Review dataframe missing required fingerprint column.")
+    fingerprint = df["fingerprint"].astype("string").fillna("").str.strip()
+    if fingerprint.eq("").any():
+        raise ValueError(
+            "Loaded review artifact contains blank fingerprint values; "
+            "renormalize or manually correct the stale artifact before opening it in the app."
+        )
+
+
 def _load_df(path: Path, *, set_source_path: bool = False) -> None:
     df = review_io.project_review_artifact_to_flat_dataframe(
         review_io.load_review_artifact_polars(path)
     )
+    _require_groupable_review_rows(df)
     _set_review_frames(df=df, original=df.copy())
     if set_source_path:
         st.session_state["source_path"] = str(path)
@@ -431,6 +443,7 @@ def _load_base(path: Path) -> None:
     base = review_io.project_review_artifact_to_flat_dataframe(
         review_io.load_review_artifact_polars(path)
     )
+    _require_groupable_review_rows(base)
     _set_review_frames(base=base)
 
 
@@ -1323,28 +1336,9 @@ def _apply_staged_row_widget_values(df: pd.DataFrame, indices: list[Any]) -> pd.
 def _grouped_row_indices(filtered: pd.DataFrame) -> tuple[list[str], dict[str, list[Any]]]:
     if filtered.empty:
         return [], {}
-    key_columns = [
-        "fingerprint",
-        "source_fingerprint",
-        "target_fingerprint",
-        "transaction_id",
-    ]
-    key_frame = pd.DataFrame(index=filtered.index)
-    for column in key_columns:
-        if column in filtered.columns:
-            key_frame[column] = filtered[column].astype("string").fillna("").str.strip()
-        else:
-            key_frame[column] = ""
-    group_keys = pd.Series([""] * len(filtered), index=filtered.index, dtype="string")
-    for column in key_columns:
-        group_keys = group_keys.mask(group_keys.eq("") & key_frame[column].ne(""), key_frame[column])
-    fallback_keys = pd.Series(
-        [f"row-{idx}" for idx in filtered.index],
-        index=filtered.index,
-        dtype="string",
+    projected = pl.DataFrame(
+        {"fingerprint": filtered["fingerprint"].astype("string").fillna("").tolist()}
     )
-    group_keys = group_keys.mask(group_keys.eq(""), fallback_keys)
-    projected = pl.DataFrame({"fingerprint": group_keys.tolist()})
     fingerprints, position_map = review_state.grouped_row_indices(projected)
     index_values = list(filtered.index)
     return fingerprints, {

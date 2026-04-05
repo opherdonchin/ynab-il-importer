@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import polars as pl
+import pytest
 from streamlit.testing.v1 import AppTest
 
 import ynab_il_importer.review_app.app as review_app
@@ -713,21 +714,11 @@ def test_grouped_row_indices_only_include_filtered_rows() -> None:
     assert group_indices == {"fp-a": [10, 30], "fp-b": [20]}
 
 
-def test_grouped_row_indices_fall_back_when_fingerprint_is_blank() -> None:
-    filtered = pd.DataFrame(
-        {
-            "fingerprint": ["", "", ""],
-            "source_fingerprint": ["src-a", "", ""],
-            "target_fingerprint": ["", "tgt-b", ""],
-            "transaction_id": ["tx-a", "tx-b", "tx-c"],
-        },
-        index=[10, 20, 30],
-    )
+def test_require_groupable_review_rows_rejects_blank_fingerprint() -> None:
+    df = pd.DataFrame({"fingerprint": ["fp-1", ""]})
 
-    fingerprints, group_indices = review_app._grouped_row_indices(filtered)
-
-    assert fingerprints == ["src-a", "tgt-b", "tx-c"]
-    assert group_indices == {"src-a": [10], "tgt-b": [20], "tx-c": [30]}
+    with pytest.raises(ValueError, match="blank fingerprint values"):
+        review_app._require_groupable_review_rows(df)
 
 
 def test_demo_builder_emits_review_v4_records_with_target_split() -> None:

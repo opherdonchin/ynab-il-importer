@@ -727,7 +727,6 @@ def _working_row_from_record(row: dict[str, Any]) -> dict[str, Any]:
         "source_original_transaction": source_original,
         "target_original_transaction": target_original,
     }
-
     for side, txn in [("source", source_current), ("target", target_current)]:
         working[f"{side}_source_system"] = _normalize_text(txn.get("source_system"))
         working[f"{side}_transaction_id"] = _normalize_text(txn.get("transaction_id"))
