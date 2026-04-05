@@ -6,11 +6,6 @@ from typing import Any
 import pandas as pd
 import polars as pl
 
-from ynab_il_importer.artifacts.review_schema import (
-    SPLIT_MODE_INHERIT,
-    SPLIT_MODE_SPLIT,
-    SPLIT_MODE_UNSPLIT,
-)
 
 NO_CATEGORY_REQUIRED = "None"
 
@@ -57,75 +52,6 @@ def normalize_category_value(value: Any) -> str:
 
 def is_no_category_required(value: Any) -> bool:
     return normalize_category_value(value) == NO_CATEGORY_REQUIRED
-
-
-def normalize_split_mode(value: Any) -> str:
-    text = "" if value is None else str(value).strip().casefold()
-    if text == SPLIT_MODE_SPLIT:
-        return SPLIT_MODE_SPLIT
-    if text == SPLIT_MODE_UNSPLIT:
-        return SPLIT_MODE_UNSPLIT
-    return SPLIT_MODE_INHERIT
-
-
-def normalize_split_records(value: Any) -> list[dict[str, Any]] | None:
-    if value is None:
-        return None
-    if isinstance(value, float) and math.isnan(value):
-        return None
-    if not isinstance(value, list):
-        try:
-            value = list(value)
-        except TypeError:
-            return None
-    normalized: list[dict[str, Any]] = []
-    for raw in value:
-        if not isinstance(raw, dict):
-            continue
-        normalized.append(
-            {
-                "split_id": str(raw.get("split_id", "") or "").strip(),
-                "parent_transaction_id": str(raw.get("parent_transaction_id", "") or "").strip(),
-                "ynab_subtransaction_id": str(raw.get("ynab_subtransaction_id", "") or "").strip(),
-                "payee_raw": str(raw.get("payee_raw", "") or "").strip(),
-                "category_id": str(raw.get("category_id", "") or "").strip(),
-                "category_raw": normalize_category_value(raw.get("category_raw", "")),
-                "memo": str(raw.get("memo", "") or "").strip(),
-                "inflow_ils": float(raw.get("inflow_ils", 0.0) or 0.0),
-                "outflow_ils": float(raw.get("outflow_ils", 0.0) or 0.0),
-                "import_id": str(raw.get("import_id", "") or "").strip(),
-                "matched_transaction_id": str(raw.get("matched_transaction_id", "") or "").strip(),
-            }
-        )
-    return normalized
-
-
-def effective_split_records(row: Any, *, side: str) -> list[dict[str, Any]] | None:
-    mode = normalize_split_mode(_row_get(row, f"{side}_split_mode"))
-    current = normalize_split_records(_row_get(row, f"{side}_splits"))
-    selected = normalize_split_records(_row_get(row, f"{side}_splits_selected"))
-    if mode == SPLIT_MODE_SPLIT:
-        return selected or []
-    if mode == SPLIT_MODE_UNSPLIT:
-        return []
-    return current
-
-
-def split_amount_ils(split: dict[str, Any]) -> float:
-    outflow = float(split.get("outflow_ils", 0.0) or 0.0)
-    inflow = float(split.get("inflow_ils", 0.0) or 0.0)
-    return inflow - outflow
-
-
-def _row_get(row: Any, key: str, default: Any = None) -> Any:
-    if isinstance(row, pd.Series):
-        return row.get(key, default)
-    if isinstance(row, dict):
-        return row.get(key, default)
-    getter = getattr(row, "get", None)
-    if callable(getter):
-        return getter(key, default)
-    return default
 
 
 def apply_to_same_fingerprint(

@@ -5,15 +5,7 @@ import pyarrow as pa
 from ynab_il_importer.artifacts.transaction_schema import SPLIT_LINE_STRUCT
 
 
-REVIEW_ARTIFACT_VERSION = "review_v4"
-SPLIT_MODE_INHERIT = "inherit"
-SPLIT_MODE_SPLIT = "split"
-SPLIT_MODE_UNSPLIT = "unsplit"
-REVIEW_SPLIT_MODES = (
-    SPLIT_MODE_INHERIT,
-    SPLIT_MODE_SPLIT,
-    SPLIT_MODE_UNSPLIT,
-)
+REVIEW_ARTIFACT_VERSION = "review_v3"
 
 REVIEW_SIDE_SCALAR_FIELDS: list[pa.Field] = [
     pa.field("source_source_system", pa.string()),
@@ -94,18 +86,14 @@ REVIEW_SCHEMA = pa.schema(
         pa.field("source_context_category_id", pa.string()),
         pa.field("source_context_category_name", pa.string()),
         pa.field("source_context_matching_split_ids", pa.string()),
-        pa.field("source_split_mode", pa.string()),
         pa.field("source_payee_selected", pa.string()),
         pa.field("source_category_selected", pa.string()),
         pa.field("target_context_kind", pa.string()),
         pa.field("target_context_matching_split_ids", pa.string()),
-        pa.field("target_split_mode", pa.string()),
         pa.field("target_payee_selected", pa.string()),
         pa.field("target_category_selected", pa.string()),
         pa.field("source_splits", pa.list_(SPLIT_LINE_STRUCT)),
         pa.field("target_splits", pa.list_(SPLIT_LINE_STRUCT)),
-        pa.field("source_splits_selected", pa.list_(SPLIT_LINE_STRUCT)),
-        pa.field("target_splits_selected", pa.list_(SPLIT_LINE_STRUCT)),
     ]
 )
 

@@ -1019,8 +1019,6 @@ def test_canonical_review_helpers_derive_split_and_display_fields() -> None:
     df = pl.DataFrame(
         {
             "review_transaction_id": ["row-1", "row-2"],
-            "source_split_mode": ["inherit", "inherit"],
-            "target_split_mode": ["inherit", "split"],
             "source_account": ["Family Leumi", ""],
             "source_date": ["2026-03-01", ""],
             "source_payee_current": ["Salary Liya", ""],
@@ -1057,17 +1055,6 @@ def test_canonical_review_helpers_derive_split_and_display_fields() -> None:
                     },
                 ],
             ],
-            "target_splits_selected": [
-                None,
-                [
-                    {
-                        "split_id": "sub-4",
-                        "category_raw": "Books",
-                        "outflow_ils": 75.0,
-                        "inflow_ils": 0.0,
-                    }
-                ],
-            ],
         }
     )
 
@@ -1082,8 +1069,7 @@ def test_canonical_review_helpers_derive_split_and_display_fields() -> None:
     assert rows[1]["source_is_split"] is False
     assert rows[1]["source_split_count"] == 0
     assert rows[1]["target_is_split"] is True
-    assert rows[1]["target_split_count"] == 1
-    assert rows[1]["target_has_split_edits"] is True
+    assert rows[1]["target_split_count"] == 2
     assert rows[1]["target_display_payee"] == "Manual Split"
 
 
@@ -1130,31 +1116,3 @@ def test_review_data_view_search_text_includes_context_and_split_text() -> None:
     assert "split-1" in text
     assert "split payee" in text
     assert "target account" in text
-
-
-def test_validate_row_blocks_invalid_target_split_edits() -> None:
-    row = {
-        "decision_action": "create_target",
-        "target_payee_selected": "Bookstore",
-        "target_category_selected": "",
-        "target_split_mode": "split",
-        "target_splits_selected": [
-            {
-                "split_id": "split-1",
-                "payee_raw": "Bookstore",
-                "category_raw": "Books",
-                "memo": "",
-                "inflow_ils": 0.0,
-                "outflow_ils": 80.0,
-            }
-        ],
-        "outflow_ils": 100.0,
-        "inflow_ils": 0.0,
-        "reviewed": False,
-        "workflow_type": "institutional",
-    }
-
-    errors, _ = review_validation.validate_row(row)
-
-    assert "target split edit needs at least two split lines" in errors
-    assert "target split totals do not match parent amount" in errors

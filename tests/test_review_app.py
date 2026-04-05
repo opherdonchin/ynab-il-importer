@@ -312,32 +312,6 @@ def test_pick_summary_text_falls_back_to_canonical_transaction_data() -> None:
     assert review_app._pick_summary_text(row) == "split memo"
 
 
-def test_pick_summary_text_prefers_reviewed_split_edits() -> None:
-    row = pd.Series(
-        {
-            "memo": "",
-            "fingerprint": "",
-            "target_split_mode": "split",
-            "target_splits_selected": [
-                {
-                    "memo": "reviewed split memo",
-                    "payee_raw": "",
-                    "category_raw": "",
-                }
-            ],
-            "target_splits": [
-                {
-                    "memo": "current split memo",
-                    "payee_raw": "",
-                    "category_raw": "",
-                }
-            ],
-        }
-    )
-
-    assert review_app._pick_summary_text(row) == "reviewed split memo"
-
-
 def test_summary_date_and_account_prefer_canonical_helpers() -> None:
     row = pd.Series({"date": "2026-03-01", "account_name": "Flat account"})
     helper_row = pd.Series(

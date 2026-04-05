@@ -34,8 +34,6 @@ _REVIEW_DATA_TEXT_COLUMNS = [
     "target_payee_current",
     "source_category_current",
     "target_category_current",
-    "source_split_mode",
-    "target_split_mode",
     "source_payee_selected",
     "target_payee_selected",
     "source_category_selected",
@@ -76,39 +74,8 @@ def _split_text(name: str) -> pl.Expr:
     ).alias(f"{name}_text")
 
 
-def _effective_split_count(side: str) -> pl.Expr:
-    mode = pl.col(f"{side}_split_mode").str.to_lowercase()
-    return (
-        pl.when(mode.eq("split"))
-        .then(_split_count(f"{side}_splits_selected"))
-        .when(mode.eq("unsplit"))
-        .then(pl.lit(0))
-        .otherwise(_split_count(f"{side}_splits"))
-    )
-
-
-def _effective_split_text(side: str) -> pl.Expr:
-    mode = pl.col(f"{side}_split_mode").str.to_lowercase()
-    return (
-        pl.when(mode.eq("split"))
-        .then(pl.col(f"{side}_splits_selected_text"))
-        .when(mode.eq("unsplit"))
-        .then(pl.lit(""))
-        .otherwise(pl.col(f"{side}_splits_text"))
-    ).alias(f"{side}_effective_splits_text")
-
-
 def _with_split_schema(df: pl.DataFrame) -> pl.DataFrame:
-    split_columns = [
-        name
-        for name in (
-            "source_splits",
-            "target_splits",
-            "source_splits_selected",
-            "target_splits_selected",
-        )
-        if name in df.columns
-    ]
+    split_columns = [name for name in ("source_splits", "target_splits") if name in df.columns]
     if not split_columns:
         return df
     return df.with_columns(
@@ -117,15 +84,6 @@ def _with_split_schema(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def _normalized_review_data_frame(df: pl.DataFrame) -> pl.DataFrame:
-    missing_exprs: list[pl.Expr] = []
-    for name in ("source_split_mode", "target_split_mode"):
-        if name not in df.columns:
-            missing_exprs.append(pl.lit("inherit").alias(name))
-    for name in ("source_splits_selected", "target_splits_selected"):
-        if name not in df.columns:
-            missing_exprs.append(pl.lit(None, dtype=_SPLIT_LIST_DTYPE).alias(name))
-    if missing_exprs:
-        df = df.with_columns(missing_exprs)
     df = _with_split_schema(df)
     text_columns = [name for name in _REVIEW_DATA_TEXT_COLUMNS if name in df.columns]
     bool_columns = [name for name in _REVIEW_DATA_BOOL_COLUMNS if name in df.columns]
@@ -152,8 +110,6 @@ def canonical_review_helpers(df: pl.DataFrame) -> pl.DataFrame:
                 pl.lit(False).alias("target_is_split"),
                 pl.lit(0).alias("source_split_count"),
                 pl.lit(0).alias("target_split_count"),
-                pl.lit(False).alias("source_has_split_edits"),
-                pl.lit(False).alias("target_has_split_edits"),
                 pl.lit("").alias("source_display_payee"),
                 pl.lit("").alias("target_display_payee"),
                 pl.lit("").alias("source_display_category"),
@@ -165,24 +121,12 @@ def canonical_review_helpers(df: pl.DataFrame) -> pl.DataFrame:
             ]
         )
 
-    with_split_text = df.with_columns(
+    return df.with_columns(
         [
-            _split_text("source_splits"),
-            _split_text("target_splits"),
-            _split_text("source_splits_selected"),
-            _split_text("target_splits_selected"),
-        ]
-    )
-    source_split_count = _effective_split_count("source")
-    target_split_count = _effective_split_count("target")
-    return with_split_text.with_columns(
-        [
-            source_split_count.gt(0).alias("source_is_split"),
-            target_split_count.gt(0).alias("target_is_split"),
-            source_split_count.alias("source_split_count"),
-            target_split_count.alias("target_split_count"),
-            pl.col("source_split_mode").ne("inherit").alias("source_has_split_edits"),
-            pl.col("target_split_mode").ne("inherit").alias("target_has_split_edits"),
+            _split_count("source_splits").gt(0).alias("source_is_split"),
+            _split_count("target_splits").gt(0).alias("target_is_split"),
+            _split_count("source_splits").alias("source_split_count"),
+            _split_count("target_splits").alias("target_split_count"),
             pl.col("source_payee_current").alias("source_display_payee"),
             pl.col("target_payee_current").alias("target_display_payee"),
             pl.col("source_category_current").alias("source_display_category"),
@@ -191,8 +135,6 @@ def canonical_review_helpers(df: pl.DataFrame) -> pl.DataFrame:
             pl.col("target_account").alias("target_display_account"),
             pl.col("source_date").alias("source_display_date"),
             pl.col("target_date").alias("target_display_date"),
-            _effective_split_text("source"),
-            _effective_split_text("target"),
         ]
     )
 
@@ -220,8 +162,6 @@ def review_data_view(df: pd.DataFrame) -> pl.DataFrame:
         schema_overrides={
             "source_splits": _SPLIT_LIST_DTYPE,
             "target_splits": _SPLIT_LIST_DTYPE,
-            "source_splits_selected": _SPLIT_LIST_DTYPE,
-            "target_splits_selected": _SPLIT_LIST_DTYPE,
         },
     ).with_row_index("_row_pos")
     frame = _normalized_review_data_frame(frame)
@@ -242,18 +182,15 @@ def review_data_view(df: pd.DataFrame) -> pl.DataFrame:
     no_category_required = target_category_selected.str.to_lowercase().eq(
         model.NO_CATEGORY_REQUIRED.casefold()
     )
-    target_split_mode = pl.col("target_split_mode").str.to_lowercase()
     missing_payee = action_expr.eq("create_target") & target_payee_selected.eq("")
     missing_category = (
         action_expr.eq("create_target")
         & (target_category_selected.eq("") | no_category_required)
         & ~is_transfer
-        & ~target_split_mode.eq("split")
     )
     uncategorized_selected = (
         target_category_selected.str.to_lowercase().str.contains("uncategorized", literal=True)
         & ~is_transfer
-        & ~target_split_mode.eq("split")
     )
     has_suggestions = (
         (~source_present) & (source_payee_selected.ne("") | source_category_selected.ne(""))
@@ -295,6 +232,8 @@ def review_data_view(df: pd.DataFrame) -> pl.DataFrame:
             uncategorized_selected.alias("uncategorized_selected"),
             pl.col("source_memo").alias("source_transaction_memo"),
             pl.col("target_memo").alias("target_transaction_memo"),
+            _split_text("source_splits"),
+            _split_text("target_splits"),
         ]
     ).with_columns(
         [
@@ -330,8 +269,8 @@ def review_data_view(df: pd.DataFrame) -> pl.DataFrame:
                     pl.col("source"),
                     action_expr,
                     update_maps_expr,
-                    pl.col("source_effective_splits_text"),
-                    pl.col("target_effective_splits_text"),
+                    pl.col("source_splits_text"),
+                    pl.col("target_splits_text"),
                 ],
                 separator=" ",
                 ignore_nulls=True,
@@ -784,20 +723,18 @@ def required_category_missing_mask(df: pd.DataFrame) -> pd.Series:
     payee = series_or_default(df, "payee_selected").str.strip()
     category = series_or_default(df, "category_selected").map(model.normalize_category_value)
     transfer = payee.map(model.is_transfer_payee)
-    split_mode = series_or_default(df, "target_split_mode").str.strip().str.casefold()
-    return (category.eq("") | category.map(model.is_no_category_required)) & ~transfer & ~split_mode.eq("split")
+    return (category.eq("") | category.map(model.is_no_category_required)) & ~transfer
 
 
 def uncategorized_mask(df: pd.DataFrame) -> pd.Series:
     payee = series_or_default(df, "payee_selected").str.strip()
     transfer = payee.map(model.is_transfer_payee)
-    split_mode = series_or_default(df, "target_split_mode").str.strip().str.casefold()
     category = (
         series_or_default(df, "category_selected")
         .map(model.normalize_category_value)
         .str.casefold()
     )
-    return category.str.contains("uncategorized", regex=False) & ~transfer & ~split_mode.eq("split")
+    return category.str.contains("uncategorized", regex=False) & ~transfer
 
 
 def truthy_series(df: pd.DataFrame, column: str) -> pd.Series:
@@ -1160,10 +1097,6 @@ def apply_row_edit(
     source_category: str | None = None,
     target_payee: str | None = None,
     target_category: str | None = None,
-    source_split_mode: str | None = None,
-    target_split_mode: str | None = None,
-    source_splits_selected: list[dict[str, Any]] | None = None,
-    target_splits_selected: list[dict[str, Any]] | None = None,
     memo_append: str | None = None,
     update_maps: str | None = None,
     reviewed: bool | None = None,
@@ -1179,10 +1112,6 @@ def apply_row_edit(
         source_category=source_category,
         target_payee=target_payee,
         target_category=target_category,
-        source_split_mode=source_split_mode,
-        target_split_mode=target_split_mode,
-        source_splits_selected=source_splits_selected,
-        target_splits_selected=target_splits_selected,
         memo_append=memo_append,
         update_maps=update_maps,
         reviewed=reviewed,
@@ -1202,10 +1131,6 @@ def _apply_row_edit_pandas(
     source_category: str | None = None,
     target_payee: str | None = None,
     target_category: str | None = None,
-    source_split_mode: str | None = None,
-    target_split_mode: str | None = None,
-    source_splits_selected: list[dict[str, Any]] | None = None,
-    target_splits_selected: list[dict[str, Any]] | None = None,
     memo_append: str | None = None,
     update_maps: str | None = None,
     reviewed: bool | None = None,
@@ -1224,11 +1149,6 @@ def _apply_row_edit_pandas(
             updated.loc[source_indices, "source_payee_selected"] = str(source_payee).strip()
         if source_category is not None and "source_category_selected" in updated.columns:
             updated.loc[source_indices, "source_category_selected"] = str(source_category).strip()
-    if source_split_mode is not None and "source_split_mode" in updated.columns:
-        updated.loc[source_indices, "source_split_mode"] = model.normalize_split_mode(source_split_mode)
-    if source_splits_selected is not None and "source_splits_selected" in updated.columns:
-        normalized_source_splits = model.normalize_split_records(source_splits_selected)
-        updated.loc[source_indices, "source_splits_selected"] = [normalized_source_splits] * len(source_indices)
 
     if target_payee is not None or target_category is not None:
         if target_payee is not None:
@@ -1241,11 +1161,6 @@ def _apply_row_edit_pandas(
                 updated.loc[target_indices, "category_selected"] = str(target_category).strip()
             if "target_category_selected" in updated.columns:
                 updated.loc[target_indices, "target_category_selected"] = str(target_category).strip()
-    if target_split_mode is not None and "target_split_mode" in updated.columns:
-        updated.loc[target_indices, "target_split_mode"] = model.normalize_split_mode(target_split_mode)
-    if target_splits_selected is not None and "target_splits_selected" in updated.columns:
-        normalized_target_splits = model.normalize_split_records(target_splits_selected)
-        updated.loc[target_indices, "target_splits_selected"] = [normalized_target_splits] * len(target_indices)
 
     if update_maps is not None and "update_maps" in updated.columns:
         updated.at[idx, "update_maps"] = str(update_maps).strip()

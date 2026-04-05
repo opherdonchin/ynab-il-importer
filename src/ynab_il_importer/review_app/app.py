@@ -15,11 +15,6 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 import ynab_il_importer.map_updates as map_updates
-from ynab_il_importer.artifacts.review_schema import (
-    SPLIT_MODE_INHERIT,
-    SPLIT_MODE_SPLIT,
-    SPLIT_MODE_UNSPLIT,
-)
 import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.review_app.state as review_state
@@ -40,13 +35,9 @@ EDITOR_STATE_PREFIXES = (
     "payee_select_",
     "source_payee_",
     "source_category_",
-    "source_split_mode_",
-    "source_split_editor_",
     "target_payee_override_",
     "target_payee_select_",
     "target_category_select_",
-    "target_split_mode_",
-    "target_split_editor_",
     "memo_append_",
     "decision_action_",
     "reviewed_",
@@ -572,8 +563,8 @@ def _pick_summary_text(row: pd.Series) -> str:
         value = str(row.get(col, "") or "").strip()
         if value:
             return value
-    for side in ["source", "target"]:
-        splits = review_model.effective_split_records(row, side=side) or []
+    for side in ["source_splits", "target_splits"]:
+        splits = row.get(side) or []
         if isinstance(splits, list):
             for split in splits:
                 if not isinstance(split, dict):
@@ -1278,189 +1269,6 @@ def _split_amount_text(split: dict[str, Any]) -> str:
     return ""
 
 
-def _numeric_float(value: Any) -> float:
-    return float(pd.to_numeric(value, errors="coerce") or 0.0)
-
-
-def _row_signed_amount(row: pd.Series) -> float:
-    inflow = _numeric_float(row.get("inflow_ils", 0.0))
-    outflow = _numeric_float(row.get("outflow_ils", 0.0))
-    return round(inflow - outflow, 2)
-
-
-def _split_line_amount_parts(amount_ils: float) -> tuple[float, float]:
-    amount = round(float(amount_ils or 0.0), 2)
-    if amount >= 0:
-        return amount, 0.0
-    return 0.0, abs(amount)
-
-
-def _starter_split_records(row: pd.Series, *, side: str) -> list[dict[str, Any]]:
-    amount = _row_signed_amount(row)
-    inflow, outflow = _split_line_amount_parts(amount)
-    parent_transaction_id = str(
-        row.get(f"{side}_transaction_id", row.get(f"{side}_row_id", row.get("transaction_id", ""))) or ""
-    ).strip()
-    return [
-        {
-            "split_id": f"{side}-split-1",
-            "parent_transaction_id": parent_transaction_id,
-            "ynab_subtransaction_id": "",
-            "payee_raw": "",
-            "category_id": "",
-            "category_raw": "",
-            "memo": "",
-            "inflow_ils": inflow,
-            "outflow_ils": outflow,
-            "import_id": "",
-            "matched_transaction_id": "",
-        }
-    ]
-
-
-def _split_editor_frame(
-    row: pd.Series,
-    *,
-    side: str,
-) -> pd.DataFrame:
-    splits = review_model.effective_split_records(row, side=side)
-    if not splits and review_model.normalize_split_mode(row.get(f"{side}_split_mode", "")) == SPLIT_MODE_SPLIT:
-        splits = _starter_split_records(row, side=side)
-    rows: list[dict[str, Any]] = []
-    for index, split in enumerate(splits or [], start=1):
-        rows.append(
-            {
-                "split_id": str(split.get("split_id", "") or f"{side}-split-{index}").strip(),
-                "payee_raw": str(split.get("payee_raw", "") or "").strip(),
-                "category_raw": review_model.normalize_category_value(split.get("category_raw", "")),
-                "memo": str(split.get("memo", "") or "").strip(),
-                "inflow_ils": _numeric_float(split.get("inflow_ils", 0.0)),
-                "outflow_ils": _numeric_float(split.get("outflow_ils", 0.0)),
-            }
-        )
-    if not rows:
-        rows = [
-            {
-                "split_id": f"{side}-split-1",
-                "payee_raw": "",
-                "category_raw": "",
-                "memo": "",
-                "inflow_ils": 0.0,
-                "outflow_ils": 0.0,
-            }
-        ]
-    return pd.DataFrame(rows)
-
-
-def _normalize_split_editor_rows(
-    editor_value: pd.DataFrame,
-    *,
-    row: pd.Series,
-    side: str,
-) -> list[dict[str, Any]]:
-    parent_transaction_id = str(
-        row.get(f"{side}_transaction_id", row.get(f"{side}_row_id", row.get("transaction_id", ""))) or ""
-    ).strip()
-    normalized: list[dict[str, Any]] = []
-    for index, (_, split_row) in enumerate(editor_value.iterrows(), start=1):
-        split_id = str(split_row.get("split_id", "") or f"{side}-split-{index}").strip()
-        payee = str(split_row.get("payee_raw", "") or "").strip()
-        category = review_model.normalize_category_value(split_row.get("category_raw", ""))
-        memo = str(split_row.get("memo", "") or "").strip()
-        inflow = round(_numeric_float(split_row.get("inflow_ils", 0.0)), 2)
-        outflow = round(_numeric_float(split_row.get("outflow_ils", 0.0)), 2)
-        if not any([payee, category, memo, inflow != 0.0, outflow != 0.0]):
-            continue
-        normalized.append(
-            {
-                "split_id": split_id,
-                "parent_transaction_id": parent_transaction_id,
-                "ynab_subtransaction_id": "",
-                "payee_raw": payee,
-                "category_id": "",
-                "category_raw": category,
-                "memo": memo,
-                "inflow_ils": inflow,
-                "outflow_ils": outflow,
-                "import_id": "",
-                "matched_transaction_id": "",
-            }
-        )
-    return normalized
-
-
-def _split_mode_label(mode: str, *, has_snapshot: bool) -> str:
-    normalized = review_model.normalize_split_mode(mode)
-    if normalized == SPLIT_MODE_SPLIT:
-        return "Reviewed split"
-    if normalized == SPLIT_MODE_UNSPLIT:
-        return "Reviewed non-split"
-    return "Current snapshot" if has_snapshot else "No split"
-
-
-def _split_mode_from_label(label: str, *, has_snapshot: bool) -> str:
-    text = str(label or "").strip().casefold()
-    if text == "reviewed split":
-        return SPLIT_MODE_SPLIT
-    if text == "reviewed non-split":
-        return SPLIT_MODE_UNSPLIT
-    return SPLIT_MODE_INHERIT if has_snapshot else SPLIT_MODE_UNSPLIT
-
-
-def _render_split_editor(
-    row: pd.Series,
-    *,
-    side: str,
-    idx: Any,
-    category_choices: list[str],
-) -> tuple[str, list[dict[str, Any]] | None]:
-    snapshot_splits = review_model.normalize_split_records(row.get(f"{side}_splits", None)) or []
-    has_snapshot = bool(snapshot_splits)
-    current_mode = review_model.normalize_split_mode(row.get(f"{side}_split_mode", ""))
-    mode_key = _editor_key(f"{side}_split_mode_{idx}")
-    mode_options = [
-        _split_mode_label(SPLIT_MODE_INHERIT, has_snapshot=has_snapshot),
-        "Reviewed split",
-        "Reviewed non-split",
-    ]
-    mode_default = _split_mode_label(current_mode, has_snapshot=has_snapshot)
-    _ensure_widget_state(mode_key, mode_default)
-    selected_label = st.selectbox(
-        f"{side.title()} split mode",
-        options=mode_options,
-        index=mode_options.index(mode_default) if mode_default in mode_options else 0,
-        key=mode_key,
-    )
-    selected_mode = _split_mode_from_label(selected_label, has_snapshot=has_snapshot)
-    if selected_mode != SPLIT_MODE_SPLIT:
-        return selected_mode, None
-
-    editor_key = _editor_key(f"{side}_split_editor_{idx}")
-    editor_default = _split_editor_frame(row, side=side)
-    edited = st.data_editor(
-        editor_default,
-        key=editor_key,
-        hide_index=True,
-        num_rows="dynamic",
-        use_container_width=True,
-        column_config={
-            "split_id": st.column_config.TextColumn("Split id", disabled=True),
-            "payee_raw": st.column_config.TextColumn("Payee"),
-            "category_raw": st.column_config.SelectboxColumn("Category", options=category_choices),
-            "memo": st.column_config.TextColumn("Memo"),
-            "inflow_ils": st.column_config.NumberColumn("Inflow", format="%.2f"),
-            "outflow_ils": st.column_config.NumberColumn("Outflow", format="%.2f"),
-        },
-    )
-    selected_splits = _normalize_split_editor_rows(edited, row=row, side=side)
-    split_total = round(sum(review_model.split_amount_ils(split) for split in selected_splits), 2)
-    parent_total = _row_signed_amount(row)
-    st.caption(
-        f"{side.title()} reviewed split total: {split_total:g} | Parent amount: {parent_total:g}"
-    )
-    return selected_mode, selected_splits
-
-
 def _source_context_caption(row: pd.Series) -> str:
     context_kind = str(row.get("source_context_kind", "") or "").strip()
     category_name = str(row.get("source_context_category_name", "") or "").strip()
@@ -1602,10 +1410,6 @@ def _render_row_details(
 
     source_splits = row.get("source_splits")
     target_splits = row.get("target_splits")
-    source_selected_splits = row.get("source_splits_selected")
-    target_selected_splits = row.get("target_splits_selected")
-    source_split_mode = review_model.normalize_split_mode(row.get("source_split_mode", ""))
-    target_split_mode = review_model.normalize_split_mode(row.get("target_split_mode", ""))
     source_context_caption = _source_context_caption(row)
     source_matching_split_ids = str(row.get("source_context_matching_split_ids", "") or "").strip()
     target_matching_split_ids = str(row.get("target_context_matching_split_ids", "") or "").strip()
@@ -1630,26 +1434,6 @@ def _render_row_details(
                 splits=target_splits if isinstance(target_splits, list) else None,
                 matching_split_ids=target_matching_split_ids,
             )
-    if source_split_mode != SPLIT_MODE_INHERIT or target_split_mode != SPLIT_MODE_INHERIT:
-        reviewed_source_col, reviewed_target_col = st.columns(2)
-        with reviewed_source_col:
-            if source_split_mode == SPLIT_MODE_UNSPLIT:
-                st.markdown("**Reviewed source split detail**")
-                st.caption("Reviewed as non-split.")
-            elif source_split_mode == SPLIT_MODE_SPLIT:
-                _render_split_section(
-                    "Reviewed source split detail",
-                    splits=source_selected_splits if isinstance(source_selected_splits, list) else None,
-                )
-        with reviewed_target_col:
-            if target_split_mode == SPLIT_MODE_UNSPLIT:
-                st.markdown("**Reviewed target split detail**")
-                st.caption("Reviewed as non-split.")
-            elif target_split_mode == SPLIT_MODE_SPLIT:
-                _render_split_section(
-                    "Reviewed target split detail",
-                    splits=target_selected_splits if isinstance(target_selected_splits, list) else None,
-                )
 
 
 def _render_row_controls(
@@ -1748,19 +1532,6 @@ def _render_row_controls(
             format_func=lambda value: _format_category_label(value, category_group_map),
             key=source_category_key,
         )
-        source_split_mode_value = review_model.normalize_split_mode(row.get("source_split_mode", ""))
-        source_splits_selected_value: list[dict[str, Any]] | None = None
-        if bool(row.get("source_present", False)) or source_split_mode_value != SPLIT_MODE_INHERIT:
-            with st.expander(
-                "Source split editor",
-                expanded=source_split_mode_value != SPLIT_MODE_INHERIT,
-            ):
-                source_split_mode_value, source_splits_selected_value = _render_split_editor(
-                    row,
-                    side="source",
-                    idx=idx,
-                    category_choices=category_choices,
-                )
 
         st.markdown("**Target**")
         target_payee_override_key = _editor_key(f"target_payee_override_{idx}")
@@ -1806,18 +1577,6 @@ def _render_row_controls(
             format_func=lambda value: _format_category_label(value, category_group_map),
             key=target_category_select_key,
         )
-        target_split_mode_value = review_model.normalize_split_mode(row.get("target_split_mode", ""))
-        target_splits_selected_value: list[dict[str, Any]] | None = None
-        with st.expander(
-            "Target split editor",
-            expanded=target_split_mode_value != SPLIT_MODE_INHERIT,
-        ):
-            target_split_mode_value, target_splits_selected_value = _render_split_editor(
-                row,
-                side="target",
-                idx=idx,
-                category_choices=category_choices,
-            )
 
         memo_append_key = _editor_key(f"memo_append_{idx}")
         memo_append_default = str(row.get("memo_append", "") or "").strip()
@@ -1933,10 +1692,6 @@ def _render_row_controls(
             source_category=source_category_value,
             target_payee=final_target_payee,
             target_category=target_category_value,
-            source_split_mode=source_split_mode_value,
-            target_split_mode=target_split_mode_value,
-            source_splits_selected=source_splits_selected_value,
-            target_splits_selected=target_splits_selected_value,
             memo_append=memo_append_value,
             update_maps=final_update_maps,
             decision_action=decision_action_value,
