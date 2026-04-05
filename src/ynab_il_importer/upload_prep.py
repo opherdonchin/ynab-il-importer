@@ -68,6 +68,12 @@ def _amount_milliunits(row: pd.Series) -> int:
     return int(round((inflow - outflow) * 1000))
 
 
+def _amount_milliunits_from_values(*, inflow_ils: Any, outflow_ils: Any) -> int:
+    outflow = float(pd.to_numeric(pd.Series([outflow_ils]), errors="coerce").fillna(0.0).iloc[0])
+    inflow = float(pd.to_numeric(pd.Series([inflow_ils]), errors="coerce").fillna(0.0).iloc[0])
+    return int(round((inflow - outflow) * 1000))
+
+
 def _nonzero_amount_mask(df: pd.DataFrame) -> pd.Series:
     outflow = pd.to_numeric(df["outflow_ils"], errors="coerce").fillna(0.0)
     inflow = pd.to_numeric(df["inflow_ils"], errors="coerce").fillna(0.0)
@@ -85,6 +91,12 @@ def _target_payee_series(df: pd.DataFrame) -> pd.Series:
     if "target_payee_selected" in df.columns:
         return _normalize_text_series(df["target_payee_selected"])
     return _normalize_text_series(df["payee_selected"])
+
+
+def _parent_target_payee_series(df: pd.DataFrame) -> pd.Series:
+    if "parent_target_payee_selected" in df.columns:
+        return _normalize_text_series(df["parent_target_payee_selected"])
+    return _target_payee_series(df)
 
 
 def _target_category_series(df: pd.DataFrame) -> pd.Series:
@@ -130,6 +142,50 @@ def _review_artifact_to_working_frame(
     if original_index is not None and len(original_index) == len(working):
         working.index = original_index
     return working
+
+
+def _normalize_split_records(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [line for line in value if isinstance(line, dict)]
+
+
+def _explode_target_splits_for_upload(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+
+    rows: list[dict[str, Any]] = []
+    for _, row in df.iterrows():
+        row_payload = row.to_dict()
+        target_current = row_payload.get("target_current_transaction", {})
+        row_payload["parent_target_payee_selected"] = _normalize_text(
+            row_payload.get("target_payee_selected", "")
+        )
+        row_payload["parent_memo"] = _normalize_text(
+            target_current.get("memo", "") if isinstance(target_current, dict) else ""
+        ) or _normalize_text(row_payload.get("memo", ""))
+        row_payload["upload_is_split"] = False
+        split_lines = _normalize_split_records(row_payload.get("target_splits"))
+        if not split_lines:
+            row_payload["subtransaction_memo"] = ""
+            rows.append(row_payload)
+            continue
+
+        row_payload["upload_is_split"] = True
+        for line in split_lines:
+            split_row = dict(row_payload)
+            split_row["target_payee_selected"] = _normalize_text(line.get("payee_raw", ""))
+            split_row["target_category_selected"] = review_model.normalize_category_value(
+                line.get("category_raw", "")
+            )
+            split_row["target_category_id"] = _normalize_text(line.get("category_id", ""))
+            split_row["memo"] = row_payload["parent_memo"]
+            split_row["subtransaction_memo"] = _normalize_text(line.get("memo", ""))
+            split_row["inflow_ils"] = float(line.get("inflow_ils", 0.0) or 0.0)
+            split_row["outflow_ils"] = float(line.get("outflow_ils", 0.0) or 0.0)
+            rows.append(split_row)
+
+    return pd.DataFrame(rows, columns=list(dict.fromkeys([*df.columns, "parent_target_payee_selected", "parent_memo", "subtransaction_memo", "upload_is_split"])))
 
 
 def _transfer_target(payee: str) -> str:
@@ -257,16 +313,29 @@ def _uncategorized_category_id(categories_df: pd.DataFrame) -> str:
     return category_alias_ids.get("uncategorized", "")
 
 
-def validate_ready_for_upload(reviewed_source: pd.DataFrame | Any) -> None:
+def _upload_rows_for_validation(reviewed_source: pd.DataFrame | Any) -> pd.DataFrame:
     df = _review_artifact_to_working_frame(reviewed_source)
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
     upload_df = df.loc[_decision_action_mask(df)].copy()
     if upload_df.empty:
+        return upload_df
+    upload_df["upload_row_position"] = range(len(upload_df))
+    upload_df["target_payee_selected"] = _target_payee_series(upload_df)
+    upload_df["target_category_selected"] = _target_category_series(upload_df)
+    upload_df["memo"] = _combined_memo_series(upload_df)
+    for col in ["outflow_ils", "inflow_ils"]:
+        upload_df[col] = pd.to_numeric(upload_df[col], errors="coerce").fillna(0.0).round(2)
+    return _explode_target_splits_for_upload(upload_df)
+
+
+def validate_ready_for_upload(reviewed_source: pd.DataFrame | Any) -> None:
+    upload_df = _upload_rows_for_validation(reviewed_source)
+    if upload_df.empty:
         return
 
-    payee = _target_payee_series(upload_df)
+    payee = _parent_target_payee_series(upload_df)
     category = _target_category_series(upload_df)
-    transfer = payee.map(review_model.is_transfer_payee)
+    transfer = _target_payee_series(upload_df).map(review_model.is_transfer_payee)
     category_selected = category.map(_is_selected_category)
     nonzero_amount = _nonzero_amount_mask(upload_df)
 
@@ -286,12 +355,25 @@ def ready_mask(reviewed_source: pd.DataFrame | Any) -> pd.Series:
     df = _review_artifact_to_working_frame(reviewed_source)
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
     upload_mask = _decision_action_mask(df)
-    payee = _target_payee_series(df)
-    category = _target_category_series(df)
-    transfer = payee.map(review_model.is_transfer_payee)
+    if not upload_mask.any():
+        return upload_mask
+
+    upload_df = _upload_rows_for_validation(df)
+    payee = _parent_target_payee_series(upload_df)
+    category = _target_category_series(upload_df)
+    transfer = _target_payee_series(upload_df).map(review_model.is_transfer_payee)
     category_selected = category.map(_is_selected_category)
-    nonzero_amount = _nonzero_amount_mask(df)
-    return upload_mask & (payee != "") & (category_selected | transfer) & nonzero_amount
+    nonzero_amount = _nonzero_amount_mask(upload_df)
+    upload_row_ready = (payee != "") & (category_selected | transfer) & nonzero_amount
+
+    if "upload_row_position" not in upload_df.columns:
+        return upload_mask & False
+
+    row_readiness = upload_row_ready.groupby(upload_df["upload_row_position"], dropna=False).all()
+    result = pd.Series(False, index=df.index, dtype=bool)
+    positions = pd.Series(range(len(df)), index=df.index)
+    result.loc[upload_mask] = positions.loc[upload_mask].map(row_readiness).fillna(False)
+    return result
 
 
 def prepare_upload_transactions(
@@ -306,6 +388,10 @@ def prepare_upload_transactions(
     validate_ready_for_upload(reviewed_df)
 
     df = reviewed_df.loc[_decision_action_mask(reviewed_df)].copy()
+    if df.empty:
+        return pd.DataFrame()
+
+    df["upload_row_position"] = range(len(df))
     for col in [
         "transaction_id",
         "account_name",
@@ -321,6 +407,17 @@ def prepare_upload_transactions(
     df["memo"] = _combined_memo_series(df)
     for col in ["outflow_ils", "inflow_ils"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0).round(2)
+    df["upload_transaction_id"] = _normalize_text_series(df["transaction_id"])
+    blank_upload_id = df["upload_transaction_id"] == ""
+    if blank_upload_id.any():
+        generated = pd.Series(
+            [f"upload_txn_{idx}" for idx in range(len(df))],
+            index=df.index,
+            dtype="string",
+        )
+        df.loc[blank_upload_id, "upload_transaction_id"] = generated.loc[blank_upload_id]
+    df["import_amount_milliunits"] = df.apply(_amount_milliunits, axis=1)
+    df = _explode_target_splits_for_upload(df)
 
     account_ids, transfer_payees = _account_lookup(accounts)
     category_ids = _category_lookup(categories_df)
@@ -338,6 +435,8 @@ def prepare_upload_transactions(
 
     df["transfer_target"] = df["target_payee_selected"].map(_transfer_target)
     is_transfer = df["target_payee_selected"].map(review_model.is_transfer_payee)
+    df["parent_transfer_target"] = _parent_target_payee_series(df).map(_transfer_target)
+    parent_is_transfer = _parent_target_payee_series(df).map(review_model.is_transfer_payee)
 
     transfer_target_ids = (
         df["transfer_target"].map(transfer_payees).astype("string").fillna("")
@@ -354,12 +453,25 @@ def prepare_upload_transactions(
         raise ValueError(
             f"Missing transfer payee ids for target accounts: {missing_transfer_targets}"
         )
+    parent_transfer_target_ids = (
+        df["parent_transfer_target"].map(transfer_payees).astype("string").fillna("")
+    )
 
     upload_category = df["target_category_selected"].where(
         ~df["target_category_selected"].map(review_model.is_no_category_required),
         "",
     )
-    df["category_id"] = upload_category.map(category_ids).astype("string").fillna("")
+    df["category_id"] = _normalize_text_series(
+        df.get("target_category_id", pd.Series([""] * len(df), index=df.index))
+    )
+    missing_selected_ids = (~is_transfer) & upload_category.ne("") & df["category_id"].ne("")
+    invalid_selected_ids = missing_selected_ids & ~df["category_id"].isin(set(category_ids.values()))
+    if invalid_selected_ids.any():
+        invalid_ids = sorted(df.loc[invalid_selected_ids, "category_id"].unique().tolist())
+        raise ValueError(f"Unknown YNAB category ids in reviewed upload rows: {invalid_ids}")
+    df.loc[df["category_id"] == "", "category_id"] = (
+        upload_category.loc[df["category_id"] == ""].map(category_ids).astype("string").fillna("")
+    )
     unresolved_category = (~is_transfer) & (df["category_id"] == "")
     if unresolved_category.any():
         aliases = upload_category.loc[unresolved_category].map(_category_alias)
@@ -387,6 +499,11 @@ def prepare_upload_transactions(
     df.loc[is_transfer, "transfer_target_account_id"] = transfer_target_account_ids.loc[
         is_transfer
     ]
+    df["parent_payee_id"] = ""
+    df.loc[parent_is_transfer, "parent_payee_id"] = parent_transfer_target_ids.loc[parent_is_transfer]
+    df["parent_payee_name_upload"] = _parent_target_payee_series(df).where(
+        ~parent_is_transfer, ""
+    )
 
     df["amount_milliunits"] = df.apply(_amount_milliunits, axis=1)
     df["bank_txn_id"] = (
@@ -402,27 +519,46 @@ def prepare_upload_transactions(
         .str.strip()
     )
     occurrence_order = (
-        df.reset_index()
+        df[
+            [
+                "upload_row_position",
+                "account_id",
+                "date",
+                "import_amount_milliunits",
+                "transaction_id",
+                "upload_transaction_id",
+                "bank_txn_id",
+                "card_txn_id",
+            ]
+        ]
+        .drop_duplicates(subset=["upload_row_position"])
         .sort_values(
-            ["account_id", "date", "amount_milliunits", "transaction_id", "index"]
+            [
+                "account_id",
+                "date",
+                "import_amount_milliunits",
+                "transaction_id",
+                "upload_transaction_id",
+                "upload_row_position",
+            ]
         )
         .copy()
     )
     occurrence_order["import_occurrence"] = (
         occurrence_order.groupby(
-            ["account_id", "date", "amount_milliunits"], dropna=False
+            ["account_id", "date", "import_amount_milliunits"], dropna=False
         )
         .cumcount()
         .add(1)
     )
     occurrence_order["import_id"] = occurrence_order.apply(
         lambda row: _source_import_id(row)
-        or f"YNAB:{int(row['amount_milliunits'])}:{row['date']}:{int(row['import_occurrence'])}",
+        or f"YNAB:{int(row['import_amount_milliunits'])}:{row['date']}:{int(row['import_occurrence'])}",
         axis=1,
     )
-    occurrence_map = occurrence_order.set_index("index")["import_id"]
+    occurrence_map = occurrence_order.set_index("upload_row_position")["import_id"]
     df["import_id"] = (
-        df.index.to_series().map(occurrence_map).astype("string").fillna("")
+        df["upload_row_position"].map(occurrence_map).astype("string").fillna("")
     )
 
     df["cleared"] = cleared
@@ -430,17 +566,6 @@ def prepare_upload_transactions(
 
     df["upload_kind"] = "regular"
     df.loc[is_transfer, "upload_kind"] = "transfer"
-    df["upload_transaction_id"] = _normalize_text_series(
-        df.get("transaction_id", pd.Series([""] * len(df), index=df.index))
-    )
-    blank_upload_id = df["upload_transaction_id"] == ""
-    if blank_upload_id.any():
-        generated = pd.Series(
-            [f"upload_txn_{idx}" for idx in range(len(df))],
-            index=df.index,
-            dtype="string",
-        )
-        df.loc[blank_upload_id, "upload_transaction_id"] = generated.loc[blank_upload_id]
     columns = [
         "upload_transaction_id",
         "transaction_id",
@@ -452,9 +577,13 @@ def prepare_upload_transactions(
         "inflow_ils",
         "amount_milliunits",
         "memo",
+        "parent_memo",
+        "subtransaction_memo",
         "target_payee_selected",
         "payee_name_upload",
         "payee_id",
+        "parent_payee_name_upload",
+        "parent_payee_id",
         "transfer_target",
         "transfer_target_account_id",
         "target_category_selected",
@@ -511,6 +640,10 @@ def assemble_upload_transaction_units(prepared_df: pd.DataFrame) -> pd.DataFrame
         prepared["account_name"] = ""
     if "memo" not in prepared.columns:
         prepared["memo"] = ""
+    if "parent_memo" not in prepared.columns:
+        prepared["parent_memo"] = prepared["memo"]
+    if "subtransaction_memo" not in prepared.columns:
+        prepared["subtransaction_memo"] = prepared["memo"]
     if "cleared" not in prepared.columns:
         prepared["cleared"] = "cleared"
     if "approved" not in prepared.columns:
@@ -519,6 +652,10 @@ def assemble_upload_transaction_units(prepared_df: pd.DataFrame) -> pd.DataFrame
         prepared["payee_id"] = ""
     if "payee_name_upload" not in prepared.columns:
         prepared["payee_name_upload"] = ""
+    if "parent_payee_id" not in prepared.columns:
+        prepared["parent_payee_id"] = prepared["payee_id"]
+    if "parent_payee_name_upload" not in prepared.columns:
+        prepared["parent_payee_name_upload"] = prepared["payee_name_upload"]
     if "category_id" not in prepared.columns:
         prepared["category_id"] = ""
     if "target_category_selected" not in prepared.columns:
@@ -531,10 +668,14 @@ def assemble_upload_transaction_units(prepared_df: pd.DataFrame) -> pd.DataFrame
     prepared["account_name"] = _normalize_text_series(prepared["account_name"])
     prepared["date"] = _normalize_text_series(prepared["date"])
     prepared["memo"] = _normalize_text_series(prepared["memo"])
+    prepared["parent_memo"] = _normalize_text_series(prepared["parent_memo"])
+    prepared["subtransaction_memo"] = _normalize_text_series(prepared["subtransaction_memo"])
     prepared["cleared"] = _normalize_text_series(prepared["cleared"])
     prepared["import_id"] = _normalize_text_series(prepared["import_id"])
     prepared["payee_id"] = _normalize_text_series(prepared["payee_id"])
     prepared["payee_name_upload"] = _normalize_text_series(prepared["payee_name_upload"])
+    prepared["parent_payee_id"] = _normalize_text_series(prepared["parent_payee_id"])
+    prepared["parent_payee_name_upload"] = _normalize_text_series(prepared["parent_payee_name_upload"])
     prepared["category_id"] = _normalize_text_series(prepared["category_id"])
     prepared["target_category_selected"] = _normalize_text_series(
         prepared["target_category_selected"]
@@ -563,7 +704,7 @@ def assemble_upload_transaction_units(prepared_df: pd.DataFrame) -> pd.DataFrame
             unit_kind = "split"
             if (
                 group["upload_kind"].astype("string").fillna("").str.strip() == "transfer"
-            ).any() or group["transfer_target_account_id"].astype("string").fillna("").str.strip().ne("").any():
+            ).any() or group["transfer_target_account_id"].astype("string").fillna("").str.strip().ne("").any() or group["parent_payee_id"].astype("string").fillna("").str.strip().ne("").any():
                 unsupported_reason = "split_transfer_unsupported"
             elif group["category_id"].astype("string").fillna("").str.strip().eq("").any():
                 unsupported_reason = "split_missing_category"
@@ -572,7 +713,7 @@ def assemble_upload_transaction_units(prepared_df: pd.DataFrame) -> pd.DataFrame
             for _, split_row in group.iterrows():
                 split_payload: dict[str, Any] = {
                     "amount": int(split_row.get("amount_milliunits", 0) or 0),
-                    "memo": _normalize_text(split_row.get("memo", "")) or None,
+                    "memo": _normalize_text(split_row.get("subtransaction_memo", "")) or None,
                     "category_id": _normalize_text(split_row.get("category_id", "")),
                 }
                 split_payee_id = _normalize_text(split_row.get("payee_id", ""))
@@ -594,12 +735,14 @@ def assemble_upload_transaction_units(prepared_df: pd.DataFrame) -> pd.DataFrame
                 "account_name": _normalize_text(first.get("account_name", "")),
                 "date": _normalize_text(first.get("date", "")),
                 "amount_milliunits": unit_amount,
-                "memo": _normalize_text(first.get("memo", "")),
+                "memo": _normalize_text(first.get("parent_memo", first.get("memo", ""))),
                 "cleared": _normalize_text(first.get("cleared", "")) or "cleared",
                 "approved": bool(first.get("approved", False)),
                 "import_id": _normalize_text(first.get("import_id", "")),
-                "payee_id": _normalize_text(first.get("payee_id", "")),
-                "payee_name_upload": _normalize_text(first.get("payee_name_upload", "")),
+                "payee_id": _normalize_text(first.get("parent_payee_id", first.get("payee_id", ""))),
+                "payee_name_upload": _normalize_text(
+                    first.get("parent_payee_name_upload", first.get("payee_name_upload", ""))
+                ),
                 "category_id": parent_category_id,
                 "target_category_selected": parent_target_category,
                 "transfer_target_account_id": _normalize_text(

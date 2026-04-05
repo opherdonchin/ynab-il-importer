@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import pandas as pd
+import polars as pl
 import pytest
 
 import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.card_identity as card_identity
 import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
+import ynab_il_importer.review_app.state as review_state
 import ynab_il_importer.upload_prep as upload_prep
 
 
@@ -47,6 +49,88 @@ def _reviewed_df(columns: dict[str, list[object]]) -> pd.DataFrame:
     data.setdefault("source_present", [True] * row_count)
     data.setdefault("target_present", [False] * row_count)
     return pd.DataFrame(data)
+
+
+def _txn(
+    *,
+    transaction_id: str,
+    payee: str,
+    category: str,
+    category_id: str = "cat-groceries",
+    amount: float = 10.0,
+    memo: str = "memo",
+) -> dict[str, object]:
+    return {
+        "artifact_kind": "transaction",
+        "artifact_version": "transaction_v1",
+        "source_system": "ynab",
+        "transaction_id": transaction_id,
+        "ynab_id": transaction_id,
+        "import_id": "",
+        "parent_transaction_id": transaction_id,
+        "account_id": "acc-bank",
+        "account_name": "Bank Leumi",
+        "source_account": "Bank Leumi",
+        "date": "2026-03-01",
+        "secondary_date": "",
+        "inflow_ils": 0.0,
+        "outflow_ils": amount,
+        "signed_amount_ils": -amount,
+        "payee_raw": payee,
+        "category_id": category_id,
+        "category_raw": category,
+        "memo": memo,
+        "txn_kind": "",
+        "fingerprint": f"fp-{transaction_id}",
+        "description_raw": "",
+        "description_clean": "",
+        "description_clean_norm": "",
+        "merchant_raw": "",
+        "ref": "",
+        "matched_transaction_id": "",
+        "cleared": "uncleared",
+        "approved": False,
+        "is_subtransaction": False,
+        "splits": None,
+    }
+
+
+def _split_edit_working_row(*, amount: float = 10.0) -> pd.DataFrame:
+    source_txn = _txn(transaction_id="src-1", payee="Source Cafe", category="Groceries", amount=amount)
+    target_original = _txn(transaction_id="tgt-1", payee="Target Cafe", category="Groceries", amount=amount)
+    working = review_io.load_proposed_transactions(
+        pd.DataFrame(
+            [
+                {
+                    "transaction_id": "review-1",
+                    "account_name": "Bank Leumi",
+                    "date": "2026-03-01",
+                    "outflow_ils": amount,
+                    "inflow_ils": 0.0,
+                    "memo": "Parent memo",
+                    "source": "bank",
+                    "workflow_type": "cross_budget",
+                    "decision_action": "create_target",
+                    "reviewed": True,
+                    "changed": True,
+                    "source_present": True,
+                    "target_present": True,
+                    "source_row_id": "src-1",
+                    "target_row_id": "tgt-1",
+                    "target_account": "Bank Leumi",
+                    "source_payee_selected": "Source Cafe",
+                    "source_category_selected": "Groceries",
+                    "target_payee_selected": "Parent Payee",
+                    "target_category_selected": "Groceries",
+                    "source_current": source_txn,
+                    "source_original": source_txn,
+                    "target_current": {**target_original, "payee_raw": "Parent Payee", "memo": "Parent memo"},
+                    "target_original": target_original,
+                }
+            ]
+        )
+    )
+    return working
 
 
 def test_prepare_upload_transactions_maps_regular_and_transfer_rows() -> None:
@@ -118,6 +202,120 @@ def test_prepare_upload_transactions_accepts_canonical_review_artifact(tmp_path)
 
     assert prepared.loc[0, "account_id"] == "acc-bank"
     assert prepared.loc[0, "category_id"] == "cat-groceries"
+
+
+def test_prepare_upload_transactions_explodes_committed_target_splits() -> None:
+    working = _split_edit_working_row(amount=10.0)
+    split_working = review_state.apply_target_split_edit(
+        pl.from_pandas(working),
+        0,
+        lines=[
+            {
+                "split_id": "sub-1",
+                "payee_raw": "",
+                "category_raw": "Groceries",
+                "amount_ils": -7.0,
+                "memo": "Line one",
+            },
+            {
+                "split_id": "sub-2",
+                "payee_raw": "Line Payee",
+                "category_raw": "Uncategorized",
+                "amount_ils": -3.0,
+                "memo": "Line two",
+            },
+        ],
+    ).to_pandas()
+
+    prepared = upload_prep.prepare_upload_transactions(
+        split_working,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+    units = upload_prep.assemble_upload_transaction_units(prepared)
+    payload = upload_prep.upload_payload_records(prepared)
+
+    assert prepared["upload_transaction_id"].tolist() == ["review-1", "review-1"]
+    assert prepared["import_id"].tolist() == [
+        "YNAB:-10000:2026-03-01:1",
+        "YNAB:-10000:2026-03-01:1",
+    ]
+    assert prepared["amount_milliunits"].tolist() == [-7000, -3000]
+    assert prepared["parent_payee_name_upload"].tolist() == ["Parent Payee", "Parent Payee"]
+    assert prepared["payee_name_upload"].tolist() == ["", "Line Payee"]
+    assert prepared["parent_memo"].tolist() == ["Parent memo", "Parent memo"]
+    assert prepared["subtransaction_memo"].tolist() == ["Line one", "Line two"]
+    assert prepared["category_id"].tolist() == ["cat-groceries", "cat-uncat"]
+
+    assert len(units) == 1
+    assert units.loc[0, "upload_kind"] == "split"
+    assert units.loc[0, "memo"] == "Parent memo"
+    assert units.loc[0, "payee_name_upload"] == "Parent Payee"
+    assert units.loc[0, "amount_milliunits"] == -10000
+    assert units.loc[0, "subtransactions"] == [
+        {"amount": -7000, "memo": "Line one", "category_id": "cat-groceries"},
+        {
+            "amount": -3000,
+            "memo": "Line two",
+            "category_id": "cat-uncat",
+            "payee_name": "Line Payee",
+        },
+    ]
+
+    assert payload == [
+        {
+            "account_id": "acc-bank",
+            "date": "2026-03-01",
+            "amount": -10000,
+            "memo": "Parent memo",
+            "cleared": "cleared",
+            "approved": False,
+            "import_id": "YNAB:-10000:2026-03-01:1",
+            "payee_name": "Parent Payee",
+            "category_id": None,
+            "subtransactions": [
+                {"amount": -7000, "memo": "Line one", "category_id": "cat-groceries"},
+                {
+                    "amount": -3000,
+                    "memo": "Line two",
+                    "category_id": "cat-uncat",
+                    "payee_name": "Line Payee",
+                },
+            ],
+        }
+    ]
+
+
+def test_prepare_upload_transactions_treats_one_line_collapsed_save_as_regular() -> None:
+    working = _split_edit_working_row(amount=10.0)
+    collapsed = review_state.apply_target_split_edit(
+        pl.from_pandas(working),
+        0,
+        lines=[
+            {
+                "split_id": "sub-1",
+                "payee_raw": "Collapsed Payee",
+                "category_raw": "Groceries",
+                "amount_ils": -10.0,
+                "memo": "Collapsed memo",
+            }
+        ],
+    ).to_pandas()
+
+    prepared = upload_prep.prepare_upload_transactions(
+        collapsed,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+    payload = upload_prep.upload_payload_records(prepared)
+
+    assert len(prepared) == 1
+    assert prepared.loc[0, "upload_kind"] == "regular"
+    assert prepared.loc[0, "amount_milliunits"] == -10000
+    assert prepared.loc[0, "payee_name_upload"] == "Collapsed Payee"
+    assert prepared.loc[0, "category_id"] == "cat-groceries"
+    assert payload[0]["payee_name"] == "Collapsed Payee"
+    assert payload[0]["category_id"] == "cat-groceries"
 
 
 def test_assemble_upload_transaction_units_preserves_regular_and_transfer_rows() -> None:
