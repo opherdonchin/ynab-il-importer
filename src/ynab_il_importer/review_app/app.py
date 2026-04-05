@@ -1485,11 +1485,20 @@ def _target_split_editor_rows(row: pd.Series) -> list[dict[str, Any]]:
             return rows
 
     target_txn = review_state._target_transaction_for_split_edit(row)
+    seeded_payee = str(target_txn.get("payee_raw", "") or "").strip() or str(
+        row.get("target_payee_selected", "") or ""
+    ).strip()
+    seeded_category = str(target_txn.get("category_raw", "") or "").strip() or str(
+        row.get("target_category_selected", "") or ""
+    ).strip()
+    seeded_memo = str(target_txn.get("memo", "") or "").strip() or str(
+        row.get("target_memo", row.get("memo", "")) or ""
+    ).strip()
     seeded_line = {
         "split_id": "",
-        "payee_raw": str(target_txn.get("payee_raw", "") or "").strip(),
-        "category_raw": str(target_txn.get("category_raw", "") or "").strip(),
-        "memo": str(target_txn.get("memo", "") or "").strip(),
+        "payee_raw": seeded_payee,
+        "category_raw": seeded_category,
+        "memo": seeded_memo,
         "amount_ils": review_state._signed_amount_from_row_values(
             inflow=target_txn.get("inflow_ils", row.get("inflow_ils", 0.0)),
             outflow=target_txn.get("outflow_ils", row.get("outflow_ils", 0.0)),

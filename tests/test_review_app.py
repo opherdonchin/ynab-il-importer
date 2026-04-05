@@ -54,6 +54,100 @@ def _row(
     }
 
 
+def _txn(
+    *,
+    transaction_id: str,
+    payee: str,
+    category: str,
+    category_id: str = "cat-food",
+    amount: float = 10.0,
+    memo: str = "memo",
+    splits: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    return {
+        "artifact_kind": "transaction",
+        "artifact_version": "transaction_v1",
+        "source_system": "ynab",
+        "transaction_id": transaction_id,
+        "ynab_id": transaction_id,
+        "import_id": "",
+        "parent_transaction_id": transaction_id,
+        "account_id": "acct-1",
+        "account_name": "Account 1",
+        "source_account": "Account 1",
+        "date": "2026-03-01",
+        "secondary_date": "",
+        "inflow_ils": 0.0,
+        "outflow_ils": amount,
+        "signed_amount_ils": -amount,
+        "payee_raw": payee,
+        "category_id": category_id,
+        "category_raw": category,
+        "memo": memo,
+        "txn_kind": "",
+        "fingerprint": f"fp-{transaction_id}",
+        "description_raw": "",
+        "description_clean": "",
+        "description_clean_norm": "",
+        "merchant_raw": "",
+        "ref": "",
+        "matched_transaction_id": "",
+        "cleared": "uncleared",
+        "approved": False,
+        "is_subtransaction": False,
+        "splits": splits,
+    }
+
+
+def _canonical_record(
+    *,
+    review_transaction_id: str,
+    source_current: dict[str, object],
+    target_current: dict[str, object],
+    source_original: dict[str, object] | None = None,
+    target_original: dict[str, object] | None = None,
+    decision_action: str = review_validation.NO_DECISION,
+    reviewed: bool = False,
+    changed: bool = False,
+    target_present: bool = True,
+) -> dict[str, object]:
+    return {
+        "artifact_kind": "review_artifact",
+        "artifact_version": "review_v4",
+        "review_transaction_id": review_transaction_id,
+        "workflow_type": "cross_budget",
+        "relation_kind": "source_target_pair",
+        "match_status": "ambiguous",
+        "match_method": "",
+        "payee_options": "Cafe;Grocer",
+        "category_options": "Food;Dining;Uncategorized",
+        "update_maps": "",
+        "decision_action": decision_action,
+        "reviewed": reviewed,
+        "changed": changed,
+        "memo_append": "",
+        "source_present": True,
+        "target_present": target_present,
+        "source_row_id": "s1",
+        "target_row_id": "t1" if target_present else "",
+        "target_account": "Account 1",
+        "source_context_kind": "",
+        "source_context_category_id": "",
+        "source_context_category_name": "",
+        "source_context_matching_split_ids": "",
+        "source_payee_selected": str(source_current.get("payee_raw", "")),
+        "source_category_selected": str(source_current.get("category_raw", "")),
+        "target_context_kind": "",
+        "target_context_matching_split_ids": "",
+        "target_payee_selected": str(target_current.get("payee_raw", "")),
+        "target_category_selected": str(target_current.get("category_raw", "")),
+        "source_current": source_current,
+        "target_current": target_current,
+        "source_original": source_original or source_current,
+        "target_original": target_original or target_current,
+    }
+
+
 def _write_review_rows(path: Path, rows: list[dict[str, object]]) -> None:
     pd.DataFrame(rows).to_csv(path, index=False, encoding="utf-8-sig")
 
@@ -430,6 +524,158 @@ def test_target_split_editor_rows_seed_prefilled_and_blank_lines_for_create_spli
         "memo": "",
         "amount_ils": 0.0,
     }
+
+
+def test_app_create_split_opens_modal_with_seeded_lines_and_cancel_clears_it(
+    tmp_path: Path,
+) -> None:
+    app, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[_row(transaction_id="t1", decision_action="keep_match")],
+    )
+
+    app.run()
+    app.sidebar.radio[0].set_value("Row")
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    row = app.expander[0]
+    _find_button_by_label(row, "Create split").click()
+    app.run()
+
+    assert app.session_state["_split_editor"]["idx"] == 0
+    dialog_df = app.dataframe[0].value
+    assert dialog_df.to_dict(orient="records") == [
+        {
+            "split_id": "",
+            "payee_raw": "Cafe",
+            "category_raw": "Food",
+            "memo": "memo-t1",
+            "amount_ils": -10.0,
+        },
+        {
+            "split_id": "",
+            "payee_raw": "",
+            "category_raw": "",
+            "memo": "",
+            "amount_ils": 0.0,
+        },
+    ]
+
+    _find_button_by_label(app, "Cancel").click()
+    app.run()
+
+    assert "_split_editor" not in app.session_state
+    assert app.session_state["expanded_row_id"] == 0
+
+
+def test_app_edit_split_opens_modal_with_committed_split_lines(tmp_path: Path) -> None:
+    source_txn = _txn(transaction_id="src-1", payee="Cafe", category="Food")
+    target_txn = _txn(
+        transaction_id="tgt-1",
+        payee="Parent Payee",
+        category="Split",
+        category_id="",
+        memo="Parent memo",
+        splits=[
+            {
+                "split_id": "split-1",
+                "parent_transaction_id": "tgt-1",
+                "ynab_subtransaction_id": "",
+                "payee_raw": "Split Payee 1",
+                "category_id": "cat-food",
+                "category_raw": "Food",
+                "memo": "beans",
+                "inflow_ils": 0.0,
+                "outflow_ils": 6.0,
+                "import_id": "",
+                "matched_transaction_id": "",
+            },
+            {
+                "split_id": "split-2",
+                "parent_transaction_id": "tgt-1",
+                "ynab_subtransaction_id": "",
+                "payee_raw": "Split Payee 2",
+                "category_id": "cat-dining",
+                "category_raw": "Dining",
+                "memo": "lunch",
+                "inflow_ils": 0.0,
+                "outflow_ils": 4.0,
+                "import_id": "",
+                "matched_transaction_id": "",
+            },
+        ],
+    )
+    app, _ = _build_canonical_app_test(
+        tmp_path,
+        records=[
+            _canonical_record(
+                review_transaction_id="review-1",
+                source_current=source_txn,
+                target_current=target_txn,
+            )
+        ],
+    )
+
+    app.run()
+    app.sidebar.radio[0].set_value("Row")
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    row = app.expander[0]
+    _find_button_by_label(row, "Edit split").click()
+    app.run()
+
+    assert app.session_state["_split_editor"]["idx"] == 0
+    dialog_df = app.dataframe[0].value
+    assert dialog_df.to_dict(orient="records") == [
+        {
+            "split_id": "split-1",
+            "payee_raw": "Split Payee 1",
+            "category_raw": "Food",
+            "memo": "beans",
+            "amount_ils": -6.0,
+        },
+        {
+            "split_id": "split-2",
+            "payee_raw": "Split Payee 2",
+            "category_raw": "Dining",
+            "memo": "lunch",
+            "amount_ils": -4.0,
+        },
+    ]
+
+
+def test_app_save_split_without_changes_closes_modal_and_keeps_row_stable(
+    tmp_path: Path,
+) -> None:
+    app, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[_row(transaction_id="t1", decision_action="keep_match")],
+    )
+
+    app.run()
+    app.sidebar.radio[0].set_value("Row")
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    row = app.expander[0]
+    _find_button_by_label(row, "Create split").click()
+    app.run()
+    _find_button_by_label(app, "Save split").click()
+    app.run()
+
+    session_df = app.session_state["df"]
+    assert "_split_editor" not in app.session_state
+    assert app.session_state["expanded_row_id"] == 0
+    assert session_df.loc[0, "target_splits"] is None
+    assert session_df.loc[0, "target_payee_selected"] == "Cafe"
+    assert session_df.loc[0, "target_category_selected"] == "Food"
+    assert session_df.loc[0, "target_current_transaction"]["payee_raw"] == "Cafe"
+    assert session_df.loc[0, "target_current_transaction"]["category_raw"] == "Food"
 
 
 def test_grouped_row_indices_only_include_filtered_rows() -> None:
