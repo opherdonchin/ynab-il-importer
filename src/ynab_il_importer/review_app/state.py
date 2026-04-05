@@ -412,9 +412,6 @@ def view_row_lookup(
 def series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
     if col in df.columns:
         return df[col].astype("string").fillna("")
-    # ``payee_selected`` / ``category_selected`` are target-side compatibility
-    # aliases used by some review flows and older helpers. Persisted review data
-    # remains side-specific in ``target_*_selected`` columns.
     if col == "payee_selected" and "target_payee_selected" in df.columns:
         return df["target_payee_selected"].astype("string").fillna("")
     if col == "category_selected" and "target_category_selected" in df.columns:

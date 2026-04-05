@@ -22,29 +22,10 @@ from ynab_il_importer.artifacts.transaction_schema import (
 )
 import ynab_il_importer.review_app.model as model
 import ynab_il_importer.review_app.validation as validation
+import ynab_il_importer.review_app.working_schema as working_schema
 
 
-REQUIRED_COLUMNS = [
-    "transaction_id",
-    "account_name",
-    "date",
-    "outflow_ils",
-    "inflow_ils",
-    "memo",
-    "payee_options",
-    "category_options",
-    "match_status",
-    "update_maps",
-    "decision_action",
-    "fingerprint",
-    "workflow_type",
-    "source_payee_selected",
-    "source_category_selected",
-    "target_payee_selected",
-    "target_category_selected",
-    "source_present",
-    "target_present",
-]
+REQUIRED_COLUMNS = list(working_schema.WORKING_REQUIRED_COLUMNS)
 
 LEGACY_INSTITUTIONAL_REQUIRED_COLUMNS = [
     "transaction_id",
@@ -67,99 +48,9 @@ REVIEW_FIELD_NAMES = [field.name for field in REVIEW_SCHEMA]
 REVIEW_CONTROL_FIELD_NAMES = [field.name for field in REVIEW_CONTROL_FIELDS]
 TRANSACTION_FIELD_NAMES = [field.name for field in TRANSACTION_SCHEMA]
 SPLIT_FIELD_NAMES = [field.name for field in SPLIT_LINE_STRUCT]
-SPLIT_COLUMNS = ["source_splits", "target_splits"]
-ORIGINAL_TRANSACTION_COLUMNS = [
-    "source_original_transaction",
-    "target_original_transaction",
-]
-WORKING_COLUMNS = [
-    "transaction_id",
-    "source",
-    "account_name",
-    "date",
-    "outflow_ils",
-    "inflow_ils",
-    "memo",
-    "fingerprint",
-    "workflow_type",
-    "relation_kind",
-    "match_status",
-    "match_method",
-    "payee_options",
-    "category_options",
-    "update_maps",
-    "decision_action",
-    "reviewed",
-    "changed",
-    "memo_append",
-    "source_present",
-    "target_present",
-    "source_row_id",
-    "target_row_id",
-    "source_context_kind",
-    "source_context_category_id",
-    "source_context_category_name",
-    "source_context_matching_split_ids",
-    "target_context_kind",
-    "target_context_matching_split_ids",
-    *[f for f in [
-        "source_source_system",
-        "source_transaction_id",
-        "source_ynab_id",
-        "source_import_id",
-        "source_parent_transaction_id",
-        "source_account_id",
-        "source_account",
-        "source_date",
-        "source_secondary_date",
-        "source_payee_current",
-        "source_category_id",
-        "source_category_current",
-        "source_memo",
-        "source_fingerprint",
-        "source_description_raw",
-        "source_description_clean",
-        "source_description_clean_norm",
-        "source_merchant_raw",
-        "source_ref",
-        "source_matched_transaction_id",
-        "source_cleared",
-        "source_approved",
-        "source_is_subtransaction",
-        "target_source_system",
-        "target_transaction_id",
-        "target_ynab_id",
-        "target_import_id",
-        "target_parent_transaction_id",
-        "target_account_id",
-        "target_account",
-        "target_date",
-        "target_secondary_date",
-        "target_payee_current",
-        "target_category_id",
-        "target_category_current",
-        "target_memo",
-        "target_fingerprint",
-        "target_description_raw",
-        "target_description_clean",
-        "target_description_clean_norm",
-        "target_merchant_raw",
-        "target_ref",
-        "target_matched_transaction_id",
-        "target_cleared",
-        "target_approved",
-        "target_is_subtransaction",
-        "source_splits",
-        "target_splits",
-        "source_payee_selected",
-        "source_category_selected",
-        "target_payee_selected",
-        "target_category_selected",
-        "payee_selected",
-        "category_selected",
-    ]],
-    *ORIGINAL_TRANSACTION_COLUMNS,
-]
+SPLIT_COLUMNS = working_schema.SPLIT_COLUMNS
+ORIGINAL_TRANSACTION_COLUMNS = working_schema.ORIGINAL_TRANSACTION_COLUMNS
+WORKING_COLUMNS = working_schema.WORKING_COLUMNS
 
 
 def _missing_columns(df: pd.DataFrame, required: Iterable[str]) -> list[str]:
@@ -656,6 +547,18 @@ def _review_record_from_row(row: pd.Series) -> dict[str, Any]:
 
 def _review_table_from_dataframe(df: pd.DataFrame) -> pa.Table:
     review_df = translate_review_dataframe(df) if detect_review_csv_format(df) != "unknown" else df.copy()
+    canonicalish_columns = {
+        "source_current",
+        "target_current",
+        "source_original",
+        "target_original",
+        "source_transaction",
+        "target_transaction",
+        "source_original_transaction",
+        "target_original_transaction",
+    }
+    if not canonicalish_columns.intersection(set(review_df.columns)):
+        review_df = working_schema.build_working_dataframe(review_df)
     records = [_review_record_from_row(row) for _, row in review_df.iterrows()]
     if not records:
         return pa.Table.from_arrays(
@@ -663,89 +566,6 @@ def _review_table_from_dataframe(df: pd.DataFrame) -> pa.Table:
             schema=REVIEW_SCHEMA,
         )
     return pa.Table.from_pylist(records, schema=REVIEW_SCHEMA)
-
-
-def _working_default(column: str) -> Any:
-    if column in {"outflow_ils", "inflow_ils"}:
-        return 0.0
-    if column in {
-        "reviewed",
-        "changed",
-        "source_present",
-        "target_present",
-        "source_approved",
-        "source_is_subtransaction",
-        "target_approved",
-        "target_is_subtransaction",
-    }:
-        return False
-    if column in SPLIT_COLUMNS or column in ORIGINAL_TRANSACTION_COLUMNS:
-        return None
-    return ""
-
-
-def _ensure_working_dataframe_schema(df: pd.DataFrame) -> pd.DataFrame:
-    out = _decode_columns_if_needed(df.copy())
-    missing_presence = [
-        column for column in ("source_present", "target_present") if column not in out.columns
-    ]
-    if missing_presence:
-        raise ValueError(
-            f"Review working rows missing required columns: {missing_presence}"
-        )
-    for column in WORKING_COLUMNS:
-        if column not in out.columns:
-            out[column] = _working_default(column)
-
-    if "source" in out.columns and "workflow_type" in out.columns:
-        institutional_mask = out["workflow_type"].astype("string").fillna("").str.strip().eq("")
-        source_series = out["source"].astype("string").fillna("").str.strip().str.casefold()
-        out.loc[institutional_mask & source_series.isin(["bank", "card"]), "workflow_type"] = (
-            "institutional"
-        )
-
-    out["source_present"] = validation.normalize_flag_series(out["source_present"])
-    out["target_present"] = validation.normalize_flag_series(out["target_present"])
-
-    out["reviewed"] = validation.normalize_flag_series(out["reviewed"])
-    out["changed"] = validation.normalize_flag_series(out["changed"])
-    out["update_maps"] = validation.normalize_update_maps(out["update_maps"])
-    out["decision_action"] = out["decision_action"].astype("string").fillna("").str.strip()
-
-    for column in [
-        "source_payee_selected",
-        "source_category_selected",
-        "target_payee_selected",
-        "target_category_selected",
-        "payee_selected",
-        "category_selected",
-    ]:
-        out[column] = out[column].astype("string").fillna("").str.strip()
-
-    target_payee = out["target_payee_selected"]
-    target_category = out["target_category_selected"].map(model.normalize_category_value)
-    out["payee_selected"] = target_payee.where(target_payee.ne(""), out["payee_selected"])
-    out["category_selected"] = target_category.where(target_category.ne(""), out["category_selected"])
-    out["target_category_selected"] = target_category
-    out["source_category_selected"] = out["source_category_selected"].map(
-        model.normalize_category_value
-    )
-    out["target_category_current"] = out["target_category_current"].map(model.normalize_category_value)
-    out["source_category_current"] = out["source_category_current"].map(model.normalize_category_value)
-
-    ordered_columns = list(dict.fromkeys(WORKING_COLUMNS + [col for col in out.columns if col not in WORKING_COLUMNS]))
-    return out[ordered_columns].copy()
-
-
-def _decode_columns_if_needed(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    for column in SPLIT_COLUMNS:
-        if column in out.columns:
-            out[column] = out[column].map(_normalize_split_records)
-    for column in ORIGINAL_TRANSACTION_COLUMNS:
-        if column in out.columns:
-            out[column] = out[column].map(_normalize_transaction_record)
-    return out
 
 
 def load_review_artifact(
@@ -787,7 +607,7 @@ def load_review_artifact(
         return canonical
 
     df = pd.read_csv(path, dtype="string").fillna("")
-    df = _decode_columns_if_needed(df)
+    df = working_schema.decode_working_dataframe(df)
     detected_format = detect_review_csv_format(df)
     if detected_format != "unified_v1":
         if detected_format.startswith("legacy_"):
@@ -960,23 +780,23 @@ def project_review_artifact_to_flat_dataframe(
         if canonicalish_columns.intersection(set(source.columns)):
             rows = load_review_artifact(source).to_pylist()
         else:
-            return _ensure_working_dataframe_schema(source)
+            return working_schema.build_working_dataframe(source)
     elif isinstance(source, pl.DataFrame):
         if canonicalish_columns.intersection(set(source.columns)):
             rows = load_review_artifact(source).to_pylist()
         else:
-            return _ensure_working_dataframe_schema(source.to_pandas())
+            return working_schema.build_working_dataframe(source.to_pandas())
     elif isinstance(source, pa.Table):
         if _is_review_artifact_table(source):
             rows = load_review_artifact(source).to_pylist()
         else:
-            return _ensure_working_dataframe_schema(source.to_pandas())
+            return working_schema.build_working_dataframe(source.to_pandas())
     else:
         rows = load_review_artifact(source).to_pylist()
     if not rows:
         return pd.DataFrame(columns=WORKING_COLUMNS)
     df = pd.DataFrame([_working_row_from_record(row) for row in rows])
-    return _ensure_working_dataframe_schema(df)
+    return working_schema.build_working_dataframe(df)
 
 
 def load_proposed_transactions(
@@ -989,7 +809,7 @@ def load_proposed_transactions(
         return project_review_artifact_to_flat_dataframe(source)
 
     df = _input_to_pandas_dataframe(source, label="proposed transactions")
-    df = _decode_columns_if_needed(df)
+    df = working_schema.decode_working_dataframe(df)
     detected_format = detect_review_csv_format(df)
     if detected_format != "unified_v1":
         if detected_format.startswith("legacy_"):
