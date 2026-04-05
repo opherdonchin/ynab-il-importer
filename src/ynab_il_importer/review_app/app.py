@@ -55,6 +55,7 @@ EDITOR_STATE_PREFIXES = (
     "group_row_page_",
     "group_page",
     "row_page",
+    "split_editor_table_",
 )
 EDITOR_STATE_KEYS = {
     "expanded_row_id",
@@ -62,6 +63,7 @@ EDITOR_STATE_KEYS = {
     "expanded_group_row_id",
     "group_page",
     "row_page",
+    "_split_editor",
 }
 
 
@@ -1385,6 +1387,12 @@ def _split_amount_text(split: dict[str, Any]) -> str:
     return ""
 
 
+def _split_signed_amount(split: dict[str, Any]) -> float:
+    outflow = float(pd.to_numeric(split.get("outflow_ils", 0.0), errors="coerce") or 0.0)
+    inflow = float(pd.to_numeric(split.get("inflow_ils", 0.0), errors="coerce") or 0.0)
+    return inflow - outflow
+
+
 def _source_context_caption(row: pd.Series) -> str:
     context_kind = str(row.get("source_context_kind", "") or "").strip()
     category_name = str(row.get("source_context_category_name", "") or "").strip()
@@ -1455,6 +1463,179 @@ def _render_split_section(
         return
     for line in split_lines:
         st.caption(line)
+
+
+def _target_split_editor_rows(row: pd.Series) -> list[dict[str, Any]]:
+    splits = row.get("target_splits")
+    if isinstance(splits, list) and splits:
+        rows: list[dict[str, Any]] = []
+        for split in splits:
+            if not isinstance(split, dict):
+                continue
+            rows.append(
+                {
+                    "split_id": str(split.get("split_id", "") or "").strip(),
+                    "payee_raw": str(split.get("payee_raw", "") or "").strip(),
+                    "category_raw": str(split.get("category_raw", "") or "").strip(),
+                    "memo": str(split.get("memo", "") or "").strip(),
+                    "amount_ils": _split_signed_amount(split),
+                }
+            )
+        if rows:
+            return rows
+
+    target_txn = review_state._target_transaction_for_split_edit(row)
+    seeded_line = {
+        "split_id": "",
+        "payee_raw": str(target_txn.get("payee_raw", "") or "").strip(),
+        "category_raw": str(target_txn.get("category_raw", "") or "").strip(),
+        "memo": str(target_txn.get("memo", "") or "").strip(),
+        "amount_ils": review_state._signed_amount_from_row_values(
+            inflow=target_txn.get("inflow_ils", row.get("inflow_ils", 0.0)),
+            outflow=target_txn.get("outflow_ils", row.get("outflow_ils", 0.0)),
+        ),
+    }
+    blank_line = {
+        "split_id": "",
+        "payee_raw": "",
+        "category_raw": "",
+        "memo": "",
+        "amount_ils": 0.0,
+    }
+    return [seeded_line, blank_line]
+
+
+def _open_target_split_editor(
+    row: pd.Series,
+    *,
+    idx: Any,
+    group_fingerprint: str | None = None,
+) -> None:
+    st.session_state["_split_editor"] = {
+        "idx": idx,
+        "group_fingerprint": group_fingerprint or "",
+        "lines": _target_split_editor_rows(row),
+    }
+    _preserve_expansion_context(idx=idx, group_fingerprint=group_fingerprint)
+
+
+def _close_target_split_editor() -> None:
+    st.session_state.pop("_split_editor", None)
+
+
+@st.dialog("Split editor", width="large")
+def _render_target_split_editor_dialog(
+    *,
+    df: pd.DataFrame,
+    idx: Any,
+    category_choices: list[str],
+    group_fingerprint: str = "",
+    initial_lines: list[dict[str, Any]] | None = None,
+) -> None:
+    if idx not in df.index:
+        _close_target_split_editor()
+        return
+
+    row = df.loc[idx]
+    editor_key = _editor_key(f"split_editor_table_{idx}")
+    parent_amount = review_state._signed_amount_from_row_values(
+        inflow=row.get("inflow_ils", 0.0),
+        outflow=row.get("outflow_ils", 0.0),
+    )
+    lines = initial_lines or _target_split_editor_rows(row)
+    editor_df = pd.DataFrame(
+        lines,
+        columns=["split_id", "payee_raw", "category_raw", "memo", "amount_ils"],
+    )
+
+    edited_df = st.data_editor(
+        editor_df,
+        hide_index=True,
+        num_rows="dynamic",
+        key=editor_key,
+        column_config={
+            "split_id": st.column_config.TextColumn("Split id", disabled=True),
+            "payee_raw": st.column_config.TextColumn("Payee"),
+            "category_raw": st.column_config.SelectboxColumn("Category", options=category_choices),
+            "memo": st.column_config.TextColumn("Memo"),
+            "amount_ils": st.column_config.NumberColumn("Amount", format="%.2f"),
+        },
+        use_container_width=True,
+    )
+
+    line_records = edited_df.to_dict(orient="records")
+    split_total = float(
+        pd.to_numeric(edited_df.get("amount_ils", pd.Series(dtype=float)), errors="coerce")
+        .fillna(0.0)
+        .sum()
+    )
+    difference = split_total - parent_amount
+    st.caption(
+        f"Parent amount: {parent_amount:g} | Split total: {split_total:g} | Difference: {difference:g}"
+    )
+
+    save_col, cancel_col = st.columns(2)
+    with save_col:
+        if st.button("Save split", use_container_width=True):
+            try:
+                updated = review_state.apply_target_split_edit(
+                    pl.from_pandas(df),
+                    idx,
+                    lines=line_records,
+                ).to_pandas()
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                _close_target_split_editor()
+                _set_review_frames(df=updated, changed_indices=[idx])
+                _preserve_expansion_context(
+                    idx=idx,
+                    group_fingerprint=group_fingerprint or None,
+                )
+                st.rerun()
+    with cancel_col:
+        if st.button("Cancel", use_container_width=True):
+            _close_target_split_editor()
+            _preserve_expansion_context(
+                idx=idx,
+                group_fingerprint=group_fingerprint or None,
+            )
+            st.rerun()
+
+
+def _render_split_action_buttons(
+    row: pd.Series,
+    *,
+    idx: Any,
+    group_fingerprint: str | None = None,
+) -> None:
+    target_splits = row.get("target_splits")
+    is_split = isinstance(target_splits, list) and len(target_splits) > 0
+    action_label = "Edit split" if is_split else "Create split"
+    if st.button(action_label, key=_editor_key(f"split_action_{idx}")):
+        _open_target_split_editor(row, idx=idx, group_fingerprint=group_fingerprint)
+        st.rerun()
+
+
+def _maybe_render_target_split_editor_dialog(
+    *,
+    df: pd.DataFrame,
+    category_choices: list[str],
+) -> None:
+    editor_state = st.session_state.get("_split_editor")
+    if not isinstance(editor_state, dict):
+        return
+    idx = editor_state.get("idx")
+    if idx not in df.index:
+        _close_target_split_editor()
+        return
+    _render_target_split_editor_dialog(
+        df=df,
+        idx=idx,
+        category_choices=category_choices,
+        group_fingerprint=str(editor_state.get("group_fingerprint", "") or ""),
+        initial_lines=list(editor_state.get("lines", []) or []),
+    )
 
 
 def _render_row_details(
@@ -2337,6 +2518,7 @@ def main() -> None:
                     category_group_map=category_group_map,
                     helper_row=helper_row,
                 )
+                _render_split_action_buttons(row, idx=idx)
                 _render_row_controls(
                     df,
                     idx,
@@ -2782,6 +2964,11 @@ def main() -> None:
                             category_group_map=category_group_map,
                             helper_row=helper_row,
                         )
+                        _render_split_action_buttons(
+                            row,
+                            idx=idx,
+                            group_fingerprint=fp,
+                        )
                         _render_row_controls(
                             df,
                             idx,
@@ -2794,6 +2981,11 @@ def main() -> None:
                             updated_mask=updated_mask,
                             component_map=component_map,
                         )
+
+    _maybe_render_target_split_editor_dialog(
+        df=df,
+        category_choices=category_list,
+    )
 
 
 if __name__ == "__main__":

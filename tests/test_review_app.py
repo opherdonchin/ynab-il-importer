@@ -376,6 +376,62 @@ def test_split_caption_lines_marks_matching_split_ids() -> None:
     assert lines[1].startswith("Matching split split-2: +9")
 
 
+def test_target_split_editor_rows_seed_existing_split_lines() -> None:
+    row = pd.Series(
+        {
+            "target_splits": [
+                {
+                    "split_id": "split-1",
+                    "payee_raw": "Cafe",
+                    "category_raw": "Food",
+                    "memo": "beans",
+                    "inflow_ils": 0.0,
+                    "outflow_ils": 12.5,
+                }
+            ]
+        }
+    )
+
+    rows = review_app._target_split_editor_rows(row)
+
+    assert rows == [
+        {
+            "split_id": "split-1",
+            "payee_raw": "Cafe",
+            "category_raw": "Food",
+            "memo": "beans",
+            "amount_ils": -12.5,
+        }
+    ]
+
+
+def test_target_split_editor_rows_seed_prefilled_and_blank_lines_for_create_split() -> None:
+    row = pd.Series(
+        {
+            "inflow_ils": 0.0,
+            "outflow_ils": 10.0,
+            "target_payee_selected": "Target Cafe",
+            "target_category_selected": "Food",
+            "target_memo": "memo",
+            "target_present": False,
+            "source_present": True,
+        }
+    )
+
+    rows = review_app._target_split_editor_rows(row)
+
+    assert rows[0]["payee_raw"] == "Target Cafe"
+    assert rows[0]["category_raw"] == "Food"
+    assert rows[0]["amount_ils"] == -10.0
+    assert rows[1] == {
+        "split_id": "",
+        "payee_raw": "",
+        "category_raw": "",
+        "memo": "",
+        "amount_ils": 0.0,
+    }
+
+
 def test_grouped_row_indices_only_include_filtered_rows() -> None:
     filtered = pd.DataFrame(
         {

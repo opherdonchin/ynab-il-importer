@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from collections import Counter
+import json
 from typing import Any
 
 import pandas as pd
 import polars as pl
 
 
-DECISION_COLUMNS = [
+PRESERVED_COLUMNS = [
     "source_payee_selected",
     "source_category_selected",
     "target_payee_selected",
@@ -15,6 +16,14 @@ DECISION_COLUMNS = [
     "decision_action",
     "update_maps",
     "reviewed",
+    "changed",
+    "memo_append",
+    "source_splits",
+    "target_splits",
+    "source_current_transaction",
+    "target_current_transaction",
+    "source_original_transaction",
+    "target_original_transaction",
 ]
 FALLBACK_KEY_COLUMNS = [
     "date",
@@ -42,6 +51,8 @@ def _decision_value_counts(row: pd.Series) -> int:
     decision_action = str(row.get("decision_action", "") or "").strip()
     update_maps = str(row.get("update_maps", "") or "").strip()
     reviewed = bool(row.get("reviewed", False))
+    changed = bool(row.get("changed", False))
+    memo_append = str(row.get("memo_append", "") or "").strip()
     return int(
         bool(
             source_payee
@@ -51,8 +62,25 @@ def _decision_value_counts(row: pd.Series) -> int:
             or decision_action
             or update_maps
             or reviewed
+            or changed
+            or memo_append
         )
     )
+
+
+def _preserved_payload(row: pd.Series) -> dict[str, Any]:
+    return {column: row.get(column) for column in PRESERVED_COLUMNS}
+
+
+def _serialized_payload(payload: dict[str, Any]) -> tuple[Any, ...]:
+    serialized: list[Any] = []
+    for column in PRESERVED_COLUMNS:
+        value = payload.get(column)
+        if isinstance(value, (dict, list)):
+            serialized.append(json.dumps(value, sort_keys=True, ensure_ascii=False))
+        else:
+            serialized.append(value)
+    return tuple(serialized)
 
 
 def _prepare(df: pd.DataFrame) -> pd.DataFrame:
@@ -66,6 +94,7 @@ def _prepare(df: pd.DataFrame) -> pd.DataFrame:
         "decision_action",
         "update_maps",
         "fingerprint",
+        "memo_append",
     ]:
         if col not in out.columns:
             out[col] = ""
@@ -84,6 +113,20 @@ def _prepare(df: pd.DataFrame) -> pd.DataFrame:
         out["reviewed"] = False
     else:
         out["reviewed"] = _normalize_bool_series(out["reviewed"])
+    if "changed" not in out.columns:
+        out["changed"] = False
+    else:
+        out["changed"] = _normalize_bool_series(out["changed"])
+    for col in [
+        "source_splits",
+        "target_splits",
+        "source_current_transaction",
+        "target_current_transaction",
+        "source_original_transaction",
+        "target_original_transaction",
+    ]:
+        if col not in out.columns:
+            out[col] = None
     return out
 
 
@@ -153,7 +196,7 @@ def _reconcile_reviewed_transactions_pandas(
         )
         direct_mask = direct_candidates.copy()
         direct_mask.loc[direct_candidates] = ~preserve_direct
-        for col in DECISION_COLUMNS:
+        for col in PRESERVED_COLUMNS:
             result.loc[direct_mask, col] = matched.loc[~preserve_direct, col].to_numpy()
         direct_matches = int(direct_mask.sum())
     else:
@@ -165,24 +208,13 @@ def _reconcile_reviewed_transactions_pandas(
     remaining_new = result.loc[remaining_new_mask].copy()
 
     if not remaining_old.empty and not remaining_new.empty:
-        decision_sets: dict[tuple[Any, ...], tuple[Any, ...]] = {}
+        decision_sets: dict[tuple[Any, ...], dict[str, Any]] = {}
         old_counts = Counter()
         for key, group in remaining_old.groupby(FALLBACK_KEY_COLUMNS, dropna=False):
-            tuples = {
-                (
-                    str(row.get("source_payee_selected", "") or "").strip(),
-                    str(row.get("source_category_selected", "") or "").strip(),
-                    str(row.get("target_payee_selected", "") or "").strip(),
-                    str(row.get("target_category_selected", "") or "").strip(),
-                    str(row.get("decision_action", "") or "").strip(),
-                    str(row.get("update_maps", "") or "").strip(),
-                    bool(row.get("reviewed", False)),
-                )
-                for _, row in group.iterrows()
-                if _decision_value_counts(row)
-            }
-            if len(tuples) == 1:
-                decision_sets[key] = next(iter(tuples))
+            payloads = [_preserved_payload(row) for _, row in group.iterrows() if _decision_value_counts(row)]
+            serialized_payloads = {_serialized_payload(payload) for payload in payloads}
+            if len(serialized_payloads) == 1 and payloads:
+                decision_sets[key] = payloads[0]
                 old_counts[key] = len(group)
 
         new_group_counts = Counter()
@@ -198,30 +230,12 @@ def _reconcile_reviewed_transactions_pandas(
             if old_counts[key] < 1:
                 continue
             if _should_preserve_new_row(
-                pd.Series(
-                    {
-                        "reviewed": decision_sets[key][-1],
-                    }
-                ),
+                pd.Series({"reviewed": bool(decision_sets[key].get("reviewed", False))}),
                 row,
             ):
                 continue
-            (
-                source_payee,
-                source_category,
-                target_payee,
-                target_category,
-                decision_action,
-                update_maps,
-                reviewed,
-            ) = decision_sets[key]
-            result.at[idx, "source_payee_selected"] = source_payee
-            result.at[idx, "source_category_selected"] = source_category
-            result.at[idx, "target_payee_selected"] = target_payee
-            result.at[idx, "target_category_selected"] = target_category
-            result.at[idx, "decision_action"] = decision_action
-            result.at[idx, "update_maps"] = update_maps
-            result.at[idx, "reviewed"] = bool(reviewed)
+            for column, value in decision_sets[key].items():
+                result.at[idx, column] = value
             fallback_matches += 1
 
     result = result.drop(columns=["_occurrence_key"], errors="ignore")

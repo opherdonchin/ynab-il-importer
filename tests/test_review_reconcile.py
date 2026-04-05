@@ -238,3 +238,67 @@ def test_reconcile_reviewed_transactions_accepts_polars_frames() -> None:
     assert merged["decision_action"].to_list() == ["keep_match", ""]
     assert merged["reviewed"].to_list() == [True, False]
     assert stats["direct_matches"] == 1
+
+
+def test_reconcile_reviewed_transactions_preserves_current_transaction_refs() -> None:
+    target_current = {
+        "transaction_id": "t1",
+        "payee_raw": "Updated payee",
+        "category_raw": "Split",
+        "splits": [
+            {
+                "split_id": "sub-1",
+                "payee_raw": "Updated payee",
+                "category_raw": "Food",
+                "category_id": "cat-food",
+                "memo": "",
+                "inflow_ils": 0.0,
+                "outflow_ils": 10.0,
+            }
+        ],
+    }
+    target_original = {
+        "transaction_id": "t1",
+        "payee_raw": "Original payee",
+        "category_raw": "Food",
+        "category_id": "cat-food",
+        "splits": None,
+    }
+    old = pd.DataFrame(
+        {
+            "transaction_id": ["t1"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["10"],
+            "inflow_ils": ["0"],
+            "fingerprint": ["fp1"],
+            "decision_action": ["keep_match"],
+            "reviewed": ["TRUE"],
+            "changed": ["TRUE"],
+            "target_current_transaction": [target_current],
+            "target_original_transaction": [target_original],
+        }
+    )
+    new = pd.DataFrame(
+        {
+            "transaction_id": ["t1"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["10"],
+            "inflow_ils": ["0"],
+            "fingerprint": ["fp1"],
+            "decision_action": [""],
+            "reviewed": [""],
+            "changed": [""],
+            "target_current_transaction": [None],
+            "target_original_transaction": [None],
+        }
+    )
+
+    merged, stats = review_reconcile.reconcile_reviewed_transactions(
+        pl.from_pandas(old),
+        pl.from_pandas(new),
+    )
+
+    assert bool(merged["changed"].to_list()[0]) is True
+    assert merged["target_current_transaction"].to_list()[0] == target_current
+    assert merged["target_original_transaction"].to_list()[0] == target_original
+    assert stats["direct_matches"] == 1

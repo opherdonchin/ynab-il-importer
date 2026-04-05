@@ -49,6 +49,7 @@ REVIEW_CONTROL_FIELD_NAMES = [field.name for field in REVIEW_CONTROL_FIELDS]
 TRANSACTION_FIELD_NAMES = [field.name for field in TRANSACTION_SCHEMA]
 SPLIT_FIELD_NAMES = [field.name for field in SPLIT_LINE_STRUCT]
 SPLIT_COLUMNS = working_schema.SPLIT_COLUMNS
+CURRENT_TRANSACTION_COLUMNS = working_schema.CURRENT_TRANSACTION_COLUMNS
 ORIGINAL_TRANSACTION_COLUMNS = working_schema.ORIGINAL_TRANSACTION_COLUMNS
 WORKING_COLUMNS = working_schema.WORKING_COLUMNS
 
@@ -552,6 +553,8 @@ def _review_table_from_dataframe(df: pd.DataFrame) -> pa.Table:
         "target_current",
         "source_original",
         "target_original",
+        "source_current_transaction",
+        "target_current_transaction",
         "source_transaction",
         "target_transaction",
         "source_original_transaction",
@@ -719,6 +722,8 @@ def _working_row_from_record(row: dict[str, Any]) -> dict[str, Any]:
             row.get("target_category_selected")
         )
         or model.normalize_category_value(target_current.get("category_raw")),
+        "source_current_transaction": source_current,
+        "target_current_transaction": target_current,
         "source_original_transaction": source_original,
         "target_original_transaction": target_original,
     }
@@ -771,6 +776,8 @@ def project_review_artifact_to_flat_dataframe(
         "target_current",
         "source_original",
         "target_original",
+        "source_current_transaction",
+        "target_current_transaction",
         "source_transaction",
         "target_transaction",
         "source_original_transaction",
@@ -871,6 +878,9 @@ def save_reviewed_transactions(
         if flag_col in out.columns:
             out[flag_col] = out[flag_col].map(lambda value: "TRUE" if bool(value) else "")
     for column in SPLIT_COLUMNS:
+        if column in out.columns:
+            out[column] = out[column].map(_json_dump)
+    for column in CURRENT_TRANSACTION_COLUMNS:
         if column in out.columns:
             out[column] = out[column].map(_json_dump)
     for column in ORIGINAL_TRANSACTION_COLUMNS:

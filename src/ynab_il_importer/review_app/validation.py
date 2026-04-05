@@ -460,6 +460,23 @@ def validate_row(row: Any) -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
+def validate_target_split_transaction(
+    row: pd.Series,
+    target_transaction: dict[str, Any],
+) -> list[str]:
+    from ynab_il_importer.artifacts.review_schema import validate_review_record
+    import ynab_il_importer.review_app.io as review_io
+
+    record = review_io.load_review_artifact(pd.DataFrame([row.to_dict()])).to_pylist()[0]
+    record["target_current"] = target_transaction
+    record["changed"] = True
+    return [
+        message
+        for message in validate_review_record(record)
+        if message.startswith("target_")
+    ]
+
+
 def compute_row_errors(df: pd.DataFrame) -> dict[Any, list[str]]:
     return {
         idx: validate_row(row)[0]

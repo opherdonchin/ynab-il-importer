@@ -23,6 +23,53 @@ def _review_rows(rows: list[dict[str, object]]) -> pd.DataFrame:
     return review_io.load_proposed_transactions(pd.DataFrame(normalized_rows))
 
 
+def _txn(
+    *,
+    transaction_id: str,
+    payee: str,
+    category: str,
+    category_id: str = "cat-food",
+    amount: float = 10.0,
+) -> dict[str, object]:
+    return {
+        "artifact_kind": "transaction",
+        "artifact_version": "transaction_v1",
+        "source_system": "ynab",
+        "transaction_id": transaction_id,
+        "ynab_id": transaction_id,
+        "import_id": "",
+        "parent_transaction_id": transaction_id,
+        "account_id": "acct-1",
+        "account_name": "Account 1",
+        "source_account": "Account 1",
+        "date": "2026-03-01",
+        "secondary_date": "",
+        "inflow_ils": 0.0,
+        "outflow_ils": amount,
+        "signed_amount_ils": -amount,
+        "payee_raw": payee,
+        "category_id": category_id,
+        "category_raw": category,
+        "memo": "memo",
+        "txn_kind": "",
+        "fingerprint": "fp-1",
+        "description_raw": "",
+        "description_clean": "",
+        "description_clean_norm": "",
+        "merchant_raw": "",
+        "ref": "",
+        "matched_transaction_id": "",
+        "cleared": "uncleared",
+        "approved": False,
+        "is_subtransaction": False,
+        "splits": None,
+    }
+
+
+def _canonical_working_rows(rows: list[dict[str, object]]) -> pd.DataFrame:
+    return review_io.load_proposed_transactions(pd.DataFrame(rows))
+
+
 def test_validate_row_blocks_reviewed_no_decision_and_institutional_source_mutation() -> None:
     row = pd.Series(
         {
@@ -801,6 +848,122 @@ def test_apply_row_edit_accepts_polars_review_table() -> None:
     assert updated["source_payee_selected"].to_list() == ["Source Cafe", "Source Cafe", ""]
     assert updated["target_payee_selected"].to_list() == ["Target Cafe", "", "Target Cafe"]
     assert updated["target_category_selected"].to_list() == ["Food", "", "Food"]
+
+
+def test_apply_row_edit_recomputes_changed_from_current_vs_original() -> None:
+    source_txn = _txn(transaction_id="src-1", payee="Source Cafe", category="Food")
+    target_txn = _txn(transaction_id="tgt-1", payee="Target Cafe", category="Food")
+    df = _canonical_working_rows(
+        [
+            {
+                "review_transaction_id": "row-1",
+                "workflow_type": "cross_budget",
+                "relation_kind": "source_target_pair",
+                "match_status": "matched_auto",
+                "match_method": "auto",
+                "decision_action": "keep_match",
+                "reviewed": False,
+                "changed": False,
+                "source_present": True,
+                "target_present": True,
+                "source_row_id": "src-1",
+                "target_row_id": "tgt-1",
+                "source_payee_selected": "Source Cafe",
+                "source_category_selected": "Food",
+                "target_payee_selected": "Target Cafe",
+                "target_category_selected": "Food",
+                "source_current": source_txn,
+                "source_original": source_txn,
+                "target_current": target_txn,
+                "target_original": target_txn,
+            }
+        ]
+    )
+
+    edited = review_state.apply_row_edit(
+        pl.from_pandas(df),
+        0,
+        target_category="Dining",
+    ).to_pandas()
+
+    assert bool(edited.loc[0, "changed"]) is True
+    assert edited.loc[0, "target_category_current"] == "Dining"
+    assert edited.loc[0, "target_current_transaction"]["category_raw"] == "Dining"
+    assert edited.loc[0, "target_current_transaction"]["category_id"] == ""
+
+    reverted = review_state.apply_row_edit(
+        pl.from_pandas(edited),
+        0,
+        target_category="Food",
+    ).to_pandas()
+
+    assert bool(reverted.loc[0, "changed"]) is False
+    assert reverted.loc[0, "target_category_current"] == "Food"
+    assert reverted.loc[0, "target_current_transaction"]["category_raw"] == "Food"
+    assert reverted.loc[0, "target_current_transaction"]["category_id"] == "cat-food"
+
+
+def test_apply_target_split_edit_saves_split_lines_and_collapses_one_line() -> None:
+    source_txn = _txn(transaction_id="src-1", payee="Source Cafe", category="Food")
+    target_txn = _txn(transaction_id="tgt-1", payee="Target Cafe", category="Food")
+    df = _canonical_working_rows(
+        [
+            {
+                "review_transaction_id": "row-1",
+                "workflow_type": "cross_budget",
+                "relation_kind": "source_target_pair",
+                "match_status": "matched_auto",
+                "match_method": "auto",
+                "decision_action": "keep_match",
+                "reviewed": False,
+                "changed": False,
+                "source_present": True,
+                "target_present": True,
+                "source_row_id": "src-1",
+                "target_row_id": "tgt-1",
+                "source_payee_selected": "Source Cafe",
+                "source_category_selected": "Food",
+                "target_payee_selected": "Target Cafe",
+                "target_category_selected": "Food",
+                "source_current": source_txn,
+                "source_original": source_txn,
+                "target_current": target_txn,
+                "target_original": target_txn,
+            }
+        ]
+    )
+
+    split_saved = review_state.apply_target_split_edit(
+        pl.from_pandas(df),
+        0,
+        lines=[
+            {"split_id": "sub-1", "payee_raw": "Target Cafe", "category_raw": "Food", "amount_ils": -7.0},
+            {"split_id": "sub-2", "payee_raw": "Target Cafe", "category_raw": "Dining", "amount_ils": -3.0},
+        ],
+    ).to_pandas()
+
+    assert bool(split_saved.loc[0, "changed"]) is True
+    assert split_saved.loc[0, "target_category_current"] == "Split"
+    assert len(split_saved.loc[0, "target_splits"]) == 2
+    assert split_saved.loc[0, "target_current_transaction"]["splits"][0]["outflow_ils"] == 7.0
+
+    collapsed = review_state.apply_target_split_edit(
+        pl.from_pandas(split_saved),
+        0,
+        lines=[
+            {
+                "split_id": "sub-1",
+                "payee_raw": "Collapsed Payee",
+                "category_raw": "Food",
+                "amount_ils": -10.0,
+            }
+        ],
+    ).to_pandas()
+
+    assert collapsed.loc[0, "target_splits"] is None
+    assert collapsed.loc[0, "target_category_current"] == "Food"
+    assert collapsed.loc[0, "target_payee_current"] == "Collapsed Payee"
+    assert collapsed.loc[0, "target_current_transaction"]["splits"] is None
 
 
 def test_apply_review_state_accepts_polars_review_table() -> None:

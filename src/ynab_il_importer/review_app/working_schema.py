@@ -14,6 +14,10 @@ from ynab_il_importer.safe_types import normalize_flag_series
 SPLIT_FIELD_NAMES = [field.name for field in SPLIT_LINE_STRUCT]
 TRANSACTION_FIELD_NAMES = [field.name for field in TRANSACTION_SCHEMA]
 SPLIT_COLUMNS = ["source_splits", "target_splits"]
+CURRENT_TRANSACTION_COLUMNS = [
+    "source_current_transaction",
+    "target_current_transaction",
+]
 ORIGINAL_TRANSACTION_COLUMNS = [
     "source_original_transaction",
     "target_original_transaction",
@@ -119,6 +123,7 @@ WORKING_COLUMNS = [
         "payee_selected",
         "category_selected",
     ],
+    *CURRENT_TRANSACTION_COLUMNS,
     *ORIGINAL_TRANSACTION_COLUMNS,
 ]
 WORKING_TEXT_COLUMNS = [
@@ -137,6 +142,7 @@ WORKING_TEXT_COLUMNS = [
         "target_approved",
         "target_is_subtransaction",
         *SPLIT_COLUMNS,
+        *CURRENT_TRANSACTION_COLUMNS,
         *ORIGINAL_TRANSACTION_COLUMNS,
     }
 ]
@@ -242,6 +248,9 @@ def decode_working_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     for column in SPLIT_COLUMNS:
         if column in out.columns:
             out[column] = out[column].map(_normalize_split_records)
+    for column in CURRENT_TRANSACTION_COLUMNS:
+        if column in out.columns:
+            out[column] = out[column].map(_normalize_transaction_record)
     for column in ORIGINAL_TRANSACTION_COLUMNS:
         if column in out.columns:
             out[column] = out[column].map(_normalize_transaction_record)
@@ -264,7 +273,11 @@ def _working_default(column: str) -> Any:
         return 0.0
     if column in WORKING_BOOL_COLUMNS:
         return False
-    if column in SPLIT_COLUMNS or column in ORIGINAL_TRANSACTION_COLUMNS:
+    if (
+        column in SPLIT_COLUMNS
+        or column in CURRENT_TRANSACTION_COLUMNS
+        or column in ORIGINAL_TRANSACTION_COLUMNS
+    ):
         return None
     return ""
 

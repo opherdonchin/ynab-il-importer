@@ -1148,6 +1148,284 @@ def _recompute_presence(df: pd.DataFrame, indices: list[Any]) -> pd.DataFrame:
     return updated
 
 
+def _transaction_reference_column(side: str, *, kind: str) -> str:
+    return f"{side}_{kind}_transaction"
+
+
+def _review_record_row(row: pd.Series) -> dict[str, Any]:
+    import ynab_il_importer.review_app.io as review_io
+
+    table = review_io.load_review_artifact(pd.DataFrame([row.to_dict()]))
+    rows = table.to_pylist()
+    return rows[0] if rows else {}
+
+
+def _transaction_reference_from_row(
+    row: pd.Series,
+    *,
+    side: str,
+    kind: str,
+) -> dict[str, Any] | None:
+    column = _transaction_reference_column(side, kind=kind)
+    value = row.get(column)
+    if isinstance(value, dict):
+        return dict(value)
+    try:
+        record = _review_record_row(row)
+    except ValueError:
+        return None
+    resolved = record.get(f"{side}_{kind}")
+    return dict(resolved) if isinstance(resolved, dict) else None
+
+
+def _category_id_for_transaction_value(
+    row: pd.Series,
+    *,
+    side: str,
+    category_value: str,
+    current_txn: dict[str, Any] | None,
+) -> str:
+    normalized_category = model.normalize_category_value(category_value)
+    for candidate in [
+        current_txn,
+        _transaction_reference_from_row(row, side=side, kind="original"),
+    ]:
+        if not isinstance(candidate, dict):
+            continue
+        if model.normalize_category_value(candidate.get("category_raw")) == normalized_category:
+            return str(candidate.get("category_id", "") or "").strip()
+    return ""
+
+
+def _update_current_transaction_values(
+    df: pd.DataFrame,
+    indices: list[Any],
+    *,
+    side: str,
+    payee: str | None = None,
+    category: str | None = None,
+) -> pd.DataFrame:
+    updated = df.copy()
+    column = _transaction_reference_column(side, kind="current")
+    touched = [current_idx for current_idx in indices if current_idx in updated.index]
+    for current_idx in touched:
+        row = updated.loc[current_idx]
+        txn = _transaction_reference_from_row(row, side=side, kind="current")
+        if txn is None:
+            continue
+        prior_txn = dict(txn)
+        if payee is not None:
+            txn["payee_raw"] = str(payee).strip()
+        if category is not None:
+            normalized_category = model.normalize_category_value(category)
+            txn["category_raw"] = normalized_category
+            txn["category_id"] = _category_id_for_transaction_value(
+                row,
+                side=side,
+                category_value=normalized_category,
+                current_txn=prior_txn,
+            )
+        updated.at[current_idx, column] = txn
+    return updated
+
+
+def rebuild_working_rows(df: pd.DataFrame, indices: list[Any]) -> pd.DataFrame:
+    import ynab_il_importer.review_app.io as review_io
+    import ynab_il_importer.review_app.working_schema as working_schema
+
+    touched = [current_idx for current_idx in dict.fromkeys(indices) if current_idx in df.index]
+    if not touched:
+        return df.copy()
+
+    updated = df.copy()
+    subset = df.loc[touched].copy()
+    missing_input = working_schema.missing_working_columns(
+        subset,
+        working_schema.WORKING_INPUT_REQUIRED_COLUMNS,
+    )
+    if missing_input:
+        return updated
+    rebuilt = review_io.project_review_artifact_to_flat_dataframe(subset)
+    if len(rebuilt) != len(subset):
+        return updated
+    rebuilt.index = subset.index
+
+    for column in rebuilt.columns:
+        if column not in updated.columns:
+            updated[column] = pd.Series([None] * len(updated), index=updated.index, dtype="object")
+        updated.loc[touched, column] = rebuilt.loc[touched, column]
+    return updated
+
+
+def recompute_changed_for_rows(df: pd.DataFrame, indices: list[Any]) -> pd.DataFrame:
+    if "changed" not in df.columns:
+        return df.copy()
+
+    updated = df.copy()
+    touched = [current_idx for current_idx in dict.fromkeys(indices) if current_idx in updated.index]
+    for current_idx in touched:
+        row = updated.loc[current_idx]
+        source_current = _transaction_reference_from_row(row, side="source", kind="current")
+        source_original = _transaction_reference_from_row(row, side="source", kind="original")
+        target_current = _transaction_reference_from_row(row, side="target", kind="current")
+        target_original = _transaction_reference_from_row(row, side="target", kind="original")
+        updated.at[current_idx, "changed"] = bool(
+            source_current != source_original or target_current != target_original
+        )
+    return updated
+
+
+def _signed_amount_from_row_values(*, inflow: Any, outflow: Any) -> float:
+    inflow_value = float(pd.to_numeric(pd.Series([inflow]), errors="coerce").fillna(0.0).iloc[0])
+    outflow_value = float(pd.to_numeric(pd.Series([outflow]), errors="coerce").fillna(0.0).iloc[0])
+    return inflow_value - outflow_value
+
+
+def _target_transaction_for_split_edit(row: pd.Series) -> dict[str, Any]:
+    import ynab_il_importer.review_app.io as review_io
+
+    current = _transaction_reference_from_row(row, side="target", kind="current")
+    if current is not None:
+        return current
+    original = _transaction_reference_from_row(row, side="target", kind="original")
+    return review_io._transaction_from_flat_row(
+        row,
+        side="target",
+        use_selected_values=True,
+        base_transaction=original,
+    )
+
+
+def _normalize_split_editor_lines(
+    lines: list[dict[str, Any]],
+    *,
+    parent_transaction: dict[str, Any],
+) -> list[dict[str, Any]]:
+    normalized_lines: list[dict[str, Any]] = []
+    parent_transaction_id = str(
+        parent_transaction.get("transaction_id")
+        or parent_transaction.get("parent_transaction_id")
+        or ""
+    ).strip()
+
+    for index, raw in enumerate(lines, start=1):
+        if not isinstance(raw, dict):
+            continue
+        amount_value = float(
+            pd.to_numeric(
+                pd.Series([raw.get("amount_ils", raw.get("amount", 0.0))]),
+                errors="coerce",
+            ).fillna(0.0).iloc[0]
+        )
+        payee_value = str(raw.get("payee_raw", raw.get("payee", "")) or "").strip()
+        category_value = model.normalize_category_value(
+            raw.get("category_raw", raw.get("category", ""))
+        )
+        memo_value = str(raw.get("memo", "") or "").strip()
+        split_id = str(raw.get("split_id", "") or "").strip()
+        if not split_id and not payee_value and not category_value and not memo_value and abs(amount_value) <= 1e-9:
+            continue
+        normalized_lines.append(
+            {
+                "split_id": split_id or f"{parent_transaction_id or 'split'}-{index}",
+                "parent_transaction_id": parent_transaction_id,
+                "ynab_subtransaction_id": str(raw.get("ynab_subtransaction_id", "") or "").strip(),
+                "payee_raw": payee_value,
+                "category_id": str(raw.get("category_id", "") or "").strip(),
+                "category_raw": category_value,
+                "memo": memo_value,
+                "inflow_ils": amount_value if amount_value > 0 else 0.0,
+                "outflow_ils": -amount_value if amount_value < 0 else 0.0,
+                "import_id": str(raw.get("import_id", "") or "").strip(),
+                "matched_transaction_id": str(raw.get("matched_transaction_id", "") or "").strip(),
+            }
+        )
+    return normalized_lines
+
+
+def _apply_target_split_lines_to_transaction(
+    row: pd.Series,
+    *,
+    target_transaction: dict[str, Any],
+    split_lines: list[dict[str, Any]],
+) -> dict[str, Any]:
+    updated_target = dict(target_transaction)
+    if len(split_lines) == 1:
+        only_line = split_lines[0]
+        category_value = model.normalize_category_value(only_line.get("category_raw", ""))
+        updated_target["payee_raw"] = str(only_line.get("payee_raw", "") or "").strip()
+        updated_target["category_raw"] = category_value
+        updated_target["category_id"] = _category_id_for_transaction_value(
+            row,
+            side="target",
+            category_value=category_value,
+            current_txn=target_transaction,
+        )
+        updated_target["splits"] = None
+        return updated_target
+
+    updated_target["category_raw"] = "Split"
+    updated_target["category_id"] = ""
+    updated_target["splits"] = split_lines
+    return updated_target
+
+
+def apply_target_split_edit(
+    df: pl.DataFrame,
+    idx: Any,
+    *,
+    lines: list[dict[str, Any]],
+) -> pl.DataFrame:
+    updated = _apply_target_split_edit_pandas(df.to_pandas(), idx, lines=lines)
+    return pl.from_pandas(updated)
+
+
+def _apply_target_split_edit_pandas(
+    df: pd.DataFrame,
+    idx: Any,
+    *,
+    lines: list[dict[str, Any]],
+) -> pd.DataFrame:
+    if idx not in df.index:
+        return df.copy()
+
+    import ynab_il_importer.review_app.validation as review_validation
+
+    updated = df.copy()
+    row = updated.loc[idx]
+    target_transaction = _target_transaction_for_split_edit(row)
+    normalized_lines = _normalize_split_editor_lines(lines, parent_transaction=target_transaction)
+    if not normalized_lines:
+        raise ValueError("Split save requires at least one non-empty line.")
+
+    updated_target = _apply_target_split_lines_to_transaction(
+        row,
+        target_transaction=target_transaction,
+        split_lines=normalized_lines,
+    )
+    split_errors = review_validation.validate_target_split_transaction(
+        updated.loc[idx],
+        updated_target,
+    )
+    if split_errors:
+        raise ValueError("; ".join(split_errors))
+
+    updated.at[idx, "target_current_transaction"] = updated_target
+    updated.at[idx, "target_payee_selected"] = str(updated_target.get("payee_raw", "") or "").strip()
+    updated.at[idx, "payee_selected"] = str(updated_target.get("payee_raw", "") or "").strip()
+    updated.at[idx, "target_category_selected"] = model.normalize_category_value(
+        updated_target.get("category_raw", "")
+    )
+    updated.at[idx, "category_selected"] = model.normalize_category_value(
+        updated_target.get("category_raw", "")
+    )
+
+    updated = recompute_changed_for_rows(updated, [idx])
+    updated = rebuild_working_rows(updated, [idx])
+    updated = recompute_changed_for_rows(updated, [idx])
+    return updated
+
+
 def apply_row_edit(
     df: pl.DataFrame,
     idx: Any,
@@ -1208,28 +1486,40 @@ def _apply_row_edit_pandas(
     if source_payee is not None or source_category is not None:
         if source_payee is not None and "source_payee_selected" in updated.columns:
             updated.loc[source_indices, "source_payee_selected"] = str(source_payee).strip()
-        if source_payee is not None and "source_payee_current" in updated.columns:
-            updated.loc[source_indices, "source_payee_current"] = str(source_payee).strip()
         if source_category is not None and "source_category_selected" in updated.columns:
-            updated.loc[source_indices, "source_category_selected"] = str(source_category).strip()
-        if source_category is not None and "source_category_current" in updated.columns:
-            updated.loc[source_indices, "source_category_current"] = str(source_category).strip()
+            updated.loc[source_indices, "source_category_selected"] = model.normalize_category_value(
+                source_category
+            )
+        updated = _update_current_transaction_values(
+            updated,
+            source_indices,
+            side="source",
+            payee=source_payee,
+            category=source_category,
+        )
 
     if target_payee is not None or target_category is not None:
         if target_payee is not None:
             if "payee_selected" in updated.columns:
                 updated.loc[target_indices, "payee_selected"] = str(target_payee).strip()
-            if "target_payee_current" in updated.columns:
-                updated.loc[target_indices, "target_payee_current"] = str(target_payee).strip()
             if "target_payee_selected" in updated.columns:
                 updated.loc[target_indices, "target_payee_selected"] = str(target_payee).strip()
         if target_category is not None:
             if "category_selected" in updated.columns:
-                updated.loc[target_indices, "category_selected"] = str(target_category).strip()
-            if "target_category_current" in updated.columns:
-                updated.loc[target_indices, "target_category_current"] = str(target_category).strip()
+                updated.loc[target_indices, "category_selected"] = model.normalize_category_value(
+                    target_category
+                )
             if "target_category_selected" in updated.columns:
-                updated.loc[target_indices, "target_category_selected"] = str(target_category).strip()
+                updated.loc[target_indices, "target_category_selected"] = model.normalize_category_value(
+                    target_category
+                )
+        updated = _update_current_transaction_values(
+            updated,
+            target_indices,
+            side="target",
+            payee=target_payee,
+            category=target_category,
+        )
 
     if update_maps is not None and "update_maps" in updated.columns:
         updated.at[idx, "update_maps"] = str(update_maps).strip()
@@ -1246,11 +1536,13 @@ def _apply_row_edit_pandas(
             reviewed_mask = connected_component_mask(updated, idx)
             reviewed_indices = updated.index[reviewed_mask].tolist()
         else:
-            reviewed_indices = [current_idx for current_idx, label in component_map.items() if label == component_map.get(idx)]
+            reviewed_indices = [
+                current_idx
+                for current_idx, label in component_map.items()
+                if label == component_map.get(idx)
+            ]
         updated.loc[reviewed_indices, "reviewed"] = bool(reviewed)
-        if "changed" in updated.columns:
-            updated.loc[reviewed_indices, "changed"] = True
-    if "changed" in updated.columns:
-        changed_indices = set(source_indices) | set(target_indices) | {idx}
-        updated.loc[list(changed_indices), "changed"] = True
+    changed_indices = list(dict.fromkeys([*source_indices, *target_indices, idx]))
+    updated = recompute_changed_for_rows(updated, changed_indices)
+    updated = rebuild_working_rows(updated, changed_indices)
     return updated

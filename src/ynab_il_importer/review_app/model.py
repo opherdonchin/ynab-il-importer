@@ -111,27 +111,32 @@ def _apply_to_same_fingerprint_pandas(
     mask = updated["fingerprint"].astype("string").fillna("").str.strip() == str(fingerprint).strip()
     if eligible_mask is not None:
         mask = mask & eligible_mask
+    touched_indices = updated.index[mask].tolist()
     if payee is not None:
         updated.loc[mask, "payee_selected"] = payee
-        if "target_payee_current" in updated.columns:
-            updated.loc[mask, "target_payee_current"] = payee
         if "target_payee_selected" in updated.columns:
             updated.loc[mask, "target_payee_selected"] = payee
     if category is not None:
         updated.loc[mask, "category_selected"] = category
-        if "target_category_current" in updated.columns:
-            updated.loc[mask, "target_category_current"] = category
         if "target_category_selected" in updated.columns:
             updated.loc[mask, "target_category_selected"] = category
+    if payee is not None or category is not None:
+        updated = review_state._update_current_transaction_values(
+            updated,
+            touched_indices,
+            side="target",
+            payee=payee,
+            category=category,
+        )
     if update_maps is not None and "update_maps" in updated.columns:
         updated.loc[mask, "update_maps"] = str(update_maps).strip()
     if decision_action is not None and "decision_action" in updated.columns:
         updated.loc[mask, "decision_action"] = str(decision_action).strip()
-    updated = review_state._recompute_presence(updated, updated.index[mask].tolist())
+    updated = review_state._recompute_presence(updated, touched_indices)
     if reviewed is not None:
         updated.loc[mask, "reviewed"] = bool(reviewed)
-    if "changed" in updated.columns:
-        updated.loc[mask, "changed"] = True
+    updated = review_state.recompute_changed_for_rows(updated, touched_indices)
+    updated = review_state.rebuild_working_rows(updated, touched_indices)
     return updated
 
 
@@ -189,7 +194,5 @@ def _apply_competing_row_resolution_pandas(
         if "decision_action" in updated.columns:
             updated.loc[competing_indices, "decision_action"] = "ignore_row"
         updated = review_state._recompute_presence(updated, competing_indices)
-        if "changed" in updated.columns:
-            updated.loc[competing_indices, "changed"] = True
         touched.extend(competing_indices)
     return updated, list(dict.fromkeys(touched))
