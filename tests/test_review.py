@@ -610,12 +610,12 @@ def test_apply_review_state_reuses_provided_component_map(monkeypatch) -> None:
             },
         ]
     )
-    component_map = review_validation.precompute_components(df)
+    component_map = review_validation.compute_components(df)
 
     def fail(_: pd.DataFrame) -> dict[object, int]:
-        raise AssertionError("precompute_components should not be called")
+        raise AssertionError("compute_components should not be called")
 
-    monkeypatch.setattr(review_validation, "precompute_components", fail)
+    monkeypatch.setattr(review_validation, "compute_components", fail)
 
     updated, errors = review_validation.apply_review_state(
         pl.from_pandas(df),
@@ -736,7 +736,7 @@ def test_precompute_components_single_component() -> None:
         ]
     )
 
-    component_map = review_validation.precompute_components(df)
+    component_map = review_validation.compute_components(df)
 
     assert set(component_map.values()) == {0}
 
@@ -750,7 +750,7 @@ def test_precompute_components_two_components() -> None:
         ]
     )
 
-    component_map = review_validation.precompute_components(df)
+    component_map = review_validation.compute_components(df)
 
     assert component_map[0] == component_map[1]
     assert component_map[2] != component_map[0]
@@ -818,7 +818,7 @@ def test_apply_review_state_accepts_polars_review_table() -> None:
             "update_maps": ["", ""],
         }
     )
-    component_map = review_validation.precompute_components(df)
+    component_map = review_validation.compute_components(df)
 
     updated, errors = review_validation.apply_review_state(
         df,
@@ -856,7 +856,7 @@ def test_precompute_components_accepts_polars_review_table() -> None:
         }
     )
 
-    component_map = review_validation.precompute_components(df)
+    component_map = review_validation.compute_components(df)
 
     assert set(component_map.keys()) == {0, 1, 2}
     assert set(component_map.values()) == {0}
@@ -904,8 +904,8 @@ def test_precompute_component_errors_propagates() -> None:
         ]
     )
 
-    component_map = review_validation.precompute_components(df)
-    component_errors = review_validation.precompute_component_errors(df, component_map)
+    component_map = review_validation.compute_components(df)
+    component_errors = review_validation.compute_component_errors(df, component_map)
 
     assert component_errors[component_map[0]] == component_errors[component_map[1]]
     assert "connected rows still contain No decision" in component_errors[component_map[0]]
@@ -928,8 +928,8 @@ def test_precompute_component_errors_accepts_polars_review_table() -> None:
         }
     )
 
-    component_map = review_validation.precompute_components(df)
-    component_errors = review_validation.precompute_component_errors(df, component_map)
+    component_map = review_validation.compute_components(df)
+    component_errors = review_validation.compute_component_errors(df, component_map)
 
     assert "connected rows still contain No decision" in component_errors[component_map[0]]
     assert component_errors[component_map[2]] == []
@@ -961,9 +961,9 @@ def test_blocker_series_with_components_uses_supplied_component_map(monkeypatch)
     component_map = {0: 7, 1: 7}
 
     def fail(_: pd.DataFrame | pl.DataFrame) -> dict[Any, int]:
-        raise AssertionError("precompute_components should not be called")
+        raise AssertionError("compute_components should not be called")
 
-    monkeypatch.setattr(review_validation, "precompute_components", fail)
+    monkeypatch.setattr(review_validation, "compute_components", fail)
 
     blockers, reused_map = review_validation.blocker_series_with_components(
         df,

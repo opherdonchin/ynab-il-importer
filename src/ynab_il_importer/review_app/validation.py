@@ -223,7 +223,7 @@ def _row_items(df: pd.DataFrame | pl.DataFrame, indices: list[Any]) -> list[tupl
 def connected_component_mask(df: pd.DataFrame, start_idx: Any) -> pd.Series:
     if start_idx not in df.index:
         return pd.Series([False] * len(df), index=df.index)
-    component_map = precompute_components(df)
+    component_map = compute_components(df)
     component_label = component_map.get(start_idx)
     if component_label is None:
         return pd.Series([False] * len(df), index=df.index)
@@ -233,7 +233,7 @@ def connected_component_mask(df: pd.DataFrame, start_idx: Any) -> pd.Series:
     )
 
 
-def precompute_components(df: pd.DataFrame | pl.DataFrame) -> dict[Any, int]:
+def compute_components(df: pd.DataFrame | pl.DataFrame) -> dict[Any, int]:
     if isinstance(df, pd.DataFrame):
         if df.empty:
             return {}
@@ -251,7 +251,7 @@ def precompute_components(df: pd.DataFrame | pl.DataFrame) -> dict[Any, int]:
     )
 
 
-def precompute_component_errors(
+def compute_component_errors(
     df: pd.DataFrame | pl.DataFrame,
     component_map: dict[Any, int],
     *,
@@ -272,15 +272,6 @@ def precompute_component_errors(
         )
 
     return component_errors
-
-
-def component_error_lookup(df: pd.DataFrame | pl.DataFrame) -> dict[Any, list[str]]:
-    component_map = precompute_components(df)
-    component_errors = precompute_component_errors(df, component_map)
-    return {
-        idx: component_errors.get(component_label, [])
-        for idx, component_label in component_map.items()
-    }
 
 
 def blocker_series_with_components(
@@ -318,9 +309,9 @@ def build_validation_state(
     component_map: dict[Any, int] | None = None,
 ) -> dict[str, Any]:
     if component_map is None:
-        component_map = precompute_components(df)
-    row_errors_by_index = precompute_row_errors(df)
-    component_errors = precompute_component_errors(
+        component_map = compute_components(df)
+    row_errors_by_index = compute_row_errors(df)
+    component_errors = compute_component_errors(
         df,
         component_map,
         row_errors_by_index=row_errors_by_index,
@@ -469,15 +460,10 @@ def validate_row(row: Any) -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
-def precompute_row_errors(df: pd.DataFrame | pl.DataFrame) -> dict[Any, list[str]]:
-    if isinstance(df, pd.DataFrame):
-        return {
-            idx: validate_row(row)[0]
-            for idx, row in df.iterrows()
-        }
+def compute_row_errors(df: pd.DataFrame) -> dict[Any, list[str]]:
     return {
         idx: validate_row(row)[0]
-        for idx, row in enumerate(df.to_dicts())
+        for idx, row in df.iterrows()
     }
 
 
@@ -497,7 +483,7 @@ def review_component_errors(
                 component_mask = component_mask.reindex(df.index, fill_value=False)
             component_indices = df.index[component_mask].tolist()
         else:
-            component_map = precompute_components(df)
+            component_map = compute_components(df)
             component_label = component_map.get(start_idx)
             if component_label is None:
                 return []
@@ -654,7 +640,7 @@ def _apply_review_state_pandas(
 
     errors: list[str] = []
     if component_map is None:
-        component_map = precompute_components(updated)
+        component_map = compute_components(updated)
     component_series = pd.Series(component_map).reindex(updated.index)
     seen_components: set[int] = set()
     for idx in touched:
@@ -722,7 +708,7 @@ def _apply_review_state_best_effort_pandas(
     reviewed_indices: list[Any] = []
     errors: list[str] = []
     if component_map is None:
-        component_map = precompute_components(working)
+        component_map = compute_components(working)
 
     grouped_indices: dict[int, list[Any]] = {}
     for idx in touched:
