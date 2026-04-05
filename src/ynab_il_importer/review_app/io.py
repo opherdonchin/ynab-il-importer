@@ -190,6 +190,45 @@ def _normalize_transaction_record(value: Any) -> dict[str, Any] | None:
     return record
 
 
+def _transaction_has_material_state(txn: dict[str, Any] | None) -> bool:
+    if not isinstance(txn, dict):
+        return False
+    text_fields = [
+        "source_system",
+        "transaction_id",
+        "ynab_id",
+        "import_id",
+        "parent_transaction_id",
+        "account_id",
+        "account_name",
+        "source_account",
+        "date",
+        "secondary_date",
+        "payee_raw",
+        "category_id",
+        "category_raw",
+        "memo",
+        "txn_kind",
+        "fingerprint",
+        "description_raw",
+        "description_clean",
+        "description_clean_norm",
+        "merchant_raw",
+        "ref",
+        "matched_transaction_id",
+        "cleared",
+    ]
+    if any(_normalize_text(txn.get(field)) for field in text_fields):
+        return True
+    if abs(_normalize_float(txn.get("inflow_ils"))) > 1e-9:
+        return True
+    if abs(_normalize_float(txn.get("outflow_ils"))) > 1e-9:
+        return True
+    if abs(_normalize_float(txn.get("signed_amount_ils"))) > 1e-9:
+        return True
+    return bool(_normalize_split_records(txn.get("splits")))
+
+
 def _legacy_source_row_ids(df: pd.DataFrame) -> pd.Series:
     source = _text_series(df, "source").str.casefold()
     bank_ids = _text_series(df, "bank_txn_id")
@@ -470,6 +509,8 @@ def _current_transaction_from_row(row: pd.Series, *, side: str) -> dict[str, Any
     explicit_current = False
     for key in [f"{side}_current", f"{side}_current_transaction"]:
         txn = _normalize_transaction_record(row.get(key))
+        if txn and not _side_present(row, side) and not _transaction_has_material_state(txn):
+            txn = None
         if txn:
             return txn
         if key in row.index:
@@ -493,9 +534,9 @@ def _review_record_from_row(row: pd.Series) -> dict[str, Any]:
     target_current = _current_transaction_from_row(row, side="target")
     source_original = _original_transaction_from_row(row, side="source")
     target_original = _original_transaction_from_row(row, side="target")
-    if source_original is None and source_current is not None:
+    if source_original is None and source_current is not None and _side_present(row, "source"):
         source_original = dict(source_current)
-    if target_original is None and target_current is not None:
+    if target_original is None and target_current is not None and _side_present(row, "target"):
         target_original = dict(target_current)
     return {
         "artifact_kind": "review_artifact",

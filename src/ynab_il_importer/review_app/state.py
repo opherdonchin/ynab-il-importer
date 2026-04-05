@@ -1166,16 +1166,20 @@ def _transaction_reference_from_row(
     side: str,
     kind: str,
 ) -> dict[str, Any] | None:
+    import ynab_il_importer.review_app.io as review_io
+
     column = _transaction_reference_column(side, kind=kind)
     value = row.get(column)
     if isinstance(value, dict):
-        return dict(value)
+        normalized = review_io._normalize_transaction_record(value)
+        return dict(normalized) if isinstance(normalized, dict) else None
     try:
         record = _review_record_row(row)
     except ValueError:
         return None
     resolved = record.get(f"{side}_{kind}")
-    return dict(resolved) if isinstance(resolved, dict) else None
+    normalized = review_io._normalize_transaction_record(resolved)
+    return dict(normalized) if isinstance(normalized, dict) else None
 
 
 def _category_id_for_transaction_value(
@@ -1285,7 +1289,7 @@ def _target_transaction_for_split_edit(row: pd.Series) -> dict[str, Any]:
     import ynab_il_importer.review_app.io as review_io
 
     current = _transaction_reference_from_row(row, side="target", kind="current")
-    if current is not None:
+    if bool(row.get("target_present", False)) and current is not None:
         return current
     original = _transaction_reference_from_row(row, side="target", kind="original")
     return review_io._transaction_from_flat_row(
@@ -1302,6 +1306,15 @@ def _normalize_split_editor_lines(
     parent_transaction: dict[str, Any],
 ) -> list[dict[str, Any]]:
     normalized_lines: list[dict[str, Any]] = []
+    existing_splits = parent_transaction.get("splits")
+    existing_by_id: dict[str, dict[str, Any]] = {}
+    if isinstance(existing_splits, list):
+        for split in existing_splits:
+            if not isinstance(split, dict):
+                continue
+            existing_split_id = str(split.get("split_id", "") or "").strip()
+            if existing_split_id:
+                existing_by_id[existing_split_id] = split
     parent_transaction_id = str(
         parent_transaction.get("transaction_id")
         or parent_transaction.get("parent_transaction_id")
@@ -1323,21 +1336,48 @@ def _normalize_split_editor_lines(
         )
         memo_value = str(raw.get("memo", "") or "").strip()
         split_id = str(raw.get("split_id", "") or "").strip()
+        existing_line = existing_by_id.get(split_id, {})
         if not split_id and not payee_value and not category_value and not memo_value and abs(amount_value) <= 1e-9:
             continue
+        existing_category = model.normalize_category_value(existing_line.get("category_raw", ""))
+        preserve_category_id = (
+            str(existing_line.get("category_id", "") or "").strip()
+            if split_id and category_value == existing_category
+            else ""
+        )
         normalized_lines.append(
             {
                 "split_id": split_id or f"{parent_transaction_id or 'split'}-{index}",
-                "parent_transaction_id": parent_transaction_id,
-                "ynab_subtransaction_id": str(raw.get("ynab_subtransaction_id", "") or "").strip(),
+                "parent_transaction_id": str(
+                    raw.get("parent_transaction_id")
+                    or existing_line.get("parent_transaction_id")
+                    or parent_transaction_id
+                ).strip(),
+                "ynab_subtransaction_id": str(
+                    raw.get("ynab_subtransaction_id")
+                    or existing_line.get("ynab_subtransaction_id")
+                    or ""
+                ).strip(),
                 "payee_raw": payee_value,
-                "category_id": str(raw.get("category_id", "") or "").strip(),
+                "category_id": str(
+                    raw.get("category_id")
+                    or preserve_category_id
+                    or ""
+                ).strip(),
                 "category_raw": category_value,
                 "memo": memo_value,
                 "inflow_ils": amount_value if amount_value > 0 else 0.0,
                 "outflow_ils": -amount_value if amount_value < 0 else 0.0,
-                "import_id": str(raw.get("import_id", "") or "").strip(),
-                "matched_transaction_id": str(raw.get("matched_transaction_id", "") or "").strip(),
+                "import_id": str(
+                    raw.get("import_id")
+                    or existing_line.get("import_id")
+                    or ""
+                ).strip(),
+                "matched_transaction_id": str(
+                    raw.get("matched_transaction_id")
+                    or existing_line.get("matched_transaction_id")
+                    or ""
+                ).strip(),
             }
         )
     return normalized_lines

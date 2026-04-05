@@ -966,6 +966,153 @@ def test_apply_target_split_edit_saves_split_lines_and_collapses_one_line() -> N
     assert collapsed.loc[0, "target_current_transaction"]["splits"] is None
 
 
+def test_apply_target_split_edit_accepts_unchanged_existing_split_after_roundtrip() -> None:
+    source_txn = _txn(transaction_id="src-1", payee="Source Cafe", category="Food", amount=180.0)
+    target_txn = _txn(
+        transaction_id="tgt-1",
+        payee="Mega Store",
+        category="Split",
+        category_id="",
+        amount=180.0,
+    )
+    target_txn["splits"] = [
+        {
+            "split_id": "split-house-1",
+            "parent_transaction_id": "tgt-1",
+            "ynab_subtransaction_id": "split-house-1",
+            "payee_raw": "Mega Store",
+            "category_id": "",
+            "category_raw": "House and stuff",
+            "memo": "cleaning supplies",
+            "inflow_ils": 0.0,
+            "outflow_ils": 120.0,
+            "import_id": "",
+            "matched_transaction_id": "",
+        },
+        {
+            "split_id": "split-food-1",
+            "parent_transaction_id": "tgt-1",
+            "ynab_subtransaction_id": "split-food-1",
+            "payee_raw": "Mega Store",
+            "category_id": "",
+            "category_raw": "Groceries",
+            "memo": "snacks",
+            "inflow_ils": 0.0,
+            "outflow_ils": 60.0,
+            "import_id": "",
+            "matched_transaction_id": "",
+        },
+    ]
+    working_polars = review_io.load_review_artifact_polars(
+        pd.DataFrame(
+            [
+                {
+                    "review_transaction_id": "row-1",
+                    "workflow_type": "cross_budget",
+                    "relation_kind": "source_target_pair",
+                    "match_status": "matched_auto",
+                    "match_method": "auto",
+                    "decision_action": "keep_match",
+                    "reviewed": False,
+                    "changed": False,
+                    "source_present": True,
+                    "target_present": True,
+                    "source_row_id": "src-1",
+                    "target_row_id": "tgt-1",
+                    "source_payee_selected": "Source Cafe",
+                    "source_category_selected": "Food",
+                    "target_payee_selected": "Mega Store",
+                    "target_category_selected": "Split",
+                    "source_current": source_txn,
+                    "source_original": source_txn,
+                    "target_current": target_txn,
+                    "target_original": target_txn,
+                }
+            ]
+        )
+    )
+
+    saved = review_state.apply_target_split_edit(
+        working_polars,
+        0,
+        lines=[
+            {
+                "split_id": "split-house-1",
+                "payee_raw": "Mega Store",
+                "category_raw": "House and stuff",
+                "memo": "cleaning supplies",
+                "amount_ils": -120.0,
+            },
+            {
+                "split_id": "split-food-1",
+                "payee_raw": "Mega Store",
+                "category_raw": "Groceries",
+                "memo": "snacks",
+                "amount_ils": -60.0,
+            },
+        ],
+    ).to_pandas()
+
+    assert bool(saved.loc[0, "changed"]) is False
+    assert len(saved.loc[0, "target_splits"]) == 2
+    assert saved.loc[0, "target_current_transaction"]["outflow_ils"] == 180.0
+
+
+def test_apply_target_split_edit_uses_row_amount_for_target_absent_rows() -> None:
+    source_txn = _txn(transaction_id="src-1", payee="Bookstore Combo", category="Split", amount=140.0)
+    df = _canonical_working_rows(
+        [
+            {
+                "review_transaction_id": "row-1",
+                "workflow_type": "cross_budget",
+                "relation_kind": "source_target_pair",
+                "match_status": "ambiguous",
+                "match_method": "auto",
+                "decision_action": "create_target",
+                "reviewed": False,
+                "changed": False,
+                "source_present": True,
+                "target_present": False,
+                "source_row_id": "src-1",
+                "target_row_id": "",
+                "target_account": "Account 1",
+                "source_payee_selected": "Bookstore Combo",
+                "source_category_selected": "Books",
+                "target_payee_selected": "Bookstore Combo",
+                "target_category_selected": "Books",
+                "source_current": source_txn,
+                "source_original": source_txn,
+                "target_current": None,
+                "target_original": None,
+            }
+        ]
+    )
+
+    split_saved = review_state.apply_target_split_edit(
+        pl.from_pandas(df),
+        0,
+        lines=[
+            {
+                "split_id": "split-book-1",
+                "payee_raw": "Bookstore Combo",
+                "category_raw": "Books",
+                "amount_ils": -90.0,
+            },
+            {
+                "split_id": "split-gift-1",
+                "payee_raw": "Bookstore Combo",
+                "category_raw": "Gifts",
+                "amount_ils": -50.0,
+            },
+        ],
+    ).to_pandas()
+
+    assert bool(split_saved.loc[0, "changed"]) is True
+    assert len(split_saved.loc[0, "target_splits"]) == 2
+    assert split_saved.loc[0, "target_current_transaction"]["outflow_ils"] == 140.0
+    assert split_saved.loc[0, "target_current_transaction"]["inflow_ils"] == 0.0
+
+
 def test_apply_review_state_accepts_polars_review_table() -> None:
     df = pl.DataFrame(
         {

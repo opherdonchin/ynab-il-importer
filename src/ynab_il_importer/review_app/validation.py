@@ -467,7 +467,7 @@ def validate_target_split_transaction(
     from ynab_il_importer.artifacts.review_schema import validate_review_record
     import ynab_il_importer.review_app.io as review_io
 
-    record = review_io.load_review_artifact(pd.DataFrame([row.to_dict()])).to_pylist()[0]
+    record = review_io._review_record_from_row(row)
     record["target_current"] = target_transaction
     record["changed"] = True
     return [
