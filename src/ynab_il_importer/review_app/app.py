@@ -56,6 +56,7 @@ EDITOR_STATE_PREFIXES = (
     "group_page",
     "row_page",
     "split_editor_table_",
+    "split_show_all_categories_",
 )
 EDITOR_STATE_KEYS = {
     "expanded_row_id",
@@ -1322,7 +1323,28 @@ def _apply_staged_row_widget_values(df: pd.DataFrame, indices: list[Any]) -> pd.
 def _grouped_row_indices(filtered: pd.DataFrame) -> tuple[list[str], dict[str, list[Any]]]:
     if filtered.empty:
         return [], {}
-    projected = pl.DataFrame({"fingerprint": filtered["fingerprint"].astype("string").fillna("").tolist()})
+    key_columns = [
+        "fingerprint",
+        "source_fingerprint",
+        "target_fingerprint",
+        "transaction_id",
+    ]
+    key_frame = pd.DataFrame(index=filtered.index)
+    for column in key_columns:
+        if column in filtered.columns:
+            key_frame[column] = filtered[column].astype("string").fillna("").str.strip()
+        else:
+            key_frame[column] = ""
+    group_keys = pd.Series([""] * len(filtered), index=filtered.index, dtype="string")
+    for column in key_columns:
+        group_keys = group_keys.mask(group_keys.eq("") & key_frame[column].ne(""), key_frame[column])
+    fallback_keys = pd.Series(
+        [f"row-{idx}" for idx in filtered.index],
+        index=filtered.index,
+        dtype="string",
+    )
+    group_keys = group_keys.mask(group_keys.eq(""), fallback_keys)
+    projected = pl.DataFrame({"fingerprint": group_keys.tolist()})
     fingerprints, position_map = review_state.grouped_row_indices(projected)
     index_values = list(filtered.index)
     return fingerprints, {
@@ -1356,6 +1378,24 @@ def _format_current_selected(current: Any, selected: Any) -> str:
     if current_text and selected_text and current_text != selected_text:
         return f"{current_text} -> {selected_text}"
     return selected_text or current_text or "—"
+
+
+def _split_category_summary(splits: list[dict[str, Any]] | None) -> str:
+    if not isinstance(splits, list) or not splits:
+        return ""
+    ordered_categories: list[str] = []
+    seen: set[str] = set()
+    for split in splits:
+        if not isinstance(split, dict):
+            continue
+        category = str(split.get("category_raw", "") or "").strip()
+        if not category or category in seen:
+            continue
+        ordered_categories.append(category)
+        seen.add(category)
+    if ordered_categories:
+        return "; ".join(ordered_categories)
+    return "Yes"
 
 
 def _row_context_lines(row: pd.Series) -> list[str]:
@@ -1547,14 +1587,51 @@ def _render_target_split_editor_dialog(
 
     row = df.loc[idx]
     editor_key = _editor_key(f"split_editor_table_{idx}")
+    show_all_categories_key = _editor_key(f"split_show_all_categories_{idx}")
     parent_amount = review_state._signed_amount_from_row_values(
         inflow=row.get("inflow_ils", 0.0),
         outflow=row.get("outflow_ils", 0.0),
     )
     lines = initial_lines or _target_split_editor_rows(row)
+    category_options = review_model.parse_option_string(row.get("category_options", ""))
+    split_line_categories = _merge_category_choices(
+        *[
+            str(line.get("category_raw", "") or "").strip()
+            for line in lines
+            if isinstance(line, dict)
+        ]
+    )
+    show_all_categories_default = bool(
+        category_choices
+        and (
+            not category_options
+            or any(category not in category_options for category in split_line_categories)
+        )
+    )
+    _ensure_widget_state(show_all_categories_key, show_all_categories_default)
+    show_all_categories = bool(
+        st.session_state.get(show_all_categories_key, show_all_categories_default)
+    )
+    split_category_choices = _category_choice_list(
+        category_options=category_options,
+        category_choices=category_choices,
+        selected_value="",
+        default_value="",
+        show_all=show_all_categories,
+    )
+    for category in split_line_categories:
+        if category not in split_category_choices:
+            split_category_choices.append(category)
+
     editor_df = pd.DataFrame(
         lines,
         columns=["split_id", "payee_raw", "category_raw", "memo", "amount_ils"],
+    )
+
+    st.checkbox(
+        "Show all categories",
+        value=show_all_categories,
+        key=show_all_categories_key,
     )
 
     edited_df = st.data_editor(
@@ -1565,7 +1642,10 @@ def _render_target_split_editor_dialog(
         column_config={
             "split_id": st.column_config.TextColumn("Split id", disabled=True),
             "payee_raw": st.column_config.TextColumn("Payee"),
-            "category_raw": st.column_config.SelectboxColumn("Category", options=category_choices),
+            "category_raw": st.column_config.SelectboxColumn(
+                "Category",
+                options=split_category_choices,
+            ),
             "memo": st.column_config.TextColumn("Memo"),
             "amount_ils": st.column_config.NumberColumn("Amount", format="%.2f"),
         },
@@ -1711,7 +1791,7 @@ def _render_row_details(
                 ("Date", row.get("source_date", "") or row.get("date", "")),
                 ("Payee", source_payee),
                 ("Category", source_category),
-                ("Split lines", "" if helper_row is None else helper_row.get("source_split_count", 0)),
+                ("Split", _split_category_summary(source_splits := row.get("source_splits"))),
                 ("Memo", row.get("source_memo", "")),
             ],
         )
@@ -1723,15 +1803,13 @@ def _render_row_details(
                 ("Date", row.get("target_date", "") or row.get("date", "")),
                 ("Payee", target_payee),
                 ("Category", target_category),
-                ("Split lines", "" if helper_row is None else helper_row.get("target_split_count", 0)),
+                ("Split", _split_category_summary(target_splits := row.get("target_splits"))),
                 ("Memo", row.get("target_memo", "")),
             ],
         )
     for line in _row_context_lines(row):
         st.caption(line)
 
-    source_splits = row.get("source_splits")
-    target_splits = row.get("target_splits")
     source_context_caption = _source_context_caption(row)
     source_matching_split_ids = str(row.get("source_context_matching_split_ids", "") or "").strip()
     target_matching_split_ids = str(row.get("target_context_matching_split_ids", "") or "").strip()
@@ -1878,25 +1956,10 @@ def _render_row_controls(
         update_maps_default = review_validation.parse_update_maps(row.get("update_maps", ""))
         _ensure_widget_state(update_maps_key, update_maps_default)
         st.markdown("<div class='txn-compact'>", unsafe_allow_html=True)
-        toggle_col, note_col = st.columns([1, 5], vertical_alignment="bottom")
-        checkbox_kwargs: dict[str, Any] = {}
-        if not use_form:
-            checkbox_kwargs = {
-                "on_change": _preserve_expansion_context,
-                "kwargs": {"idx": idx, "group_fingerprint": group_fingerprint},
-            }
-        with toggle_col:
-            st.checkbox(
-                "Show all categories",
-                value=bool(st.session_state.get(show_all_categories_key, show_all_categories_default)),
-                key=show_all_categories_key,
-                **checkbox_kwargs,
-            )
-        with note_col:
-            st.markdown(
-                "<div class='txn-inline-note'>A non-ignore decision automatically pushes competing rows for the same source or target transaction to <code>ignore_row</code>.</div>",
-                unsafe_allow_html=True,
-            )
+        st.markdown(
+            "<div class='txn-inline-note'>A non-ignore decision automatically pushes competing rows for the same source or target transaction to <code>ignore_row</code>.</div>",
+            unsafe_allow_html=True,
+        )
 
         source_col, target_col, decision_col = st.columns([1.1, 1.2, 1], vertical_alignment="top")
         with source_col:
@@ -1932,13 +1995,33 @@ def _render_row_controls(
                     index=payee_choices.index(payee_current) if payee_current in payee_choices else 0,
                     key=target_payee_select_key,
                 )
-            target_category_select = st.selectbox(
-                "Target category",
-                options=category_full,
-                index=category_full.index(category_current) if category_current in category_full else 0,
-                format_func=lambda value: _format_category_label(value, category_group_map),
-                key=target_category_select_key,
-            )
+            target_category_col, target_toggle_col = st.columns([5, 1], vertical_alignment="bottom")
+            checkbox_kwargs: dict[str, Any] = {}
+            if not use_form:
+                checkbox_kwargs = {
+                    "on_change": _preserve_expansion_context,
+                    "kwargs": {"idx": idx, "group_fingerprint": group_fingerprint},
+                }
+            with target_toggle_col:
+                st.checkbox(
+                    "Show all",
+                    value=bool(
+                        st.session_state.get(
+                            show_all_categories_key,
+                            show_all_categories_default,
+                        )
+                    ),
+                    key=show_all_categories_key,
+                    **checkbox_kwargs,
+                )
+            with target_category_col:
+                target_category_select = st.selectbox(
+                    "Target category",
+                    options=category_full,
+                    index=category_full.index(category_current) if category_current in category_full else 0,
+                    format_func=lambda value: _format_category_label(value, category_group_map),
+                    key=target_category_select_key,
+                )
             memo_append_value = st.text_area(
                 "Memo add",
                 value=str(st.session_state.get(memo_append_key, memo_append_default) or ""),

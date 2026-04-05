@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 
 import pandas as pd
@@ -217,6 +218,16 @@ def _build_canonical_app_test(
     return app, reviewed
 
 
+def _load_demo_builder_module():
+    module_path = Path("scripts/build_review_app_demo.py").resolve()
+    spec = importlib.util.spec_from_file_location("build_review_app_demo", module_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _find_selectbox(container, prefix: str):
     return next(widget for widget in container.selectbox if str(widget.key).startswith(prefix))
 
@@ -393,6 +404,16 @@ def test_split_summary_suffix_reports_source_and_target_counts() -> None:
     helper_row = pd.Series({"source_split_count": 2, "target_split_count": 1})
 
     assert review_app._split_summary_suffix(helper_row) == " | Src split 2 | Tgt split 1"
+
+
+def test_split_category_summary_lists_unique_categories() -> None:
+    assert review_app._split_category_summary(
+        [
+            {"category_raw": "Books"},
+            {"category_raw": "Gifts"},
+            {"category_raw": "Books"},
+        ]
+    ) == "Books; Gifts"
 
 
 def test_pick_summary_text_falls_back_to_canonical_transaction_data() -> None:
@@ -690,6 +711,37 @@ def test_grouped_row_indices_only_include_filtered_rows() -> None:
 
     assert fingerprints == ["fp-a", "fp-b"]
     assert group_indices == {"fp-a": [10, 30], "fp-b": [20]}
+
+
+def test_grouped_row_indices_fall_back_when_fingerprint_is_blank() -> None:
+    filtered = pd.DataFrame(
+        {
+            "fingerprint": ["", "", ""],
+            "source_fingerprint": ["src-a", "", ""],
+            "target_fingerprint": ["", "tgt-b", ""],
+            "transaction_id": ["tx-a", "tx-b", "tx-c"],
+        },
+        index=[10, 20, 30],
+    )
+
+    fingerprints, group_indices = review_app._grouped_row_indices(filtered)
+
+    assert fingerprints == ["src-a", "tgt-b", "tx-c"]
+    assert group_indices == {"src-a": [10], "tgt-b": [20], "tx-c": [30]}
+
+
+def test_demo_builder_emits_review_v4_records_with_target_split() -> None:
+    demo_builder = _load_demo_builder_module()
+
+    records = demo_builder.demo_review_records()
+
+    assert all(record["artifact_version"] == "review_v4" for record in records)
+    assert any(
+        isinstance(record.get("target_current"), dict)
+        and isinstance(record["target_current"].get("splits"), list)
+        and len(record["target_current"]["splits"]) > 1
+        for record in records
+    )
 
 
 def test_app_renders_canonical_split_detail_from_parquet(tmp_path: Path) -> None:
