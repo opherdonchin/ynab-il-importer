@@ -13,17 +13,16 @@ Current direction:
 
 ## Current Goal
 
-Start Step 4 cleanly:
+Re-close Step 3 with a cleaner review-model boundary before restarting Step 4.
 
-1. bring the long-form Step 4 split-editor spec up to the same detail level as Steps 1 through 3
-2. implement the first vertical split-editing slice end to end
-3. keep the existing Step 1-3 path green while the split editor lands
-
-That first Step 4 slice should cover:
-1. canonical review-schema support for reviewed split-edit state
-2. review-app editing of reviewed split state
-3. save/resume persistence of reviewed split edits
-4. upload-prep consumption of reviewed target split edits
+That means:
+1. keep the completed Step 1 and Step 2 transaction/upload path green
+2. keep the shipped Step 3 split-display and Polars-first app improvements green
+3. redesign the review model so the app works from:
+   - a flat working table for normal review logic
+   - nested split columns only where split editing/display actually needs them
+   - immutable original source/target transaction structs as reference objects
+4. rethink Step 4 split editing on top of that cleaner model instead of continuing the reverted reviewed-split-state design
 
 ## Current Status
 
@@ -45,7 +44,7 @@ Done:
   - `source_transaction` / `target_transaction` are no longer part of the canonical review schema
   - only `source_splits` / `target_splits` remain nested in review artifacts
 
-- Step 3 is complete under the current architecture choice:
+- Step 3 is complete under the currently shipped architecture:
   - the canonical review artifact is flat with split-only nesting
   - the app displays split transactions read-only from that schema
   - the app’s working/helper path is Polars-first
@@ -89,14 +88,22 @@ Done:
   - [app.py](src/ynab_il_importer/review_app/app.py#L540) now uses lookup-driven group summary/default helpers instead of repeated pandas mask slicing for the grouped header badges and defaults
   - easy helper signatures were tightened so the non-island path no longer advertises unnecessary `pandas | polars` flexibility
 
-Step 4 is now beginning.
+The first attempted Step 4 implementation was reverted.
 
-The next real work is no longer about split display. It is about reviewed split state:
+Why it was reverted:
+- it introduced explicit reviewed split-mode and reviewed selected split columns
+- that design was workable but too state-heavy
+- it did not match the newer direction for the app model:
+  - flat working projection
+  - nested splits only where genuinely needed
+  - immutable original source/target transaction structs used as reference objects
 
-- snapshot split columns remain factual
-- reviewed split-edit columns will carry user intent
-- the app will derive effective split state from mode + snapshot + reviewed selection
-- upload prep will consume explicit reviewed split state rather than inferring everything from grouped flat rows
+The current architectural correction is:
+- keep ordinary app processing flat and dataframe-oriented
+- keep splits nested because they are genuinely hierarchical
+- attach immutable original source/target transactions as structured reference objects
+- explode/flatten those reference objects only when the app needs comparison or display context
+- avoid carrying duplicate mutable “current vs selected” state across many flat columns just to infer change status
 
 ## Working Rules For This Phase
 
@@ -105,6 +112,7 @@ The next real work is no longer about split display. It is about reviewed split 
 - Use nested data in review artifacts only where hierarchy is actually needed, currently splits.
 - Prefer Polars/dataframe-level processing over Python dict/list helper logic.
 - Do not spend effort preserving pandas compatibility that does not serve the current app path.
+- Prefer immutable reference objects plus flat working projections over duplicating mutable review state across many flat columns.
 - Commit after each successful sub-step.
 - Update `documents/plan.md` before each commit on this branch.
 
@@ -115,17 +123,17 @@ The next real work is no longer about split display. It is about reviewed split 
 - letting split editing leak into matching semantics
 - losing important target-side creation context when `target_present` is false
 - leaving builders or upload prep on stale nested in-memory review shapes while persisted artifacts are flat
-- making split removal ambiguous by relying on `None` vs `[]` instead of an explicit mode field
+- reintroducing a second heavy mutable review-state layer instead of using immutable originals plus a flat working projection
 
 ## Next Step
 
-Step 3 is complete.
+Step 3 is functionally complete, but the review-model boundary needs one more architectural pass before Step 4 resumes.
 
 Immediate next steps:
-1. finish the long-form Step 4 specification in `documents/handle_splits_implementation_plan.md`
-2. add explicit reviewed split-edit fields to the canonical review schema:
-   - split mode
-   - reviewed selected split lines
-3. wire the review app to edit and persist reviewed split state
-4. teach upload prep to consume reviewed target split edits
-5. keep review app, upload prep, and save/resume tests green throughout
+1. update the longer-form split plan so it reflects the rollback and the new schema direction
+2. redesign the review model around:
+   - flat working review rows
+   - nested split columns
+   - immutable original source/target transaction structs
+3. decide exactly where flatten/explode/compare happens at the app boundary
+4. only then restart Step 4 split-editor implementation

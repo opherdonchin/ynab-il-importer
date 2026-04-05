@@ -1560,6 +1560,17 @@ The safest first Step 3 slice is:
 
 ## Step 4 Plan: Add Split Transaction Editing
 
+Status note:
+
+- the first implementation attempt for the design below was reverted
+- the review-model direction is being reconsidered as a final Step 3 correction
+- the likely replacement direction is:
+  - flat working review rows for ordinary app logic
+  - nested split columns only where split editing/display needs them
+  - immutable original source/target transaction structs as reference objects
+- until that redesign is written, treat the detailed Step 4 plan below as superseded by the
+  active notes in `documents/plan.md`
+
 ### Step 4 goal
 
 Allow the review workflow to create, edit, remove, review, save, resume, and upload
