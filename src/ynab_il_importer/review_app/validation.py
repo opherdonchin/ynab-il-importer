@@ -288,15 +288,18 @@ def blocker_series_with_components(
     *,
     component_map: dict[Any, int] | None = None,
 ) -> tuple[pd.Series, dict[Any, int]]:
+    state = build_validation_state(df, component_map=component_map)
+    return state["blocker_series"], state["component_map"]
+
+
+def blocker_series_from_state(
+    df: pd.DataFrame,
+    *,
+    component_map: dict[Any, int],
+    row_errors_by_index: dict[Any, list[str]],
+    component_errors: dict[int, list[str]],
+) -> pd.Series:
     uncategorized = review_state.uncategorized_mask(df)
-    row_errors_by_index = precompute_row_errors(df)
-    if component_map is None:
-        component_map = precompute_components(df)
-    component_errors = precompute_component_errors(
-        df,
-        component_map,
-        row_errors_by_index=row_errors_by_index,
-    )
     values = [
         blocker_label(
             row,
@@ -306,7 +309,114 @@ def blocker_series_with_components(
         )
         for idx, row in df.iterrows()
     ]
-    return pd.Series(values, index=df.index, dtype="string"), component_map
+    return pd.Series(values, index=df.index, dtype="string")
+
+
+def build_validation_state(
+    df: pd.DataFrame,
+    *,
+    component_map: dict[Any, int] | None = None,
+) -> dict[str, Any]:
+    if component_map is None:
+        component_map = precompute_components(df)
+    row_errors_by_index = precompute_row_errors(df)
+    component_errors = precompute_component_errors(
+        df,
+        component_map,
+        row_errors_by_index=row_errors_by_index,
+    )
+    blocker_series = blocker_series_from_state(
+        df,
+        component_map=component_map,
+        row_errors_by_index=row_errors_by_index,
+        component_errors=component_errors,
+    )
+    return {
+        "index": list(df.index),
+        "component_map": component_map,
+        "row_errors_by_index": row_errors_by_index,
+        "component_errors": component_errors,
+        "blocker_series": blocker_series,
+    }
+
+
+def refresh_validation_state(
+    df: pd.DataFrame,
+    *,
+    validation_state: dict[str, Any] | None = None,
+    changed_indices: list[Any] | None = None,
+) -> dict[str, Any]:
+    if validation_state is None or changed_indices is None:
+        return build_validation_state(df)
+
+    cached_index = list(validation_state.get("index", []))
+    if cached_index != list(df.index):
+        return build_validation_state(df)
+
+    component_map = validation_state.get("component_map")
+    if not isinstance(component_map, dict) or set(component_map.keys()) != set(df.index):
+        return build_validation_state(df)
+
+    row_errors_by_index = {
+        idx: list(messages)
+        for idx, messages in dict(validation_state.get("row_errors_by_index", {})).items()
+    }
+    component_errors = {
+        int(label): list(messages)
+        for label, messages in dict(validation_state.get("component_errors", {})).items()
+    }
+    blocker_series = validation_state.get("blocker_series")
+    if not isinstance(blocker_series, pd.Series) or not blocker_series.index.equals(df.index):
+        blocker_series = pd.Series([""] * len(df), index=df.index, dtype="string")
+    else:
+        blocker_series = blocker_series.copy()
+
+    touched = [idx for idx in dict.fromkeys(changed_indices) if idx in df.index]
+    if not touched:
+        return {
+            "index": list(df.index),
+            "component_map": component_map,
+            "row_errors_by_index": row_errors_by_index,
+            "component_errors": component_errors,
+            "blocker_series": blocker_series,
+        }
+
+    for idx in touched:
+        row_errors_by_index[idx] = validate_row(df.loc[idx])[0]
+
+    component_members = _component_members(component_map)
+    touched_components = {
+        component_map[idx]
+        for idx in touched
+        if idx in component_map
+    }
+    uncategorized = review_state.uncategorized_mask(df)
+    for component_label in touched_components:
+        indices = component_members.get(component_label, [])
+        if not indices:
+            continue
+        start_idx = indices[0]
+        component_errors[component_label] = review_component_errors(
+            df,
+            start_idx,
+            component_indices=indices,
+            row_errors_by_index=row_errors_by_index,
+        )
+        for idx in indices:
+            blocker_series.loc[idx] = blocker_label(
+                df.loc[idx],
+                component_errors=component_errors.get(component_label, []),
+                uncategorized=bool(uncategorized.loc[idx]),
+                row_errors=row_errors_by_index.get(idx, []),
+            )
+
+    return {
+        "index": list(df.index),
+        "component_map": component_map,
+        "row_errors_by_index": row_errors_by_index,
+        "component_errors": component_errors,
+        "blocker_series": blocker_series,
+    }
 
 
 def validate_row(row: Any) -> tuple[list[str], list[str]]:

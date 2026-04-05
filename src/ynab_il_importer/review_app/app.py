@@ -332,6 +332,20 @@ def _bump_df_generation() -> None:
     st.session_state.pop("_cached_component_map", None)
 
 
+def _refresh_validation_state(
+    df: pd.DataFrame,
+    *,
+    changed_indices: list[Any] | None = None,
+) -> None:
+    prior_state = st.session_state.get("_validation_state")
+    validation_state = review_validation.refresh_validation_state(
+        df,
+        validation_state=prior_state if isinstance(prior_state, dict) else None,
+        changed_indices=changed_indices,
+    )
+    st.session_state["_validation_state"] = validation_state
+
+
 def _canonical_review_bundle(df: pd.DataFrame | None) -> dict[str, Any]:
     if df is None:
         return {"table": None, "helpers": None, "helper_lookup": None}
@@ -362,6 +376,7 @@ def _set_review_frames(
     df: pd.DataFrame | None = None,
     original: pd.DataFrame | None = None,
     base: pd.DataFrame | None = None,
+    changed_indices: list[Any] | None = None,
 ) -> None:
     changed = False
     if df is not None:
@@ -370,6 +385,7 @@ def _set_review_frames(
         st.session_state["review_table"] = canonical["table"]
         st.session_state["review_helpers"] = canonical["helpers"]
         st.session_state["review_helper_lookup"] = canonical["helper_lookup"]
+        _refresh_validation_state(df, changed_indices=changed_indices)
         changed = True
     if original is not None:
         canonical = _canonical_review_bundle(original)
@@ -938,6 +954,7 @@ def _compute_derived_state(
     base: pd.DataFrame | None,
     *,
     review_table: pl.DataFrame | None = None,
+    validation_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     counts = review_state.summary_counts(df)
     modified = review_state.modified_count(df, original)
@@ -950,15 +967,15 @@ def _compute_derived_state(
     updated_mask = (changed_mask | reviewed_mask).astype(bool)
     inconsistent = review_validation.inconsistent_fingerprints(df)
     uncategorized_mask = review_state.uncategorized_mask(df)
-    component_map = (
-        review_validation.precompute_components(review_table)
-        if isinstance(review_table, pl.DataFrame)
-        else review_validation.precompute_components(df)
-    )
-    blocker_series, component_map = review_validation.blocker_series_with_components(
-        df,
-        component_map=component_map,
-    )
+    if not isinstance(validation_state, dict):
+        validation_state = review_validation.build_validation_state(df)
+    component_map = validation_state.get("component_map", {})
+    blocker_series = validation_state.get("blocker_series")
+    if not isinstance(blocker_series, pd.Series) or not blocker_series.index.equals(df.index):
+        blocker_series = review_validation.build_validation_state(
+            df,
+            component_map=component_map if component_map else None,
+        )["blocker_series"]
     save_state = pd.Series(
         ["Saved" if bool(value) else "Unsaved" for value in saved_mask],
         index=df.index,
@@ -1042,12 +1059,19 @@ def _get_cached_derived_state(
     base: pd.DataFrame | None,
     *,
     review_table: pl.DataFrame | None = None,
+    validation_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     current_generation = int(cache.get("_df_generation", 0))
     cached_generation = int(cache.get("_series_generation", -1))
     cached = cache.get("_cached_series")
     if cached_generation != current_generation or not isinstance(cached, dict):
-        cached = _compute_derived_state(df, original, base, review_table=review_table)
+        cached = _compute_derived_state(
+            df,
+            original,
+            base,
+            review_table=review_table,
+            validation_state=validation_state,
+        )
         cache["_cached_series"] = cached
         cache["_cached_component_map"] = cached.get("component_map", {})
         cache["_series_generation"] = current_generation
@@ -1750,7 +1774,7 @@ def _render_row_controls(
             st.success(
                 "Applied target values in memory. Click Save to persist."
             )
-        _set_review_frames(df=final_df)
+        _set_review_frames(df=final_df, changed_indices=review_indices)
         if (
             review_requested
             and not review_errors
@@ -1812,6 +1836,7 @@ def main() -> None:
         original,
         base,
         review_table=review_table,
+        validation_state=st.session_state.get("_validation_state"),
     )
     counts = derived["counts"]
     modified = derived["modified"]
@@ -1947,7 +1972,7 @@ def main() -> None:
                     review_indices,
                     component_map=component_map,
                 )
-                _set_review_frames(df=final_df)
+                _set_review_frames(df=final_df, changed_indices=review_indices)
                 if review_errors:
                     accepted_count = len(reviewed_indices)
                     blocked_count = len(review_indices) - accepted_count
@@ -2501,7 +2526,7 @@ def main() -> None:
                     )
                     st.session_state["expanded_group_fp"] = fp
                     st.session_state["expanded_group_row_id"] = None
-                    _set_review_frames(df=final_df)
+                    _set_review_frames(df=final_df, changed_indices=affected_indices)
                     if review_errors:
                         st.session_state["review_error"] = (
                             "Review blocked: " + "; ".join(review_errors)
@@ -2541,7 +2566,7 @@ def main() -> None:
                             review_indices,
                             component_map=component_map,
                         )
-                        _set_review_frames(df=final_df)
+                        _set_review_frames(df=final_df, changed_indices=review_indices)
                         if review_errors:
                             accepted_count = len(reviewed_indices)
                             blocked_count = len(review_indices) - accepted_count

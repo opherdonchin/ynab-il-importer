@@ -974,6 +974,43 @@ def test_blocker_series_with_components_uses_supplied_component_map(monkeypatch)
     assert reused_map == component_map
 
 
+def test_refresh_validation_state_updates_only_touched_component() -> None:
+    df = _review_rows(
+        [
+            {
+                "source_row_id": "s1",
+                "target_row_id": "",
+                "workflow_type": "cross_budget",
+                "decision_action": "create_target",
+                "target_payee_selected": "Cafe",
+                "target_category_selected": "Food",
+            },
+            {
+                "source_row_id": "s2",
+                "target_row_id": "",
+                "workflow_type": "cross_budget",
+                "decision_action": "create_target",
+                "target_payee_selected": "Bakery",
+                "target_category_selected": "Dining",
+            },
+        ]
+    )
+    initial_state = review_validation.build_validation_state(df)
+
+    updated = df.copy()
+    updated.at[0, "target_payee_selected"] = ""
+    refreshed = review_validation.refresh_validation_state(
+        updated,
+        validation_state=initial_state,
+        changed_indices=[0],
+    )
+
+    assert refreshed["row_errors_by_index"][0] == ["missing target payee"]
+    assert refreshed["row_errors_by_index"][1] == []
+    assert refreshed["blocker_series"].loc[0] == "Missing payee"
+    assert refreshed["blocker_series"].loc[1] == "None"
+
+
 def test_derive_inference_tags_marks_missing_rows() -> None:
     df = _review_rows(
         [
