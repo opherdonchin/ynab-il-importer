@@ -1969,19 +1969,267 @@ Validation now enforced at the artifact layer:
 
 Step 4 should resume only after the redesign above lands.
 
-The Step 4 design direction is now:
+The Step 4 design direction is now settled enough to implement.
 
-- a separate split editor should operate on one transaction’s split state
-- the main app should expose clear actions such as:
-  - `New split`
+### Step 4 UX shape
+
+The split editor should be a row-local modal editor subordinate to one transaction’s current
+state. It should not be an in-place editable split list and it should not revive reviewed
+split-mode or selected split columns.
+
+Target-side editing is the critical path for this step.
+
+Expected row actions:
+
+- non-split target transaction:
+  - `Create split`
+- split target transaction:
   - `Edit split`
-  - `Remove split`
-- split validation should happen inside the editor where possible and still be enforced again at
-  review/upload boundaries as a safety net
-- Step 4 should build on:
-  - current transaction structs as the mutable reviewed state
-  - original transaction structs as immutable history
-  - the centralized flat working projection for ordinary app logic
+- inside the modal:
+  - `Add line`
+  - `Remove line`
+  - `Save split`
+  - `Cancel`
 
-The detailed Step 4 editor specification should be rewritten only after the redesign above is
-implemented and verified.
+Expected modal behavior:
+
+- `Create split` on a non-split target transaction opens the modal with two lines:
+  - one line prefilled from the current parent transaction
+  - one blank line
+- `Edit split` opens the modal with the current committed split lines
+- the modal buffer is temporary UI state only; it is not a second persistent dataframe model
+- the modal always shows:
+  - current parent transaction amount
+  - running split total
+  - difference between split total and parent amount
+- no transaction state is committed back to the row until `Save split`
+- `Cancel` closes the modal and leaves the row unchanged
+
+### Save-time normalization rules
+
+The saved modal result should be normalized before it is written back to `target_current`.
+
+- zero lines:
+  - reject save
+- one line:
+  - copy that line's payee/category into the parent transaction
+  - keep the parent transaction amount as-is
+  - clear `target_current.splits`
+  - treat the transaction as non-split after save
+- more than one line:
+  - keep the transaction split-shaped
+  - write the normalized lines into `target_current.splits`
+
+This means a one-line saved split collapses back into a normal transaction instead of persisting
+a degenerate split.
+
+### Core mutation path
+
+The preferred mutation flow for Step 4 is:
+
+1. read one current transaction struct from the touched row
+2. open a narrow modal buffer derived from that transaction’s current split state
+3. on `Save split`, normalize the proposed split lines
+4. write the updated `target_current` transaction back to the row
+5. rebuild the touched working row through the existing centralized working-projection boundary
+6. recompute `changed` for the touched row by comparing current vs original transactions
+7. refresh cached validation state only for the touched rows/components
+
+Rejected alternative:
+
+- do not edit one split line directly in the main dataframe and try to keep totals valid after each
+  per-line click; that would create awkward transient invalid states and spread split logic through
+  the row editor
+
+### File-by-file implementation plan
+
+#### `src/ynab_il_importer/review_app/working_schema.py`
+
+- extend the working schema to carry explicit current transaction reference columns:
+  - `source_current_transaction`
+  - `target_current_transaction`
+- keep:
+  - `source_original_transaction`
+  - `target_original_transaction`
+- own the reusable row-rebuild boundary that can take one canonical review record or transaction
+  payload and return one normalized flat working row
+- keep working-schema normalization centralized so split editing does not introduce new ad hoc
+  flattening paths
+
+#### `src/ynab_il_importer/review_app/io.py`
+
+- update `_working_row_from_record(...)` so the working row carries explicit current/original
+  transaction structs as reference columns
+- update `_review_record_from_row(...)` to prefer explicit working current-transaction columns when
+  present, so saving a touched row preserves committed split edits exactly
+- keep `project_review_artifact_to_flat_dataframe(...)` as the one app/upload projection boundary
+- keep artifact validation on load/save unchanged except for consuming the new touched-row split
+  results
+
+#### `src/ynab_il_importer/review_app/state.py`
+
+- add focused helpers for:
+  - reading one row’s current transaction struct
+  - replacing `target_current.splits` from a saved modal result
+  - collapsing a one-line saved split back into a non-split parent transaction
+  - rebuilding one working row through the centralized boundary
+  - recomputing `changed` for touched rows by comparing:
+    - `source_current_transaction` vs `source_original_transaction`
+    - `target_current_transaction` vs `target_original_transaction`
+- update existing mutation helpers to stop setting `changed = True` blindly and instead call the
+  shared recomputation helper for touched rows
+
+#### `src/ynab_il_importer/review_app/model.py`
+
+- update same-fingerprint and competing-row mutation helpers to preserve the current/original
+  transaction reference columns during edits
+- switch touched-row `changed` handling to the shared recomputation path rather than unconditional
+  truthy marking
+
+#### `src/ynab_il_importer/review_app/validation.py`
+
+- add a focused split-save validation helper that:
+  - builds the candidate saved `target_current` transaction
+  - runs the existing artifact-level split invariants against that candidate row
+- keep ordinary row/component review validation on the flat working projection
+- keep validation refresh incremental:
+  - full build on load
+  - touched-row/component refresh after split save or ordinary row edits
+
+#### `src/ynab_il_importer/review_app/app.py`
+
+- add row-local actions:
+  - `Create split`
+  - `Edit split`
+- implement one modal editor state object per open row, scoped in session and subordinate to the
+  row id
+- render modal controls for:
+  - line payee
+  - line category
+  - line amount
+  - `Add line`
+  - `Remove line`
+  - running amount delta
+  - `Save split`
+  - `Cancel`
+- on successful `Save split`:
+  - update the row through the new state helper
+  - call `_set_review_frames(df=..., changed_indices=[...])`
+  - close the modal
+  - redraw the row with updated split detail
+- the read-only split display should continue to be the main row detail view outside the modal
+
+#### `src/ynab_il_importer/review_reconcile.py`
+
+- preserve committed split edits and current/original transaction reference columns when reviewed
+  rows are reconciled onto rebuilt proposed rows
+- stop treating reviewed state as only flat selected-value columns
+- ensure `changed` round-trips from saved reviewed artifacts
+
+#### `src/ynab_il_importer/upload_prep.py`
+
+- continue consuming the centralized flat working projection
+- before ordinary upload mapping, detect committed target-side split state from the working row and
+  explode one reviewed row into upload-prep rows that share a single `upload_transaction_id`
+- let `assemble_upload_transaction_units(...)` keep building the final split payload from those
+  prepared rows
+- ensure collapsed one-line saves naturally behave like ordinary non-split transactions because
+  they no longer carry `target_splits`
+
+### Validation boundaries
+
+Validation should remain at explicit boundaries:
+
+- persisted artifact load/save:
+  - existing `review_v4` validation in `review_schema.py`
+- working projection creation:
+  - working schema construction
+- split modal save:
+  - candidate split transaction validation before commit
+- touched-row / touched-component updates:
+  - cached validation-state refresh after a successful save
+
+Ordinary row rendering should not trigger broad whole-dataframe split validation passes.
+
+### `changed` recomputation
+
+`changed` should no longer be treated as "this row was touched at some point".
+
+For Step 4, touched-row mutation paths should recompute it truthfully by comparing the current and
+original transaction reference structs for that row after the saved mutation is applied.
+
+Required behavior:
+
+- fresh builder output:
+  - `changed = False`
+- resumed review:
+  - preserve persisted `changed`
+- ordinary field edit or split save:
+  - recompute `changed` for touched rows only
+- reverting a row fully back to its original state:
+  - `changed` should become `False` again
+
+### Persistence and round-trip expectations
+
+Committed split edits must round-trip through:
+
+- review app save/load
+- reconcile against rebuilt proposed rows
+- upload preparation from reviewed artifacts
+
+That means:
+
+- persisted artifacts must preserve exact committed `target_current` split content
+- working projections must rebuild the same `target_splits`
+- reconcile must not discard committed split edits when matching old reviewed rows onto new proposed
+  rows
+
+### Testing plan
+
+Update these tests with targeted Step 4 coverage:
+
+- `tests/test_review.py`
+  - touched-row split mutation helpers
+  - one-line collapse back to parent transaction
+  - truthful `changed` recomputation, including reverting to `False`
+- `tests/test_review_io.py`
+  - save/load round-trip for edited `target_current.splits`
+  - working-row to artifact reconstruction using explicit current transaction columns
+- `tests/test_review_app.py`
+  - modal open/close behavior
+  - `Create split` seeds one prefilled line and one blank line
+  - `Edit split` loads current lines
+  - `Save split` redraws the row with updated split detail
+  - `Cancel` leaves the row unchanged
+- `tests/test_review_reconcile.py`
+  - reconciled rows preserve committed split edits and `changed`
+- `tests/test_upload_prep.py`
+  - edited target splits explode into prepared rows and assemble back into a split upload payload
+  - one-line collapsed saves stay on the non-split upload path
+
+### Recommended execution slices
+
+1. plan and document update
+   - update `documents/plan.md`
+   - update this Step 4 section to the modal-editor design
+   - commit
+2. split mutation core
+   - current/original transaction reference columns
+   - touched-row rebuild
+   - truthful `changed` recomputation
+   - targeted tests
+   - commit
+3. modal editor UI
+   - modal session state
+   - `Create split` / `Edit split`
+   - `Save split` / `Cancel`
+   - targeted app tests
+   - commit
+4. persistence and reconcile
+   - save/load/reconcile split round-trip
+   - targeted tests
+   - commit
+5. upload path verification
+   - target-side split explosion into prepared upload rows
+   - payload verification tests
+   - commit
