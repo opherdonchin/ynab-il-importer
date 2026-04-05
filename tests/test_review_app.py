@@ -213,6 +213,17 @@ def test_default_primary_state_selection_hides_settled_by_default() -> None:
     ) == ["Fix", "Decide"]
 
 
+def test_preserve_expansion_context_sets_group_and_row_targets() -> None:
+    review_app.st.session_state.clear()
+
+    review_app._preserve_expansion_context(idx=7, group_fingerprint="fp-1")
+    assert review_app.st.session_state["expanded_group_fp"] == "fp-1"
+    assert review_app.st.session_state["expanded_group_row_id"] == 7
+
+    review_app._preserve_expansion_context(idx=3)
+    assert review_app.st.session_state["expanded_row_id"] == 3
+
+
 def test_format_category_label_special_cases_no_category_required() -> None:
     assert (
         review_app._format_category_label(review_model.NO_CATEGORY_REQUIRED, {})

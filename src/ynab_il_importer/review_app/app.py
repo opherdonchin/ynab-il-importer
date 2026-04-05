@@ -190,6 +190,15 @@ def _focus_row_view(next_idx: Any | None, page: int) -> None:
     ) + 1
 
 
+def _preserve_expansion_context(*, idx: Any | None = None, group_fingerprint: str | None = None) -> None:
+    if group_fingerprint:
+        st.session_state["expanded_group_fp"] = group_fingerprint
+        st.session_state["expanded_group_row_id"] = idx
+        return
+    if idx is not None:
+        st.session_state["expanded_row_id"] = idx
+
+
 def _consume_pending_scroll_to_top() -> None:
     nonce = int(st.session_state.get("scroll_to_top_nonce", 0))
     rendered_nonce = int(st.session_state.get("_scroll_to_top_rendered", 0))
@@ -1528,6 +1537,8 @@ def _render_row_controls(
         "Show all categories",
         value=bool(st.session_state.get(show_all_categories_key, show_all_categories_default)),
         key=show_all_categories_key,
+        on_change=_preserve_expansion_context,
+        kwargs={"idx": idx, "group_fingerprint": group_fingerprint},
     )
 
     use_form = group_fingerprint is None
@@ -2407,6 +2418,8 @@ def main() -> None:
                             )
                         ),
                         key=group_show_all_categories_key,
+                        on_change=_preserve_expansion_context,
+                        kwargs={"group_fingerprint": fp},
                     )
                 group_category_choices = _category_choice_list(
                     category_options=category_options,
