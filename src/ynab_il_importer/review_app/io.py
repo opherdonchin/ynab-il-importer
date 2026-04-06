@@ -829,7 +829,11 @@ def project_review_artifact_to_working_dataframe(
             )
         )
     return working_schema.build_working_dataframe(
-        pl.DataFrame([_working_row_from_record(row) for row in rows], strict=False)
+        pl.from_dicts(
+            [_working_row_from_record(row) for row in rows],
+            strict=False,
+            infer_schema_length=None,
+        )
     )
 
 

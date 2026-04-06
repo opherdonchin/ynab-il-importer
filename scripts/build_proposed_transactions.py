@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pandas as pd
 import polars as pl
-import pyarrow as pa
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -27,7 +26,7 @@ import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.rules as rules_mod
 import ynab_il_importer.workflow_profiles as workflow_profiles
 from ynab_il_importer import bank_identity, card_identity
-from ynab_il_importer.artifacts.transaction_schema import TRANSACTION_ARTIFACT_VERSION, TRANSACTION_SCHEMA
+from ynab_il_importer.artifacts.transaction_schema import TRANSACTION_SCHEMA
 
 _CARD_SUFFIX_DIGITS_RE = re.compile(r"\D+")
 _CARD_SUFFIX_MEMO_TAG_RE = re.compile(r"\[card x\d{4}\]", flags=re.IGNORECASE)
@@ -135,57 +134,6 @@ def _load_source_inputs(paths: list[Path]) -> pl.DataFrame:
         )
 
     return pl.concat(frames, how="diagonal_relaxed", rechunk=True)
-
-
-def _canonical_transaction_dict(
-    row: pd.Series,
-    *,
-    artifact_kind: str,
-    source_system_fallback: str,
-) -> dict[str, object]:
-    normalized: dict[str, object] = {}
-    for field in TRANSACTION_SCHEMA:
-        raw = row.get(field.name)
-        if raw is None or raw is pd.NA:
-            normalized[field.name] = None
-            continue
-        if pa.types.is_boolean(field.type):
-            normalized[field.name] = bool(raw)
-        elif pa.types.is_floating(field.type):
-            number = pd.to_numeric(pd.Series([raw]), errors="coerce").fillna(0.0).iloc[0]
-            normalized[field.name] = float(number)
-        elif pa.types.is_list(field.type):
-            normalized[field.name] = raw if isinstance(raw, list) else None
-        else:
-            normalized[field.name] = str(raw).strip()
-
-    normalized["artifact_kind"] = normalized.get("artifact_kind") or artifact_kind
-    normalized["artifact_version"] = (
-        normalized.get("artifact_version") or TRANSACTION_ARTIFACT_VERSION
-    )
-    normalized["source_system"] = (
-        normalized.get("source_system") or source_system_fallback
-    )
-    normalized["transaction_id"] = normalized.get("transaction_id") or normalized.get("ynab_id") or ""
-    normalized["parent_transaction_id"] = (
-        normalized.get("parent_transaction_id") or normalized.get("transaction_id") or ""
-    )
-    normalized["account_name"] = normalized.get("account_name") or normalized.get("source_account") or ""
-    normalized["source_account"] = normalized.get("source_account") or normalized.get("account_name") or ""
-    normalized["date"] = normalized.get("date") or ""
-    normalized["payee_raw"] = (
-        normalized.get("payee_raw")
-        or normalized.get("merchant_raw")
-        or normalized.get("description_clean")
-        or normalized.get("description_raw")
-        or normalized.get("memo")
-        or ""
-    )
-    normalized["category_raw"] = normalized.get("category_raw") or ""
-    normalized["memo"] = normalized.get("memo") or ""
-    normalized["fingerprint"] = normalized.get("fingerprint") or ""
-    return normalized
-
 
 def _expand_source_paths(files: list[Path], dirs: list[Path]) -> list[Path]:
     paths: list[Path] = []
@@ -854,14 +802,46 @@ def _stable_row_ids(
     )
 
 
-def _prepare_review_source_rows(source_df: pl.DataFrame) -> pd.DataFrame:
+def _source_transaction_record(row: dict[str, object]) -> dict[str, object]:
+    transaction = {name: row.get(name) for name in TRANSACTION_SCHEMA.names}
+
+    transaction["source_system"] = _optional_text(transaction.get("source_system")) or "source"
+    transaction["transaction_id"] = (
+        _optional_text(transaction.get("transaction_id"))
+        or _optional_text(transaction.get("ynab_id"))
+    )
+    transaction["parent_transaction_id"] = (
+        _optional_text(transaction.get("parent_transaction_id"))
+        or _optional_text(transaction.get("transaction_id"))
+    )
+    transaction["account_name"] = _optional_text(transaction.get("account_name")) or _optional_text(
+        transaction.get("source_account")
+    )
+    transaction["source_account"] = _optional_text(
+        transaction.get("source_account")
+    ) or _optional_text(transaction.get("account_name"))
+    transaction["payee_raw"] = (
+        _optional_text(transaction.get("payee_raw"))
+        or _optional_text(transaction.get("merchant_raw"))
+        or _optional_text(transaction.get("description_clean"))
+        or _optional_text(transaction.get("description_raw"))
+        or _optional_text(transaction.get("memo"))
+        or _optional_text(transaction.get("fingerprint"))
+    )
+    transaction["category_raw"] = _optional_text(transaction.get("category_raw"))
+    transaction["memo"] = _optional_text(transaction.get("memo"))
+    transaction["fingerprint"] = _optional_text(transaction.get("fingerprint"))
+    return transaction
+
+
+def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
     text = lambda name: pl.col(name).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
     nonempty = lambda name: text(name).replace("", None)
     normalized_suffix = pl.col("card_suffix").map_elements(
         _normalize_card_suffix,
         return_dtype=pl.String,
     )
-    source_type = text("source").str.to_lowercase().replace("", "source")
+    source_type = text("source_system").str.to_lowercase().replace("", "source")
     bank_raw_text = pl.coalesce(
         [
             nonempty("description_clean"),
@@ -990,7 +970,6 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pd.DataFrame:
     aligned_pl = prepared_pl.join(
         source_work.select(
             "_row_index",
-            "source",
             "source_date",
             "source_payee_current",
             "source_category_current",
@@ -1013,7 +992,7 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pd.DataFrame:
                     "bank_txn_id",
                     "card_txn_id",
                     "ref",
-                    "source",
+                    "source_system",
                     "account_name",
                     "date",
                     "outflow_ils",
@@ -1029,7 +1008,7 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pd.DataFrame:
                 "bank_txn_id",
                 "card_txn_id",
                 "ref",
-                "source",
+                "source_system",
                 "account_name",
                 "date",
                 "outflow_ils",
@@ -1038,13 +1017,9 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pd.DataFrame:
                 "memo",
             ],
         ).alias("source_row_id"),
-        pl.struct(TRANSACTION_SCHEMA.names + ["source"])
+        pl.struct(TRANSACTION_SCHEMA.names)
         .map_elements(
-            lambda row: _canonical_transaction_dict(
-                row,
-                artifact_kind="normalized_source",
-                source_system_fallback=_optional_text(row.get("source")) or "source",
-            ),
+            _source_transaction_record,
             return_dtype=pl.Object,
         )
         .alias("source_transaction"),
@@ -1149,11 +1124,7 @@ def _prepare_review_target_rows(ynab_df: pl.DataFrame) -> pl.DataFrame:
         ).alias("target_row_id"),
         pl.struct(TRANSACTION_SCHEMA.names)
         .map_elements(
-            lambda row: _canonical_transaction_dict(
-                row,
-                artifact_kind="ynab_transaction",
-                source_system_fallback="ynab",
-            ),
+            lambda row: {name: row.get(name) for name in TRANSACTION_SCHEMA.names},
             return_dtype=pl.Object,
         )
         .alias("target_transaction"),
