@@ -151,6 +151,22 @@ def test_load_csvs_prefers_sidecar_parquet(tmp_path: Path) -> None:
     assert loaded.loc[0, "fingerprint"] == "mega-pet-parquet"
 
 
+def test_load_canonical_transaction_input_requires_sidecar_parquet(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "family_ynab_api_norm.csv"
+    csv_path.write_text(
+        "source,account_name,date,payee_raw,category_raw,fingerprint,outflow_ils,inflow_ils\n"
+        "ynab,Bank Leumi,2026-03-28,Tsomet Sfarim,Split,tsomet sfarim,205.12,0.0\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError, match="Canonical parquet sidecar required for normalized transaction input"
+    ):
+        build_proposed_transactions._load_canonical_transaction_input(csv_path)
+
+
 def test_build_options_from_applied_uses_candidate_rule_ids() -> None:
     rules = build_proposed_transactions.rules_mod.normalize_payee_map_rules(
         pd.DataFrame(

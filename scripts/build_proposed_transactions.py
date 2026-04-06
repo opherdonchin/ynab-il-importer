@@ -17,7 +17,6 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ynab_il_importer.artifacts.transaction_io import (
-    load_flat_transaction_projection,
     read_transactions_pandas,
 )
 import ynab_il_importer.export as export
@@ -103,7 +102,7 @@ def _load_csvs(paths: list[Path]) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     skipped: list[str] = []
     for path in paths:
-        df = _load_transaction_input(path, prefer_sidecar_parquet=True)
+        df = _load_canonical_transaction_input(path)
         for col in [
             "outflow_ils",
             "inflow_ils",
@@ -136,18 +135,18 @@ def _load_csvs(paths: list[Path]) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
-def _load_transaction_input(
-    path: Path,
-    *,
-    prefer_sidecar_parquet: bool = True,
-) -> pd.DataFrame:
+def _load_canonical_transaction_input(path: Path) -> pd.DataFrame:
     if path.suffix.lower() == ".parquet":
         return read_transactions_pandas(path).fillna("")
-    if path.suffix.lower() == ".csv" and prefer_sidecar_parquet:
-        sidecar = path.with_suffix(".parquet")
-        if sidecar.exists():
-            return read_transactions_pandas(sidecar).fillna("")
-    return load_flat_transaction_projection(path, prefer_sidecar_parquet=False).fillna("")
+    if path.suffix.lower() != ".csv":
+        raise ValueError(f"Unsupported canonical transaction input format: {path}")
+    sidecar = path.with_suffix(".parquet")
+    if not sidecar.exists():
+        raise ValueError(
+            f"Canonical parquet sidecar required for normalized transaction input: {path}. "
+            f"Expected {sidecar} to exist; renormalize the input before building review rows."
+        )
+    return read_transactions_pandas(sidecar).fillna("")
 
 
 def _canonical_transaction_dict(
@@ -1557,10 +1556,7 @@ def main() -> None:
 
     source_df = _load_csvs(source_paths)
     source_df = _dedupe_source_overlaps(source_df)
-    ynab_df = _load_transaction_input(
-        Path(args.ynab),
-        prefer_sidecar_parquet=True,
-    )
+    ynab_df = _load_canonical_transaction_input(Path(args.ynab))
     if ynab_df.empty:
         raise ValueError("No rows found in YNAB input.")
 
