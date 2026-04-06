@@ -331,6 +331,21 @@ def test_preserve_expansion_context_sets_group_and_row_targets() -> None:
     assert review_app.st.session_state["expanded_row_id"] == 3
 
 
+def test_clear_split_editor_state_removes_modal_buffer_and_widget_keys() -> None:
+    review_app.st.session_state.clear()
+    review_app.st.session_state["_split_editor"] = {"idx": 1}
+    review_app.st.session_state["split_editor_table_1"] = {"edited_rows": {}}
+    review_app.st.session_state["split_show_all_categories_1"] = True
+    review_app.st.session_state["unrelated_key"] = "keep"
+
+    review_app._clear_split_editor_state()
+
+    assert "_split_editor" not in review_app.st.session_state
+    assert "split_editor_table_1" not in review_app.st.session_state
+    assert "split_show_all_categories_1" not in review_app.st.session_state
+    assert review_app.st.session_state["unrelated_key"] == "keep"
+
+
 def test_format_category_label_special_cases_no_category_required() -> None:
     assert (
         review_app._format_category_label(review_model.NO_CATEGORY_REQUIRED, {})

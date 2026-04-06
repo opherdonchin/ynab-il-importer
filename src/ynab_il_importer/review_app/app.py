@@ -165,6 +165,18 @@ def _consume_notice(key: str) -> str:
     return message
 
 
+def _clear_split_editor_state() -> None:
+    st.session_state.pop("_split_editor", None)
+    split_keys = [
+        key
+        for key in list(st.session_state.keys())
+        if key.startswith("split_editor_table_")
+        or key.startswith("split_show_all_categories_")
+    ]
+    for key in split_keys:
+        del st.session_state[key]
+
+
 def _next_row_cursor(
     indices: list[Any], current_idx: Any, page_size: int
 ) -> tuple[Any | None, int]:
@@ -1646,7 +1658,7 @@ def _open_target_split_editor(
 
 
 def _close_target_split_editor() -> None:
-    st.session_state.pop("_split_editor", None)
+    _clear_split_editor_state()
 
 
 @st.dialog("Split editor", width="large")
@@ -1664,7 +1676,6 @@ def _render_target_split_editor_dialog(
 
     row = df.loc[idx]
     editor_key = _editor_key(f"split_editor_table_{idx}")
-    show_all_categories_key = _editor_key(f"split_show_all_categories_{idx}")
     parent_amount = review_state._signed_amount_from_row_values(
         inflow=row.get("inflow_ils", 0.0),
         outflow=row.get("outflow_ils", 0.0),
@@ -1692,23 +1703,12 @@ def _render_target_split_editor_dialog(
             if isinstance(line, dict)
         ]
     )
-    show_all_categories_default = bool(
-        category_choices
-        and (
-            not category_options
-            or any(category not in category_options for category in split_line_categories)
-        )
-    )
-    _ensure_widget_state(show_all_categories_key, show_all_categories_default)
-    show_all_categories = bool(
-        st.session_state.get(show_all_categories_key, show_all_categories_default)
-    )
     split_category_choices = _category_choice_list(
         category_options=category_options,
-        category_choices=category_choices,
+        category_choices=category_choices or category_options,
         selected_value="",
         default_value="",
-        show_all=show_all_categories,
+        show_all=True,
     )
     for category in split_line_categories:
         if category not in split_category_choices:
@@ -1719,12 +1719,6 @@ def _render_target_split_editor_dialog(
         columns=SPLIT_EDITOR_COLUMNS,
     )
     editor_df["amount_ils"] = editor_df["amount_ils"].map(_split_editor_amount_text)
-
-    st.checkbox(
-        "Show all categories",
-        value=show_all_categories,
-        key=show_all_categories_key,
-    )
 
     edited_df = st.data_editor(
         editor_df,
@@ -2373,6 +2367,7 @@ def main() -> None:
         col1, col2 = st.columns(2)
         with col1:
             if st.button("Reload original"):
+                _close_target_split_editor()
                 try:
                     _load_df(Path(source_path), set_source_path=True)
                     st.rerun()
@@ -2380,6 +2375,7 @@ def main() -> None:
                     st.error(f"Failed to load original: {exc}")
         with col2:
             if st.button("Reload saved"):
+                _close_target_split_editor()
                 try:
                     _load_df(Path(save_path), set_source_path=False)
                     st.rerun()
@@ -2398,6 +2394,7 @@ def main() -> None:
             save_pressed = st.button(save_action, use_container_width=True)
         map_updates_path = map_updates.default_map_updates_path(save_path)
         if save_pressed:
+            _close_target_split_editor()
             if save_action == "Quit":
                 if _request_quit("quit_without_saving"):
                     st.success("Quit requested. This tab can be closed.")
