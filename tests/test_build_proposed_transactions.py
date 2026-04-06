@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 import polars as pl
+import pyarrow as pa
 import pytest
 
 import ynab_il_importer.review_app.model as review_model
@@ -43,11 +44,54 @@ def _write_payee_map(path: Path) -> None:
     )
 
 
+def _canonical_source_polars(df: pd.DataFrame) -> pl.DataFrame:
+    return _canonical_transaction_polars(
+        df,
+        source_system="bank",
+        artifact_kind="normalized_source_transaction",
+    )
+
+
+def _canonical_target_polars(df: pd.DataFrame) -> pl.DataFrame:
+    return _canonical_transaction_polars(
+        df,
+        source_system="ynab",
+        artifact_kind="ynab_transaction",
+    )
+
+
+def _canonical_transaction_polars(
+    df: pd.DataFrame,
+    *,
+    source_system: str,
+    artifact_kind: str,
+) -> pl.DataFrame:
+    out = df.copy()
+    for field in build_proposed_transactions.TRANSACTION_SCHEMA:
+        if field.name in out.columns:
+            continue
+        if pa.types.is_boolean(field.type):
+            out[field.name] = False
+        elif pa.types.is_floating(field.type):
+            out[field.name] = 0.0
+        elif pa.types.is_list(field.type):
+            out[field.name] = None
+        else:
+            out[field.name] = ""
+    out["artifact_kind"] = out["artifact_kind"].replace("", artifact_kind)
+    out["artifact_version"] = out["artifact_version"].replace("", "transaction_v1")
+    out["source_system"] = out["source_system"].replace("", source_system)
+    return pl.from_pandas(out)
+
+
 def test_dedupe_source_overlaps_drops_matching_card_rows() -> None:
-    source_df = pd.DataFrame(
+    source_df = pl.DataFrame(
         [
             {
                 "source": "bank",
+                "account_name": "",
+                "secondary_date": "",
+                "card_suffix": "",
                 "date": "2025-12-12",
                 "outflow_ils": 25.0,
                 "inflow_ils": 0.0,
@@ -56,6 +100,9 @@ def test_dedupe_source_overlaps_drops_matching_card_rows() -> None:
             },
             {
                 "source": "card",
+                "account_name": "",
+                "secondary_date": "",
+                "card_suffix": "",
                 "date": "2025-12-12",
                 "outflow_ils": 25.0,
                 "inflow_ils": 0.0,
@@ -64,6 +111,9 @@ def test_dedupe_source_overlaps_drops_matching_card_rows() -> None:
             },
             {
                 "source": "card",
+                "account_name": "",
+                "secondary_date": "",
+                "card_suffix": "",
                 "date": "2025-12-12",
                 "outflow_ils": 18.0,
                 "inflow_ils": 0.0,
@@ -77,14 +127,17 @@ def test_dedupe_source_overlaps_drops_matching_card_rows() -> None:
         deduped = build_proposed_transactions._dedupe_source_overlaps(source_df)
 
     assert len(deduped) == 2
-    assert deduped["memo"].tolist() == ["bank row", "other card row"]
+    assert deduped["memo"].to_list() == ["bank row", "other card row"]
 
 
 def test_dedupe_source_overlaps_preserves_extra_bank_rows() -> None:
-    source_df = pd.DataFrame(
+    source_df = pl.DataFrame(
         [
             {
                 "source": "bank",
+                "account_name": "",
+                "secondary_date": "",
+                "card_suffix": "",
                 "date": "2025-12-12",
                 "outflow_ils": 25.0,
                 "inflow_ils": 0.0,
@@ -93,6 +146,9 @@ def test_dedupe_source_overlaps_preserves_extra_bank_rows() -> None:
             },
             {
                 "source": "bank",
+                "account_name": "",
+                "secondary_date": "",
+                "card_suffix": "",
                 "date": "2025-12-12",
                 "outflow_ils": 25.0,
                 "inflow_ils": 0.0,
@@ -101,6 +157,9 @@ def test_dedupe_source_overlaps_preserves_extra_bank_rows() -> None:
             },
             {
                 "source": "card",
+                "account_name": "",
+                "secondary_date": "",
+                "card_suffix": "",
                 "date": "2025-12-12",
                 "outflow_ils": 25.0,
                 "inflow_ils": 0.0,
@@ -113,10 +172,10 @@ def test_dedupe_source_overlaps_preserves_extra_bank_rows() -> None:
     with pytest.warns(UserWarning, match="Dropping 1 bank/card overlap rows"):
         deduped = build_proposed_transactions._dedupe_source_overlaps(source_df)
 
-    assert deduped["memo"].tolist() == ["bank 1", "bank 2"]
+    assert deduped["memo"].to_list() == ["bank 1", "bank 2"]
 
 
-def test_load_csvs_requires_parquet_inputs(tmp_path: Path) -> None:
+def test_load_source_inputs_requires_parquet_inputs(tmp_path: Path) -> None:
     csv_path = tmp_path / "source.csv"
     flat_df = pl.DataFrame(
         {
@@ -147,21 +206,7 @@ def test_load_csvs_requires_parquet_inputs(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="Canonical transaction input must be parquet"):
-        build_proposed_transactions._load_csvs([csv_path])
-
-
-def test_load_canonical_transaction_input_requires_parquet(
-    tmp_path: Path,
-) -> None:
-    csv_path = tmp_path / "family_ynab_api_norm.csv"
-    csv_path.write_text(
-        "source,account_name,date,payee_raw,category_raw,fingerprint,outflow_ils,inflow_ils\n"
-        "ynab,Bank Leumi,2026-03-28,Tsomet Sfarim,Split,tsomet sfarim,205.12,0.0\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="Canonical transaction input must be parquet"):
-        build_proposed_transactions._load_canonical_transaction_input(csv_path)
+        build_proposed_transactions._load_source_inputs([csv_path])
 
 
 def test_build_options_from_applied_uses_candidate_rule_ids() -> None:
@@ -550,7 +595,7 @@ def test_dedupe_sources_drops_fingerprint_conflict_without_lineage(
 
 
 def test_dedupe_source_overlaps_matches_immediate_debit_on_secondary_date() -> None:
-    source_df = pd.DataFrame(
+    source_df = pl.DataFrame(
         [
             {
                 "source": "bank",
@@ -581,7 +626,7 @@ def test_dedupe_source_overlaps_matches_immediate_debit_on_secondary_date() -> N
     with pytest.warns(UserWarning, match="Dropping 1 bank/card overlap rows"):
         deduped = build_proposed_transactions._dedupe_source_overlaps(source_df)
 
-    assert deduped["memo"].tolist() == ["bank row"]
+    assert deduped["memo"].to_list() == ["bank row"]
 
 
 def test_build_review_rows_emits_institutional_statuses(tmp_path: Path) -> None:
@@ -648,8 +693,8 @@ def test_build_review_rows_emits_institutional_statuses(tmp_path: Path) -> None:
     )
 
     review_rows, pairs = build_proposed_transactions.build_review_rows(
-        source_df,
-        ynab_df,
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
         map_path=map_path,
     )
 
@@ -717,8 +762,8 @@ def test_build_review_rows_marks_cleared_exact_matches_as_settled(tmp_path: Path
     )
 
     review_rows, _ = build_proposed_transactions.build_review_rows(
-        source_df,
-        ynab_df,
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
         map_path=map_path,
     )
 
@@ -773,8 +818,8 @@ def test_build_review_rows_normalizes_transfer_uncategorized_to_explicit_none(
     )
 
     review_rows, _ = build_proposed_transactions.build_review_rows(
-        source_df,
-        ynab_df,
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
         map_path=map_path,
     )
 
@@ -839,8 +884,8 @@ def test_build_review_rows_auto_settles_target_only_transfer_counterparts(tmp_pa
     )
 
     review_rows, _ = build_proposed_transactions.build_review_rows(
-        source_df,
-        ynab_df,
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
         map_path=map_path,
     )
 
@@ -909,8 +954,8 @@ def test_build_review_rows_auto_settles_reconciled_target_only_rows(tmp_path: Pa
     )
 
     review_rows, _ = build_proposed_transactions.build_review_rows(
-        source_df,
-        ynab_df,
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
         map_path=map_path,
     )
 
@@ -976,8 +1021,8 @@ def test_build_review_rows_auto_settles_manual_target_only_rows(tmp_path: Path) 
     )
 
     review_rows, _ = build_proposed_transactions.build_review_rows(
-        source_df,
-        ynab_df,
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
         map_path=map_path,
     )
 
@@ -1043,8 +1088,8 @@ def test_build_review_rows_emits_institutional_ambiguous_candidates(tmp_path: Pa
     )
 
     review_rows, pairs = build_proposed_transactions.build_review_rows(
-        source_df,
-        ynab_df,
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
         map_path=map_path,
     )
 
@@ -1080,6 +1125,7 @@ def test_institutional_candidate_pairs_prefer_exact_lineage_and_clear_false_ambi
             {
                 "target_row_id": "tgt-1",
                 "ynab_import_id": "BANK:V1:a",
+                "target_memo": "",
                 "account_key": "Bank Leumi",
                 "date_key": pd.Timestamp("2026-03-03").date(),
                 "amount_key": -200.0,
@@ -1087,6 +1133,7 @@ def test_institutional_candidate_pairs_prefer_exact_lineage_and_clear_false_ambi
             {
                 "target_row_id": "tgt-2",
                 "ynab_import_id": "BANK:V1:b",
+                "target_memo": "",
                 "account_key": "Bank Leumi",
                 "date_key": pd.Timestamp("2026-03-03").date(),
                 "amount_key": -200.0,
@@ -1094,6 +1141,7 @@ def test_institutional_candidate_pairs_prefer_exact_lineage_and_clear_false_ambi
             {
                 "target_row_id": "tgt-3",
                 "ynab_import_id": "CARD:V1:c",
+                "target_memo": "",
                 "account_key": "Bank Leumi",
                 "date_key": pd.Timestamp("2026-03-03").date(),
                 "amount_key": -200.0,
@@ -1101,6 +1149,7 @@ def test_institutional_candidate_pairs_prefer_exact_lineage_and_clear_false_ambi
             {
                 "target_row_id": "tgt-4",
                 "ynab_import_id": "CARD:V1:d",
+                "target_memo": "",
                 "account_key": "Bank Leumi",
                 "date_key": pd.Timestamp("2026-03-03").date(),
                 "amount_key": -200.0,
@@ -1109,13 +1158,13 @@ def test_institutional_candidate_pairs_prefer_exact_lineage_and_clear_false_ambi
     )
 
     pairs = build_proposed_transactions._institutional_candidate_pairs(
-        prepared_source,
-        prepared_target,
+        pl.from_pandas(prepared_source),
+        pl.from_pandas(prepared_target),
     )
 
-    assert set(pairs["source_row_id"].tolist()) == {"src-1", "src-2"}
-    assert set(pairs["target_row_id"].tolist()) == {"tgt-1", "tgt-2"}
-    assert pairs["ambiguous_key"].tolist() == [False, False]
+    assert set(pairs["source_row_id"].to_list()) == {"src-1", "src-2"}
+    assert set(pairs["target_row_id"].to_list()) == {"tgt-1", "tgt-2"}
+    assert pairs["ambiguous_key"].to_list() == [False, False]
 
 
 def test_institutional_candidate_pairs_prefer_exact_memo_lineage_markers() -> None:
@@ -1152,12 +1201,12 @@ def test_institutional_candidate_pairs_prefer_exact_memo_lineage_markers() -> No
     )
 
     pairs = build_proposed_transactions._institutional_candidate_pairs(
-        prepared_source,
-        prepared_target,
+        pl.from_pandas(prepared_source),
+        pl.from_pandas(prepared_target),
     )
 
-    assert pairs["target_row_id"].tolist() == ["tgt-bank"]
-    assert pairs["ambiguous_key"].tolist() == [False]
+    assert pairs["target_row_id"].to_list() == ["tgt-bank"]
+    assert pairs["ambiguous_key"].to_list() == [False]
 
 
 def test_institutional_candidate_pairs_prefer_exact_import_over_memo_lineage_marker() -> None:
@@ -1194,9 +1243,9 @@ def test_institutional_candidate_pairs_prefer_exact_import_over_memo_lineage_mar
     )
 
     pairs = build_proposed_transactions._institutional_candidate_pairs(
-        prepared_source,
-        prepared_target,
+        pl.from_pandas(prepared_source),
+        pl.from_pandas(prepared_target),
     )
 
-    assert pairs["target_row_id"].tolist() == ["tgt-import"]
-    assert pairs["ambiguous_key"].tolist() == [False]
+    assert pairs["target_row_id"].to_list() == ["tgt-import"]
+    assert pairs["ambiguous_key"].to_list() == [False]

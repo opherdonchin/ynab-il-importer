@@ -9,6 +9,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import pandas as pd
+import polars as pl
 import pyarrow as pa
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -98,28 +99,29 @@ REVIEW_ROW_COLUMNS = [
 ]
 
 
-def _load_csvs(paths: list[Path]) -> pd.DataFrame:
-    frames: list[pd.DataFrame] = []
+def _load_source_inputs(paths: list[Path]) -> pl.DataFrame:
+    frames: list[pl.DataFrame] = []
     skipped: list[str] = []
     for path in paths:
-        df = _load_canonical_transaction_input(path).to_pandas().fillna("")
-        for col in [
-            "outflow_ils",
-            "inflow_ils",
-            "balance_ils",
-            "max_original_amount",
-            "max_exchange_rate",
-        ]:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-        if df.empty:
+        if path.suffix.lower() != ".parquet":
+            raise ValueError(
+                f"Canonical transaction input must be parquet: {path}. "
+                "Provide the normalized parquet artifact directly."
+            )
+        table = read_transactions_arrow(path)
+        if table.num_rows == 0:
             warnings.warn(f"Skipping {path} (no rows).", UserWarning)
             continue
-        if "fingerprint" not in df.columns:
-            warnings.warn(f"Skipping {path} (missing fingerprint column).", UserWarning)
-            skipped.append(str(path))
-            continue
-        fp = df["fingerprint"].astype("string").fillna("").str.strip()
+        df = pl.from_arrow(table)
+        string_cols = [name for name, dtype in df.schema.items() if dtype == pl.String]
+        if string_cols:
+            df = df.with_columns([pl.col(name).fill_null("").alias(name) for name in string_cols])
+        fp = (
+            df.get_column("fingerprint")
+            .cast(pl.Utf8, strict=False)
+            .fill_null("")
+            .str.strip_chars()
+        )
         if (fp == "").all():
             warnings.warn(f"Skipping {path} (all fingerprint values empty).", UserWarning)
             skipped.append(str(path))
@@ -132,16 +134,7 @@ def _load_csvs(paths: list[Path]) -> pd.DataFrame:
             "No usable source rows found. Ensure normalized source files with fingerprint." + detail
         )
 
-    return pd.concat(frames, ignore_index=True)
-
-
-def _load_canonical_transaction_input(path: Path) -> pa.Table:
-    if path.suffix.lower() != ".parquet":
-        raise ValueError(
-            f"Canonical transaction input must be parquet: {path}. "
-            "Provide the normalized parquet artifact directly."
-        )
-    return read_transactions_arrow(path)
+    return pl.concat(frames, how="diagonal_relaxed", rechunk=True)
 
 
 def _canonical_transaction_dict(
@@ -214,36 +207,26 @@ def _expand_source_paths(files: list[Path], dirs: list[Path]) -> list[Path]:
     return paths
 
 
-def _dedupe_source_overlaps(source_df: pd.DataFrame) -> pd.DataFrame:
-    if source_df.empty or "source" not in source_df.columns:
-        return source_df.reset_index(drop=True)
+def _dedupe_source_overlaps(source_df: pl.DataFrame) -> pl.DataFrame:
+    if source_df.is_empty() or "source" not in source_df.columns:
+        return source_df.clone()
 
-    source_norm = source_df["source"].astype("string").fillna("").str.strip().str.lower()
-    if not (source_norm == "bank").any() or not (source_norm == "card").any():
-        return source_df.reset_index(drop=True)
-
-    work = source_df.copy()
-    work["_source_norm"] = source_norm
-    work["_date_key"] = pd.to_datetime(work["date"], errors="coerce").dt.date
-    work["_secondary_date_key"] = pd.to_datetime(
-        work.get("secondary_date", pd.Series([pd.NA] * len(work), index=work.index)),
-        errors="coerce",
-    ).dt.date
-    work["_account_key"] = (
-        work.get("account_name", pd.Series([""] * len(work), index=work.index))
-        .astype("string")
-        .fillna("")
-        .str.strip()
+    work = source_df.with_row_index("_row_index").with_columns(
+        pl.col("source").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().str.to_lowercase().alias("_source_norm"),
+        pl.col("date").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().replace("", None).str.strptime(pl.Date, strict=False).alias("_date_key"),
+        pl.col("secondary_date").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().replace("", None).str.strptime(pl.Date, strict=False).alias("_secondary_date_key"),
+        pl.col("account_name").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().alias("_account_key"),
+        pl.col("card_suffix").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().alias("_card_suffix_key"),
+        pl.col("outflow_ils").round(2).alias("_outflow_key"),
+        pl.col("inflow_ils").round(2).alias("_inflow_key"),
+        pl.col("fingerprint").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().alias("_fingerprint_key"),
     )
-    work["_card_suffix_key"] = (
-        work.get("card_suffix", pd.Series([""] * len(work), index=work.index))
-        .astype("string")
-        .fillna("")
-        .str.strip()
-    )
-    work["_outflow_key"] = pd.to_numeric(work["outflow_ils"], errors="coerce").fillna(0.0).round(2)
-    work["_inflow_key"] = pd.to_numeric(work["inflow_ils"], errors="coerce").fillna(0.0).round(2)
-    work["_fingerprint_key"] = work["fingerprint"].astype("string").fillna("").str.strip()
+    has_bank, has_card = work.select(
+        (pl.col("_source_norm") == "bank").any().alias("has_bank"),
+        (pl.col("_source_norm") == "card").any().alias("has_card"),
+    ).row(0)
+    if not has_bank or not has_card:
+        return source_df.clone()
 
     key_cols = [
         "_account_key",
@@ -253,74 +236,68 @@ def _dedupe_source_overlaps(source_df: pd.DataFrame) -> pd.DataFrame:
         "_fingerprint_key",
         "_card_suffix_key",
     ]
-    valid = work["_date_key"].notna() & (work["_fingerprint_key"] != "")
+    valid = pl.col("_date_key").is_not_null() & (pl.col("_fingerprint_key") != "")
 
-    bank = work.loc[(work["_source_norm"] == "bank") & valid, key_cols].copy()
-    bank["_dup_rank"] = bank.groupby(key_cols, dropna=False).cumcount()
-
-    card = work.loc[(work["_source_norm"] == "card") & valid, key_cols].copy()
-    card["_dup_rank"] = card.groupby(key_cols, dropna=False).cumcount()
-    card["_row_index"] = card.index
-
-    matched_cards = card.merge(
-        bank.assign(_matched=True),
-        on=key_cols + ["_dup_rank"],
-        how="left",
+    bank = work.filter((pl.col("_source_norm") == "bank") & valid).select(key_cols).with_columns(
+        pl.int_range(0, pl.len()).over(key_cols).alias("_dup_rank")
     )
-    drop_index = matched_cards.loc[matched_cards["_matched"].eq(True), "_row_index"].tolist()
+    card = work.filter((pl.col("_source_norm") == "card") & valid).select(
+        "_row_index", *key_cols
+    ).with_columns(pl.int_range(0, pl.len()).over(key_cols).alias("_dup_rank"))
 
-    secondary_aligned_card = work.loc[
-        (work["_source_norm"] == "card")
+    direct_drop = (
+        card.join(bank.with_columns(pl.lit(True).alias("_matched")), on=key_cols + ["_dup_rank"], how="left")
+        .filter(pl.col("_matched") == True)
+        .select("_row_index")
+    )
+
+    second_key_cols = [
+        "_account_key",
+        "_secondary_date_key",
+        "_outflow_key",
+        "_inflow_key",
+        "_card_suffix_key",
+    ]
+    secondary_card = work.filter(
+        (pl.col("_source_norm") == "card")
         & valid
-        & work["_secondary_date_key"].notna()
-        & (work["_account_key"] != ""),
-        [
-            "_account_key",
-            "_secondary_date_key",
-            "_outflow_key",
-            "_inflow_key",
-            "_card_suffix_key",
-        ],
-    ].copy()
-    if not secondary_aligned_card.empty:
-        second_key_cols = [
-            "_account_key",
-            "_secondary_date_key",
-            "_outflow_key",
-            "_inflow_key",
-            "_card_suffix_key",
-        ]
-        secondary_aligned_card["_dup_rank"] = secondary_aligned_card.groupby(
-            second_key_cols, dropna=False
-        ).cumcount()
-        secondary_aligned_card["_row_index"] = secondary_aligned_card.index
-
-        bank_secondary = work.loc[
-            (work["_source_norm"] == "bank") & valid & work["_secondary_date_key"].notna(),
-            second_key_cols,
-        ].copy()
-        bank_secondary["_dup_rank"] = bank_secondary.groupby(
-            second_key_cols, dropna=False
-        ).cumcount()
-
-        matched_secondary = secondary_aligned_card.merge(
-            bank_secondary.assign(_matched=True),
+        & pl.col("_secondary_date_key").is_not_null()
+        & (pl.col("_account_key") != "")
+    ).select("_row_index", *second_key_cols).with_columns(
+        pl.int_range(0, pl.len()).over(second_key_cols).alias("_dup_rank")
+    )
+    secondary_bank = work.filter(
+        (pl.col("_source_norm") == "bank")
+        & valid
+        & pl.col("_secondary_date_key").is_not_null()
+    ).select(second_key_cols).with_columns(
+        pl.int_range(0, pl.len()).over(second_key_cols).alias("_dup_rank")
+    )
+    secondary_drop = (
+        secondary_card.join(
+            secondary_bank.with_columns(pl.lit(True).alias("_matched")),
             on=second_key_cols + ["_dup_rank"],
             how="left",
         )
-        secondary_drop = matched_secondary.loc[matched_secondary["_matched"].eq(True), "_row_index"]
-        if not secondary_drop.empty:
-            drop_index.extend(secondary_drop.tolist())
+        .filter(pl.col("_matched") == True)
+        .select("_row_index")
+    )
 
-    drop_index = sorted(set(drop_index))
-    if not drop_index:
-        return source_df.reset_index(drop=True)
+    drop_rows = pl.concat([direct_drop, secondary_drop], how="vertical_relaxed").unique().sort("_row_index")
+    if drop_rows.is_empty():
+        return source_df.clone()
 
+    drop_count = drop_rows.height
     warnings.warn(
-        f"Dropping {len(drop_index)} bank/card overlap rows matched on aligned account/date/amount keys.",
+        f"Dropping {drop_count} bank/card overlap rows matched on aligned account/date/amount keys.",
         UserWarning,
     )
-    return source_df.drop(index=drop_index).reset_index(drop=True).copy()
+    return (
+        work.join(drop_rows.with_columns(pl.lit(True).alias("_drop")), on="_row_index", how="left")
+        .filter(pl.col("_drop").is_null())
+        .sort("_row_index")
+        .select(source_df.columns)
+    )
 
 
 def _dedupe_sources(
@@ -784,14 +761,6 @@ def _review_join_options(*values: object) -> str:
     return "; ".join(ordered)
 
 
-def _review_first_nonempty(values: pd.Series) -> str:
-    for value in values.astype("string").fillna("").tolist():
-        text = str(value).strip()
-        if text:
-            return text
-    return ""
-
-
 def _is_cleared_match(row: pd.Series) -> bool:
     cleared = _optional_text(row.get("ynab_cleared")).casefold()
     return cleared in {"cleared", "reconciled"}
@@ -846,178 +815,350 @@ def _is_target_only_settled(row: pd.Series) -> bool:
 
 
 def _stable_row_ids(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     *,
     prefix: str,
-    part_getter,
-) -> pd.Series:
-    if df.empty:
-        return pd.Series(dtype="string")
-    digests = df.apply(
-        lambda row: hashlib.sha1("|".join(part_getter(row)).encode("utf-8")).hexdigest()[:16],
-        axis=1,
-    ).astype("string")
-    suffix = digests.groupby(digests, dropna=False).cumcount().astype("string")
-    return prefix + "_" + digests + "_" + suffix
-
-
-def _source_row_id_parts(row: pd.Series) -> list[str]:
-    return [
-        _optional_text(row.get("bank_txn_id")),
-        _optional_text(row.get("card_txn_id")),
-        _optional_text(row.get("ref")),
-        _optional_text(row.get("source")),
-        _optional_text(row.get("account_name")),
-        _optional_text(row.get("date")),
-        _optional_text(row.get("outflow_ils")),
-        _optional_text(row.get("inflow_ils")),
-        _optional_text(row.get("fingerprint")),
-        _optional_text(row.get("memo") or row.get("raw_text") or row.get("description_raw")),
-    ]
-
-
-def _target_row_id_parts(row: pd.Series) -> list[str]:
-    return [
-        _optional_text(row.get("ynab_id") or row.get("id")),
-        _optional_text(row.get("account_id")),
-        _optional_text(row.get("account_name")),
-        _optional_text(row.get("date")),
-        _optional_text(row.get("outflow_ils")),
-        _optional_text(row.get("inflow_ils")),
-        _optional_text(row.get("payee_raw")),
-        _optional_text(row.get("category_raw")),
-        _optional_text(row.get("fingerprint")),
-        _optional_text(row.get("memo")),
-    ]
-
-
-def _source_current_payee(row: pd.Series) -> str:
-    for column in [
-        "payee_raw",
-        "merchant_raw",
-        "description_clean",
-        "description_raw",
-        "raw_text",
-        "memo",
-        "fingerprint",
-    ]:
-        value = _optional_text(row.get(column))
-        if value:
-            return value
-    return ""
-
-
-def _prepare_review_source_rows(source_df: pd.DataFrame) -> pd.DataFrame:
-    source_work = source_df.copy()
-    source_work["memo"] = source_work.get("raw_text", source_work.get("description_raw", ""))
-    source_work = _annotate_bank_debit_card_memo(source_work)
-    prepared = pairing._prepare_source(source_work)
-    if prepared.empty:
-        return prepared
-    aligned = source_work.loc[prepared.index].copy()
-    prepared = prepared.copy()
-    prepared["source_row_id"] = _stable_row_ids(
-        aligned, prefix="src", part_getter=_source_row_id_parts
-    ).to_numpy()
-    prepared["source_date"] = pd.to_datetime(aligned.get("date"), errors="coerce").dt.strftime(
-        "%Y-%m-%d"
+    id_columns: list[str],
+) -> pl.Series:
+    if df.is_empty():
+        return pl.Series(name="row_id", values=[], dtype=pl.String)
+    joined = pl.concat_str(
+        [
+            pl.col(column).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
+            for column in id_columns
+        ],
+        separator="|",
     )
-    prepared["source_date"] = prepared["source_date"].fillna("")
-    prepared["source_payee_current"] = aligned.apply(_source_current_payee, axis=1).to_numpy()
-    prepared["source_category_current"] = (
-        aligned.get("category_raw", pd.Series([""] * len(aligned), index=aligned.index))
-        .astype("string")
-        .fillna("")
-        .str.strip()
-        .to_numpy()
-    )
-    prepared["source_memo"] = (
-        aligned.get("memo", pd.Series([""] * len(aligned), index=aligned.index))
-        .astype("string")
-        .fillna("")
-        .str.strip()
-        .to_numpy()
-    )
-    prepared["source_bank_txn_id"] = (
-        aligned.get("bank_txn_id", pd.Series([""] * len(aligned), index=aligned.index))
-        .astype("string")
-        .fillna("")
-        .str.strip()
-        .to_numpy()
-    )
-    prepared["source_card_txn_id"] = (
-        aligned.get("card_txn_id", pd.Series([""] * len(aligned), index=aligned.index))
-        .astype("string")
-        .fillna("")
-        .str.strip()
-        .to_numpy()
-    )
-    prepared["source_card_suffix"] = (
-        aligned.get("card_suffix", pd.Series([""] * len(aligned), index=aligned.index))
-        .astype("string")
-        .fillna("")
-        .str.strip()
-        .to_numpy()
-    )
-    prepared["source_secondary_date"] = (
-        pd.to_datetime(
-            aligned.get("secondary_date", pd.Series([""] * len(aligned), index=aligned.index)),
-            errors="coerce",
+    return (
+        df.with_columns(joined.alias("_joined"))
+        .with_columns(
+            pl.col("_joined")
+            .map_elements(
+                lambda value: hashlib.sha1(value.encode("utf-8")).hexdigest()[:16],
+                return_dtype=pl.String,
+            )
+            .alias("_digest")
         )
+        .with_columns(
+            (pl.col("_digest").cum_count().over("_digest") - 1)
+            .cast(pl.String)
+            .alias("_suffix")
+        )
+        .select(
+            pl.concat_str(
+                [pl.lit(prefix), pl.col("_digest"), pl.col("_suffix")],
+                separator="_",
+            ).alias("row_id")
+        )
+        .to_series()
+    )
+
+
+def _prepare_review_source_rows(source_df: pl.DataFrame) -> pd.DataFrame:
+    text = lambda name: pl.col(name).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
+    nonempty = lambda name: text(name).replace("", None)
+    normalized_suffix = pl.col("card_suffix").map_elements(
+        _normalize_card_suffix,
+        return_dtype=pl.String,
+    )
+    source_type = text("source").str.to_lowercase().replace("", "source")
+    bank_raw_text = pl.coalesce(
+        [
+            nonempty("description_clean"),
+            nonempty("merchant_raw"),
+            nonempty("description_raw"),
+            pl.lit(""),
+        ]
+    )
+    card_raw_text = pl.coalesce(
+        [
+            nonempty("description_clean"),
+            nonempty("description_raw"),
+            nonempty("merchant_raw"),
+            pl.lit(""),
+        ]
+    )
+    default_raw_text = pl.coalesce(
+        [
+            nonempty("description_clean"),
+            nonempty("merchant_raw"),
+            nonempty("description_raw"),
+            nonempty("raw_text"),
+            pl.lit(""),
+        ]
+    )
+    source_work = source_df.with_row_index("_row_index").with_columns(
+        pl.lit("").alias("source_file"),
+        pl.lit("").alias("raw_text"),
+        pl.lit("").alias("bank_txn_id"),
+        pl.lit("").alias("card_txn_id"),
+        pl.lit("").alias("card_suffix"),
+    ).with_columns(
+        pl.when(source_type == "bank")
+        .then(bank_raw_text)
+        .when(source_type == "card")
+        .then(card_raw_text)
+        .otherwise(default_raw_text)
+        .alias("raw_text"),
+    ).with_columns(
+        source_type.alias("source_type"),
+        text("source_file").alias("source_file"),
+        text("source_account").alias("source_account"),
+        text("account_name").alias("account_name"),
+        text("fingerprint").alias("fingerprint"),
+        pl.col("outflow_ils").round(2).alias("outflow_ils"),
+        pl.col("inflow_ils").round(2).alias("inflow_ils"),
+        text("date").replace("", None).str.strptime(pl.Date, strict=False).alias("date_key"),
+        pl.coalesce([nonempty("raw_text"), nonempty("description_raw"), pl.lit("")]).alias("memo"),
+    ).with_columns(
+        pl.when(
+            (pl.col("source_type") == "bank")
+            & normalized_suffix.replace("", None).is_not_null()
+            & ~pl.col("memo").str.contains(_CARD_SUFFIX_MEMO_TAG_RE.pattern)
+        )
+        .then(
+            pl.concat_str(
+                [pl.col("memo"), pl.format("[card x{}]", normalized_suffix)],
+                separator=" ",
+            ).str.strip_chars()
+        )
+        .otherwise(pl.col("memo"))
+        .alias("memo"),
+        pl.coalesce(
+            [
+                nonempty("payee_raw"),
+                nonempty("merchant_raw"),
+                nonempty("description_clean"),
+                nonempty("description_raw"),
+                nonempty("raw_text"),
+                nonempty("memo"),
+                nonempty("fingerprint"),
+                pl.lit(""),
+            ]
+        ).alias("source_payee_current"),
+        text("category_raw").alias("source_category_current"),
+        text("bank_txn_id").alias("source_bank_txn_id"),
+        text("card_txn_id").alias("source_card_txn_id"),
+        text("card_suffix").alias("source_card_suffix"),
+        text("ref").alias("source_ref"),
+        pl.coalesce([nonempty("bank_txn_id"), nonempty("card_txn_id"), pl.lit("")]).alias(
+            "source_lineage_id"
+        ),
+        text("memo").alias("source_memo"),
+        text("date")
+        .replace("", None)
+        .str.strptime(pl.Date, strict=False)
         .dt.strftime("%Y-%m-%d")
-        .fillna("")
-        .to_numpy()
+        .fill_null("")
+        .alias("source_date"),
+        text("secondary_date")
+        .replace("", None)
+        .str.strptime(pl.Date, strict=False)
+        .dt.strftime("%Y-%m-%d")
+        .fill_null("")
+        .alias("source_secondary_date"),
     )
-    prepared["source_ref"] = (
-        aligned.get("ref", pd.Series([""] * len(aligned), index=aligned.index))
-        .astype("string")
-        .fillna("")
-        .str.strip()
-        .to_numpy()
+    if source_work.select(pl.col("fingerprint").eq("").any()).item():
+        raise ValueError("Source data missing fingerprint values; run fingerprinting first.")
+
+    prepared_pl = source_work.with_columns(
+        pl.col("account_name").alias("account_key"),
+        (pl.col("inflow_ils") - pl.col("outflow_ils")).round(2).alias("amount_key"),
+        pl.col("date_key").alias("date"),
+    ).filter(
+        pl.col("account_key").is_not_null()
+        & pl.col("date_key").is_not_null()
+        & pl.col("amount_key").is_not_null()
+    ).select(
+        "_row_index",
+        "source_type",
+        "source_file",
+        "source_account",
+        "account_name",
+        "date",
+        "outflow_ils",
+        "inflow_ils",
+        "raw_text",
+        "fingerprint",
+        "account_key",
+        "date_key",
+        "amount_key",
     )
-    prepared["source_transaction"] = aligned.apply(
-        lambda row: _canonical_transaction_dict(
-            row,
-            artifact_kind="normalized_source",
-            source_system_fallback=_optional_text(row.get("source")) or "source",
+    if prepared_pl.is_empty():
+        return prepared_pl
+
+    aligned_pl = prepared_pl.join(
+        source_work.select(
+            "_row_index",
+            "source",
+            "source_date",
+            "source_payee_current",
+            "source_category_current",
+            "source_memo",
+            "source_bank_txn_id",
+            "source_card_txn_id",
+            "source_card_suffix",
+            "source_secondary_date",
+            "source_ref",
+            "source_lineage_id",
+            *TRANSACTION_SCHEMA.names,
         ),
-        axis=1,
-    ).to_numpy()
-    prepared["source_lineage_id"] = (
-        aligned.apply(_source_lineage_id, axis=1).astype("string").to_numpy()
-    )
-    return prepared
+        on="_row_index",
+        how="left",
+    ).with_columns(
+        _stable_row_ids(
+            prepared_pl.join(
+                source_work.select(
+                    "_row_index",
+                    "bank_txn_id",
+                    "card_txn_id",
+                    "ref",
+                    "source",
+                    "account_name",
+                    "date",
+                    "outflow_ils",
+                    "inflow_ils",
+                    "fingerprint",
+                    "memo",
+                ),
+                on="_row_index",
+                how="left",
+            ),
+            prefix="src",
+            id_columns=[
+                "bank_txn_id",
+                "card_txn_id",
+                "ref",
+                "source",
+                "account_name",
+                "date",
+                "outflow_ils",
+                "inflow_ils",
+                "fingerprint",
+                "memo",
+            ],
+        ).alias("source_row_id"),
+        pl.struct(TRANSACTION_SCHEMA.names + ["source"])
+        .map_elements(
+            lambda row: _canonical_transaction_dict(
+                row,
+                artifact_kind="normalized_source",
+                source_system_fallback=_optional_text(row.get("source")) or "source",
+            ),
+            return_dtype=pl.Object,
+        )
+        .alias("source_transaction"),
+    ).drop("_row_index")
+    return aligned_pl
 
 
-def _prepare_review_target_rows(ynab_df: pd.DataFrame) -> pd.DataFrame:
-    prepared = pairing._prepare_ynab(ynab_df)
-    if prepared.empty:
-        return prepared
-    aligned = ynab_df.loc[prepared.index].copy()
-    prepared = prepared.copy()
-    prepared["target_row_id"] = _stable_row_ids(
-        aligned, prefix="tgt", part_getter=_target_row_id_parts
-    ).to_numpy()
-    prepared["target_date"] = pd.to_datetime(aligned.get("date"), errors="coerce").dt.strftime(
-        "%Y-%m-%d"
+def _prepare_review_target_rows(ynab_df: pl.DataFrame) -> pl.DataFrame:
+    text = lambda name: pl.col(name).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
+    target_work = ynab_df.with_row_index("_row_index").with_columns(
+        pl.lit("").alias("ynab_file"),
+        text("account_id").alias("ynab_account_id"),
+        text("account_name").alias("ynab_account"),
+        pl.col("outflow_ils").round(2).alias("ynab_outflow_ils"),
+        pl.col("inflow_ils").round(2).alias("ynab_inflow_ils"),
+        text("payee_raw").alias("ynab_payee_raw"),
+        text("category_raw").alias("ynab_category_raw"),
+        text("fingerprint").alias("ynab_fingerprint"),
+        text("ynab_id").alias("ynab_id"),
+        text("import_id").alias("ynab_import_id"),
+        text("matched_transaction_id").alias("ynab_matched_transaction_id"),
+        text("cleared").alias("ynab_cleared"),
+        text("approved").alias("ynab_approved"),
+        text("account_name").alias("account_key"),
+        text("date").replace("", None).str.strptime(pl.Date, strict=False).alias("date_key"),
+        (pl.col("inflow_ils") - pl.col("outflow_ils")).round(2).alias("amount_key"),
+        text("date")
+        .replace("", None)
+        .str.strptime(pl.Date, strict=False)
+        .dt.strftime("%Y-%m-%d")
+        .fill_null("")
+        .alias("target_date"),
+        text("memo").alias("target_memo"),
     )
-    prepared["target_date"] = prepared["target_date"].fillna("")
-    prepared["target_memo"] = (
-        aligned.get("memo", pd.Series([""] * len(aligned), index=aligned.index))
-        .astype("string")
-        .fillna("")
-        .str.strip()
-        .to_numpy()
+    prepared_pl = target_work.filter(
+        pl.col("account_key").is_not_null()
+        & pl.col("date_key").is_not_null()
+        & pl.col("amount_key").is_not_null()
+    ).select(
+        "_row_index",
+        "account_key",
+        "date_key",
+        "amount_key",
+        "ynab_file",
+        "ynab_account_id",
+        "ynab_account",
+        "ynab_outflow_ils",
+        "ynab_inflow_ils",
+        "ynab_payee_raw",
+        "ynab_category_raw",
+        "ynab_fingerprint",
+        "ynab_id",
+        "ynab_import_id",
+        "ynab_matched_transaction_id",
+        "ynab_cleared",
+        "ynab_approved",
     )
-    prepared["target_transaction"] = aligned.apply(
-        lambda row: _canonical_transaction_dict(
-            row,
-            artifact_kind="ynab_transaction",
-            source_system_fallback="ynab",
+    if prepared_pl.is_empty():
+        return prepared_pl
+
+    aligned_pl = prepared_pl.join(
+        target_work.select(
+            "_row_index",
+            "target_date",
+            "target_memo",
+            *TRANSACTION_SCHEMA.names,
         ),
-        axis=1,
-    ).to_numpy()
-    return prepared
+        on="_row_index",
+        how="left",
+    ).with_columns(
+        _stable_row_ids(
+            prepared_pl.join(
+                target_work.select(
+                    "_row_index",
+                    "ynab_id",
+                    "account_id",
+                    "account_name",
+                    "date",
+                    "outflow_ils",
+                    "inflow_ils",
+                    "payee_raw",
+                    "category_raw",
+                    "fingerprint",
+                    "memo",
+                ),
+                on="_row_index",
+                how="left",
+            ),
+            prefix="tgt",
+            id_columns=[
+                "ynab_id",
+                "account_id",
+                "account_name",
+                "date",
+                "outflow_ils",
+                "inflow_ils",
+                "payee_raw",
+                "category_raw",
+                "fingerprint",
+                "memo",
+            ],
+        ).alias("target_row_id"),
+        pl.struct(TRANSACTION_SCHEMA.names)
+        .map_elements(
+            lambda row: _canonical_transaction_dict(
+                row,
+                artifact_kind="ynab_transaction",
+                source_system_fallback="ynab",
+            ),
+            return_dtype=pl.Object,
+        )
+        .alias("target_transaction"),
+    ).drop("_row_index")
+    return aligned_pl
 
 
 def _default_source_context(
@@ -1033,497 +1174,466 @@ def _default_source_context(
 
 
 def _institutional_candidate_pairs(
-    prepared_source: pd.DataFrame,
-    prepared_target: pd.DataFrame,
-) -> pd.DataFrame:
-    if prepared_source.empty or prepared_target.empty:
-        return pd.DataFrame()
-    pairs = prepared_source.merge(
+    prepared_source: pl.DataFrame,
+    prepared_target: pl.DataFrame,
+) -> pl.DataFrame:
+    if prepared_source.is_empty() or prepared_target.is_empty():
+        return pl.DataFrame()
+    pairs = prepared_source.join(
         prepared_target,
         on=["account_key", "date_key", "amount_key"],
         how="inner",
-        suffixes=("_source", "_target"),
+        suffix="_target",
     )
-    if pairs.empty:
+    if pairs.is_empty():
         return pairs
 
-    # If a source row has an explicit lineage id and one or more targets share that import id,
-    # keep only those exact-lineage candidates for that source row.
-    source_lineage = (
-        pairs.get(
-            "source_lineage_id",
-            pd.Series([""] * len(pairs), index=pairs.index, dtype="string"),
-        )
-        .astype("string")
-        .fillna("")
-        .str.strip()
-    )
-    target_import = (
-        pairs.get(
-            "ynab_import_id",
-            pd.Series([""] * len(pairs), index=pairs.index, dtype="string"),
-        )
-        .astype("string")
-        .fillna("")
-        .str.strip()
-    )
-    exact_import_match = source_lineage.ne("") & source_lineage.eq(target_import)
-    import_match_by_source = exact_import_match.groupby(
-        pairs["source_row_id"], dropna=False
-    ).transform("any")
-    pairs = pairs.loc[~import_match_by_source | exact_import_match].copy()
+    pairs = pairs.with_columns(
+        pl.col("source_lineage_id")
+        .cast(pl.Utf8, strict=False)
+        .fill_null("")
+        .str.strip_chars()
+        .alias("source_lineage_id"),
+        pl.col("ynab_import_id")
+        .cast(pl.Utf8, strict=False)
+        .fill_null("")
+        .str.strip_chars()
+        .alias("ynab_import_id"),
+    ).with_columns(
+        (
+            (pl.col("source_lineage_id") != "")
+            & (pl.col("source_lineage_id") == pl.col("ynab_import_id"))
+        ).alias("_exact_import_match")
+    ).with_columns(
+        pl.col("_exact_import_match").any().over("source_row_id").alias("_import_match_by_source")
+    ).filter(
+        ~pl.col("_import_match_by_source") | pl.col("_exact_import_match")
+    ).drop("_import_match_by_source", "_exact_import_match")
 
-    source_lineage = (
-        pairs.get(
-            "source_lineage_id",
-            pd.Series([""] * len(pairs), index=pairs.index, dtype="string"),
+    pairs = pairs.with_columns(
+        pl.struct(["source_lineage_id", "target_memo"])
+        .map_elements(
+            lambda row: bool(row["source_lineage_id"])
+            and row["source_lineage_id"] in _target_memo_lineage_ids(row),
+            return_dtype=pl.Boolean,
         )
-        .astype("string")
-        .fillna("")
-        .str.strip()
-    )
-    target_memo_lineages = pairs.apply(_target_memo_lineage_ids, axis=1)
-    exact_memo_lineage_match = source_lineage.ne("") & pd.Series(
-        [
-            lineage in lineage_ids
-            for lineage, lineage_ids in zip(source_lineage.tolist(), target_memo_lineages.tolist())
-        ],
-        index=pairs.index,
-    )
-    memo_lineage_by_source = exact_memo_lineage_match.groupby(
-        pairs["source_row_id"], dropna=False
-    ).transform("any")
-    pairs = pairs.loc[~memo_lineage_by_source | exact_memo_lineage_match].copy()
+        .alias("_exact_memo_lineage_match")
+    ).with_columns(
+        pl.col("_exact_memo_lineage_match").any().over("source_row_id").alias("_memo_lineage_by_source")
+    ).filter(
+        ~pl.col("_memo_lineage_by_source") | pl.col("_exact_memo_lineage_match")
+    ).drop("_memo_lineage_by_source", "_exact_memo_lineage_match")
 
-    source_candidate_counts = (
-        pairs.groupby("source_row_id", dropna=False)
-        .size()
-        .reset_index(name="_source_candidate_count")
+    pairs = pairs.with_columns(
+        pl.len().over("source_row_id").alias("_source_candidate_count"),
+        pl.len().over("target_row_id").alias("_target_candidate_count"),
+    ).with_columns(
+        (
+            (pl.col("_source_candidate_count") > 1)
+            | (pl.col("_target_candidate_count") > 1)
+        ).alias("ambiguous_key")
     )
-    target_candidate_counts = (
-        pairs.groupby("target_row_id", dropna=False)
-        .size()
-        .reset_index(name="_target_candidate_count")
-    )
-    pairs = pairs.merge(source_candidate_counts, on="source_row_id", how="left")
-    pairs = pairs.merge(target_candidate_counts, on="target_row_id", how="left")
-    pairs["ambiguous_key"] = pairs["_source_candidate_count"].fillna(0).astype(int).gt(1) | pairs[
-        "_target_candidate_count"
-    ].fillna(0).astype(int).gt(1)
     return pairs
 
 
-def _apply_review_target_suggestions(relations: pd.DataFrame, *, map_path: Path) -> pd.DataFrame:
-    source_rows = relations.loc[relations["source_present"].astype(bool)].copy()
-    if source_rows.empty:
+def _apply_review_target_suggestions(
+    relations: pl.DataFrame,
+    *,
+    map_path: Path,
+) -> pl.DataFrame:
+    source_rows = relations.filter(pl.col("source_present"))
+    if source_rows.is_empty():
         return relations
 
-    candidates = pd.DataFrame(
-        {
-            "source": source_rows["source"].astype("string").fillna("").str.strip(),
-            "account_name": source_rows["source_account"].astype("string").fillna("").str.strip(),
-            "source_account": source_rows["source_account"].astype("string").fillna("").str.strip(),
-            "source_row_id": source_rows["source_row_id"].astype("string").fillna("").str.strip(),
-            "date": source_rows["source_date"].astype("string").fillna("").str.strip(),
-            "outflow_ils": pd.to_numeric(source_rows["outflow_ils"], errors="coerce").fillna(0.0),
-            "inflow_ils": pd.to_numeric(source_rows["inflow_ils"], errors="coerce").fillna(0.0),
-            "memo": source_rows["source_memo"].astype("string").fillna("").str.strip(),
-            "raw_text": source_rows["source_memo"].astype("string").fillna("").str.strip(),
-            "fingerprint": source_rows["source_fingerprint"]
-            .astype("string")
-            .fillna("")
-            .str.strip(),
-        }
-    )
-    candidates = candidates.loc[candidates["fingerprint"].ne("")].copy()
-    if candidates.empty:
-        suggested = pd.DataFrame(
-            columns=[
-                "source_row_id",
-                "suggested_payee_options",
-                "suggested_category_options",
-                "suggested_payee_selected",
-                "suggested_category_selected",
+    text = lambda name: pl.col(name).cast(pl.String, strict=False).fill_null("").str.strip_chars()
+    candidates = source_rows.select(
+        text("source").alias("source"),
+        text("source_account").alias("account_name"),
+        text("source_account").alias("source_account"),
+        text("source_row_id").alias("source_row_id"),
+        text("source_date").alias("date"),
+        pl.col("outflow_ils").cast(pl.Float64, strict=False).fill_null(0.0).alias("outflow_ils"),
+        pl.col("inflow_ils").cast(pl.Float64, strict=False).fill_null(0.0).alias("inflow_ils"),
+        text("source_memo").alias("memo"),
+        text("source_memo").alias("raw_text"),
+        text("source_fingerprint").alias("fingerprint"),
+    ).filter(pl.col("fingerprint") != "")
+
+    if candidates.is_empty():
+        suggested = pl.DataFrame(
+            schema=[
+                ("source_row_id", pl.String),
+                ("suggested_payee_options", pl.String),
+                ("suggested_category_options", pl.String),
+                ("suggested_payee_selected", pl.String),
+                ("suggested_category_selected", pl.String),
             ]
         )
     else:
-        suggested = build_target_suggestions(candidates, map_path=map_path)
-    suggested = suggested.rename(
-        columns={
-            "payee_options": "suggested_payee_options",
-            "category_options": "suggested_category_options",
-            "payee_selected": "suggested_payee_selected",
-            "category_selected": "suggested_category_selected",
-        }
-    )
-    if not suggested.empty:
-        suggested = (
-            suggested.groupby("source_row_id", dropna=False, sort=False)
-            .agg(
-                suggested_payee_options=(
-                    "suggested_payee_options",
-                    lambda values: _review_join_options(*values.tolist()),
-                ),
-                suggested_category_options=(
-                    "suggested_category_options",
-                    lambda values: _review_join_options(*values.tolist()),
-                ),
-                suggested_payee_selected=("suggested_payee_selected", _review_first_nonempty),
-                suggested_category_selected=("suggested_category_selected", _review_first_nonempty),
+        suggested = pl.from_pandas(
+            build_target_suggestions(candidates.to_pandas(), map_path=map_path)
+        ).rename(
+            {
+                "payee_options": "suggested_payee_options",
+                "category_options": "suggested_category_options",
+                "payee_selected": "suggested_payee_selected",
+                "category_selected": "suggested_category_selected",
+            }
+        )
+        if not suggested.is_empty():
+            suggested = suggested.group_by("source_row_id", maintain_order=True).agg(
+                pl.col("suggested_payee_options"),
+                pl.col("suggested_category_options"),
+                pl.col("suggested_payee_selected"),
+                pl.col("suggested_category_selected"),
+            ).with_columns(
+                pl.col("suggested_payee_options")
+                .map_elements(lambda values: _review_join_options(*values), return_dtype=pl.String)
+                .alias("suggested_payee_options"),
+                pl.col("suggested_category_options")
+                .map_elements(lambda values: _review_join_options(*values), return_dtype=pl.String)
+                .alias("suggested_category_options"),
+                pl.col("suggested_payee_selected")
+                .map_elements(
+                    lambda values: next(
+                        (item.strip() for item in values if item and item.strip()),
+                        "",
+                    ),
+                    return_dtype=pl.String,
+                )
+                .alias("suggested_payee_selected"),
+                pl.col("suggested_category_selected")
+                .map_elements(
+                    lambda values: next(
+                        (item.strip() for item in values if item and item.strip()),
+                        "",
+                    ),
+                    return_dtype=pl.String,
+                )
+                .alias("suggested_category_selected"),
             )
-            .reset_index()
-        )
-    merged = relations.merge(
-        suggested[
-            [
-                "source_row_id",
-                "suggested_payee_options",
-                "suggested_category_options",
-                "suggested_payee_selected",
-                "suggested_category_selected",
-            ]
-        ],
-        on="source_row_id",
-        how="left",
-    )
 
-    current_target_payee = merged["target_payee_current"].astype("string").fillna("").str.strip()
-    current_target_category = pd.Series(
-        [
-            _normalize_selected_category(payee, category)
-            for payee, category in zip(
-                merged["target_payee_current"].astype("string").fillna("").str.strip(),
-                merged["target_category_current"].astype("string").fillna("").str.strip(),
-            )
-        ],
-        index=merged.index,
-        dtype="string",
-    )
-    suggested_payee = (
-        merged.get("suggested_payee_selected", pd.Series([""] * len(merged)))
-        .astype("string")
-        .fillna("")
-        .str.strip()
-    )
-    suggested_category = (
-        merged.get("suggested_category_selected", pd.Series([""] * len(merged)))
-        .astype("string")
-        .fillna("")
-        .map(review_model.normalize_category_value)
-    )
-    has_target = merged["target_present"].astype(bool)
-
-    merged["payee_options"] = [
-        _review_join_options(current, suggested)
-        for current, suggested in zip(
-            current_target_payee,
-            merged.get("suggested_payee_options", pd.Series([""] * len(merged))),
+    merged = relations.join(suggested, on="source_row_id", how="left").with_columns(
+        text("target_payee_current").alias("_current_target_payee"),
+        pl.struct(["target_payee_current", "target_category_current"])
+        .map_elements(
+            lambda row: _normalize_selected_category(
+                _optional_text(row["target_payee_current"]),
+                _optional_text(row["target_category_current"]),
+            ),
+            return_dtype=pl.String,
         )
-    ]
-    merged["category_options"] = [
-        _review_join_options(current, suggested)
-        for current, suggested in zip(
-            current_target_category,
-            merged.get("suggested_category_options", pd.Series([""] * len(merged))),
+        .alias("_current_target_category"),
+        text("suggested_payee_selected").alias("_suggested_payee"),
+        pl.col("suggested_category_selected")
+        .cast(pl.String, strict=False)
+        .fill_null("")
+        .map_elements(review_model.normalize_category_value, return_dtype=pl.String)
+        .alias("_suggested_category"),
+    ).with_columns(
+        pl.struct(["_current_target_payee", "suggested_payee_options"])
+        .map_elements(
+            lambda row: _review_join_options(
+                row["_current_target_payee"],
+                _optional_text(row["suggested_payee_options"]),
+            ),
+            return_dtype=pl.String,
         )
-    ]
-    merged["target_payee_selected"] = current_target_payee.where(
-        has_target & current_target_payee.ne(""),
-        suggested_payee,
-    )
-    merged["target_category_selected"] = current_target_category.where(
-        has_target & current_target_category.ne(""),
-        suggested_category,
+        .alias("payee_options"),
+        pl.struct(["_current_target_category", "suggested_category_options"])
+        .map_elements(
+            lambda row: _review_join_options(
+                row["_current_target_category"],
+                _optional_text(row["suggested_category_options"]),
+            ),
+            return_dtype=pl.String,
+        )
+        .alias("category_options"),
+        pl.when(pl.col("target_present") & (pl.col("_current_target_payee") != ""))
+        .then(pl.col("_current_target_payee"))
+        .otherwise(pl.col("_suggested_payee"))
+        .alias("target_payee_selected"),
+        pl.when(pl.col("target_present") & (pl.col("_current_target_category") != ""))
+        .then(pl.col("_current_target_category"))
+        .otherwise(pl.col("_suggested_category"))
+        .alias("target_category_selected"),
     )
 
     return merged.drop(
-        columns=[
-            col
-            for col in [
-                "suggested_payee_options",
-                "suggested_category_options",
-                "suggested_payee_selected",
-                "suggested_category_selected",
-            ]
-            if col in merged.columns
-        ]
+        "suggested_payee_options",
+        "suggested_category_options",
+        "suggested_payee_selected",
+        "suggested_category_selected",
+        "_current_target_payee",
+        "_current_target_category",
+        "_suggested_payee",
+        "_suggested_category",
     )
 
 
 def build_review_rows(
-    source_df: pd.DataFrame,
-    ynab_df: pd.DataFrame,
+    source_df: pl.DataFrame,
+    ynab_df: pl.DataFrame,
     *,
     map_path: Path,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    prepared_source = _prepare_review_source_rows(source_df)
-    prepared_target = _prepare_review_target_rows(ynab_df)
-    pairs = _institutional_candidate_pairs(prepared_source, prepared_target)
-
-    rows: list[dict[str, object]] = []
-    pair_source_ids = set(
-        pairs.get("source_row_id", pd.Series(dtype="string")).astype("string").tolist()
+    prepared_source_pl = _prepare_review_source_rows(source_df)
+    prepared_target_pl = _prepare_review_target_rows(ynab_df)
+    pairs_pl = _institutional_candidate_pairs(prepared_source_pl, prepared_target_pl)
+    text = lambda name: pl.col(name).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
+    bool_text = lambda name: text(name).str.to_lowercase()
+    transaction_id_expr = lambda account, date, outflow, inflow, fingerprint, raw_text: pl.struct(
+        account_name=account,
+        date=date,
+        outflow_ils=outflow,
+        inflow_ils=inflow,
+        fingerprint=fingerprint,
+        raw_text=raw_text,
+    ).map_elements(lambda row: _make_transaction_id(pd.Series(row)), return_dtype=pl.String)
+    normalized_category_expr = lambda col: pl.col(col).map_elements(
+        review_model.normalize_category_value,
+        return_dtype=pl.String,
     )
-    pair_target_ids = set(
-        pairs.get("target_row_id", pd.Series(dtype="string")).astype("string").tolist()
+    selected_category_expr = lambda payee_col, category_col: pl.struct(
+        payee=pl.col(payee_col), category=pl.col(category_col)
+    ).map_elements(
+        lambda row: _normalize_selected_category(
+            _optional_text(row["payee"]),
+            _optional_text(row["category"]),
+        ),
+        return_dtype=pl.String,
+    )
+    settled_target_expr = pl.struct(
+        ["ynab_approved", "ynab_payee_raw", "ynab_category_raw", "ynab_import_id", "ynab_matched_transaction_id", "target_memo", "ynab_cleared"]
+    ).map_elements(
+        lambda row: _is_target_only_settled(pd.Series(row)),
+        return_dtype=pl.Boolean,
+    )
+    transfer_counterpart_expr = pl.struct(["ynab_payee_raw"]).map_elements(
+        lambda row: _is_target_only_transfer_counterpart(pd.Series(row)),
+        return_dtype=pl.Boolean,
     )
 
-    for _, row in pairs.iterrows():
-        is_ambiguous = bool(row.get("ambiguous_key", False))
-        target_payee = _optional_text(row.get("ynab_payee_raw"))
-        target_category_current = _optional_text(row.get("ynab_category_raw"))
-        target_category = _normalize_selected_category(
-            target_payee,
-            target_category_current,
-        )
-        source_payee = _optional_text(row.get("source_payee_current"))
-        source_category = review_model.normalize_category_value(
-            _optional_text(row.get("source_category_current"))
-        )
-        matched_cleared = (not is_ambiguous) and _is_cleared_match(row)
-        rows.append(
-            {
-                "transaction_id": _make_transaction_id(
-                    pd.Series(
-                        {
-                            "account_name": row.get("account_name"),
-                            "date": row.get("source_date"),
-                            "outflow_ils": row.get("outflow_ils"),
-                            "inflow_ils": row.get("inflow_ils"),
-                            "fingerprint": row.get("fingerprint"),
-                            "raw_text": row.get("source_memo"),
-                            "target_row_id": row.get("target_row_id"),
-                        }
-                    )
-                ),
-                "source": _optional_text(row.get("source_type")),
-                "account_name": _optional_text(row.get("ynab_account") or row.get("account_name")),
-                "date": _optional_text(row.get("source_date") or row.get("target_date")),
-                "outflow_ils": row.get("outflow_ils", 0.0),
-                "inflow_ils": row.get("inflow_ils", 0.0),
-                "memo": _optional_text(row.get("source_memo") or row.get("target_memo")),
-                "fingerprint": _optional_text(
-                    row.get("fingerprint") or row.get("ynab_fingerprint")
-                ),
-                "payee_options": target_payee,
-                "category_options": target_category,
-                "match_status": (
-                    "ambiguous"
-                    if is_ambiguous
-                    else ("matched_cleared" if matched_cleared else "matched_auto")
-                ),
-                "update_maps": "",
-                "decision_action": "No decision" if is_ambiguous else "keep_match",
-                "reviewed": matched_cleared,
-                "workflow_type": "institutional",
-                "relation_kind": (
-                    "ambiguous_candidate"
-                    if is_ambiguous
-                    else ("matched_cleared_pair" if matched_cleared else "matched_pair")
-                ),
-                "match_method": "exact_date_amount_not_unique"
-                if is_ambiguous
-                else "exact_date_amount",
-                "source_present": True,
-                "target_present": True,
-                "source_row_id": _optional_text(row.get("source_row_id")),
-                "target_row_id": _optional_text(row.get("target_row_id")),
-                "source_account": _optional_text(
-                    row.get("source_account") or row.get("account_name")
-                ),
-                "target_account": _optional_text(
-                    row.get("ynab_account") or row.get("account_name")
-                ),
-                "source_date": _optional_text(row.get("source_date")),
-                "target_date": _optional_text(row.get("target_date")),
-                "source_payee_current": source_payee,
-                "target_payee_current": target_payee,
-                "source_category_current": source_category,
-                "target_category_current": target_category_current,
-                "source_memo": _optional_text(row.get("source_memo")),
-                "target_memo": _optional_text(row.get("target_memo")),
-                "source_fingerprint": _optional_text(row.get("fingerprint")),
-                "target_fingerprint": _optional_text(row.get("ynab_fingerprint")),
-                "source_bank_txn_id": _optional_text(row.get("source_bank_txn_id")),
-                "source_card_txn_id": _optional_text(row.get("source_card_txn_id")),
-                "source_card_suffix": _optional_text(row.get("source_card_suffix")),
-                "source_secondary_date": _optional_text(row.get("source_secondary_date")),
-                "source_ref": _optional_text(row.get("source_ref")),
-                **_default_source_context(source_category=source_category),
-                "source_payee_selected": source_payee,
-                "source_category_selected": source_category,
-                "target_context_kind": "",
-                "target_context_matching_split_ids": "",
-                "target_payee_selected": target_payee,
-                "target_category_selected": target_category,
-                "source_transaction": row.get("source_transaction"),
-                "target_transaction": row.get("target_transaction"),
-            }
-        )
+    matched_pl = pairs_pl.with_columns(
+        normalized_category_expr("source_category_current").alias("_source_category_norm"),
+        selected_category_expr("ynab_payee_raw", "ynab_category_raw").alias("_target_category_selected"),
+        (((~pl.col("ambiguous_key")) & bool_text("ynab_cleared").is_in(["cleared", "reconciled"]))).alias("_matched_cleared"),
+        transaction_id_expr(
+            text("account_name"),
+            text("source_date"),
+            pl.col("outflow_ils"),
+            pl.col("inflow_ils"),
+            text("fingerprint"),
+            text("source_memo"),
+        ).alias("transaction_id"),
+    ).with_columns(
+        text("source_type").alias("source"),
+        pl.coalesce([text("ynab_account"), text("account_name")]).alias("account_name"),
+        pl.coalesce([text("source_date"), text("target_date")]).alias("date"),
+        pl.col("outflow_ils").alias("outflow_ils"),
+        pl.col("inflow_ils").alias("inflow_ils"),
+        pl.coalesce([text("source_memo"), text("target_memo")]).alias("memo"),
+        pl.coalesce([text("fingerprint"), text("ynab_fingerprint")]).alias("fingerprint"),
+        text("ynab_payee_raw").alias("payee_options"),
+        pl.col("_target_category_selected").alias("category_options"),
+        pl.when(pl.col("ambiguous_key"))
+        .then(pl.lit("ambiguous"))
+        .when(pl.col("_matched_cleared"))
+        .then(pl.lit("matched_cleared"))
+        .otherwise(pl.lit("matched_auto"))
+        .alias("match_status"),
+        pl.lit("").alias("update_maps"),
+        pl.when(pl.col("ambiguous_key")).then(pl.lit("No decision")).otherwise(pl.lit("keep_match")).alias("decision_action"),
+        pl.col("_matched_cleared").alias("reviewed"),
+        pl.lit("institutional").alias("workflow_type"),
+        pl.when(pl.col("ambiguous_key"))
+        .then(pl.lit("ambiguous_candidate"))
+        .when(pl.col("_matched_cleared"))
+        .then(pl.lit("matched_cleared_pair"))
+        .otherwise(pl.lit("matched_pair"))
+        .alias("relation_kind"),
+        pl.when(pl.col("ambiguous_key"))
+        .then(pl.lit("exact_date_amount_not_unique"))
+        .otherwise(pl.lit("exact_date_amount"))
+        .alias("match_method"),
+        pl.lit(True).alias("source_present"),
+        pl.lit(True).alias("target_present"),
+        text("source_row_id").alias("source_row_id"),
+        text("target_row_id").alias("target_row_id"),
+        pl.coalesce([text("source_account"), text("account_name")]).alias("source_account"),
+        pl.coalesce([text("ynab_account"), text("account_name")]).alias("target_account"),
+        text("source_date").alias("source_date"),
+        text("target_date").alias("target_date"),
+        text("source_payee_current").alias("source_payee_current"),
+        text("ynab_payee_raw").alias("target_payee_current"),
+        pl.col("_source_category_norm").alias("source_category_current"),
+        text("ynab_category_raw").alias("target_category_current"),
+        text("source_memo").alias("source_memo"),
+        text("target_memo").alias("target_memo"),
+        text("fingerprint").alias("source_fingerprint"),
+        text("ynab_fingerprint").alias("target_fingerprint"),
+        text("source_bank_txn_id").alias("source_bank_txn_id"),
+        text("source_card_txn_id").alias("source_card_txn_id"),
+        text("source_card_suffix").alias("source_card_suffix"),
+        text("source_secondary_date").alias("source_secondary_date"),
+        text("source_ref").alias("source_ref"),
+        pl.lit("direct_source").alias("source_context_kind"),
+        pl.lit("").alias("source_context_category_id"),
+        pl.col("_source_category_norm").alias("source_context_category_name"),
+        pl.lit("").alias("source_context_matching_split_ids"),
+        text("source_payee_current").alias("source_payee_selected"),
+        pl.col("_source_category_norm").alias("source_category_selected"),
+        pl.lit("").alias("target_context_kind"),
+        pl.lit("").alias("target_context_matching_split_ids"),
+        text("ynab_payee_raw").alias("target_payee_selected"),
+        pl.col("_target_category_selected").alias("target_category_selected"),
+    ).select(REVIEW_ROW_COLUMNS)
 
-    unmatched_source = prepared_source.loc[
-        ~prepared_source["source_row_id"].astype("string").isin(pair_source_ids)
-    ].copy()
-    for _, row in unmatched_source.iterrows():
-        source_payee = _optional_text(row.get("source_payee_current"))
-        source_category = review_model.normalize_category_value(
-            _optional_text(row.get("source_category_current"))
-        )
-        rows.append(
-            {
-                "transaction_id": _make_transaction_id(
-                    pd.Series(
-                        {
-                            "account_name": row.get("account_name"),
-                            "date": row.get("source_date"),
-                            "outflow_ils": row.get("outflow_ils"),
-                            "inflow_ils": row.get("inflow_ils"),
-                            "fingerprint": row.get("fingerprint"),
-                            "raw_text": row.get("source_memo"),
-                        }
-                    )
-                ),
-                "source": _optional_text(row.get("source_type")),
-                "account_name": _optional_text(row.get("account_name")),
-                "date": _optional_text(row.get("source_date")),
-                "outflow_ils": row.get("outflow_ils", 0.0),
-                "inflow_ils": row.get("inflow_ils", 0.0),
-                "memo": _optional_text(row.get("source_memo")),
-                "fingerprint": _optional_text(row.get("fingerprint")),
-                "payee_options": "",
-                "category_options": "",
-                "match_status": "source_only",
-                "update_maps": "",
-                "decision_action": "create_target",
-                "reviewed": False,
-                "workflow_type": "institutional",
-                "relation_kind": "source_only",
-                "match_method": "",
-                "source_present": True,
-                "target_present": False,
-                "source_row_id": _optional_text(row.get("source_row_id")),
-                "target_row_id": "",
-                "source_account": _optional_text(
-                    row.get("source_account") or row.get("account_name")
-                ),
-                "target_account": _optional_text(row.get("account_name")),
-                "source_date": _optional_text(row.get("source_date")),
-                "target_date": "",
-                "source_payee_current": source_payee,
-                "target_payee_current": "",
-                "source_category_current": source_category,
-                "target_category_current": "",
-                "source_memo": _optional_text(row.get("source_memo")),
-                "target_memo": "",
-                "source_fingerprint": _optional_text(row.get("fingerprint")),
-                "target_fingerprint": "",
-                "source_bank_txn_id": _optional_text(row.get("source_bank_txn_id")),
-                "source_card_txn_id": _optional_text(row.get("source_card_txn_id")),
-                "source_card_suffix": _optional_text(row.get("source_card_suffix")),
-                "source_secondary_date": _optional_text(row.get("source_secondary_date")),
-                "source_ref": _optional_text(row.get("source_ref")),
-                **_default_source_context(source_category=source_category),
-                "source_payee_selected": source_payee,
-                "source_category_selected": source_category,
-                "target_context_kind": "",
-                "target_context_matching_split_ids": "",
-                "target_payee_selected": "",
-                "target_category_selected": "",
-                "source_transaction": row.get("source_transaction"),
-                "target_transaction": None,
-            }
-        )
+    matched_source_ids = pairs_pl.select("source_row_id").unique()
+    unmatched_source_pl = prepared_source_pl.join(
+        matched_source_ids,
+        on="source_row_id",
+        how="anti",
+    ).with_columns(
+        normalized_category_expr("source_category_current").alias("_source_category_norm"),
+        transaction_id_expr(
+            text("account_name"),
+            text("source_date"),
+            pl.col("outflow_ils"),
+            pl.col("inflow_ils"),
+            text("fingerprint"),
+            text("source_memo"),
+        ).alias("transaction_id"),
+    ).with_columns(
+        text("source_type").alias("source"),
+        text("account_name").alias("account_name"),
+        text("source_date").alias("date"),
+        pl.col("outflow_ils").alias("outflow_ils"),
+        pl.col("inflow_ils").alias("inflow_ils"),
+        text("source_memo").alias("memo"),
+        text("fingerprint").alias("fingerprint"),
+        pl.lit("").alias("payee_options"),
+        pl.lit("").alias("category_options"),
+        pl.lit("source_only").alias("match_status"),
+        pl.lit("").alias("update_maps"),
+        pl.lit("create_target").alias("decision_action"),
+        pl.lit(False).alias("reviewed"),
+        pl.lit("institutional").alias("workflow_type"),
+        pl.lit("source_only").alias("relation_kind"),
+        pl.lit("").alias("match_method"),
+        pl.lit(True).alias("source_present"),
+        pl.lit(False).alias("target_present"),
+        text("source_row_id").alias("source_row_id"),
+        pl.lit("").alias("target_row_id"),
+        pl.coalesce([text("source_account"), text("account_name")]).alias("source_account"),
+        text("account_name").alias("target_account"),
+        text("source_date").alias("source_date"),
+        pl.lit("").alias("target_date"),
+        text("source_payee_current").alias("source_payee_current"),
+        pl.lit("").alias("target_payee_current"),
+        pl.col("_source_category_norm").alias("source_category_current"),
+        pl.lit("").alias("target_category_current"),
+        text("source_memo").alias("source_memo"),
+        pl.lit("").alias("target_memo"),
+        text("fingerprint").alias("source_fingerprint"),
+        pl.lit("").alias("target_fingerprint"),
+        text("source_bank_txn_id").alias("source_bank_txn_id"),
+        text("source_card_txn_id").alias("source_card_txn_id"),
+        text("source_card_suffix").alias("source_card_suffix"),
+        text("source_secondary_date").alias("source_secondary_date"),
+        text("source_ref").alias("source_ref"),
+        pl.lit("direct_source").alias("source_context_kind"),
+        pl.lit("").alias("source_context_category_id"),
+        pl.col("_source_category_norm").alias("source_context_category_name"),
+        pl.lit("").alias("source_context_matching_split_ids"),
+        text("source_payee_current").alias("source_payee_selected"),
+        pl.col("_source_category_norm").alias("source_category_selected"),
+        pl.lit("").alias("target_context_kind"),
+        pl.lit("").alias("target_context_matching_split_ids"),
+        pl.lit("").alias("target_payee_selected"),
+        pl.lit("").alias("target_category_selected"),
+        pl.lit(None, dtype=pl.Object).alias("target_transaction"),
+    ).select(REVIEW_ROW_COLUMNS)
 
-    unmatched_target = prepared_target.loc[
-        ~prepared_target["target_row_id"].astype("string").isin(pair_target_ids)
-    ].copy()
-    for _, row in unmatched_target.iterrows():
-        target_payee = _optional_text(row.get("ynab_payee_raw"))
-        target_category_current = _optional_text(row.get("ynab_category_raw"))
-        target_category = _normalize_selected_category(
-            target_payee,
-            target_category_current,
-        )
-        settled_transfer_counterpart = _is_target_only_transfer_counterpart(row)
-        settled_target_only = settled_transfer_counterpart or _is_target_only_settled(row)
-        rows.append(
-            {
-                "transaction_id": _make_transaction_id(
-                    pd.Series(
-                        {
-                            "account_name": row.get("ynab_account"),
-                            "date": row.get("target_date"),
-                            "outflow_ils": row.get("ynab_outflow_ils"),
-                            "inflow_ils": row.get("ynab_inflow_ils"),
-                            "fingerprint": row.get("ynab_fingerprint"),
-                            "raw_text": row.get("target_memo"),
-                        }
-                    )
-                ),
-                "source": "ynab",
-                "account_name": _optional_text(row.get("ynab_account")),
-                "date": _optional_text(row.get("target_date")),
-                "outflow_ils": row.get("ynab_outflow_ils", 0.0),
-                "inflow_ils": row.get("ynab_inflow_ils", 0.0),
-                "memo": _optional_text(row.get("target_memo")),
-                "fingerprint": _optional_text(row.get("ynab_fingerprint")),
-                "payee_options": target_payee,
-                "category_options": target_category,
-                "match_status": "target_only",
-                "update_maps": "",
-                "decision_action": "ignore_row" if settled_target_only else "No decision",
-                "reviewed": settled_target_only,
-                "workflow_type": "institutional",
-                "relation_kind": (
-                    "target_only_transfer_counterpart"
-                    if settled_transfer_counterpart
-                    else (
-                        "target_only_cleared"
-                        if _is_cleared_match(row)
-                        else ("target_only_manual" if settled_target_only else "target_only")
-                    )
-                ),
-                "match_method": "",
-                "source_present": False,
-                "target_present": True,
-                "source_row_id": "",
-                "target_row_id": _optional_text(row.get("target_row_id")),
-                "source_account": "",
-                "target_account": _optional_text(row.get("ynab_account")),
-                "source_date": "",
-                "target_date": _optional_text(row.get("target_date")),
-                "source_payee_current": "",
-                "target_payee_current": target_payee,
-                "source_category_current": "",
-                "target_category_current": target_category_current,
-                "source_memo": "",
-                "target_memo": _optional_text(row.get("target_memo")),
-                "source_fingerprint": "",
-                "target_fingerprint": _optional_text(row.get("ynab_fingerprint")),
-                "source_bank_txn_id": "",
-                "source_card_txn_id": "",
-                "source_card_suffix": "",
-                "source_secondary_date": "",
-                "source_ref": "",
-                "source_context_kind": "",
-                "source_context_category_id": "",
-                "source_context_category_name": "",
-                "source_context_matching_split_ids": "",
-                "source_payee_selected": "",
-                "source_category_selected": "",
-                "target_context_kind": "",
-                "target_context_matching_split_ids": "",
-                "target_payee_selected": target_payee,
-                "target_category_selected": target_category,
-                "source_transaction": None,
-                "target_transaction": row.get("target_transaction"),
-            }
-        )
+    matched_target_ids = pairs_pl.select("target_row_id").unique()
+    unmatched_target_pl = prepared_target_pl.join(
+        matched_target_ids,
+        on="target_row_id",
+        how="anti",
+    ).with_columns(
+        selected_category_expr("ynab_payee_raw", "ynab_category_raw").alias("_target_category_selected"),
+        transfer_counterpart_expr.alias("_settled_transfer_counterpart"),
+        settled_target_expr.alias("_settled_target_only"),
+        transaction_id_expr(
+            text("ynab_account"),
+            text("target_date"),
+            pl.col("ynab_outflow_ils"),
+            pl.col("ynab_inflow_ils"),
+            text("ynab_fingerprint"),
+            text("target_memo"),
+        ).alias("transaction_id"),
+    ).with_columns(
+        pl.lit("ynab").alias("source"),
+        text("ynab_account").alias("account_name"),
+        text("target_date").alias("date"),
+        pl.col("ynab_outflow_ils").alias("outflow_ils"),
+        pl.col("ynab_inflow_ils").alias("inflow_ils"),
+        text("target_memo").alias("memo"),
+        text("ynab_fingerprint").alias("fingerprint"),
+        text("ynab_payee_raw").alias("payee_options"),
+        pl.col("_target_category_selected").alias("category_options"),
+        pl.lit("target_only").alias("match_status"),
+        pl.lit("").alias("update_maps"),
+        pl.when(pl.col("_settled_target_only")).then(pl.lit("ignore_row")).otherwise(pl.lit("No decision")).alias("decision_action"),
+        pl.col("_settled_target_only").alias("reviewed"),
+        pl.lit("institutional").alias("workflow_type"),
+        pl.when(pl.col("_settled_transfer_counterpart"))
+        .then(pl.lit("target_only_transfer_counterpart"))
+        .when(bool_text("ynab_cleared").is_in(["cleared", "reconciled"]))
+        .then(pl.lit("target_only_cleared"))
+        .when(pl.col("_settled_target_only"))
+        .then(pl.lit("target_only_manual"))
+        .otherwise(pl.lit("target_only"))
+        .alias("relation_kind"),
+        pl.lit("").alias("match_method"),
+        pl.lit(False).alias("source_present"),
+        pl.lit(True).alias("target_present"),
+        pl.lit("").alias("source_row_id"),
+        text("target_row_id").alias("target_row_id"),
+        pl.lit("").alias("source_account"),
+        text("ynab_account").alias("target_account"),
+        pl.lit("").alias("source_date"),
+        text("target_date").alias("target_date"),
+        pl.lit("").alias("source_payee_current"),
+        text("ynab_payee_raw").alias("target_payee_current"),
+        pl.lit("").alias("source_category_current"),
+        text("ynab_category_raw").alias("target_category_current"),
+        pl.lit("").alias("source_memo"),
+        text("target_memo").alias("target_memo"),
+        pl.lit("").alias("source_fingerprint"),
+        text("ynab_fingerprint").alias("target_fingerprint"),
+        pl.lit("").alias("source_bank_txn_id"),
+        pl.lit("").alias("source_card_txn_id"),
+        pl.lit("").alias("source_card_suffix"),
+        pl.lit("").alias("source_secondary_date"),
+        pl.lit("").alias("source_ref"),
+        pl.lit("").alias("source_context_kind"),
+        pl.lit("").alias("source_context_category_id"),
+        pl.lit("").alias("source_context_category_name"),
+        pl.lit("").alias("source_context_matching_split_ids"),
+        pl.lit("").alias("source_payee_selected"),
+        pl.lit("").alias("source_category_selected"),
+        pl.lit("").alias("target_context_kind"),
+        pl.lit("").alias("target_context_matching_split_ids"),
+        text("ynab_payee_raw").alias("target_payee_selected"),
+        pl.col("_target_category_selected").alias("target_category_selected"),
+        pl.lit(None, dtype=pl.Object).alias("source_transaction"),
+    ).select(REVIEW_ROW_COLUMNS)
 
-    relations = pd.DataFrame(rows, columns=REVIEW_ROW_COLUMNS)
-    relations = _apply_review_target_suggestions(relations, map_path=map_path)
+    relations_pl = pl.concat([matched_pl, unmatched_source_pl, unmatched_target_pl], how="diagonal_relaxed")
+    relations = _apply_review_target_suggestions(relations_pl, map_path=map_path)
     relations = review_io.project_review_artifact_to_flat_dataframe(relations)
-    return relations, pairs
+    return relations, pairs_pl.to_pandas()
 
 
 def main() -> None:
@@ -1549,10 +1659,9 @@ def main() -> None:
     if not source_paths:
         raise ValueError("Provide at least one --source or --source-dir input.")
 
-    source_df = _load_csvs(source_paths)
-    source_df = _dedupe_source_overlaps(source_df)
-    ynab_df = _load_canonical_transaction_input(Path(args.ynab)).to_pandas().fillna("")
-    if ynab_df.empty:
+    source_df = _dedupe_source_overlaps(_load_source_inputs(source_paths))
+    ynab_df = pl.from_arrow(read_transactions_arrow(Path(args.ynab)))
+    if ynab_df.is_empty():
         raise ValueError("No rows found in YNAB input.")
 
     out, pairs = build_review_rows(source_df, ynab_df, map_path=map_path)
