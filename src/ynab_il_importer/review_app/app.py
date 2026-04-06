@@ -1430,6 +1430,13 @@ def _split_signed_amount(split: dict[str, Any]) -> float:
     return inflow - outflow
 
 
+def _split_editor_amount_text(value: Any) -> str:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric):
+        return ""
+    return f"{float(numeric):g}"
+
+
 def _source_context_caption(row: pd.Series) -> str:
     context_kind = str(row.get("source_context_kind", "") or "").strip()
     category_name = str(row.get("source_context_category_name", "") or "").strip()
@@ -1474,26 +1481,6 @@ def _split_caption_lines(
             f"{prefix} {split_label}: {amount or '—'} | Payee: {payee} | Category: {category} | Memo: {memo}"
         )
     return lines
-
-
-def _render_split_section(
-    title: str,
-    *,
-    splits: list[dict[str, Any]] | None,
-    context_caption: str = "",
-    matching_split_ids: str = "",
-) -> None:
-    split_lines = _split_caption_lines(splits, matching_split_ids=matching_split_ids)
-    if not context_caption and not split_lines:
-        return
-    st.markdown(f"**{title}**")
-    if context_caption:
-        st.caption(context_caption)
-    if not split_lines:
-        st.caption("No split lines.")
-        return
-    for line in split_lines:
-        st.caption(line)
 
 
 def _target_split_editor_rows(row: pd.Series) -> list[dict[str, Any]]:
@@ -1618,6 +1605,7 @@ def _render_target_split_editor_dialog(
         lines,
         columns=["split_id", "payee_raw", "category_raw", "memo", "amount_ils"],
     )
+    editor_df["amount_ils"] = editor_df["amount_ils"].map(_split_editor_amount_text)
 
     st.checkbox(
         "Show all categories",
@@ -1638,12 +1626,17 @@ def _render_target_split_editor_dialog(
                 options=split_category_choices,
             ),
             "memo": st.column_config.TextColumn("Memo"),
-            "amount_ils": st.column_config.NumberColumn("Amount", format="%.2f"),
+            "amount_ils": st.column_config.TextColumn("Amount"),
         },
         use_container_width=True,
     )
 
     line_records = edited_df.to_dict(orient="records")
+    st.session_state["_split_editor"] = {
+        "idx": idx,
+        "group_fingerprint": group_fingerprint or "",
+        "lines": line_records,
+    }
     split_total = float(
         pd.to_numeric(edited_df.get("amount_ils", pd.Series(dtype=float)), errors="coerce")
         .fillna(0.0)
@@ -1802,31 +1795,6 @@ def _render_row_details(
         )
     for line in _row_context_lines(row):
         st.caption(line)
-
-    source_context_caption = _source_context_caption(row)
-    source_matching_split_ids = str(row.get("source_context_matching_split_ids", "") or "").strip()
-    target_matching_split_ids = str(row.get("target_context_matching_split_ids", "") or "").strip()
-    has_source_split_detail = bool(source_context_caption) or bool(
-        _split_caption_lines(source_splits, matching_split_ids=source_matching_split_ids)
-    )
-    has_target_split_detail = bool(
-        _split_caption_lines(target_splits, matching_split_ids=target_matching_split_ids)
-    )
-    if has_source_split_detail or has_target_split_detail:
-        split_source_col, split_target_col = st.columns(2)
-        with split_source_col:
-            _render_split_section(
-                "Source split detail",
-                splits=source_splits if isinstance(source_splits, list) else None,
-                context_caption=source_context_caption,
-                matching_split_ids=source_matching_split_ids,
-            )
-        with split_target_col:
-            _render_split_section(
-                "Target split detail",
-                splits=target_splits if isinstance(target_splits, list) else None,
-                matching_split_ids=target_matching_split_ids,
-            )
 
 
 def _render_row_controls(

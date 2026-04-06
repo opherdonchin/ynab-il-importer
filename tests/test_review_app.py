@@ -440,6 +440,12 @@ def test_split_category_summary_accepts_array_backed_split_payloads() -> None:
     assert review_app._split_category_summary(splits) == "Books -12; Gifts -10"
 
 
+def test_split_editor_amount_text_formats_numeric_and_blank_values() -> None:
+    assert review_app._split_editor_amount_text(-12.0) == "-12"
+    assert review_app._split_editor_amount_text("0.50") == "0.5"
+    assert review_app._split_editor_amount_text("-") == ""
+
+
 def test_target_split_editor_rows_accept_array_backed_split_payloads() -> None:
     row = pd.Series(
         {
@@ -656,14 +662,14 @@ def test_app_create_split_opens_modal_with_seeded_lines_and_cancel_clears_it(
             "payee_raw": "Cafe",
             "category_raw": "Food",
             "memo": "memo-t1",
-            "amount_ils": -10.0,
+            "amount_ils": "-10",
         },
         {
             "split_id": "",
             "payee_raw": "",
             "category_raw": "",
             "memo": "",
-            "amount_ils": 0.0,
+            "amount_ils": "0",
         },
     ]
 
@@ -740,14 +746,14 @@ def test_app_edit_split_opens_modal_with_committed_split_lines(tmp_path: Path) -
             "payee_raw": "Split Payee 1",
             "category_raw": "Food",
             "memo": "beans",
-            "amount_ils": -6.0,
+            "amount_ils": "-6",
         },
         {
             "split_id": "split-2",
             "payee_raw": "Split Payee 2",
             "category_raw": "Dining",
             "memo": "lunch",
-            "amount_ils": -4.0,
+            "amount_ils": "-4",
         },
     ]
 
@@ -955,12 +961,10 @@ def test_app_renders_canonical_split_detail_from_parquet(tmp_path: Path) -> None
 
     row = app.expander[0]
     markdown_text = "\n".join(_markdown_values(row))
-    caption_text = "\n".join(_caption_values(row))
-
-    assert "Source split detail" in markdown_text
-    assert "Target split detail" in markdown_text
-    assert "Matching split split-book-1" in caption_text
-    assert "Matching split split-house-1" in caption_text
+    assert "Source split detail" not in markdown_text
+    assert "Target split detail" not in markdown_text
+    assert "Split</td><td>Books -90; Gifts -50" in markdown_text
+    assert "Split</td><td>House and stuff -140" in markdown_text
 
 
 def test_changed_mask_aligns_duplicate_transaction_ids() -> None:
