@@ -55,8 +55,7 @@ EDITOR_STATE_PREFIXES = (
     "group_row_page_",
     "group_page",
     "row_page",
-    "split_editor_table_",
-    "split_show_all_categories_",
+    "_split_editor_",
 )
 EDITOR_STATE_KEYS = {
     "expanded_row_id",
@@ -170,8 +169,7 @@ def _clear_split_editor_state() -> None:
     split_keys = [
         key
         for key in list(st.session_state.keys())
-        if key.startswith("split_editor_table_")
-        or key.startswith("split_show_all_categories_")
+        if key.startswith("_split_editor_")
     ]
     for key in split_keys:
         del st.session_state[key]
@@ -1449,102 +1447,55 @@ def _split_editor_amount_text(value: Any) -> str:
     return f"{float(numeric):g}"
 
 
-SPLIT_EDITOR_COLUMNS = ["split_id", "payee_raw", "category_raw", "memo", "amount_ils"]
+_SPLIT_EDITOR_WIDGET_PREFIXES = (
+    "_split_editor_payee_",
+    "_split_editor_category_",
+    "_split_editor_memo_",
+    "_split_editor_amount_",
+    "_split_editor_remove_",
+)
 
 
-def _normalize_split_editor_line_record(line: dict[str, Any] | None) -> dict[str, Any]:
-    raw = line if isinstance(line, dict) else {}
-    return {
-        "split_id": str(raw.get("split_id", "") or "").strip(),
-        "payee_raw": str(raw.get("payee_raw", "") or "").strip(),
-        "category_raw": str(raw.get("category_raw", "") or "").strip(),
-        "memo": str(raw.get("memo", "") or "").strip(),
-        "amount_ils": _split_editor_amount_text(raw.get("amount_ils", "")),
-    }
+def _clear_split_line_widget_keys(line_id: int) -> None:
+    for prefix in _SPLIT_EDITOR_WIDGET_PREFIXES:
+        st.session_state.pop(f"{prefix}{line_id}", None)
 
 
-def _split_editor_widget_state_signature(widget_state: Any) -> str:
-    if not isinstance(widget_state, dict):
-        return ""
-    normalized_edited_rows: dict[str, dict[str, str]] = {}
-    for raw_index, raw_values in sorted(widget_state.get("edited_rows", {}).items()):
-        if not isinstance(raw_values, dict):
+def _collect_split_editor_lines() -> list[dict[str, Any]]:
+    editor_state = st.session_state.get("_split_editor")
+    if not isinstance(editor_state, dict):
+        return []
+    result: list[dict[str, Any]] = []
+    for line in editor_state.get("lines", []):
+        if not isinstance(line, dict):
             continue
-        row_values: dict[str, str] = {}
-        for column, value in raw_values.items():
-            if column not in SPLIT_EDITOR_COLUMNS:
-                continue
-            if column == "amount_ils":
-                row_values[column] = _split_editor_amount_text(value)
-            else:
-                row_values[column] = str(value or "").strip()
-        normalized_edited_rows[str(raw_index)] = row_values
-
-    normalized_added_rows: list[dict[str, str]] = []
-    for raw_row in widget_state.get("added_rows", []):
-        normalized_added_rows.append(_normalize_split_editor_line_record(raw_row))
-
-    normalized_deleted_rows = sorted(
-        int(raw_index)
-        for raw_index in widget_state.get("deleted_rows", [])
-        if str(raw_index).strip()
-    )
-    payload = {
-        "edited_rows": normalized_edited_rows,
-        "added_rows": normalized_added_rows,
-        "deleted_rows": normalized_deleted_rows,
-    }
-    return json.dumps(payload, sort_keys=True, ensure_ascii=True)
-
-
-def _apply_split_editor_widget_state(
-    lines: list[dict[str, Any]],
-    widget_state: Any,
-) -> list[dict[str, Any]]:
-    rows = [_normalize_split_editor_line_record(line) for line in lines if isinstance(line, dict)]
-    if not isinstance(widget_state, dict):
-        return rows
-
-    edited_rows = widget_state.get("edited_rows", {})
-    if isinstance(edited_rows, dict):
-        for raw_index, raw_values in edited_rows.items():
-            if not isinstance(raw_values, dict):
-                continue
-            try:
-                row_index = int(raw_index)
-            except (TypeError, ValueError):
-                continue
-            if row_index < 0 or row_index >= len(rows):
-                continue
-            current = dict(rows[row_index])
-            for column, value in raw_values.items():
-                if column not in SPLIT_EDITOR_COLUMNS:
-                    continue
-                if column == "amount_ils":
-                    current[column] = _split_editor_amount_text(value)
-                else:
-                    current[column] = str(value or "").strip()
-            rows[row_index] = current
-
-    deleted_rows = widget_state.get("deleted_rows", [])
-    delete_indices = sorted(
-        {
-            int(raw_index)
-            for raw_index in deleted_rows
-            if str(raw_index).strip()
-        },
-        reverse=True,
-    )
-    for row_index in delete_indices:
-        if 0 <= row_index < len(rows):
-            rows.pop(row_index)
-
-    added_rows = widget_state.get("added_rows", [])
-    if isinstance(added_rows, list):
-        for raw_row in added_rows:
-            rows.append(_normalize_split_editor_line_record(raw_row))
-
-    return rows
+        lid = line.get("_line_id")
+        if lid is None:
+            continue
+        result.append(
+            {
+                "split_id": line.get("split_id", ""),
+                "payee_raw": str(
+                    st.session_state.get(f"_split_editor_payee_{lid}", line.get("payee_raw", ""))
+                    or ""
+                ).strip(),
+                "category_raw": str(
+                    st.session_state.get(
+                        f"_split_editor_category_{lid}", line.get("category_raw", "")
+                    )
+                    or ""
+                ).strip(),
+                "memo": str(
+                    st.session_state.get(f"_split_editor_memo_{lid}", line.get("memo", ""))
+                    or ""
+                ).strip(),
+                "amount_ils": str(
+                    st.session_state.get(f"_split_editor_amount_{lid}", line.get("amount_ils", ""))
+                    or ""
+                ).strip(),
+            }
+        )
+    return result
 
 
 def _source_context_caption(row: pd.Series) -> str:
@@ -1648,11 +1599,14 @@ def _open_target_split_editor(
     idx: Any,
     group_fingerprint: str | None = None,
 ) -> None:
+    lines = _target_split_editor_rows(row)
+    for i, line in enumerate(lines):
+        line["_line_id"] = i
     st.session_state["_split_editor"] = {
         "idx": idx,
         "group_fingerprint": group_fingerprint or "",
-        "lines": _target_split_editor_rows(row),
-        "applied_widget_state": "",
+        "lines": lines,
+        "_next_line_id": len(lines),
     }
     _preserve_expansion_context(idx=idx, group_fingerprint=group_fingerprint)
 
@@ -1668,33 +1622,20 @@ def _render_target_split_editor_dialog(
     idx: Any,
     category_choices: list[str],
     group_fingerprint: str = "",
-    initial_lines: list[dict[str, Any]] | None = None,
 ) -> None:
-    if idx not in df.index:
+    editor_state = st.session_state.get("_split_editor")
+    if not isinstance(editor_state, dict) or idx not in df.index:
         _close_target_split_editor()
         return
 
     row = df.loc[idx]
-    editor_key = _editor_key(f"split_editor_table_{idx}")
     parent_amount = review_state._signed_amount_from_row_values(
         inflow=row.get("inflow_ils", 0.0),
         outflow=row.get("outflow_ils", 0.0),
     )
-    lines = initial_lines or _target_split_editor_rows(row)
-    widget_state = st.session_state.get(editor_key)
-    widget_signature = _split_editor_widget_state_signature(widget_state)
-    prior_editor_state = st.session_state.get("_split_editor")
-    prior_signature = ""
-    if isinstance(prior_editor_state, dict):
-        prior_signature = str(prior_editor_state.get("applied_widget_state", "") or "")
-    if widget_signature and widget_signature != prior_signature:
-        lines = _apply_split_editor_widget_state(lines, widget_state)
-        st.session_state["_split_editor"] = {
-            "idx": idx,
-            "group_fingerprint": group_fingerprint or "",
-            "lines": lines,
-            "applied_widget_state": widget_signature,
-        }
+    lines = editor_state.get("lines", [])
+
+    # Build category choices for selectboxes
     category_options = review_model.parse_option_string(row.get("category_options", ""))
     split_line_categories = _merge_category_choices(
         *[
@@ -1714,50 +1655,119 @@ def _render_target_split_editor_dialog(
         if category not in split_category_choices:
             split_category_choices.append(category)
 
-    editor_df = pd.DataFrame(
-        lines,
-        columns=SPLIT_EDITOR_COLUMNS,
-    )
-    editor_df["amount_ils"] = editor_df["amount_ils"].map(_split_editor_amount_text)
+    # Column headers
+    header_cols = st.columns([3, 3, 2, 1.5, 0.5])
+    header_cols[0].markdown("**Payee**")
+    header_cols[1].markdown("**Category**")
+    header_cols[2].markdown("**Memo**")
+    header_cols[3].markdown("**Amount**")
+    header_cols[4].markdown("")
 
-    edited_df = st.data_editor(
-        editor_df,
-        hide_index=True,
-        num_rows="dynamic",
-        key=editor_key,
-        column_config={
-            "split_id": st.column_config.TextColumn("Split id", disabled=True),
-            "payee_raw": st.column_config.TextColumn("Payee"),
-            "category_raw": st.column_config.SelectboxColumn(
+    # Render per-line widgets
+    remove_line_id: int | None = None
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        lid = line.get("_line_id")
+        if lid is None:
+            continue
+        split_id = str(line.get("split_id", "") or "").strip()
+
+        cols = st.columns([3, 3, 2, 1.5, 0.5])
+        with cols[0]:
+            _ensure_widget_state(
+                f"_split_editor_payee_{lid}", str(line.get("payee_raw", "") or "")
+            )
+            st.text_input(
+                "Payee",
+                key=f"_split_editor_payee_{lid}",
+                label_visibility="collapsed",
+                placeholder=f"id: {split_id}" if split_id else "Payee",
+            )
+        with cols[1]:
+            cat_value = str(line.get("category_raw", "") or "").strip()
+            cat_index = 0
+            if cat_value and cat_value in split_category_choices:
+                cat_index = split_category_choices.index(cat_value)
+            _ensure_widget_state(f"_split_editor_category_{lid}", cat_value)
+            st.selectbox(
                 "Category",
                 options=split_category_choices,
-            ),
-            "memo": st.column_config.TextColumn("Memo"),
-            "amount_ils": st.column_config.TextColumn("Amount"),
-        },
-        use_container_width=True,
-    )
+                index=cat_index,
+                key=f"_split_editor_category_{lid}",
+                label_visibility="collapsed",
+            )
+        with cols[2]:
+            _ensure_widget_state(
+                f"_split_editor_memo_{lid}", str(line.get("memo", "") or "")
+            )
+            st.text_input(
+                "Memo",
+                key=f"_split_editor_memo_{lid}",
+                label_visibility="collapsed",
+            )
+        with cols[3]:
+            _ensure_widget_state(
+                f"_split_editor_amount_{lid}",
+                _split_editor_amount_text(line.get("amount_ils", "")),
+            )
+            st.text_input(
+                "Amount",
+                key=f"_split_editor_amount_{lid}",
+                label_visibility="collapsed",
+            )
+        with cols[4]:
+            if st.button("\u2716", key=f"_split_editor_remove_{lid}"):
+                remove_line_id = lid
 
-    line_records = edited_df.to_dict(orient="records")
-    st.session_state["_split_editor"] = {
-        "idx": idx,
-        "group_fingerprint": group_fingerprint or "",
-        "lines": line_records,
-        "applied_widget_state": widget_signature,
-    }
-    split_total = float(
-        pd.to_numeric(edited_df.get("amount_ils", pd.Series(dtype=float)), errors="coerce")
-        .fillna(0.0)
-        .sum()
-    )
+    # Handle remove
+    if remove_line_id is not None:
+        editor_state["lines"] = [
+            ln for ln in lines if ln.get("_line_id") != remove_line_id
+        ]
+        _clear_split_line_widget_keys(remove_line_id)
+        st.rerun()
+
+    # Add line button
+    if st.button("+ Add line"):
+        next_id = editor_state.get("_next_line_id", len(lines))
+        editor_state["lines"].append(
+            {
+                "_line_id": next_id,
+                "split_id": "",
+                "payee_raw": "",
+                "category_raw": "",
+                "memo": "",
+                "amount_ils": "",
+            }
+        )
+        editor_state["_next_line_id"] = next_id + 1
+        st.rerun()
+
+    # Summary
+    split_total = 0.0
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        lid = line.get("_line_id")
+        if lid is None:
+            continue
+        amount_text = st.session_state.get(
+            f"_split_editor_amount_{lid}", line.get("amount_ils", "")
+        )
+        numeric = pd.to_numeric(pd.Series([amount_text]), errors="coerce").iloc[0]
+        if not pd.isna(numeric):
+            split_total += float(numeric)
     difference = split_total - parent_amount
     st.caption(
         f"Parent amount: {parent_amount:g} | Split total: {split_total:g} | Difference: {difference:g}"
     )
 
+    # Save / Cancel
     save_col, cancel_col = st.columns(2)
     with save_col:
         if st.button("Save split", use_container_width=True):
+            line_records = _collect_split_editor_lines()
             try:
                 updated = review_state.apply_target_split_edit(
                     pl.from_pandas(df),
@@ -1815,7 +1825,6 @@ def _maybe_render_target_split_editor_dialog(
         idx=idx,
         category_choices=category_choices,
         group_fingerprint=str(editor_state.get("group_fingerprint", "") or ""),
-        initial_lines=list(editor_state.get("lines", []) or []),
     )
 
 

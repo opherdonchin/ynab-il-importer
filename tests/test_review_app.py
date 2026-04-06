@@ -334,15 +334,17 @@ def test_preserve_expansion_context_sets_group_and_row_targets() -> None:
 def test_clear_split_editor_state_removes_modal_buffer_and_widget_keys() -> None:
     review_app.st.session_state.clear()
     review_app.st.session_state["_split_editor"] = {"idx": 1}
-    review_app.st.session_state["split_editor_table_1"] = {"edited_rows": {}}
-    review_app.st.session_state["split_show_all_categories_1"] = True
+    review_app.st.session_state["_split_editor_payee_0"] = "Cafe"
+    review_app.st.session_state["_split_editor_category_0"] = "Food"
+    review_app.st.session_state["_split_editor_amount_0"] = "-10"
     review_app.st.session_state["unrelated_key"] = "keep"
 
     review_app._clear_split_editor_state()
 
     assert "_split_editor" not in review_app.st.session_state
-    assert "split_editor_table_1" not in review_app.st.session_state
-    assert "split_show_all_categories_1" not in review_app.st.session_state
+    assert "_split_editor_payee_0" not in review_app.st.session_state
+    assert "_split_editor_category_0" not in review_app.st.session_state
+    assert "_split_editor_amount_0" not in review_app.st.session_state
     assert review_app.st.session_state["unrelated_key"] == "keep"
 
 
@@ -461,54 +463,23 @@ def test_split_editor_amount_text_formats_numeric_and_blank_values() -> None:
     assert review_app._split_editor_amount_text("-") == ""
 
 
-def test_apply_split_editor_widget_state_merges_edits_deletes_and_additions() -> None:
-    lines = [
-        {
-            "split_id": "split-1",
-            "payee_raw": "Cafe",
-            "category_raw": "Food",
-            "memo": "beans",
-            "amount_ils": "-12",
-        },
-        {
-            "split_id": "split-2",
-            "payee_raw": "Gift shop",
-            "category_raw": "Gifts",
-            "memo": "card",
-            "amount_ils": "-10",
-        },
-    ]
-    widget_state = {
-        "edited_rows": {
-            0: {"category_raw": "Dining", "amount_ils": "-11.5"},
-        },
-        "added_rows": [
-            {
-                "split_id": "",
-                "payee_raw": "Tip jar",
-                "category_raw": "Tips",
-                "memo": "",
-                "amount_ils": "-0.5",
-            }
+def test_collect_split_editor_lines_reads_from_session_state() -> None:
+    review_app.st.session_state.clear()
+    review_app.st.session_state["_split_editor"] = {
+        "lines": [
+            {"_line_id": 0, "split_id": "split-1", "payee_raw": "Cafe", "category_raw": "Food", "memo": "beans", "amount_ils": "-12"},
+            {"_line_id": 1, "split_id": "split-2", "payee_raw": "Gift shop", "category_raw": "Gifts", "memo": "card", "amount_ils": "-10"},
         ],
-        "deleted_rows": [1],
     }
+    review_app.st.session_state["_split_editor_payee_0"] = "Updated Cafe"
+    review_app.st.session_state["_split_editor_category_0"] = "Dining"
+    review_app.st.session_state["_split_editor_amount_0"] = "-11.5"
 
-    assert review_app._apply_split_editor_widget_state(lines, widget_state) == [
-        {
-            "split_id": "split-1",
-            "payee_raw": "Cafe",
-            "category_raw": "Dining",
-            "memo": "beans",
-            "amount_ils": "-11.5",
-        },
-        {
-            "split_id": "",
-            "payee_raw": "Tip jar",
-            "category_raw": "Tips",
-            "memo": "",
-            "amount_ils": "-0.5",
-        },
+    result = review_app._collect_split_editor_lines()
+
+    assert result == [
+        {"split_id": "split-1", "payee_raw": "Updated Cafe", "category_raw": "Dining", "memo": "beans", "amount_ils": "-11.5"},
+        {"split_id": "split-2", "payee_raw": "Gift shop", "category_raw": "Gifts", "memo": "card", "amount_ils": "-10"},
     ]
 
 
@@ -721,21 +692,23 @@ def test_app_create_split_opens_modal_with_seeded_lines_and_cancel_clears_it(
     app.run()
 
     assert app.session_state["_split_editor"]["idx"] == 0
-    dialog_df = app.dataframe[0].value
-    assert dialog_df.to_dict(orient="records") == [
+    editor_lines = app.session_state["_split_editor"]["lines"]
+    assert [
+        {k: v for k, v in line.items() if k != "_line_id"} for line in editor_lines
+    ] == [
         {
             "split_id": "",
             "payee_raw": "Cafe",
             "category_raw": "Food",
             "memo": "memo-t1",
-            "amount_ils": "-10",
+            "amount_ils": -10.0,
         },
         {
             "split_id": "",
             "payee_raw": "",
             "category_raw": "",
             "memo": "",
-            "amount_ils": "0",
+            "amount_ils": 0.0,
         },
     ]
 
@@ -805,21 +778,23 @@ def test_app_edit_split_opens_modal_with_committed_split_lines(tmp_path: Path) -
     app.run()
 
     assert app.session_state["_split_editor"]["idx"] == 0
-    dialog_df = app.dataframe[0].value
-    assert dialog_df.to_dict(orient="records") == [
+    editor_lines = app.session_state["_split_editor"]["lines"]
+    assert [
+        {k: v for k, v in line.items() if k != "_line_id"} for line in editor_lines
+    ] == [
         {
             "split_id": "split-1",
             "payee_raw": "Split Payee 1",
             "category_raw": "Food",
             "memo": "beans",
-            "amount_ils": "-6",
+            "amount_ils": -6.0,
         },
         {
             "split_id": "split-2",
             "payee_raw": "Split Payee 2",
             "category_raw": "Dining",
             "memo": "lunch",
-            "amount_ils": "-4",
+            "amount_ils": -4.0,
         },
     ]
 
