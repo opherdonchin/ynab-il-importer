@@ -17,7 +17,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ynab_il_importer.artifacts.transaction_io import (
-    read_transactions_pandas,
+    read_transactions_arrow,
 )
 import ynab_il_importer.export as export
 import ynab_il_importer.pairing as pairing
@@ -102,7 +102,7 @@ def _load_csvs(paths: list[Path]) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     skipped: list[str] = []
     for path in paths:
-        df = _load_canonical_transaction_input(path)
+        df = _load_canonical_transaction_input(path).to_pandas().fillna("")
         for col in [
             "outflow_ils",
             "inflow_ils",
@@ -135,13 +135,13 @@ def _load_csvs(paths: list[Path]) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
-def _load_canonical_transaction_input(path: Path) -> pd.DataFrame:
+def _load_canonical_transaction_input(path: Path) -> pa.Table:
     if path.suffix.lower() != ".parquet":
         raise ValueError(
             f"Canonical transaction input must be parquet: {path}. "
             "Provide the normalized parquet artifact directly."
         )
-    return read_transactions_pandas(path).fillna("")
+    return read_transactions_arrow(path)
 
 
 def _canonical_transaction_dict(
@@ -1551,7 +1551,7 @@ def main() -> None:
 
     source_df = _load_csvs(source_paths)
     source_df = _dedupe_source_overlaps(source_df)
-    ynab_df = _load_canonical_transaction_input(Path(args.ynab))
+    ynab_df = _load_canonical_transaction_input(Path(args.ynab)).to_pandas().fillna("")
     if ynab_df.empty:
         raise ValueError("No rows found in YNAB input.")
 

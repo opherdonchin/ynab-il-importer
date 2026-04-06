@@ -260,11 +260,3 @@ def read_transactions_polars(
     schema: pa.Schema = TRANSACTION_SCHEMA,
 ) -> pl.DataFrame:
     return pl.from_arrow(read_transactions_arrow(path, schema=schema))
-
-
-def read_transactions_pandas(
-    path: str | Path,
-    *,
-    schema: pa.Schema = TRANSACTION_SCHEMA,
-) -> pd.DataFrame:
-    return read_transactions_arrow(path, schema=schema).to_pandas()

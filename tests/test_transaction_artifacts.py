@@ -8,7 +8,6 @@ from ynab_il_importer.artifacts.transaction_io import (
     load_flat_transaction_projection,
     normalize_transaction_table,
     read_transactions_arrow,
-    read_transactions_pandas,
     read_transactions_polars,
     write_flat_transaction_artifacts,
     write_transactions_parquet,
@@ -92,12 +91,11 @@ def test_transaction_parquet_round_trip_preserves_split_structure(tmp_path) -> N
     write_transactions_parquet(table, path)
     loaded_arrow = read_transactions_arrow(path)
     loaded_polars = read_transactions_polars(path)
-    loaded_pandas = read_transactions_pandas(path)
 
     assert loaded_arrow["splits"].to_pylist()[0][0]["category_raw"] == "Books"
     assert isinstance(loaded_polars, pl.DataFrame)
     assert loaded_polars.height == 1
-    assert loaded_pandas.loc[0, "payee_raw"] == "Tsomet Sfarim"
+    assert loaded_arrow.to_pylist()[0]["payee_raw"] == "Tsomet Sfarim"
 
 
 def test_project_top_level_transactions_drops_splits_column() -> None:
