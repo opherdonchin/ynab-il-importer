@@ -21,13 +21,17 @@ def main() -> None:
     parser.add_argument("--out", required=True, dest="out_path")
     args = parser.parse_args()
 
-    old_df = review_io.load_proposed_transactions(Path(args.old_reviewed))
-    new_df = review_io.load_proposed_transactions(Path(args.new_proposed))
-    merged, stats = review_reconcile.reconcile_reviewed_transactions(
-        pl.from_pandas(old_df),
-        pl.from_pandas(new_df),
+    old_df = review_io.project_review_artifact_to_working_dataframe(
+        review_io.load_review_artifact(Path(args.old_reviewed))
     )
-    review_io.save_reviewed_transactions(merged.to_pandas(), Path(args.out_path))
+    new_df = review_io.project_review_artifact_to_working_dataframe(
+        review_io.load_review_artifact(Path(args.new_proposed))
+    )
+    merged, stats = review_reconcile.reconcile_reviewed_transactions(
+        old_df,
+        new_df,
+    )
+    review_io.save_reviewed_transactions(merged, Path(args.out_path))
 
     print(export.wrote_message(args.out_path, merged.height))
     print(

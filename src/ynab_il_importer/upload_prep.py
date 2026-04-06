@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from collections import Counter
+from pathlib import Path
 import re
 from typing import Any
 
 import pandas as pd
+import polars as pl
 
 import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.card_identity as card_identity
 import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
+import ynab_il_importer.review_app.working_schema as working_schema
 from ynab_il_importer.safe_types import normalize_flag_series
 
 
@@ -136,7 +139,18 @@ def _review_artifact_to_working_frame(
     reviewed_source: pd.DataFrame | Any,
 ) -> pd.DataFrame:
     original_index = reviewed_source.index if isinstance(reviewed_source, pd.DataFrame) else None
-    working = review_io.project_review_artifact_to_flat_dataframe(reviewed_source)
+    if isinstance(reviewed_source, (str, Path)):
+        working = review_io.project_review_artifact_to_working_dataframe(
+            review_io.load_review_artifact(Path(reviewed_source))
+        ).to_pandas()
+    elif isinstance(reviewed_source, pd.DataFrame):
+        working = working_schema.build_working_dataframe(
+            pl.from_pandas(reviewed_source, include_index=False)
+        ).to_pandas()
+    else:
+        working = review_io.project_review_artifact_to_working_dataframe(
+            review_io.coerce_review_artifact_table(reviewed_source)
+        ).to_pandas()
     if working.empty:
         return pd.DataFrame(columns=REQUIRED_REVIEW_COLUMNS)
     if original_index is not None and len(original_index) == len(working):
@@ -146,7 +160,12 @@ def _review_artifact_to_working_frame(
 
 def _normalize_split_records(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
-        return []
+        if isinstance(value, dict):
+            return []
+        try:
+            value = list(value)
+        except TypeError:
+            return []
     return [line for line in value if isinstance(line, dict)]
 
 
@@ -198,7 +217,25 @@ def _transfer_target(payee: str) -> str:
 def _source_import_id(row: pd.Series) -> str:
     bank_txn_id = _normalize_text(row.get("bank_txn_id", ""))
     if not bank_txn_id:
+        source_system = _normalize_text(
+            row.get("source", row.get("source_source_system", ""))
+        ).casefold()
+        source_transaction_id = _normalize_text(
+            row.get("source_transaction_id", row.get("transaction_id", ""))
+        )
+        if source_system == "bank" and source_transaction_id:
+            bank_txn_id = source_transaction_id
+    if not bank_txn_id:
         card_txn_id = _normalize_text(row.get("card_txn_id", ""))
+        if not card_txn_id:
+            source_system = _normalize_text(
+                row.get("source", row.get("source_source_system", ""))
+            ).casefold()
+            source_transaction_id = _normalize_text(
+                row.get("source_transaction_id", row.get("transaction_id", ""))
+            )
+            if source_system == "card" and source_transaction_id:
+                card_txn_id = source_transaction_id
         if not card_txn_id:
             return ""
         return card_identity.validate_card_txn_id(card_txn_id)
@@ -512,12 +549,28 @@ def prepare_upload_transactions(
         .fillna("")
         .str.strip()
     )
+    missing_bank_ids = (
+        df["bank_txn_id"].eq("")
+        & _normalize_text_series(df.get("source", pd.Series([""] * len(df), index=df.index))).str.casefold().eq("bank")
+    )
+    if missing_bank_ids.any():
+        df.loc[missing_bank_ids, "bank_txn_id"] = _normalize_text_series(
+            df.get("source_transaction_id", pd.Series([""] * len(df), index=df.index))
+        ).loc[missing_bank_ids]
     df["card_txn_id"] = (
         df.get("card_txn_id", pd.Series([""] * len(df), index=df.index))
         .astype("string")
         .fillna("")
         .str.strip()
     )
+    missing_card_ids = (
+        df["card_txn_id"].eq("")
+        & _normalize_text_series(df.get("source", pd.Series([""] * len(df), index=df.index))).str.casefold().eq("card")
+    )
+    if missing_card_ids.any():
+        df.loc[missing_card_ids, "card_txn_id"] = _normalize_text_series(
+            df.get("source_transaction_id", pd.Series([""] * len(df), index=df.index))
+        ).loc[missing_card_ids]
     occurrence_order = (
         df[
             [

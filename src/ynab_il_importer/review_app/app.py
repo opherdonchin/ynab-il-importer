@@ -19,6 +19,7 @@ import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.review_app.state as review_state
 import ynab_il_importer.review_app.validation as review_validation
+import ynab_il_importer.review_app.working_schema as working_schema
 import ynab_il_importer.workflow_profiles as workflow_profiles
 import ynab_il_importer.ynab_api as ynab_api
 
@@ -371,7 +372,7 @@ def _refresh_validation_state(
 def _canonical_review_bundle(df: pd.DataFrame | None) -> dict[str, Any]:
     if df is None:
         return {"table": None, "helpers": None, "helper_lookup": None}
-    table = review_io.load_review_artifact_polars(df)
+    table = working_schema.build_working_dataframe(pl.from_pandas(df, include_index=False))
     helper_columns = [
         "source_is_split",
         "target_is_split",
@@ -439,9 +440,9 @@ def _require_groupable_review_rows(df: pd.DataFrame) -> None:
 
 
 def _load_df(path: Path, *, set_source_path: bool = False) -> None:
-    df = review_io.project_review_artifact_to_flat_dataframe(
-        review_io.load_review_artifact_polars(path)
-    )
+    df = review_io.project_review_artifact_to_working_dataframe(
+        review_io.load_review_artifact(path)
+    ).to_pandas()
     _require_groupable_review_rows(df)
     _set_review_frames(df=df, original=df.copy())
     if set_source_path:
@@ -450,9 +451,9 @@ def _load_df(path: Path, *, set_source_path: bool = False) -> None:
 
 
 def _load_base(path: Path) -> None:
-    base = review_io.project_review_artifact_to_flat_dataframe(
-        review_io.load_review_artifact_polars(path)
-    )
+    base = review_io.project_review_artifact_to_working_dataframe(
+        review_io.load_review_artifact(path)
+    ).to_pandas()
     _require_groupable_review_rows(base)
     _set_review_frames(base=base)
 

@@ -2,328 +2,67 @@
 
 ## Workstream
 
-Split-transaction support on the `handle_splits` branch.
+Split-aware review on the `handle_splits` branch, with strict canonical Parquet boundaries and Polars-first working data.
 
-Current direction:
-- keep canonical Parquet transaction artifacts as the real transaction model
-- keep transactions nested only where hierarchy is semantically real, especially `splits`
-- redesign the canonical review artifact so it carries four transaction structs:
-  - `source_current`
-  - `target_current`
-  - `source_original`
-  - `target_original`
-- keep the app’s normal review logic on a centralized flat Polars working projection
-- keep review semantics parent-transaction-oriented until split editing is redesigned on top of that model
+## Current Direction
 
-## Current Goal
-
-Step 4 split editing is complete. Current work is hardening the April 2 review recovery path so all normalized transaction inputs stay on canonical Parquet artifacts, preserve split hierarchy, and keep the builder Polars-first until the downstream flat review projection boundary.
-
-That means:
-1. keep the completed Step 1-4 transaction/review/upload path green
-2. preserve the `review_v4` persisted artifact boundary:
-   - `source_current`
-   - `target_current`
-   - `source_original`
-   - `target_original`
-3. keep ordinary app and upload logic on the centralized flat working projection
-4. accept only canonical parquet at normalized review/build input boundaries; fail fast on CSV inputs instead of treating them as compatible locators
-5. keep builder preparation, pairing, row assembly, and review-target suggestion application Polars-first until the flat review projection boundary
-6. continue the April 2 review from recovered artifacts only after split-preserving boundaries are verified
+- keep canonical transaction and review artifacts as Parquet, not CSV
+- keep hierarchy only where it is semantically real:
+  - transaction `splits`
+  - persisted `review_v4` transaction structs
+- keep ordinary app/upload logic on one centralized flat working dataframe
+- keep that working dataframe Polars-first
+- fail fast at artifact/load boundaries instead of repairing stale or malformed inputs in the app
 
 ## Current Status
 
 Done:
 - Step 4 split editing is complete:
   - modal split editor uses explicit per-line widgets
-  - touched-row split saves rebuild one row through the centralized projection
+  - committed split edits round-trip through save/load/reconcile/upload prep
   - one-line split saves collapse back to a normal transaction
-  - save/load/reconcile/upload prep round-trip committed split edits
-  - focused review/app/upload tests are green
-- Step 1 is implemented and verified:
-  - canonical transaction Parquet artifacts exist
-  - parser/normalizer boundaries can emit canonical transaction artifacts directly
-  - builder performance on representative Family data is healthy again
-- Step 2 is implemented:
-  - YNAB download is centered on canonical transactions
-  - uploads are assembled from canonical review artifacts and support new split creation
-  - institutional parser modules now expose `read_canonical(...)`
-- real-data Family sanity checks succeeded:
-  - canonical Family proposed-review artifact built successfully
-  - reviewed Family artifact was converted to canonical Parquet successfully
-  - upload prep dry-run from canonical reviewed Parquet completed successfully
-- the earlier nested review-artifact approach was corrected once already:
-  - review artifacts were flattened
-  - `source_transaction` / `target_transaction` were removed from the canonical review schema
-  - only `source_splits` / `target_splits` remained nested
-  - that shipped Step 3 architecture is now being revised again so review history is preserved explicitly in the persisted artifact
+- normalized proposal-build inputs now require direct canonical parquet artifacts
+- the builder now stays Arrow/Polars-first through:
+  - canonical input load
+  - source/target prep
+  - institutional pairing
+  - matched/unmatched review row assembly
+  - review-target suggestion application
+- the review-app working-schema boundary is now Polars-first:
+  - [working_schema.py](src/ynab_il_importer/review_app/working_schema.py) owns construction/normalization of the flat working dataframe
+  - split columns stay normalized as real split-record lists rather than generic object blobs
+- the review-app IO boundary is now stricter:
+  - [load_review_artifact](src/ynab_il_importer/review_app/io.py) is parquet-only
+  - [project_review_artifact_to_working_dataframe](src/ynab_il_importer/review_app/io.py) is the explicit canonical-review-artifact -> Polars-working-dataframe projection
+  - app/upload/builder callers now use that two-step boundary explicitly
+- live working-dataframe consumers that should not round-trip through the persisted artifact boundary now normalize directly through [working_schema.py](src/ynab_il_importer/review_app/working_schema.py)
+- the focused builder/review/app/upload test slice is green after the refactor
 
-- Step 3 is functionally complete under the currently shipped architecture:
-  - the canonical review artifact is flat with split-only nesting
-  - the app displays split transactions read-only from that schema
-  - the app’s working/helper path is Polars-first
-  - the remaining pandas usage is explicitly isolated instead of being mixed through the app
-  - but the review artifact does not yet preserve immutable original transactions, so it is not the desired long-term boundary for Step 4
-- completed pivot slice:
-  - [review_schema.py](src/ynab_il_importer/artifacts/review_schema.py#L1) now defines a mostly flat review artifact with split-only nesting
-  - [review_app/io.py](src/ynab_il_importer/review_app/io.py#L1) now round-trips that flat review artifact and remains the explicit boundary where transaction-shaped review data is flattened for the app
-  - [build_proposed_transactions.py](scripts/build_proposed_transactions.py#L1259) now returns review rows normalized through the flat canonical review artifact
-  - [build_cross_budget_review_rows.py](scripts/build_cross_budget_review_rows.py#L686) now does the same
-  - [upload_prep.py](src/ynab_il_importer/upload_prep.py#L109) now accepts the flat canonical review artifact and preserves compatibility fields needed by upload tests
-- completed app/helper slice:
-  - [state.py](src/ynab_il_importer/review_app/state.py#L1) now derives split counts, split text, and search text from the new flat review schema
-  - [app.py](src/ynab_il_importer/review_app/app.py#L1234) now reads split detail from `source_splits` / `target_splits` instead of nested source/target transactions
-  - focused review/app/upload/builder tests are green against the flat review schema
-- completed working-view slice:
-  - [review_data_view](src/ynab_il_importer/review_app/state.py#L161) now builds a pure Polars data view from the live edited review dataframe
-  - [review_filter_state_view](src/ynab_il_importer/review_app/state.py#L286) now builds a separate Polars state/filter overlay for UI-facing labels such as blocker and save state
-  - [filtered_row_indices_from_views](src/ynab_il_importer/review_app/state.py#L340) now drives the main app filter path from those two tables together
-  - [app.py](src/ynab_il_importer/review_app/app.py#L794) now computes and stores separate data and state views as part of derived app state
-- completed schema-tightening slice:
-  - [io.py](src/ynab_il_importer/review_app/io.py#L1) now guarantees a fuller flat review-app schema at the boundary via canonical normalization instead of relying on sparse-column tolerance in app helpers
-  - [state.py](src/ynab_il_importer/review_app/state.py#L1) now builds its Polars working view from explicit schema columns rather than `_selected_expr`, `_optional_text_expr`, and similar “maybe present” helpers
-  - split columns are now coerced to a stable Polars list/struct dtype for working-view helpers and canonical search text
-  - [tests/test_review.py](tests/test_review.py#L1) now routes review-row fixtures through the app boundary so tests exercise the real flat review schema instead of ad hoc sparse frames
-- completed projection-simplification slice:
-  - [project_review_artifact_to_flat_dataframe](src/ynab_il_importer/review_app/io.py#L584) is now a thinner app projection from the canonical review table instead of a second broad schema-normalization pass
-  - split columns are normalized at that projection boundary so pandas/Arrow array-like values still arrive in the app as ordinary split-record lists
-  - the unused [canonical_search_text_series](src/ynab_il_importer/review_app/state.py#L1) helper has been removed, and search-text assertions now exercise the real [review_data_view](src/ynab_il_importer/review_app/state.py#L153) runtime path
-  - [state.py](src/ynab_il_importer/review_app/state.py#L1) now normalizes review-data text/bool columns earlier in the Polars working-view path, so helper expressions can rely more on direct `pl.col(...)` access
-- completed derived-state Polars slice:
-  - [app.py](src/ynab_il_importer/review_app/app.py#L271) now keeps canonical helper tables as Polars plus row-lookup maps instead of eagerly converting them to pandas helper frames
-  - [app.py](src/ynab_il_importer/review_app/app.py#L795) now uses `data_view` / `state_view` directly for filter options, matrix counts, and row/group readiness lookups in the easy derived-state paths
-  - the app still keeps editable review rows in pandas, but the cached helper/state dataframe work is now more clearly Polars-backed
-- completed adapter-island slice:
-  - the remaining mutation/review/reconcile hotspots now have explicit pandas-inside adapters instead of forcing pandas outward across the surrounding app code
-  - [apply_row_edit](src/ynab_il_importer/review_app/state.py#L1098), [apply_to_same_fingerprint](src/ynab_il_importer/review_app/model.py#L57), [apply_competing_row_resolution](src/ynab_il_importer/review_app/model.py#L142), [apply_review_state](src/ynab_il_importer/review_app/validation.py#L500), [apply_review_state_best_effort](src/ynab_il_importer/review_app/validation.py#L569), and [reconcile_reviewed_transactions](src/ynab_il_importer/review_reconcile.py#L108) are now Polars-only on the public boundary
-  - pandas is now only an internal implementation detail inside the corresponding private helpers
-  - app call sites now perform the explicit boundary conversion rather than depending on flexible `pd|pl` function signatures
-- completed grouped-summary cleanup slice:
-  - [review_filter_state_view](src/ynab_il_importer/review_app/state.py#L284) now carries additional row-state booleans used by grouped UI summaries
-  - [app.py](src/ynab_il_importer/review_app/app.py#L540) now uses lookup-driven group summary/default helpers instead of repeated pandas mask slicing for the grouped header badges and defaults
-  - easy helper signatures were tightened so the non-island path no longer advertises unnecessary `pandas | polars` flexibility
-- completed April 2 recovery slice:
-  - `data/paired/2026_04_01/family_proposed_transactions_recovered.parquet` and `family_proposed_transactions_reviewed_recovered.parquet` were rebuilt and reconciled forward from the saved review state
-  - the recovered reviewed artifact was manually corrected for one stale blank-fingerprint row so the app can resume review
-- completed canonical-input guard slice:
-  - [build_proposed_transactions.py](scripts/build_proposed_transactions.py#L139) now only accepts canonical parquet transaction inputs for proposal building
-  - flat normalized CSV artifacts remain export/debug helpers, but they are not accepted at proposal-build boundaries, even as locators for parquet sidecars
-- completed canonical-read tracing slice:
-  - [transaction_io.py](src/ynab_il_importer/artifacts/transaction_io.py#L248) keeps canonical transaction reads Arrow-native via `read_transactions_arrow(...)`
-  - [build_proposed_transactions.py](scripts/build_proposed_transactions.py#L101) and [build_proposed_transactions.py](scripts/build_proposed_transactions.py#L1557) now perform the explicit `.to_pandas()` conversion at the old builder-pipeline handoff points instead of hiding that conversion in transaction IO
-  - the old `read_transactions_pandas(...)` helper has been removed so the canonical read boundary is more honest while the builder refactor is traced incrementally
-- completed builder Polars-first slice:
-  - [build_proposed_transactions.py](scripts/build_proposed_transactions.py#L101) now loads normalized source inputs and YNAB inputs as canonical Arrow/Polars rather than converting them to pandas at read time
-  - [build_proposed_transactions.py](scripts/build_proposed_transactions.py#L919) and [build_proposed_transactions.py](scripts/build_proposed_transactions.py#L1082) now prepare source and target review rows in Polars, including stable row ids and canonical transaction payload attachment
-  - [build_proposed_transactions.py](scripts/build_proposed_transactions.py#L1188) now computes institutional candidate pairs in Polars
-  - [build_proposed_transactions.py](scripts/build_proposed_transactions.py#L1369) now assembles matched and unmatched review relations in Polars and applies review-target suggestions in Polars, with pandas narrowed to the payee-map helper and the final flat review projection boundary
-  - [tests/test_build_proposed_transactions.py](tests/test_build_proposed_transactions.py#L1) now drives builder coverage from canonical-shape Polars inputs instead of ad hoc pandas frames
+## Immediate Goal
 
-The first attempted Step 4 implementation was reverted.
+Resume the April 2 review safely from rebuilt artifacts on top of the corrected boundaries.
 
-Why it was reverted:
-- it introduced explicit reviewed split-mode and reviewed selected split columns
-- that design was workable but too state-heavy
-- it did not match the newer direction for the app model:
-  - flat working projection
-  - nested splits only where genuinely needed
-  - immutable original source/target transaction structs used as reference objects
+That means:
+1. rebuild the April 2 proposed artifact from canonical parquet inputs
+2. reconcile the saved reviewed artifact forward onto the rebuilt proposal
+3. stop if any split-bearing source or target transactions were previously flattened or mistransferred
+4. continue review only from the recovered artifact
 
-The current architectural correction is:
-- keep ordinary app processing flat and dataframe-oriented
-- keep splits nested because they are genuinely hierarchical
-- make the persisted review artifact itself four-transaction from the beginning:
-  - `source_current`
-  - `target_current`
-  - `source_original`
-  - `target_original`
-- keep original transactions immutable and use them only as reference history
-- centralize flattening/explosion into one working-projection boundary instead of spreading it through the app
-- recompute `changed` only when a row is edited, not by carrying a second heavy mutable review-state layer
-- keep artifact validation with the schema instead of only in the app
+## Next Steps
 
-Completed redesign slice:
-- [review_schema.py](src/ynab_il_importer/artifacts/review_schema.py#L1) now defines `review_v4` with top-level review/control fields plus:
-  - `source_current`
-  - `target_current`
-  - `source_original`
-  - `target_original`
-- schema-level validation now lives with the review artifact and currently checks:
-  - false `changed` on rows whose current and original transactions differ
-  - multi-line splits that do not span more than one category
-  - split-line totals that do not sum to the parent transaction amount
-- [review_app/io.py](src/ynab_il_importer/review_app/io.py#L855) now validates persisted review artifacts on load
-- [review_app/io.py](src/ynab_il_importer/review_app/io.py#L1031) is now the centralized flat working projection for app/upload logic
-- flat in-memory review rows still normalize through that same boundary, while persisted artifacts stay on the strict canonical path
-- fresh rows without explicit history now default to `original = current`
-- unchanged rows with preserved originals trust the immutable original snapshot
-- edit/mutation helpers now mark touched rows `changed = True`
-- `source_present` / `target_present` are now treated as required review data, not inferred compatibility signals:
-  - [review_app/io.py](src/ynab_il_importer/review_app/io.py#L429) now fails if either column is missing from a review row or working projection
-  - the flat working projection no longer guesses presence from ids, text fields, or split payloads
-  - edit-time mutation now recomputes presence explicitly from the original row state plus the selected decision action
-- `target_account` is now preserved explicitly in the `review_v4` artifact so source-only cross-budget rows keep their planned destination account even when `target_present` is false
-- [upload_prep.py](src/ynab_il_importer/upload_prep.py#L124) and the builder paths remain green against the new boundary
-- focused review/app/upload/builder coverage is green on the branch
-- completed working-schema cleanup:
-  - [review_app/working_schema.py](src/ynab_il_importer/review_app/working_schema.py#L1) now owns construction of the internal flat working dataframe for the app/upload path
-  - `io.py` now delegates working-row construction and normalization to that module instead of carrying its own `_ensure_working_dataframe_schema(...)` logic
-  - the working schema currently validates only the explicit presence contract on creation:
-    - `source_present`
-    - `target_present`
-  - everything else needed by the internal working object is constructed centrally there
-  - conversion points are now clearer:
-    - persisted review artifacts are validated at the artifact schema boundary on load
-    - flat review rows are normalized into the working schema when projected for app/upload use
-    - flat review rows are normalized into the working schema again when being converted back into a persisted artifact
-  - low-level state helpers remain reusable, but the main app path no longer depends on `io.py`-local schema checks
-- completed validation-boundary cleanup:
-  - [review_app/validation.py](src/ynab_il_importer/review_app/validation.py#L312) still owns row/component review rules, but the app no longer recomputes blocker validation from scratch during ordinary derived-state rendering
-  - [review_app/validation.py](src/ynab_il_importer/review_app/validation.py#L314) now exposes cached validation-state helpers for:
-    - full validation-state construction on load / working-frame creation
-    - incremental refresh for touched rows and touched components after edits
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L335) now stores that validation state in session alongside the working dataframe
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L954) now consumes cached blocker/component state when building derived UI state instead of broad per-row revalidation
-  - row-level warnings still run on the currently edited row at submit time, but the app no longer uses whole-dataframe row validation as part of normal rendering
-- completed validation-helper cleanup:
-  - [review_app/validation.py](src/ynab_il_importer/review_app/validation.py#L236) now uses `compute_*` naming instead of the misleading `precompute_*` family for full-dataframe passes
-  - [compute_components](src/ynab_il_importer/review_app/validation.py#L236) remains the one intentional shared pandas/polars pathway in this area, because the same component logic is used against:
-    - the Polars review table on the easy derived-state path
-    - the pandas edited dataframe inside the mutation/review adapter islands
-  - [compute_row_errors](src/ynab_il_importer/review_app/validation.py#L465) is now explicitly pandas-only, matching its real usage
-  - the unused component-error lookup helper was removed so the validation surface better reflects the active code paths
-- completed grouped-expansion UX fix:
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L192) now has an explicit expansion-preservation helper for row/group reruns
-  - `Show all categories` toggles in grouped and row contexts now preserve the relevant open expander instead of collapsing the row and group on rerun
-  - [tests/test_review_app.py](tests/test_review_app.py#L206) now covers the expansion-context helper directly
-- completed compact row-layout pass:
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L798) now injects tighter expander/widget spacing for review rows
-  - the read-only detail area now shows a denser subset of fields and collapses current/selected payee/category pairs into single lines where possible
-  - row controls are now arranged into a multi-column compact editor instead of one long vertical stack
-  - grouped-row `Show all categories` still preserves expansion state, while row-form usage stays within Streamlit form callback rules
-- Step 4 planning is now settled enough to implement:
-  - split editing will use a row-local modal editor rather than in-place line mutation
-  - `Create split` on a non-split target transaction will seed two lines:
-    - one prefilled from the current parent transaction
-    - one blank
-  - the modal will show running split total and difference from the parent transaction amount while editing
-  - validation remains authoritative at split-save and artifact boundaries, not only in the UI
-  - saving a one-line split will collapse it back into a non-split transaction by copying that line's payee/category to the parent and clearing `splits`
-- completed split-mutation core slice:
-  - [review_app/working_schema.py](src/ynab_il_importer/review_app/working_schema.py#L1) now carries explicit current-transaction reference columns alongside original-transaction reference columns
-  - [review_app/io.py](src/ynab_il_importer/review_app/io.py#L1) now round-trips those current transaction refs through the working projection and reviewed save/load path
-  - [review_app/state.py](src/ynab_il_importer/review_app/state.py#L1) now rebuilds touched working rows from transaction refs instead of relying on scattered flat-current mutation
-  - [review_app/state.py](src/ynab_il_importer/review_app/state.py#L1) now recomputes `changed` for touched rows by comparing current vs original transaction refs, so reverting an edit can return `changed` to `False`
-  - [review_app/model.py](src/ynab_il_importer/review_app/model.py#L1) no longer marks `changed` blindly during same-fingerprint propagation or competing-row resolution
-  - [review_reconcile.py](src/ynab_il_importer/review_reconcile.py#L1) now preserves committed current/original transaction refs, split payloads, `memo_append`, and `changed` when reconciling reviewed rows onto rebuilt proposals
-- completed initial modal split-editor slice:
-  - [review_app/validation.py](src/ynab_il_importer/review_app/validation.py#L1) now exposes a focused target split-save validation helper that reuses artifact-level validation
-  - [review_app/state.py](src/ynab_il_importer/review_app/state.py#L1) now supports target split save with:
-    - split-line normalization
-    - one-line collapse back to a non-split parent transaction
-    - touched-row rebuild and `changed` recomputation
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L1) now exposes row-level `Create split` / `Edit split` actions and opens a row-local modal split editor that shows parent amount, split total, and difference
-  - focused review/reconcile/app coverage is green for the new mutation path and modal seeding helpers
-- completed upload split-prep slice:
-  - [upload_prep.py](src/ynab_il_importer/upload_prep.py#L1) now explodes committed target-side split rows from the centralized working projection into prepared upload rows that share one parent `upload_transaction_id` and one parent `import_id`
-  - split prepared rows now preserve parent memo/payee separately from line memo/payee so assembled split payloads use the committed parent transaction state plus the edited split-line details
-  - one-line collapsed saves naturally stay on the ordinary non-split upload path because they no longer carry committed `target_splits`
-  - [tests/test_upload_prep.py](tests/test_upload_prep.py#L1) now covers both multi-line committed split uploads and one-line collapsed saves
-  - focused review/reconcile/app/upload coverage is green for the committed split round-trip through upload prep
-- completed modal-app hardening slice:
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L1) now seeds `Create split` from selected target payee/category values when the current target transaction is still blank, so opening the modal from ordinary review rows no longer starts from empty line metadata
-  - [tests/test_review_app.py](tests/test_review_app.py#L1) now covers:
-    - `Create split` modal open with seeded lines
-    - `Edit split` modal open with committed split lines loaded from a canonical `review_v4` artifact
-    - `Cancel` clearing modal session state while preserving row expansion context
-    - `Save split` closing the modal and leaving the row on a stable committed non-split state when the saved result collapses to one line
-  - the app hardening slice intentionally uses Streamlit `AppTest` instead of adding Selenium/browser automation, because the relevant rerun/session-state/dialog behavior is already covered well at the repo's existing app-test boundary
-  - focused and broad review/app/upload suites are green after the modal lifecycle coverage was added
-- completed post-manual-pass polish slice:
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L1) now shows `Split` in row detail summaries and lists committed split categories there instead of only a split-line count
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L1) now keeps `Show all` controls adjacent to editable category selectors:
-    - the row target category selector has its own nearby toggle
-    - the split editor modal has its own `Show all categories` toggle instead of always using the full category list
-  - [scripts/build_review_app_demo.py](scripts/build_review_app_demo.py#L1) now emits canonical `review_v4` demo artifacts again, including a committed target-side split example, so the demo app reflects the current architecture
-  - [tests/test_review_app.py](tests/test_review_app.py#L1) now covers split category summary text and the demo builder's `review_v4` target-split fixture shape
-  - the local demo artifact in `data/demo/review_app/` was rebuilt from the updated script for manual app use
-  - focused and broad review/app/upload suites are green after the polish fixes
-- completed stale-artifact cleanup slice:
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L1) no longer tries to repair blank-fingerprint grouped rows at render time
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L1) now fails fast during `_load_df(...)` and `_load_base(...)` when a loaded review artifact contains blank grouping fingerprints, with guidance to renormalize or manually correct the artifact
-  - internal working-dataframe and rebuild paths remain unchanged, so app mutation flows and upload prep do not inherit stricter fingerprint requirements than their existing contracts
-  - [tests/test_review_app.py](tests/test_review_app.py#L1) now covers the app-level blank-fingerprint load guard
-  - focused and broad review/app/upload suites are green after narrowing the failure to the app load boundary
-- completed split-save bugfix slice:
-  - [review_app/state.py](src/ynab_il_importer/review_app/state.py#L1) now normalizes transaction references before `changed` comparison, so saving an unchanged existing split no longer trips over array-backed split payloads after the Polars round-trip
-  - [review_app/state.py](src/ynab_il_importer/review_app/state.py#L1) now seeds target-side split editing from the row-backed target draft when `target_present` is false, so split totals are validated against the real parent amount instead of a zero-value placeholder transaction
-  - [review_app/state.py](src/ynab_il_importer/review_app/state.py#L1) now preserves existing split-line metadata by `split_id` during save, including `ynab_subtransaction_id` and stable ids, so saving an unchanged split remains a no-op
-  - [review_app/validation.py](src/ynab_il_importer/review_app/validation.py#L1) now validates the proposed split-save candidate record directly instead of revalidating the stale pre-edit row first
-  - [review_app/io.py](src/ynab_il_importer/review_app/io.py#L1) now ignores empty placeholder current transactions on absent sides while still preserving real draft target state, and keeps `*_original = None` for not-present sides that are created during review
-  - [tests/test_review.py](tests/test_review.py#L1) now covers:
-    - unchanged existing split save after canonical/Polars round-trip
-    - target-absent split creation with matching totals and preserved `changed=True`
-  - focused and broad review/app/upload suites are green after the split-save fixes
-- completed split-display follow-up slice:
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L1) now normalizes array-backed split payloads before row summary, detail, action-button, and modal-seeding logic, so saved splits still show up as splits after the in-memory Polars round-trip
-  - saved target-side split rows now correctly show `Edit split` instead of `Create split`, and reopening the modal seeds from the committed split lines instead of the parent transaction defaults
-  - row detail summaries now keep `Category` focused on the transaction shape (`Split` for split rows) while the `Split` field shows a semicolon-separated category-and-amount summary such as `Going out -12; Gifts -10`
-  - source-side split rows now stop rendering split context inside the `Category` line and instead rely on the `Split` summary/detail area for split-specific category information
-  - [tests/test_review_app.py](tests/test_review_app.py#L1) now covers array-backed split summaries and modal row seeding
-  - focused and broad review/app/upload suites are green after the app-side split display fixes
-- completed split-editor UX polish slice:
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L1) now keeps the modal editor's live split rows in session state on every rerun, so toggling `Show all categories` no longer wipes in-progress edits
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L1) now edits split amounts as text instead of a numeric widget, which fixes the awkward first `-` keypress behavior while preserving save-time numeric validation
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L1) no longer renders separate `Source split detail` / `Target split detail` blocks under the row; the compact `Split` summary row is now the one split-specific read-only display
-  - [tests/test_review_app.py](tests/test_review_app.py#L1) now covers split-editor amount text formatting, modal seed rows rendered through the text amount column, and the simplified split summary rendering
-  - focused and broad review/app/upload suites are green after the split-editor polish changes
-- completed split-editor widget-state sync follow-up:
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L1) now reads the `st.data_editor` widget delta directly and merges it into the modal split buffer before rerendering, instead of trusting the returned dataframe alone
-  - this specifically fixes the remaining case where clicking `Show all categories` could still reopen the modal from stale base rows and wipe unsaved line edits
-  - [tests/test_review_app.py](tests/test_review_app.py#L1) now covers the split-editor widget-state merge logic for edited, deleted, and newly added rows
-  - focused and broad review/app/upload suites are green after the widget-state sync fix
-- completed split-editor lifecycle simplification follow-up:
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L1) no longer shows a modal-level `Show all categories` toggle in the split editor; the split editor now always uses the full category list instead of relying on a rerun-prone toggle
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L1) now has an explicit `_clear_split_editor_state()` helper, and cancel/reload/save/quit paths clear modal buffer and split-editor widget keys aggressively so closed dialogs do not resurface on later reruns
-  - [tests/test_review_app.py](tests/test_review_app.py#L1) now covers split-editor state cleanup directly
-  - focused and broad review/app/upload suites are green after the split-editor lifecycle cleanup
-- completed final split-editor rewrite:
-  - [review_app/app.py](src/ynab_il_importer/review_app/app.py#L1) no longer uses `st.data_editor` inside the split modal; the editor now renders one explicit widget row per split line with stable per-line widget keys
-  - the modal now keeps its temporary state in one explicit `"_split_editor"` buffer with stable `_line_id` values, supports direct `Add line` / per-line remove actions, and reads current unsaved values back from widget state only at save time
-  - this removes the earlier delta-merging workaround code and aligns the split editor with a simpler Streamlit model that is easier to reason about across reruns
-  - [tests/test_review_app.py](tests/test_review_app.py#L1) now covers the rewritten split-editor state collection path and the modal seed state under the new per-line widget implementation
-  - focused and broad review/app/upload suites are green after the final split-editor rewrite
+1. Rebuild the April 2 proposal and reviewed artifact on the current strict parquet boundary.
+2. Sanity-check recovered rows that involve splits before continuing review.
+3. After review recovery is stable, continue simplifying review-app IO:
+   - remove leftover CSV/legacy translation helpers from [io.py](src/ynab_il_importer/review_app/io.py)
+   - keep loader and projector responsibilities separate
+4. Continue shrinking remaining pandas islands where the code is already naturally columnar.
 
-## Working Rules For This Phase
+## Validation / Test Baseline
 
-- Keep canonical transaction artifacts as the real transaction model.
-- Keep the persisted review artifact centered on four transaction structs plus top-level review/control fields.
-- Use nested data inside those transaction structs only where hierarchy is actually needed, currently splits.
-- Prefer Polars/dataframe-level processing over Python dict/list helper logic.
-- Do not spend effort preserving pandas compatibility that does not serve the current app path.
-- Prefer immutable originals plus a flat working projection over duplicating mutable review state across many flat columns.
-- Keep broad review validation out of normal rendering; refresh validation state only when loading/rebuilding the working dataframe or when edits/review actions touch rows/components.
-- Commit after each successful sub-step.
-- Update `documents/plan.md` before each commit on this branch.
+Latest green slice:
 
-## Risks To Watch
+```bash
+pixi run pytest tests/test_build_proposed_transactions.py tests/test_review.py tests/test_review_io.py tests/test_review_reconcile.py tests/test_review_app.py tests/test_upload_prep.py -q
+```
 
-- keeping the old flat persisted review schema alive longer than needed
-- spreading flatten/explode logic across multiple app and upload boundaries instead of centralizing it
-- keeping too much app logic in Python row loops instead of Polars/dataframe expressions
-- letting split editing leak into matching semantics
-- losing important target-side creation context when `target_present` is false
-- leaving builders or upload prep on stale review shapes while the persisted artifact changes underneath them
-- reintroducing a second heavy mutable review-state layer instead of using immutable originals plus a flat working projection
-
-## Next Step
-
-Step 4 is complete on the branch and committed in its intended shape.
-
-Immediate next steps:
-1. keep using this branch for live review of the April 2 update before merge:
-   - sanity-check the split editor against the real April 2 review data
-   - note any remaining UI or workflow issues discovered in that real review pass
-   - fix only issues that materially affect the current review flow or Step 4 correctness
-2. if the April 2 review pass is clean, prepare the branch for Step 4 review/merge
-3. only add browser automation later if a concrete UI behavior appears that Streamlit `AppTest` still cannot cover reliably
+Result at last run: `167 passed`

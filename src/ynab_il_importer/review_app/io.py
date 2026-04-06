@@ -421,7 +421,13 @@ def _transaction_from_flat_row(
         "source" if side == "source" else "",
     ) or _normalize_text(txn.get("source_system"))
     txn["transaction_id"] = (
-        _value_from_row(row, f"{side}_transaction_id", f"{side}_row_id")
+        _value_from_row(
+            row,
+            f"{side}_transaction_id",
+            "bank_txn_id" if side == "source" else "",
+            "card_txn_id" if side == "source" else "",
+            f"{side}_row_id",
+        )
         or _normalize_text(txn.get("transaction_id"))
     )
     txn["ynab_id"] = _value_from_row(row, f"{side}_ynab_id") or _normalize_text(txn.get("ynab_id"))
@@ -561,7 +567,7 @@ def _review_record_from_row(row: pd.Series) -> dict[str, Any]:
         "target_present": _side_present(row, "target"),
         "source_row_id": _normalize_text(row.get("source_row_id")),
         "target_row_id": _normalize_text(row.get("target_row_id")),
-        "target_account": _normalize_text(row.get("target_account")),
+        "target_account": _value_from_row(row, "target_account", "account_name"),
         "source_context_kind": _normalize_text(row.get("source_context_kind")),
         "source_context_category_id": _normalize_text(row.get("source_context_category_id")),
         "source_context_category_name": _normalize_text(row.get("source_context_category_name")),
@@ -588,7 +594,7 @@ def _review_record_from_row(row: pd.Series) -> dict[str, Any]:
 
 
 def _review_table_from_dataframe(df: pd.DataFrame) -> pa.Table:
-    review_df = translate_review_dataframe(df) if detect_review_csv_format(df) != "unknown" else df.copy()
+    review_df = df.copy()
     canonicalish_columns = {
         "source_current",
         "target_current",
@@ -602,7 +608,7 @@ def _review_table_from_dataframe(df: pd.DataFrame) -> pa.Table:
         "target_original_transaction",
     }
     if not canonicalish_columns.intersection(set(review_df.columns)):
-        review_df = working_schema.build_working_dataframe(review_df)
+        review_df = working_schema.build_working_dataframe(pl.from_pandas(review_df)).to_pandas()
     records = [_review_record_from_row(row) for _, row in review_df.iterrows()]
     if not records:
         return pa.Table.from_arrays(
@@ -612,8 +618,8 @@ def _review_table_from_dataframe(df: pd.DataFrame) -> pa.Table:
     return pa.Table.from_pylist(records, schema=REVIEW_SCHEMA)
 
 
-def load_review_artifact(
-    source: str | Path | pd.DataFrame | pl.DataFrame | pa.Table,
+def coerce_review_artifact_table(
+    source: pd.DataFrame | pl.DataFrame | pa.Table,
 ) -> pa.Table:
     if isinstance(source, pa.Table):
         if _is_review_artifact_table(source):
@@ -636,38 +642,26 @@ def load_review_artifact(
         table = _review_table_from_dataframe(source)
         validate_review_table(table)
         return table
-
-    path = Path(source)
-    if not path.exists():
-        raise FileNotFoundError(f"Missing review artifact file: {path}")
-    if path.suffix.lower() == ".parquet":
-        table = pq.read_table(path)
-        if _is_review_artifact_table(table):
-            canonical = _coerce_review_artifact_table(table)
-            validate_review_table(canonical)
-            return canonical
-        canonical = _review_table_from_dataframe(table.to_pandas())
-        validate_review_table(canonical)
-        return canonical
-
-    df = pd.read_csv(path, dtype="string").fillna("")
-    df = working_schema.decode_working_dataframe(df)
-    detected_format = detect_review_csv_format(df)
-    if detected_format != "unified_v1":
-        if detected_format.startswith("legacy_"):
-            raise ValueError(
-                "proposed_transactions is in legacy review format "
-                f"({detected_format}); run scripts/translate_review_csv.py first"
-            )
-    table = _review_table_from_dataframe(df)
-    validate_review_table(table)
-    return table
+    raise TypeError("Review artifact coercion expects a pandas dataframe, polars dataframe, or Arrow table.")
 
 
-def load_review_artifact_polars(
-    source: str | Path | pd.DataFrame | pl.DataFrame | pa.Table,
-) -> pl.DataFrame:
-    return pl.from_pandas(project_review_artifact_to_flat_dataframe(source))
+def load_review_artifact(path: str | Path) -> pa.Table:
+    artifact_path = Path(path)
+    if not artifact_path.exists():
+        raise FileNotFoundError(f"Missing review artifact file: {artifact_path}")
+    if artifact_path.suffix.lower() != ".parquet":
+        raise ValueError(
+            f"Review artifact must be parquet: {artifact_path}. "
+            "Load the artifact first, then project it to a working dataframe explicitly."
+        )
+    table = pq.read_table(artifact_path)
+    if not _is_review_artifact_table(table):
+        raise ValueError(
+            f"Parquet file is not a canonical review artifact: {artifact_path}"
+        )
+    canonical = _coerce_review_artifact_table(table)
+    validate_review_table(canonical)
+    return canonical
 
 
 def _preferred_summary_value(*values: Any) -> str:
@@ -703,6 +697,7 @@ def _working_row_from_record(row: dict[str, Any]) -> dict[str, Any]:
             target_current.get("source_system"),
         ),
         "account_name": _preferred_summary_value(
+            row.get("target_account"),
             target_current.get("account_name"),
             source_current.get("account_name"),
         ),
@@ -808,66 +803,34 @@ def _working_row_from_record(row: dict[str, Any]) -> dict[str, Any]:
     return working
 
 
-def project_review_artifact_to_flat_dataframe(
-    source: str | Path | pd.DataFrame | pl.DataFrame | pa.Table,
-) -> pd.DataFrame:
-    canonicalish_columns = {
-        "source_current",
-        "target_current",
-        "source_original",
-        "target_original",
-        "source_current_transaction",
-        "target_current_transaction",
-        "source_transaction",
-        "target_transaction",
-        "source_original_transaction",
-        "target_original_transaction",
-    }
-    if isinstance(source, pd.DataFrame):
-        if canonicalish_columns.intersection(set(source.columns)):
-            rows = load_review_artifact(source).to_pylist()
-        else:
-            return working_schema.build_working_dataframe(source)
+def project_review_artifact_to_working_dataframe(
+    source: pl.DataFrame | pa.Table,
+) -> pl.DataFrame:
+    if isinstance(source, pa.Table):
+        if not _is_review_artifact_table(source):
+            raise ValueError("Working projection expects a canonical review artifact table.")
+        table = _coerce_review_artifact_table(source)
     elif isinstance(source, pl.DataFrame):
-        if canonicalish_columns.intersection(set(source.columns)):
-            rows = load_review_artifact(source).to_pylist()
-        else:
-            return working_schema.build_working_dataframe(source.to_pandas())
-    elif isinstance(source, pa.Table):
-        if _is_review_artifact_table(source):
-            rows = load_review_artifact(source).to_pylist()
-        else:
-            return working_schema.build_working_dataframe(source.to_pandas())
+        table = source.to_arrow()
+        if not _is_review_artifact_table(table):
+            raise ValueError("Working projection expects canonical review artifact columns.")
+        table = _coerce_review_artifact_table(table)
     else:
-        rows = load_review_artifact(source).to_pylist()
+        raise TypeError("Working projection expects a polars dataframe or Arrow table.")
+
+    rows = table.to_pylist()
     if not rows:
-        return pd.DataFrame(columns=WORKING_COLUMNS)
-    df = pd.DataFrame([_working_row_from_record(row) for row in rows])
-    return working_schema.build_working_dataframe(df)
-
-
-def load_proposed_transactions(
-    source: str | Path | pd.DataFrame | pl.DataFrame | pa.Table,
-) -> pd.DataFrame:
-    if isinstance(source, (pa.Table, pl.DataFrame, pd.DataFrame)):
-        return project_review_artifact_to_flat_dataframe(source)
-
-    if isinstance(source, (str, Path)) and Path(source).suffix.lower() == ".parquet":
-        return project_review_artifact_to_flat_dataframe(source)
-
-    df = _input_to_pandas_dataframe(source, label="proposed transactions")
-    df = working_schema.decode_working_dataframe(df)
-    detected_format = detect_review_csv_format(df)
-    if detected_format != "unified_v1":
-        if detected_format.startswith("legacy_"):
-            raise ValueError(
-                "proposed_transactions is in legacy review format "
-                f"({detected_format}); run scripts/translate_review_csv.py first"
+        return working_schema.build_working_dataframe(
+            pl.DataFrame(
+                {
+                    "source_present": pl.Series("source_present", [], dtype=pl.Boolean),
+                    "target_present": pl.Series("target_present", [], dtype=pl.Boolean),
+                }
             )
-        raise ValueError(
-            f"proposed_transactions missing columns: {_missing_columns(df, REQUIRED_COLUMNS)}"
         )
-    return project_review_artifact_to_flat_dataframe(df)
+    return working_schema.build_working_dataframe(
+        pl.DataFrame([_working_row_from_record(row) for row in rows], strict=False)
+    )
 
 
 def save_review_artifact(
@@ -876,7 +839,7 @@ def save_review_artifact(
 ) -> None:
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    table = load_review_artifact(data)
+    table = coerce_review_artifact_table(data)
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
     pq.write_table(table, tmp_path)
     tmp_path.replace(output_path)
@@ -900,7 +863,9 @@ def save_reviewed_transactions(
         save_review_artifact(df, output_path)
         return
 
-    out = project_review_artifact_to_flat_dataframe(df).copy()
+    out = project_review_artifact_to_working_dataframe(
+        coerce_review_artifact_table(df)
+    ).to_pandas()
     out = out.drop(
         columns=[col for col in ["payee_selected", "category_selected"] if col in out.columns]
     )

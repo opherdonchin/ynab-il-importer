@@ -714,7 +714,9 @@ def build_review_rows(
         target_lookup=_snapshot_lookup(prepared_target, row_id_column="target_row_id"),
     )
     relations = _apply_target_suggestions(relations, map_path=map_path)
-    relations = review_io.project_review_artifact_to_flat_dataframe(relations)
+    relations = review_io.project_review_artifact_to_working_dataframe(
+        pl.from_arrow(review_io.coerce_review_artifact_table(relations))
+    ).to_pandas()
     return relations, result
 
 

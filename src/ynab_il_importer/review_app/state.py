@@ -1155,7 +1155,7 @@ def _transaction_reference_column(side: str, *, kind: str) -> str:
 def _review_record_row(row: pd.Series) -> dict[str, Any]:
     import ynab_il_importer.review_app.io as review_io
 
-    table = review_io.load_review_artifact(pd.DataFrame([row.to_dict()]))
+    table = review_io.coerce_review_artifact_table(pd.DataFrame([row.to_dict()]))
     rows = table.to_pylist()
     return rows[0] if rows else {}
 
@@ -1244,12 +1244,14 @@ def rebuild_working_rows(df: pd.DataFrame, indices: list[Any]) -> pd.DataFrame:
     updated = df.copy()
     subset = df.loc[touched].copy()
     missing_input = working_schema.missing_working_columns(
-        subset,
+        subset.columns,
         working_schema.WORKING_INPUT_REQUIRED_COLUMNS,
     )
     if missing_input:
         return updated
-    rebuilt = review_io.project_review_artifact_to_flat_dataframe(subset)
+    rebuilt = review_io.project_review_artifact_to_working_dataframe(
+        pl.from_arrow(review_io.coerce_review_artifact_table(subset))
+    ).to_pandas()
     if len(rebuilt) != len(subset):
         return updated
     rebuilt.index = subset.index

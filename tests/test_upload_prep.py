@@ -98,38 +98,42 @@ def _txn(
 def _split_edit_working_row(*, amount: float = 10.0) -> pd.DataFrame:
     source_txn = _txn(transaction_id="src-1", payee="Source Cafe", category="Groceries", amount=amount)
     target_original = _txn(transaction_id="tgt-1", payee="Target Cafe", category="Groceries", amount=amount)
-    working = review_io.load_proposed_transactions(
-        pd.DataFrame(
-            [
-                {
-                    "transaction_id": "review-1",
-                    "account_name": "Bank Leumi",
-                    "date": "2026-03-01",
-                    "outflow_ils": amount,
-                    "inflow_ils": 0.0,
-                    "memo": "Parent memo",
-                    "source": "bank",
-                    "workflow_type": "cross_budget",
-                    "decision_action": "create_target",
-                    "reviewed": True,
-                    "changed": True,
-                    "source_present": True,
-                    "target_present": True,
-                    "source_row_id": "src-1",
-                    "target_row_id": "tgt-1",
-                    "target_account": "Bank Leumi",
-                    "source_payee_selected": "Source Cafe",
-                    "source_category_selected": "Groceries",
-                    "target_payee_selected": "Parent Payee",
-                    "target_category_selected": "Groceries",
-                    "source_current": source_txn,
-                    "source_original": source_txn,
-                    "target_current": {**target_original, "payee_raw": "Parent Payee", "memo": "Parent memo"},
-                    "target_original": target_original,
-                }
-            ]
+    working = review_io.project_review_artifact_to_working_dataframe(
+        pl.from_arrow(
+            review_io.coerce_review_artifact_table(
+                pd.DataFrame(
+                    [
+                        {
+                            "transaction_id": "review-1",
+                            "account_name": "Bank Leumi",
+                            "date": "2026-03-01",
+                            "outflow_ils": amount,
+                            "inflow_ils": 0.0,
+                            "memo": "Parent memo",
+                            "source": "bank",
+                            "workflow_type": "cross_budget",
+                            "decision_action": "create_target",
+                            "reviewed": True,
+                            "changed": True,
+                            "source_present": True,
+                            "target_present": True,
+                            "source_row_id": "src-1",
+                            "target_row_id": "tgt-1",
+                            "target_account": "Bank Leumi",
+                            "source_payee_selected": "Source Cafe",
+                            "source_category_selected": "Groceries",
+                            "target_payee_selected": "Parent Payee",
+                            "target_category_selected": "Groceries",
+                            "source_current": source_txn,
+                            "source_original": source_txn,
+                            "target_current": {**target_original, "payee_raw": "Parent Payee", "memo": "Parent memo"},
+                            "target_original": target_original,
+                        }
+                    ]
+                )
+            )
         )
-    )
+    ).to_pandas()
     return working
 
 

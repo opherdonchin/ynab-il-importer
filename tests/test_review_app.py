@@ -152,7 +152,7 @@ def _canonical_record(
 
 
 def _write_review_rows(path: Path, rows: list[dict[str, object]]) -> None:
-    pd.DataFrame(rows).to_csv(path, index=False, encoding="utf-8-sig")
+    review_io.save_review_artifact(pd.DataFrame(rows), path)
 
 
 def _write_categories(path: Path) -> None:
@@ -172,8 +172,8 @@ def _build_app_test(
     reviewed_rows: list[dict[str, object]] | None = None,
     resume: bool = False,
 ) -> tuple[AppTest, Path]:
-    proposed = tmp_path / "proposed.csv"
-    reviewed = tmp_path / "proposed_reviewed.csv"
+    proposed = tmp_path / "proposed.parquet"
+    reviewed = tmp_path / "proposed_reviewed.parquet"
     categories = tmp_path / "categories.csv"
 
     _write_review_rows(proposed, proposed_rows)
@@ -1102,10 +1102,10 @@ def test_app_row_save_persists_side_specific_fields_and_review_state(tmp_path: P
     _find_button_by_label(app.sidebar, "Save").click()
     app.run()
 
-    saved = pd.read_csv(reviewed_path, dtype="string").fillna("")
+    saved = review_io.load_review_artifact(reviewed_path).to_pandas()
     assert saved.loc[0, "target_category_selected"] == "Dining"
     assert saved.loc[0, "decision_action"] == "keep_match"
-    assert saved.loc[0, "reviewed"] == "TRUE"
+    assert bool(saved.loc[0, "reviewed"]) is True
     assert "category_selected" not in saved.columns
     assert "payee_selected" not in saved.columns
 

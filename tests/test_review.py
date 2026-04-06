@@ -13,6 +13,12 @@ import ynab_il_importer.review_app.state as review_state
 import ynab_il_importer.review_app.validation as review_validation
 
 
+def _working_from_df(df: pd.DataFrame) -> pd.DataFrame:
+    return review_io.project_review_artifact_to_working_dataframe(
+        pl.from_arrow(review_io.coerce_review_artifact_table(df))
+    ).to_pandas()
+
+
 def _review_rows(rows: list[dict[str, object]]) -> pd.DataFrame:
     normalized_rows: list[dict[str, object]] = []
     for row in rows:
@@ -20,7 +26,7 @@ def _review_rows(rows: list[dict[str, object]]) -> pd.DataFrame:
         normalized.setdefault("source_present", True)
         normalized.setdefault("target_present", True)
         normalized_rows.append(normalized)
-    return review_io.load_proposed_transactions(pd.DataFrame(normalized_rows))
+    return _working_from_df(pd.DataFrame(normalized_rows))
 
 
 def _txn(
@@ -67,7 +73,7 @@ def _txn(
 
 
 def _canonical_working_rows(rows: list[dict[str, object]]) -> pd.DataFrame:
-    return review_io.load_proposed_transactions(pd.DataFrame(rows))
+    return _working_from_df(pd.DataFrame(rows))
 
 
 def test_validate_row_blocks_reviewed_no_decision_and_institutional_source_mutation() -> None:
@@ -242,8 +248,9 @@ def test_grouped_row_indices_accepts_polars_frame() -> None:
 
 
 def test_load_save_roundtrip_uses_side_specific_selected_fields(tmp_path) -> None:
-    src = tmp_path / "review.csv"
-    pd.DataFrame(
+    src = tmp_path / "review.parquet"
+    review_io.save_review_artifact(
+        pd.DataFrame(
         [
             {
                 "transaction_id": "t1",
@@ -268,9 +275,13 @@ def test_load_save_roundtrip_uses_side_specific_selected_fields(tmp_path) -> Non
                 "target_present": "",
             }
         ]
-    ).to_csv(src, index=False, encoding="utf-8-sig")
+        ),
+        src,
+    )
 
-    loaded = review_io.load_proposed_transactions(src)
+    loaded = review_io.project_review_artifact_to_working_dataframe(
+        review_io.load_review_artifact(src)
+    ).to_pandas()
     assert loaded.loc[0, "payee_selected"] == "Cafe"
     assert loaded.loc[0, "category_selected"] == "Food"
     assert loaded.loc[0, "update_maps"] == "fingerprint_add_source"
@@ -1003,32 +1014,36 @@ def test_apply_target_split_edit_accepts_unchanged_existing_split_after_roundtri
             "matched_transaction_id": "",
         },
     ]
-    working_polars = review_io.load_review_artifact_polars(
-        pd.DataFrame(
-            [
-                {
-                    "review_transaction_id": "row-1",
-                    "workflow_type": "cross_budget",
-                    "relation_kind": "source_target_pair",
-                    "match_status": "matched_auto",
-                    "match_method": "auto",
-                    "decision_action": "keep_match",
-                    "reviewed": False,
-                    "changed": False,
-                    "source_present": True,
-                    "target_present": True,
-                    "source_row_id": "src-1",
-                    "target_row_id": "tgt-1",
-                    "source_payee_selected": "Source Cafe",
-                    "source_category_selected": "Food",
-                    "target_payee_selected": "Mega Store",
-                    "target_category_selected": "Split",
-                    "source_current": source_txn,
-                    "source_original": source_txn,
-                    "target_current": target_txn,
-                    "target_original": target_txn,
-                }
-            ]
+    working_polars = review_io.project_review_artifact_to_working_dataframe(
+        pl.from_arrow(
+            review_io.coerce_review_artifact_table(
+                pd.DataFrame(
+                    [
+                        {
+                            "review_transaction_id": "row-1",
+                            "workflow_type": "cross_budget",
+                            "relation_kind": "source_target_pair",
+                            "match_status": "matched_auto",
+                            "match_method": "auto",
+                            "decision_action": "keep_match",
+                            "reviewed": False,
+                            "changed": False,
+                            "source_present": True,
+                            "target_present": True,
+                            "source_row_id": "src-1",
+                            "target_row_id": "tgt-1",
+                            "source_payee_selected": "Source Cafe",
+                            "source_category_selected": "Food",
+                            "target_payee_selected": "Mega Store",
+                            "target_category_selected": "Split",
+                            "source_current": source_txn,
+                            "source_original": source_txn,
+                            "target_current": target_txn,
+                            "target_original": target_txn,
+                        }
+                    ]
+                )
+            )
         )
     )
 

@@ -4,13 +4,17 @@ import json
 from typing import Any, Iterable
 
 import pandas as pd
+import polars as pl
 import pyarrow as pa
 
 import ynab_il_importer.review_app.model as model
 from ynab_il_importer.artifacts.transaction_schema import SPLIT_LINE_STRUCT, TRANSACTION_SCHEMA
-from ynab_il_importer.safe_types import normalize_flag_series
+from ynab_il_importer.safe_types import TRUE_VALUES
 
 
+_SPLIT_LIST_DTYPE = pl.from_arrow(
+    pa.table({"splits": pa.array([], type=pa.list_(SPLIT_LINE_STRUCT))})
+).schema["splits"]
 SPLIT_FIELD_NAMES = [field.name for field in SPLIT_LINE_STRUCT]
 TRANSACTION_FIELD_NAMES = [field.name for field in TRANSACTION_SCHEMA]
 SPLIT_COLUMNS = ["source_splits", "target_splits"]
@@ -97,7 +101,6 @@ WORKING_COLUMNS = [
         "target_import_id",
         "target_parent_transaction_id",
         "target_account_id",
-        "target_account",
         "target_date",
         "target_secondary_date",
         "target_payee_current",
@@ -173,6 +176,12 @@ def _normalize_float(value: Any) -> float:
     return float(pd.to_numeric(pd.Series([value]), errors="coerce").fillna(0.0).iloc[0])
 
 
+def _normalize_bool(value: Any) -> bool:
+    if value is True:
+        return True
+    return _normalize_text(value).casefold() in TRUE_VALUES
+
+
 def _normalize_split_records(value: Any) -> list[dict[str, Any]] | None:
     if value is None or value is pd.NA:
         return None
@@ -233,7 +242,7 @@ def _normalize_transaction_record(value: Any) -> dict[str, Any] | None:
                 normalized[field.name] = 0.0
             continue
         if pa.types.is_boolean(field.type):
-            normalized[field.name] = bool(normalize_flag_series(pd.Series([raw])).iloc[0])
+            normalized[field.name] = _normalize_bool(raw)
         elif pa.types.is_floating(field.type):
             normalized[field.name] = _normalize_float(raw)
         elif pa.types.is_list(field.type):
@@ -243,96 +252,146 @@ def _normalize_transaction_record(value: Any) -> dict[str, Any] | None:
     return normalized
 
 
-def decode_working_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
+def decode_working_dataframe(df: pl.DataFrame) -> pl.DataFrame:
+    out = df.clone()
+    expressions: list[pl.Expr] = []
     for column in SPLIT_COLUMNS:
         if column in out.columns:
-            out[column] = out[column].map(_normalize_split_records)
+            expressions.append(
+                pl.col(column)
+                .map_elements(_normalize_split_records, return_dtype=_SPLIT_LIST_DTYPE)
+                .alias(column)
+            )
     for column in CURRENT_TRANSACTION_COLUMNS:
         if column in out.columns:
-            out[column] = out[column].map(_normalize_transaction_record)
+            expressions.append(
+                pl.col(column)
+                .map_elements(_normalize_transaction_record, return_dtype=pl.Object)
+                .alias(column)
+            )
     for column in ORIGINAL_TRANSACTION_COLUMNS:
         if column in out.columns:
-            out[column] = out[column].map(_normalize_transaction_record)
+            expressions.append(
+                pl.col(column)
+                .map_elements(_normalize_transaction_record, return_dtype=pl.Object)
+                .alias(column)
+            )
+    if expressions:
+        out = out.with_columns(expressions)
     return out
 
 
-def missing_working_columns(df: pd.DataFrame, required: Iterable[str] | None = None) -> list[str]:
+def missing_working_columns(
+    columns: Iterable[str],
+    required: Iterable[str] | None = None,
+) -> list[str]:
+    existing = set(columns)
     needed = list(WORKING_REQUIRED_COLUMNS if required is None else required)
-    return [column for column in needed if column not in df.columns]
+    return [column for column in needed if column not in existing]
 
 
-def validate_working_dataframe(df: pd.DataFrame) -> None:
-    missing = missing_working_columns(df)
+def validate_working_dataframe(df: pl.DataFrame) -> None:
+    missing = missing_working_columns(df.columns)
     if missing:
         raise ValueError(f"Review working rows missing required columns: {missing}")
 
 
-def _working_default(column: str) -> Any:
+def _working_default_series(column: str, height: int) -> pl.Series:
     if column in {"outflow_ils", "inflow_ils"}:
-        return 0.0
+        return pl.Series(column, [0.0] * height, dtype=pl.Float64)
     if column in WORKING_BOOL_COLUMNS:
-        return False
+        return pl.Series(column, [False] * height, dtype=pl.Boolean)
     if (
         column in SPLIT_COLUMNS
         or column in CURRENT_TRANSACTION_COLUMNS
         or column in ORIGINAL_TRANSACTION_COLUMNS
     ):
-        return None
-    return ""
+        if column in SPLIT_COLUMNS:
+            return pl.Series(column, [None] * height, dtype=_SPLIT_LIST_DTYPE)
+        return pl.Series(column, [None] * height, dtype=pl.Object)
+    return pl.Series(column, [""] * height, dtype=pl.String)
 
 
-def build_working_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    out = decode_working_dataframe(df.copy())
-    missing_input = missing_working_columns(out, WORKING_INPUT_REQUIRED_COLUMNS)
+def build_working_dataframe(df: pl.DataFrame) -> pl.DataFrame:
+    out = decode_working_dataframe(df)
+    missing_input = missing_working_columns(out.columns, WORKING_INPUT_REQUIRED_COLUMNS)
     if missing_input:
         raise ValueError(f"Review working rows missing required columns: {missing_input}")
 
-    for column in WORKING_COLUMNS:
-        if column not in out.columns:
-            out[column] = _working_default(column)
-
-    if "source" in out.columns and "workflow_type" in out.columns:
-        institutional_mask = out["workflow_type"].astype("string").fillna("").str.strip().eq("")
-        source_series = out["source"].astype("string").fillna("").str.strip().str.casefold()
-        out.loc[institutional_mask & source_series.isin(["bank", "card"]), "workflow_type"] = (
-            "institutional"
+    if out.height == 0:
+        out = out.with_columns(
+            [_working_default_series(column, 0) for column in WORKING_COLUMNS if column not in out.columns]
         )
+    else:
+        missing_series = [
+            _working_default_series(column, out.height)
+            for column in WORKING_COLUMNS
+            if column not in out.columns
+        ]
+        if missing_series:
+            out = out.with_columns(missing_series)
 
-    for column in WORKING_BOOL_COLUMNS:
-        out[column] = normalize_flag_series(out[column])
-
-    out["update_maps"] = out["update_maps"].astype("string").fillna("").str.strip()
-    out["decision_action"] = out["decision_action"].astype("string").fillna("").str.strip()
-
-    for column in WORKING_TEXT_COLUMNS:
-        out[column] = out[column].astype("string").fillna("").str.strip()
-
-    if "payee_selected" in out.columns and "target_payee_selected" in out.columns:
-        out["target_payee_selected"] = out["target_payee_selected"].where(
-            out["target_payee_selected"].ne(""),
-            out["payee_selected"],
-        )
-    if "category_selected" in out.columns and "target_category_selected" in out.columns:
-        out["target_category_selected"] = out["target_category_selected"].where(
-            out["target_category_selected"].ne(""),
-            out["category_selected"],
-        )
-
-    target_payee = out["target_payee_selected"]
-    target_category = out["target_category_selected"].map(model.normalize_category_value)
-    out["payee_selected"] = target_payee.where(target_payee.ne(""), out["payee_selected"])
-    out["category_selected"] = target_category.where(target_category.ne(""), out["category_selected"])
-    out["target_category_selected"] = target_category
-    out["source_category_selected"] = out["source_category_selected"].map(
-        model.normalize_category_value
+    text = lambda name: pl.col(name).cast(pl.String, strict=False).fill_null("").str.strip_chars()
+    out = out.with_columns(
+        pl.col("outflow_ils").cast(pl.Float64, strict=False).fill_null(0.0).alias("outflow_ils"),
+        pl.col("inflow_ils").cast(pl.Float64, strict=False).fill_null(0.0).alias("inflow_ils"),
+        *[
+            text(column)
+            .str.to_lowercase()
+            .is_in(list(TRUE_VALUES))
+            .alias(column)
+            for column in WORKING_BOOL_COLUMNS
+        ],
+        *[text(column).alias(column) for column in WORKING_TEXT_COLUMNS],
     )
-    out["target_category_current"] = out["target_category_current"].map(model.normalize_category_value)
-    out["source_category_current"] = out["source_category_current"].map(model.normalize_category_value)
+
+    out = out.with_columns(
+        pl.when((pl.col("workflow_type") == "") & pl.col("source").str.to_lowercase().is_in(["bank", "card"]))
+        .then(pl.lit("institutional"))
+        .otherwise(pl.col("workflow_type"))
+        .alias("workflow_type")
+    )
+
+    out = out.with_columns(
+        pl.when(pl.col("target_payee_selected") != "")
+        .then(pl.col("target_payee_selected"))
+        .otherwise(pl.col("payee_selected"))
+        .alias("target_payee_selected"),
+        pl.when(pl.col("target_category_selected") != "")
+        .then(pl.col("target_category_selected"))
+        .otherwise(pl.col("category_selected"))
+        .alias("target_category_selected"),
+    )
+
+    out = out.with_columns(
+        pl.col("target_category_selected")
+        .map_elements(model.normalize_category_value, return_dtype=pl.String)
+        .alias("target_category_selected"),
+        pl.col("source_category_selected")
+        .map_elements(model.normalize_category_value, return_dtype=pl.String)
+        .alias("source_category_selected"),
+        pl.col("target_category_current")
+        .map_elements(model.normalize_category_value, return_dtype=pl.String)
+        .alias("target_category_current"),
+        pl.col("source_category_current")
+        .map_elements(model.normalize_category_value, return_dtype=pl.String)
+        .alias("source_category_current"),
+    )
+
+    out = out.with_columns(
+        pl.when(pl.col("target_payee_selected") != "")
+        .then(pl.col("target_payee_selected"))
+        .otherwise(pl.col("payee_selected"))
+        .alias("payee_selected"),
+        pl.when(pl.col("target_category_selected") != "")
+        .then(pl.col("target_category_selected"))
+        .otherwise(pl.col("category_selected"))
+        .alias("category_selected"),
+    )
 
     ordered_columns = list(
         dict.fromkeys(WORKING_COLUMNS + [column for column in out.columns if column not in WORKING_COLUMNS])
     )
-    out = out[ordered_columns].copy()
+    out = out.select([column for column in ordered_columns if column in out.columns])
     validate_working_dataframe(out)
     return out

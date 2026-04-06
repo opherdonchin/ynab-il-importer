@@ -8,31 +8,35 @@ import pytest
 import ynab_il_importer.review_app.io as review_io
 
 
-def _required_columns() -> list[str]:
-    return list(review_io.REQUIRED_COLUMNS)
+def _working_from_artifact_path(path) -> pd.DataFrame:
+    return review_io.project_review_artifact_to_working_dataframe(
+        review_io.load_review_artifact(path)
+    ).to_pandas()
 
 
-def test_load_proposed_transactions_accepts_empty_csv_with_headers(tmp_path) -> None:
+def _working_from_artifact_df(df: pd.DataFrame | pl.DataFrame) -> pd.DataFrame:
+    return review_io.project_review_artifact_to_working_dataframe(
+        pl.from_arrow(review_io.coerce_review_artifact_table(df))
+    ).to_pandas()
+
+
+def test_load_review_artifact_requires_parquet(tmp_path) -> None:
     path = tmp_path / "empty_review.csv"
-    pd.DataFrame(columns=_required_columns()).to_csv(path, index=False, encoding="utf-8-sig")
+    pd.DataFrame(columns=review_io.REQUIRED_COLUMNS).to_csv(path, index=False, encoding="utf-8-sig")
 
-    loaded = review_io.load_proposed_transactions(path)
-
-    assert loaded.empty
-    assert "payee_selected" in loaded.columns
-    assert "category_selected" in loaded.columns
-    assert "reviewed" in loaded.columns
+    with pytest.raises(ValueError, match="must be parquet"):
+        review_io.load_review_artifact(path)
 
 
-def test_load_proposed_transactions_raises_for_missing_columns(tmp_path) -> None:
-    path = tmp_path / "missing_columns.csv"
-    pd.DataFrame([{"transaction_id": "t1"}]).to_csv(path, index=False, encoding="utf-8-sig")
+def test_load_review_artifact_rejects_non_artifact_parquet(tmp_path) -> None:
+    path = tmp_path / "not_review.parquet"
+    pa.table({"transaction_id": ["t1"]}).combine_chunks().to_pandas().to_parquet(path)
 
-    with pytest.raises(ValueError, match="missing columns"):
-        review_io.load_proposed_transactions(path)
+    with pytest.raises(ValueError, match="not a canonical review artifact"):
+        review_io.load_review_artifact(path)
 
 
-def test_load_proposed_transactions_accepts_polars_dataframe() -> None:
+def test_project_review_artifact_to_working_dataframe_accepts_polars_artifact_rows() -> None:
     df = pl.DataFrame(
         {
             "transaction_id": ["t1"],
@@ -57,7 +61,7 @@ def test_load_proposed_transactions_accepts_polars_dataframe() -> None:
         }
     )
 
-    loaded = review_io.load_proposed_transactions(df)
+    loaded = _working_from_artifact_df(df)
 
     assert isinstance(loaded, pd.DataFrame)
     assert loaded.loc[0, "target_payee_selected"] == "Cafe"
@@ -107,7 +111,7 @@ def test_save_reviewed_transactions_accepts_polars_dataframe(tmp_path) -> None:
     )
 
     review_io.save_reviewed_transactions(df, path)
-    loaded = review_io.load_proposed_transactions(path)
+    loaded = pd.read_csv(path, dtype="string").fillna("")
 
     assert bool(loaded.loc[0, "reviewed"]) is True
     assert loaded.loc[0, "target_category_selected"] == "Food"
@@ -145,15 +149,15 @@ def test_save_then_load_round_trip_preserves_review_fields(tmp_path) -> None:
     )
 
     review_io.save_reviewed_transactions(df, path)
-    loaded = review_io.load_proposed_transactions(path)
+    loaded = pd.read_csv(path, dtype="string").fillna("")
 
     assert loaded.loc[0, "target_payee_selected"] == "Cafe updated"
     assert loaded.loc[0, "target_category_selected"] == "Dining updated"
-    assert loaded.loc[0, "payee_selected"] == "Cafe updated"
-    assert loaded.loc[0, "category_selected"] == "Dining updated"
     assert bool(loaded.loc[0, "reviewed"]) is True
     assert bool(loaded.loc[0, "source_present"]) is True
     assert bool(loaded.loc[0, "target_present"]) is False
+    assert "payee_selected" not in loaded.columns
+    assert "category_selected" not in loaded.columns
 
 
 def test_save_review_artifact_parquet_round_trip_preserves_flat_sides_and_splits(tmp_path) -> None:
@@ -212,7 +216,7 @@ def test_save_review_artifact_parquet_round_trip_preserves_flat_sides_and_splits
     )
 
     review_io.save_reviewed_transactions(df, path)
-    loaded = review_io.load_proposed_transactions(path)
+    loaded = _working_from_artifact_path(path)
 
     assert loaded.loc[0, "target_payee_selected"] == "Cafe target"
     assert loaded.loc[0, "source_context_kind"] == "ynab_split_category_match"
@@ -224,7 +228,7 @@ def test_save_review_artifact_parquet_round_trip_preserves_flat_sides_and_splits
     assert loaded.loc[0, "source_splits"] is None
 
 
-def test_load_review_artifact_polars_preserves_flat_sides_and_context(tmp_path) -> None:
+def test_project_review_artifact_to_working_dataframe_preserves_flat_sides_and_context(tmp_path) -> None:
     path = tmp_path / "review_polars.parquet"
     df = pd.DataFrame(
         [
@@ -291,7 +295,9 @@ def test_load_review_artifact_polars_preserves_flat_sides_and_context(tmp_path) 
     )
 
     review_io.save_review_artifact(df, path)
-    loaded = review_io.load_review_artifact_polars(path)
+    loaded = review_io.project_review_artifact_to_working_dataframe(
+        review_io.load_review_artifact(path)
+    )
 
     assert isinstance(loaded, pl.DataFrame)
     row = loaded.to_dicts()[0]
@@ -327,12 +333,12 @@ def _legacy_institutional_df() -> pd.DataFrame:
     )
 
 
-def test_load_proposed_transactions_rejects_legacy_review_csv_with_guidance(tmp_path) -> None:
+def test_load_review_artifact_rejects_legacy_review_csv(tmp_path) -> None:
     path = tmp_path / "legacy_review.csv"
     _legacy_institutional_df().to_csv(path, index=False, encoding="utf-8-sig")
 
-    with pytest.raises(ValueError, match="run scripts/translate_review_csv.py first"):
-        review_io.load_proposed_transactions(path)
+    with pytest.raises(ValueError, match="must be parquet"):
+        review_io.load_review_artifact(path)
 
 
 def test_translate_review_dataframe_converts_legacy_institutional_review_csv() -> None:
@@ -405,7 +411,7 @@ def test_load_review_artifact_rejects_false_changed_when_current_differs() -> No
     )
 
     with pytest.raises(ValueError, match="changed is FALSE"):
-        review_io.load_review_artifact(df)
+        review_io.coerce_review_artifact_table(df)
 
 
 def test_load_review_artifact_rejects_split_sum_mismatch() -> None:
@@ -470,7 +476,7 @@ def test_load_review_artifact_rejects_split_sum_mismatch() -> None:
     )
 
     with pytest.raises(ValueError, match="split amounts do not sum"):
-        review_io.load_review_artifact(df)
+        review_io.coerce_review_artifact_table(df)
 
 
 def test_load_review_artifact_rejects_split_single_category() -> None:
@@ -535,5 +541,4 @@ def test_load_review_artifact_rejects_split_single_category() -> None:
     )
 
     with pytest.raises(ValueError, match="split must span more than one category"):
-        review_io.load_review_artifact(df)
-
+        review_io.coerce_review_artifact_table(df)

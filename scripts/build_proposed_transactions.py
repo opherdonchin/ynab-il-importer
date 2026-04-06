@@ -1632,7 +1632,9 @@ def build_review_rows(
 
     relations_pl = pl.concat([matched_pl, unmatched_source_pl, unmatched_target_pl], how="diagonal_relaxed")
     relations = _apply_review_target_suggestions(relations_pl, map_path=map_path)
-    relations = review_io.project_review_artifact_to_flat_dataframe(relations)
+    relations = review_io.project_review_artifact_to_working_dataframe(
+        pl.from_arrow(review_io.coerce_review_artifact_table(relations))
+    ).to_pandas()
     return relations, pairs_pl.to_pandas()
 
 
