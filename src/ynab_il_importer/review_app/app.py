@@ -1375,20 +1375,23 @@ def _format_current_selected(current: Any, selected: Any) -> str:
 
 
 def _split_category_summary(splits: list[dict[str, Any]] | None) -> str:
-    if not isinstance(splits, list) or not splits:
+    normalized_splits = review_io._normalize_split_records(splits)
+    if not normalized_splits:
         return ""
-    ordered_categories: list[str] = []
+    entries: list[str] = []
     seen: set[str] = set()
-    for split in splits:
+    for split in normalized_splits:
         if not isinstance(split, dict):
             continue
         category = str(split.get("category_raw", "") or "").strip()
-        if not category or category in seen:
+        amount = _split_amount_text(split) or "—"
+        entry = f"{category or '—'} {amount}"
+        if entry in seen:
             continue
-        ordered_categories.append(category)
-        seen.add(category)
-    if ordered_categories:
-        return "; ".join(ordered_categories)
+        entries.append(entry)
+        seen.add(entry)
+    if entries:
+        return "; ".join(entries)
     return "Yes"
 
 
@@ -1451,18 +1454,12 @@ def _split_caption_lines(
     *,
     matching_split_ids: str = "",
 ) -> list[str]:
-    if splits is None:
-        return []
-    if not isinstance(splits, list):
-        try:
-            splits = list(splits)
-        except TypeError:
-            return []
-    if not isinstance(splits, list):
+    normalized_splits = review_io._normalize_split_records(splits)
+    if not normalized_splits:
         return []
     split_ids = _split_id_set(matching_split_ids)
     lines: list[str] = []
-    for index, split in enumerate(splits, start=1):
+    for index, split in enumerate(normalized_splits, start=1):
         if not isinstance(split, dict):
             continue
         split_id = str(split.get("split_id", "") or "").strip()
@@ -1500,8 +1497,8 @@ def _render_split_section(
 
 
 def _target_split_editor_rows(row: pd.Series) -> list[dict[str, Any]]:
-    splits = row.get("target_splits")
-    if isinstance(splits, list) and splits:
+    splits = review_io._normalize_split_records(row.get("target_splits"))
+    if splits:
         rows: list[dict[str, Any]] = []
         for split in splits:
             if not isinstance(split, dict):
@@ -1692,8 +1689,8 @@ def _render_split_action_buttons(
     idx: Any,
     group_fingerprint: str | None = None,
 ) -> None:
-    target_splits = row.get("target_splits")
-    is_split = isinstance(target_splits, list) and len(target_splits) > 0
+    target_splits = review_io._normalize_split_records(row.get("target_splits"))
+    is_split = bool(target_splits)
     action_label = "Edit split" if is_split else "Create split"
     if st.button(action_label, key=_editor_key(f"split_action_{idx}")):
         _open_target_split_editor(row, idx=idx, group_fingerprint=group_fingerprint)
@@ -1729,6 +1726,8 @@ def _render_row_details(
     category_group_map: dict[str, str],
     helper_row: pd.Series | None = None,
 ) -> None:
+    source_splits = review_io._normalize_split_records(row.get("source_splits"))
+    target_splits = review_io._normalize_split_records(row.get("target_splits"))
     source_category_current = _format_category_label(
         str(row.get("source_category_current", "") or "").strip(),
         category_group_map,
@@ -1751,16 +1750,16 @@ def _render_row_details(
         row.get("source_payee_selected", ""),
     )
     source_category = _format_current_selected(
-        source_category_current,
-        source_category_selected,
+        "Split" if source_splits else source_category_current,
+        "Split" if source_splits else source_category_selected,
     )
     target_payee = _format_current_selected(
         row.get("target_payee_current", ""),
         row.get("target_payee_selected", ""),
     )
     target_category = _format_current_selected(
-        target_category_current,
-        target_category_selected,
+        "Split" if target_splits else target_category_current,
+        "Split" if target_splits else target_category_selected,
     )
 
     overview_col, source_col, target_col = st.columns([1.1, 1.3, 1.3])
@@ -1785,7 +1784,7 @@ def _render_row_details(
                 ("Date", row.get("source_date", "") or row.get("date", "")),
                 ("Payee", source_payee),
                 ("Category", source_category),
-                ("Split", _split_category_summary(source_splits := row.get("source_splits"))),
+                ("Split", _split_category_summary(source_splits)),
                 ("Memo", row.get("source_memo", "")),
             ],
         )
@@ -1797,7 +1796,7 @@ def _render_row_details(
                 ("Date", row.get("target_date", "") or row.get("date", "")),
                 ("Payee", target_payee),
                 ("Category", target_category),
-                ("Split", _split_category_summary(target_splits := row.get("target_splits"))),
+                ("Split", _split_category_summary(target_splits)),
                 ("Memo", row.get("target_memo", "")),
             ],
         )

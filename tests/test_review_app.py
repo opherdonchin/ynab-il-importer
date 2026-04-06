@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import polars as pl
 import pytest
@@ -414,7 +415,88 @@ def test_split_category_summary_lists_unique_categories() -> None:
             {"category_raw": "Gifts"},
             {"category_raw": "Books"},
         ]
-    ) == "Books; Gifts"
+    ) == "Books —; Gifts —"
+
+
+def test_split_category_summary_accepts_array_backed_split_payloads() -> None:
+    splits = np.array(
+        [
+            {
+                "split_id": "split-1",
+                "category_raw": "Books",
+                "outflow_ils": 12.0,
+                "inflow_ils": 0.0,
+            },
+            {
+                "split_id": "split-2",
+                "category_raw": "Gifts",
+                "outflow_ils": 10.0,
+                "inflow_ils": 0.0,
+            },
+        ],
+        dtype=object,
+    )
+
+    assert review_app._split_category_summary(splits) == "Books -12; Gifts -10"
+
+
+def test_target_split_editor_rows_accept_array_backed_split_payloads() -> None:
+    row = pd.Series(
+        {
+            "target_splits": np.array(
+                [
+                    {
+                        "split_id": "split-1",
+                        "payee_raw": "Cafe Roma",
+                        "category_raw": "Going out",
+                        "memo": "coffee",
+                        "inflow_ils": 0.0,
+                        "outflow_ils": 12.0,
+                    },
+                    {
+                        "split_id": "split-2",
+                        "payee_raw": "Cafe Roma",
+                        "category_raw": "Gifts",
+                        "memo": "tip",
+                        "inflow_ils": 0.0,
+                        "outflow_ils": 10.0,
+                    },
+                ],
+                dtype=object,
+            ),
+            "target_current_transaction": {
+                "payee_raw": "Cafe Roma",
+                "category_raw": "Split",
+                "memo": "morning coffee",
+                "inflow_ils": 0.0,
+                "outflow_ils": 22.0,
+            },
+            "target_payee_selected": "Cafe Roma",
+            "target_category_selected": "Split",
+            "target_memo": "morning coffee",
+            "memo": "morning coffee",
+            "inflow_ils": 0.0,
+            "outflow_ils": 22.0,
+            "target_present": True,
+        }
+    )
+
+    assert review_app._target_split_editor_rows(row) == [
+        {
+            "split_id": "split-1",
+            "payee_raw": "Cafe Roma",
+            "category_raw": "Going out",
+            "memo": "coffee",
+            "amount_ils": -12.0,
+        },
+        {
+            "split_id": "split-2",
+            "payee_raw": "Cafe Roma",
+            "category_raw": "Gifts",
+            "memo": "tip",
+            "amount_ils": -10.0,
+        },
+    ]
 
 
 def test_pick_summary_text_falls_back_to_canonical_transaction_data() -> None:
