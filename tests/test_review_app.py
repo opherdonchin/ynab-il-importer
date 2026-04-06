@@ -446,6 +446,57 @@ def test_split_editor_amount_text_formats_numeric_and_blank_values() -> None:
     assert review_app._split_editor_amount_text("-") == ""
 
 
+def test_apply_split_editor_widget_state_merges_edits_deletes_and_additions() -> None:
+    lines = [
+        {
+            "split_id": "split-1",
+            "payee_raw": "Cafe",
+            "category_raw": "Food",
+            "memo": "beans",
+            "amount_ils": "-12",
+        },
+        {
+            "split_id": "split-2",
+            "payee_raw": "Gift shop",
+            "category_raw": "Gifts",
+            "memo": "card",
+            "amount_ils": "-10",
+        },
+    ]
+    widget_state = {
+        "edited_rows": {
+            0: {"category_raw": "Dining", "amount_ils": "-11.5"},
+        },
+        "added_rows": [
+            {
+                "split_id": "",
+                "payee_raw": "Tip jar",
+                "category_raw": "Tips",
+                "memo": "",
+                "amount_ils": "-0.5",
+            }
+        ],
+        "deleted_rows": [1],
+    }
+
+    assert review_app._apply_split_editor_widget_state(lines, widget_state) == [
+        {
+            "split_id": "split-1",
+            "payee_raw": "Cafe",
+            "category_raw": "Dining",
+            "memo": "beans",
+            "amount_ils": "-11.5",
+        },
+        {
+            "split_id": "",
+            "payee_raw": "Tip jar",
+            "category_raw": "Tips",
+            "memo": "",
+            "amount_ils": "-0.5",
+        },
+    ]
+
+
 def test_target_split_editor_rows_accept_array_backed_split_payloads() -> None:
     row = pd.Series(
         {

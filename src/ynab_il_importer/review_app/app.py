@@ -1437,6 +1437,104 @@ def _split_editor_amount_text(value: Any) -> str:
     return f"{float(numeric):g}"
 
 
+SPLIT_EDITOR_COLUMNS = ["split_id", "payee_raw", "category_raw", "memo", "amount_ils"]
+
+
+def _normalize_split_editor_line_record(line: dict[str, Any] | None) -> dict[str, Any]:
+    raw = line if isinstance(line, dict) else {}
+    return {
+        "split_id": str(raw.get("split_id", "") or "").strip(),
+        "payee_raw": str(raw.get("payee_raw", "") or "").strip(),
+        "category_raw": str(raw.get("category_raw", "") or "").strip(),
+        "memo": str(raw.get("memo", "") or "").strip(),
+        "amount_ils": _split_editor_amount_text(raw.get("amount_ils", "")),
+    }
+
+
+def _split_editor_widget_state_signature(widget_state: Any) -> str:
+    if not isinstance(widget_state, dict):
+        return ""
+    normalized_edited_rows: dict[str, dict[str, str]] = {}
+    for raw_index, raw_values in sorted(widget_state.get("edited_rows", {}).items()):
+        if not isinstance(raw_values, dict):
+            continue
+        row_values: dict[str, str] = {}
+        for column, value in raw_values.items():
+            if column not in SPLIT_EDITOR_COLUMNS:
+                continue
+            if column == "amount_ils":
+                row_values[column] = _split_editor_amount_text(value)
+            else:
+                row_values[column] = str(value or "").strip()
+        normalized_edited_rows[str(raw_index)] = row_values
+
+    normalized_added_rows: list[dict[str, str]] = []
+    for raw_row in widget_state.get("added_rows", []):
+        normalized_added_rows.append(_normalize_split_editor_line_record(raw_row))
+
+    normalized_deleted_rows = sorted(
+        int(raw_index)
+        for raw_index in widget_state.get("deleted_rows", [])
+        if str(raw_index).strip()
+    )
+    payload = {
+        "edited_rows": normalized_edited_rows,
+        "added_rows": normalized_added_rows,
+        "deleted_rows": normalized_deleted_rows,
+    }
+    return json.dumps(payload, sort_keys=True, ensure_ascii=True)
+
+
+def _apply_split_editor_widget_state(
+    lines: list[dict[str, Any]],
+    widget_state: Any,
+) -> list[dict[str, Any]]:
+    rows = [_normalize_split_editor_line_record(line) for line in lines if isinstance(line, dict)]
+    if not isinstance(widget_state, dict):
+        return rows
+
+    edited_rows = widget_state.get("edited_rows", {})
+    if isinstance(edited_rows, dict):
+        for raw_index, raw_values in edited_rows.items():
+            if not isinstance(raw_values, dict):
+                continue
+            try:
+                row_index = int(raw_index)
+            except (TypeError, ValueError):
+                continue
+            if row_index < 0 or row_index >= len(rows):
+                continue
+            current = dict(rows[row_index])
+            for column, value in raw_values.items():
+                if column not in SPLIT_EDITOR_COLUMNS:
+                    continue
+                if column == "amount_ils":
+                    current[column] = _split_editor_amount_text(value)
+                else:
+                    current[column] = str(value or "").strip()
+            rows[row_index] = current
+
+    deleted_rows = widget_state.get("deleted_rows", [])
+    delete_indices = sorted(
+        {
+            int(raw_index)
+            for raw_index in deleted_rows
+            if str(raw_index).strip()
+        },
+        reverse=True,
+    )
+    for row_index in delete_indices:
+        if 0 <= row_index < len(rows):
+            rows.pop(row_index)
+
+    added_rows = widget_state.get("added_rows", [])
+    if isinstance(added_rows, list):
+        for raw_row in added_rows:
+            rows.append(_normalize_split_editor_line_record(raw_row))
+
+    return rows
+
+
 def _source_context_caption(row: pd.Series) -> str:
     context_kind = str(row.get("source_context_kind", "") or "").strip()
     category_name = str(row.get("source_context_category_name", "") or "").strip()
@@ -1542,6 +1640,7 @@ def _open_target_split_editor(
         "idx": idx,
         "group_fingerprint": group_fingerprint or "",
         "lines": _target_split_editor_rows(row),
+        "applied_widget_state": "",
     }
     _preserve_expansion_context(idx=idx, group_fingerprint=group_fingerprint)
 
@@ -1571,6 +1670,20 @@ def _render_target_split_editor_dialog(
         outflow=row.get("outflow_ils", 0.0),
     )
     lines = initial_lines or _target_split_editor_rows(row)
+    widget_state = st.session_state.get(editor_key)
+    widget_signature = _split_editor_widget_state_signature(widget_state)
+    prior_editor_state = st.session_state.get("_split_editor")
+    prior_signature = ""
+    if isinstance(prior_editor_state, dict):
+        prior_signature = str(prior_editor_state.get("applied_widget_state", "") or "")
+    if widget_signature and widget_signature != prior_signature:
+        lines = _apply_split_editor_widget_state(lines, widget_state)
+        st.session_state["_split_editor"] = {
+            "idx": idx,
+            "group_fingerprint": group_fingerprint or "",
+            "lines": lines,
+            "applied_widget_state": widget_signature,
+        }
     category_options = review_model.parse_option_string(row.get("category_options", ""))
     split_line_categories = _merge_category_choices(
         *[
@@ -1603,7 +1716,7 @@ def _render_target_split_editor_dialog(
 
     editor_df = pd.DataFrame(
         lines,
-        columns=["split_id", "payee_raw", "category_raw", "memo", "amount_ils"],
+        columns=SPLIT_EDITOR_COLUMNS,
     )
     editor_df["amount_ils"] = editor_df["amount_ils"].map(_split_editor_amount_text)
 
@@ -1636,6 +1749,7 @@ def _render_target_split_editor_dialog(
         "idx": idx,
         "group_fingerprint": group_fingerprint or "",
         "lines": line_records,
+        "applied_widget_state": widget_signature,
     }
     split_total = float(
         pd.to_numeric(edited_df.get("amount_ils", pd.Series(dtype=float)), errors="coerce")
