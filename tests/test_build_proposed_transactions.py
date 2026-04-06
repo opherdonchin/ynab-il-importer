@@ -116,7 +116,7 @@ def test_dedupe_source_overlaps_preserves_extra_bank_rows() -> None:
     assert deduped["memo"].tolist() == ["bank 1", "bank 2"]
 
 
-def test_load_csvs_prefers_sidecar_parquet(tmp_path: Path) -> None:
+def test_load_csvs_requires_parquet_inputs(tmp_path: Path) -> None:
     csv_path = tmp_path / "source.csv"
     flat_df = pl.DataFrame(
         {
@@ -146,12 +146,11 @@ def test_load_csvs_prefers_sidecar_parquet(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    loaded = build_proposed_transactions._load_csvs([csv_path])
+    with pytest.raises(ValueError, match="Canonical transaction input must be parquet"):
+        build_proposed_transactions._load_csvs([csv_path])
 
-    assert loaded.loc[0, "fingerprint"] == "mega-pet-parquet"
 
-
-def test_load_canonical_transaction_input_requires_sidecar_parquet(
+def test_load_canonical_transaction_input_requires_parquet(
     tmp_path: Path,
 ) -> None:
     csv_path = tmp_path / "family_ynab_api_norm.csv"
@@ -161,9 +160,7 @@ def test_load_canonical_transaction_input_requires_sidecar_parquet(
         encoding="utf-8",
     )
 
-    with pytest.raises(
-        ValueError, match="Canonical parquet sidecar required for normalized transaction input"
-    ):
+    with pytest.raises(ValueError, match="Canonical transaction input must be parquet"):
         build_proposed_transactions._load_canonical_transaction_input(csv_path)
 
 

@@ -136,17 +136,12 @@ def _load_csvs(paths: list[Path]) -> pd.DataFrame:
 
 
 def _load_canonical_transaction_input(path: Path) -> pd.DataFrame:
-    if path.suffix.lower() == ".parquet":
-        return read_transactions_pandas(path).fillna("")
-    if path.suffix.lower() != ".csv":
-        raise ValueError(f"Unsupported canonical transaction input format: {path}")
-    sidecar = path.with_suffix(".parquet")
-    if not sidecar.exists():
+    if path.suffix.lower() != ".parquet":
         raise ValueError(
-            f"Canonical parquet sidecar required for normalized transaction input: {path}. "
-            f"Expected {sidecar} to exist; renormalize the input before building review rows."
+            f"Canonical transaction input must be parquet: {path}. "
+            "Provide the normalized parquet artifact directly."
         )
-    return read_transactions_pandas(sidecar).fillna("")
+    return read_transactions_pandas(path).fillna("")
 
 
 def _canonical_transaction_dict(
