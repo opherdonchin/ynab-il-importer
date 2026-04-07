@@ -1,0 +1,9 @@
+name = "aikido"
+budget_id_env = "YNAB_AIKIDO_BUDGET_ID"
+
+[maps]
+account_map = "../../mappings/aikido/account_name_map.csv"
+fingerprint_map = "../../mappings/aikido/fingerprint_map.csv"
+payee_map = "../../mappings/aikido/payee_map.csv"
+
+sources = []

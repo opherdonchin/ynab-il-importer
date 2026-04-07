@@ -1,0 +1,19 @@
+name = "family"
+budget_id_env = "YNAB_FAMILY_BUDGET_ID"
+
+[maps]
+account_map = "../../mappings/account_name_map.csv"
+fingerprint_map = "../../mappings/fingerprint_map.csv"
+payee_map = "../../mappings/payee_map.csv"
+
+[[sources]]
+id = "family_bank"
+kind = "leumi"
+raw_file = "Bankin family.dat"
+normalized_name = "family_leumi_norm.parquet"
+
+[[sources]]
+id = "family_card"
+kind = "max"
+raw_match = "^transaction-details_export_\\d+\\.xlsx$"
+normalized_name = "family_max_norm.parquet"

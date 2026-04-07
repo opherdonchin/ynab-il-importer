@@ -1,0 +1,10 @@
+raw_root = "data/raw"
+derived_root = "data/derived"
+paired_root = "data/paired"
+outputs_root = "outputs"
+
+[files]
+fingerprint_log = "fingerprint_log.csv"
+categories = "ynab_categories.csv"
+proposed_review = "{context}_proposed_transactions.parquet"
+reviewed_review = "{context}_proposed_transactions_reviewed.parquet"

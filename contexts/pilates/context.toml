@@ -1,0 +1,19 @@
+name = "pilates"
+budget_id_env = "YNAB_PILATES_BUDGET_ID"
+
+[maps]
+account_map = "../../mappings/pilates/account_name_map.csv"
+fingerprint_map = "../../mappings/pilates/fingerprint_map.csv"
+payee_map = "../../mappings/pilates/payee_map.csv"
+
+[[sources]]
+id = "pilates_bank"
+kind = "leumi"
+raw_file = "Bankin pilates.dat"
+normalized_name = "pilates_leumi_norm.parquet"
+
+[[sources]]
+id = "pilates_card"
+kind = "leumi_card_html"
+raw_file = "BankLeumi 1_4_2026.html"
+normalized_name = "pilates_leumi_card_html_norm.parquet"
