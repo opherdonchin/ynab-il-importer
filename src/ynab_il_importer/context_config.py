@@ -23,6 +23,7 @@ class DefaultsFilesConfig(BaseModel):
     categories: str = "ynab_categories.csv"
     proposed_review: str = "{context}_proposed_transactions.parquet"
     reviewed_review: str = "{context}_proposed_transactions_reviewed.parquet"
+    matched_pairs: str = "{context}_matched_pairs.csv"
 
 
 class DefaultsConfig(BaseModel):
@@ -41,6 +42,12 @@ class ContextMapsConfig(BaseModel):
     account_map: Path
     fingerprint_map: Path
     payee_map: Path
+
+
+class ContextYnabConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    normalized_name: str
 
 
 class ContextSourceConfig(BaseModel):
@@ -66,7 +73,25 @@ class ContextConfig(BaseModel):
     name: str
     budget_id_env: str = ""
     maps: ContextMapsConfig
+    ynab: ContextYnabConfig
     sources: list[ContextSourceConfig] = Field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class ContextRunPaths:
+    raw_dir: Path
+    derived_dir: Path
+    paired_dir: Path
+    outputs_dir: Path
+
+    def proposal_review_path(self, defaults: DefaultsConfig, context_name: str) -> Path:
+        return self.paired_dir / defaults.files.proposed_review.format(context=context_name)
+
+    def reviewed_review_path(self, defaults: DefaultsConfig, context_name: str) -> Path:
+        return self.paired_dir / defaults.files.reviewed_review.format(context=context_name)
+
+    def matched_pairs_path(self, defaults: DefaultsConfig, context_name: str) -> Path:
+        return self.paired_dir / defaults.files.matched_pairs.format(context=context_name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +118,10 @@ class LoadedContext:
     @property
     def payee_map_path(self) -> Path:
         return _resolve_relative_path(self.context_dir, self.config.maps.payee_map)
+
+    @property
+    def ynab_normalized_name(self) -> str:
+        return self.config.ynab.normalized_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,3 +204,42 @@ def resolve_context_sources(context: LoadedContext, raw_dir: Path) -> list[Resol
         )
 
     return resolved
+
+
+def resolve_run_paths(
+    defaults: DefaultsConfig,
+    *,
+    run_tag: str,
+) -> ContextRunPaths:
+    normalized_run_tag = str(run_tag or "").strip()
+    if not normalized_run_tag:
+        raise ValueError("run_tag cannot be empty.")
+    return ContextRunPaths(
+        raw_dir=(defaults.raw_root / normalized_run_tag).resolve(),
+        derived_dir=(defaults.derived_root / normalized_run_tag).resolve(),
+        paired_dir=(defaults.paired_root / normalized_run_tag).resolve(),
+        outputs_dir=defaults.outputs_root.resolve(),
+    )
+
+
+def resolve_context_normalized_source_paths(
+    context: LoadedContext,
+    run_paths: ContextRunPaths,
+) -> list[Path]:
+    paths = [run_paths.derived_dir / source.normalized_name for source in context.config.sources]
+    missing = [path for path in paths if not path.exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"Missing normalized source artifacts for context {context.name!r}: "
+            f"{[path.as_posix() for path in missing]}"
+        )
+    return paths
+
+
+def resolve_context_ynab_path(context: LoadedContext, run_paths: ContextRunPaths) -> Path:
+    path = run_paths.derived_dir / context.ynab_normalized_name
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Missing normalized YNAB artifact for context {context.name!r}: {path}"
+        )
+    return path

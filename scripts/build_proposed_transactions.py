@@ -1644,6 +1644,34 @@ def build_review_rows(
     return relations, pairs_pl.to_pandas()
 
 
+def run_build(
+    *,
+    source_paths: list[Path],
+    ynab_path: Path,
+    map_path: Path,
+    out_path: Path,
+    pairs_out: str = "",
+) -> None:
+    if not source_paths:
+        raise ValueError("Provide at least one --source or --source-dir input.")
+
+    source_df = _dedupe_source_overlaps(_load_source_inputs(source_paths))
+    ynab_df = pl.from_arrow(read_transactions_arrow(ynab_path))
+    if ynab_df.is_empty():
+        raise ValueError("No rows found in YNAB input.")
+
+    out, pairs = build_review_rows(source_df, ynab_df, map_path=map_path)
+    if pairs_out:
+        export.write_dataframe(pairs, pairs_out)
+        print(export.wrote_message(pairs_out, len(pairs)))
+
+    if out_path.suffix.lower() == ".parquet":
+        review_io.save_review_artifact(out, out_path)
+    else:
+        review_io.save_reviewed_transactions(out, out_path)
+    print(export.wrote_message(out_path, len(out)))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Build institutional source-vs-target review rows."
@@ -1664,25 +1692,13 @@ def main() -> None:
         [Path(p) for p in args.source],
         [Path(p) for p in args.source_dir],
     )
-    if not source_paths:
-        raise ValueError("Provide at least one --source or --source-dir input.")
-
-    source_df = _dedupe_source_overlaps(_load_source_inputs(source_paths))
-    ynab_df = pl.from_arrow(read_transactions_arrow(Path(args.ynab)))
-    if ynab_df.is_empty():
-        raise ValueError("No rows found in YNAB input.")
-
-    out, pairs = build_review_rows(source_df, ynab_df, map_path=map_path)
-    if args.pairs_out:
-        export.write_dataframe(pairs, args.pairs_out)
-        print(export.wrote_message(args.pairs_out, len(pairs)))
-
-    out_path = Path(args.out_path)
-    if out_path.suffix.lower() == ".parquet":
-        review_io.save_review_artifact(out, out_path)
-    else:
-        review_io.save_reviewed_transactions(out, out_path)
-    print(export.wrote_message(out_path, len(out)))
+    run_build(
+        source_paths=source_paths,
+        ynab_path=Path(args.ynab),
+        map_path=map_path,
+        out_path=Path(args.out_path),
+        pairs_out=args.pairs_out,
+    )
 
 
 if __name__ == "__main__":

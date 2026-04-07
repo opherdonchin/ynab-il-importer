@@ -13,6 +13,7 @@ def test_load_family_context_resolves_map_paths() -> None:
     assert loaded.account_map_path.name == "account_name_map.csv"
     assert loaded.fingerprint_map_path.name == "fingerprint_map.csv"
     assert loaded.payee_map_path.name == "payee_map.csv"
+    assert loaded.ynab_normalized_name == "family_ynab_api_norm.parquet"
     assert len(loaded.config.sources) == 2
 
 
@@ -46,3 +47,44 @@ def test_resolve_context_sources_requires_unique_regex_match(tmp_path: Path) -> 
 
     with pytest.raises(ValueError, match="matched 2 files"):
         context_config.resolve_context_sources(loaded, raw_dir)
+
+
+def test_resolve_run_paths_and_context_artifacts(tmp_path: Path) -> None:
+    defaults = context_config.DefaultsConfig(
+        raw_root=tmp_path / "raw",
+        derived_root=tmp_path / "derived",
+        paired_root=tmp_path / "paired",
+        outputs_root=tmp_path / "outputs",
+    )
+    run_paths = context_config.resolve_run_paths(defaults, run_tag="2026_04_01")
+    context = context_config.load_context("family")
+
+    run_paths.derived_dir.mkdir(parents=True)
+    for name in ["family_leumi_norm.parquet", "family_max_norm.parquet", "family_ynab_api_norm.parquet"]:
+        (run_paths.derived_dir / name).write_text("x", encoding="utf-8")
+
+    source_paths = context_config.resolve_context_normalized_source_paths(context, run_paths)
+    ynab_path = context_config.resolve_context_ynab_path(context, run_paths)
+
+    assert [path.name for path in source_paths] == [
+        "family_leumi_norm.parquet",
+        "family_max_norm.parquet",
+    ]
+    assert ynab_path.name == "family_ynab_api_norm.parquet"
+    assert run_paths.proposal_review_path(defaults, "family").name == "family_proposed_transactions.parquet"
+    assert run_paths.matched_pairs_path(defaults, "family").name == "family_matched_pairs.csv"
+
+
+def test_resolve_context_ynab_path_requires_file(tmp_path: Path) -> None:
+    defaults = context_config.DefaultsConfig(
+        raw_root=tmp_path / "raw",
+        derived_root=tmp_path / "derived",
+        paired_root=tmp_path / "paired",
+        outputs_root=tmp_path / "outputs",
+    )
+    run_paths = context_config.resolve_run_paths(defaults, run_tag="2026_04_01")
+    run_paths.derived_dir.mkdir(parents=True)
+    context = context_config.load_context("family")
+
+    with pytest.raises(FileNotFoundError, match="Missing normalized YNAB artifact"):
+        context_config.resolve_context_ynab_path(context, run_paths)
