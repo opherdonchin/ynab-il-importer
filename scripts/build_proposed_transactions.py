@@ -601,7 +601,13 @@ def _source_lineage_id(row: pd.Series) -> str:
     bank_txn_id = _optional_text(row.get("bank_txn_id", ""))
     if bank_txn_id:
         return bank_txn_id
-    return _optional_text(row.get("card_txn_id", ""))
+    card_txn_id = _optional_text(row.get("card_txn_id", ""))
+    if card_txn_id:
+        return card_txn_id
+    import_id = _optional_text(row.get("import_id", ""))
+    if import_id:
+        return import_id
+    return _optional_text(row.get("transaction_id", ""))
 
 
 def _target_lineage_ids(row: pd.Series) -> tuple[str, ...]:
@@ -872,6 +878,7 @@ def _source_transaction_record(row: dict[str, object]) -> dict[str, object]:
 def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
     text = lambda name: pl.col(name).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
     nonempty = lambda name: text(name).replace("", None)
+    canonical_lineage = pl.coalesce([nonempty("import_id"), nonempty("transaction_id"), pl.lit("")])
     normalized_suffix = pl.col("card_suffix").map_elements(
         _normalize_card_suffix,
         return_dtype=pl.String,
@@ -905,8 +912,7 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
     source_work = source_df.with_row_index("_row_index").with_columns(
         pl.lit("").alias("source_file"),
         pl.lit("").alias("raw_text"),
-        pl.lit("").alias("bank_txn_id"),
-        pl.lit("").alias("card_txn_id"),
+        canonical_lineage.alias("_canonical_lineage_id"),
         pl.lit("").alias("card_suffix"),
     ).with_columns(
         pl.when(source_type == "bank")
@@ -925,6 +931,14 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
         pl.col("inflow_ils").round(2).alias("inflow_ils"),
         text("date").replace("", None).str.strptime(pl.Date, strict=False).alias("date_key"),
         pl.coalesce([nonempty("raw_text"), nonempty("description_raw"), pl.lit("")]).alias("memo"),
+        pl.when(source_type == "bank")
+        .then(pl.col("_canonical_lineage_id"))
+        .otherwise(pl.lit(""))
+        .alias("bank_txn_id"),
+        pl.when(source_type == "card")
+        .then(pl.col("_canonical_lineage_id"))
+        .otherwise(pl.lit(""))
+        .alias("card_txn_id"),
     ).with_columns(
         pl.when(
             (pl.col("source_type") == "bank")

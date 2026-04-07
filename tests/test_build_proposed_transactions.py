@@ -1317,3 +1317,110 @@ def test_institutional_candidate_pairs_prefer_exact_import_over_memo_lineage_mar
 
     assert pairs["target_row_id"].to_list() == ["tgt-import"]
     assert pairs["ambiguous_key"].to_list() == [False]
+
+
+def test_prepare_review_source_rows_uses_canonical_transaction_id_for_lineage() -> None:
+    source_df = _canonical_source_polars(
+        pd.DataFrame(
+            [
+                {
+                    "transaction_id": "BANK:V1:a",
+                    "account_name": "Bank Leumi",
+                    "source_account": "67833011333622",
+                    "date": "2026-03-03",
+                    "outflow_ils": 200.0,
+                    "inflow_ils": 0.0,
+                    "payee_raw": "BIT",
+                    "fingerprint": "bit",
+                    "description_raw": "BIT 14:29",
+                    "ref": "0031429",
+                },
+                {
+                    "transaction_id": "BANK:V1:b",
+                    "account_name": "Bank Leumi",
+                    "source_account": "67833011333622",
+                    "date": "2026-03-03",
+                    "outflow_ils": 200.0,
+                    "inflow_ils": 0.0,
+                    "payee_raw": "BIT",
+                    "fingerprint": "bit",
+                    "description_raw": "BIT 14:30",
+                    "ref": "0031430",
+                },
+            ]
+        )
+    )
+    target_df = _canonical_target_polars(
+        pd.DataFrame(
+            [
+                {
+                    "transaction_id": "826669af-13cd-43c8-a554-1735494e5417",
+                    "ynab_id": "826669af-13cd-43c8-a554-1735494e5417",
+                    "import_id": "BANK:V1:a",
+                    "account_name": "Bank Leumi",
+                    "account_id": "acct-1",
+                    "date": "2026-03-03",
+                    "outflow_ils": 200.0,
+                    "inflow_ils": 0.0,
+                    "payee_raw": "Subject payment",
+                    "category_raw": "University",
+                    "memo": "BIT 14:29",
+                    "fingerprint": "subject payment",
+                },
+                {
+                    "transaction_id": "ebdf99f3-6779-4a9d-ac88-457ddd712591",
+                    "ynab_id": "ebdf99f3-6779-4a9d-ac88-457ddd712591",
+                    "import_id": "BANK:V1:b",
+                    "account_name": "Bank Leumi",
+                    "account_id": "acct-1",
+                    "date": "2026-03-03",
+                    "outflow_ils": 200.0,
+                    "inflow_ils": 0.0,
+                    "payee_raw": "Subject payment",
+                    "category_raw": "University",
+                    "memo": "BIT 14:30",
+                    "fingerprint": "subject payment",
+                },
+                {
+                    "transaction_id": "2468a7c8-e261-492d-9612-670c5cefaeba",
+                    "ynab_id": "2468a7c8-e261-492d-9612-670c5cefaeba",
+                    "import_id": "CARD:V1:c",
+                    "account_name": "Bank Leumi",
+                    "account_id": "acct-1",
+                    "date": "2026-03-03",
+                    "outflow_ils": 200.0,
+                    "inflow_ils": 0.0,
+                    "payee_raw": "Subject",
+                    "category_raw": "University",
+                    "memo": "BIT | recipient c",
+                    "fingerprint": "subject",
+                },
+                {
+                    "transaction_id": "bfeee590-3d3c-4c67-bc01-f967042c1fad",
+                    "ynab_id": "bfeee590-3d3c-4c67-bc01-f967042c1fad",
+                    "import_id": "YNAB:-200000:2026-03-03:2",
+                    "account_name": "Bank Leumi",
+                    "account_id": "acct-1",
+                    "date": "2026-03-03",
+                    "outflow_ils": 200.0,
+                    "inflow_ils": 0.0,
+                    "payee_raw": "Subject payment",
+                    "category_raw": "University",
+                    "memo": "BIT | recipient d",
+                    "fingerprint": "subject payment",
+                },
+            ]
+        )
+    )
+
+    prepared_source = build_proposed_transactions._prepare_review_source_rows(source_df)
+    prepared_target = build_proposed_transactions._prepare_review_target_rows(target_df)
+    pairs = build_proposed_transactions._institutional_candidate_pairs(
+        prepared_source,
+        prepared_target,
+    )
+
+    assert prepared_source["source_lineage_id"].to_list() == ["BANK:V1:a", "BANK:V1:b"]
+    assert set(pairs["ynab_import_id"].to_list()) == {"BANK:V1:a", "BANK:V1:b"}
+    assert pairs.height == 2
+    assert pairs["ambiguous_key"].to_list() == [False, False]
