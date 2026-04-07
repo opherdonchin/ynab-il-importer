@@ -8,21 +8,12 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 import ynab_il_importer.bank_reconciliation as bank_reconciliation
+import ynab_il_importer.context_config as context_config
 import ynab_il_importer.export as export
-import ynab_il_importer.workflow_profiles as workflow_profiles
 import ynab_il_importer.ynab_api as ynab_api
 
 
-def _default_report_out(bank_path: Path) -> Path:
-    suffix = bank_path.suffix or ".csv"
-    stem = bank_path.with_suffix("") if bank_path.suffix else bank_path
-    return Path(f"{stem}_sync_report{suffix}")
-
-
-def _default_uncleared_report_out(bank_path: Path) -> Path:
-    suffix = bank_path.suffix or ".csv"
-    stem = bank_path.with_suffix("") if bank_path.suffix else bank_path
-    return Path(f"{stem}_uncleared_ynab_report{suffix}")
+BANK_SOURCE_KINDS = {"leumi", "leumi_xls"}
 
 
 def _print_summary(result: dict[str, object], report_path: Path, execute: bool) -> None:
@@ -67,45 +58,83 @@ def _print_uncleared_summary(result: dict[str, object], report_path: Path) -> No
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Stamp bank_txn_id lineage onto existing YNAB bank transactions and clear matches."
+        description="Stamp bank lineage onto existing YNAB bank transactions for one context/run-tag pair."
     )
-    parser.add_argument("--bank", required=True, help="Normalized bank CSV with bank_txn_id.")
+    parser.add_argument("context", help="Context name, for example: family")
+    parser.add_argument("run_tag", help="Run folder name, for example: 2026_04_01")
+    parser.add_argument(
+        "--source-id",
+        default="",
+        help="Declared context source id when a context has multiple bank sources.",
+    )
     parser.add_argument(
         "--report-out",
         default="",
-        help="CSV path for the sync report. Defaults to <bank>_sync_report.csv.",
+        help="CSV path for the sync report. Defaults to the paired run directory.",
     )
     parser.add_argument(
         "--uncleared-report-out",
         default="",
-        help=(
-            "CSV path for the uncleared-YNAB triage report. "
-            "Defaults to <bank>_uncleared_ynab_report.csv."
-        ),
+        help="CSV path for the uncleared-YNAB triage report. Defaults to the paired run directory.",
     )
     parser.add_argument(
         "--execute",
         action="store_true",
         help="PATCH YNAB transactions after writing the dry-run report.",
     )
-    parser.add_argument("--profile", default="", help="Workflow profile (for budget defaults).")
-    parser.add_argument("--budget-id", dest="budget_id", default="", help="Override YNAB budget/plan id.")
+    parser.add_argument(
+        "--defaults",
+        dest="defaults_path",
+        type=Path,
+        default=context_config.DEFAULTS_PATH,
+        help="Defaults TOML path.",
+    )
+    parser.add_argument(
+        "--contexts-root",
+        dest="contexts_root",
+        type=Path,
+        default=context_config.CONTEXTS_ROOT,
+        help="Contexts root directory.",
+    )
+    parser.add_argument(
+        "--budget-id",
+        dest="budget_id",
+        default="",
+        help="Override YNAB budget id instead of resolving it from the context env binding.",
+    )
     args = parser.parse_args()
 
-    bank_path = Path(args.bank)
-    report_path = Path(args.report_out) if args.report_out else _default_report_out(bank_path)
+    defaults = context_config.load_defaults(args.defaults_path)
+    context = context_config.load_context(args.context, contexts_root=args.contexts_root)
+    run_paths = context_config.resolve_run_paths(defaults, run_tag=args.run_tag)
+    selected_source = context_config.select_context_sources(
+        context,
+        source_id=args.source_id or None,
+        allowed_kinds=BANK_SOURCE_KINDS,
+    )
+    if len(selected_source) != 1:
+        raise ValueError(
+            f"Context {context.name!r} must resolve to exactly one bank source, found {[source.id for source in selected_source]}."
+        )
+    source = selected_source[0]
+    bank_path = context_config.resolve_context_normalized_source_path(
+        context,
+        run_paths,
+        source_id=source.id,
+    )
+    report_path = (
+        Path(args.report_out)
+        if args.report_out
+        else run_paths.bank_sync_report_path(defaults, context.name, source.id)
+    )
     uncleared_report_path = (
         Path(args.uncleared_report_out)
         if args.uncleared_report_out
-        else _default_uncleared_report_out(bank_path)
+        else run_paths.bank_uncleared_report_path(defaults, context.name, source.id)
     )
-    profile = workflow_profiles.resolve_profile(args.profile or None)
-    plan_id = workflow_profiles.resolve_budget_id(
-        profile=profile.name,
-        budget_id=args.budget_id,
-    )
+    plan_id = context_config.resolve_context_budget_id(context, budget_id=args.budget_id)
 
-    bank_df = bank_reconciliation.load_bank_csv(bank_path)
+    bank_df = bank_reconciliation.load_bank_transactions(bank_path)
     accounts = ynab_api.fetch_accounts(plan_id=plan_id or None)
     transactions = ynab_api.fetch_transactions(plan_id=plan_id or None)
 

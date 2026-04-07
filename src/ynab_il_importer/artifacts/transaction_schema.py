@@ -38,6 +38,7 @@ TRANSACTION_SCHEMA = pa.schema(
         pa.field("inflow_ils", pa.float64()),
         pa.field("outflow_ils", pa.float64()),
         pa.field("signed_amount_ils", pa.float64()),
+        pa.field("balance_ils", pa.float64()),
         pa.field("payee_raw", pa.string()),
         pa.field("category_id", pa.string()),
         pa.field("category_raw", pa.string()),

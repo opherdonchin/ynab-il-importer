@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import polars as pl
 
+from ynab_il_importer.artifacts.transaction_io import read_transactions_polars
 import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.normalize as normalize
 
@@ -146,76 +148,66 @@ def _active_accounts(accounts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [account for account in accounts if not bool(account.get("deleted", False))]
 
 
-def _load_bank_csv(path: str | Path) -> pd.DataFrame:
-    df = pd.read_csv(Path(path))
-    return _prepare_bank_dataframe(df)
+def load_bank_transactions(path: str | Path) -> pl.DataFrame:
+    source_path = Path(path)
+    if source_path.suffix.lower() != ".parquet":
+        raise ValueError(
+            f"Bank reconciliation requires canonical parquet input, got: {source_path}"
+        )
+    return read_transactions_polars(source_path)
 
 
-def _prepare_bank_dataframe(bank_df: pd.DataFrame) -> pd.DataFrame:
-    required = [
-        "account_name",
-        "date",
-        "outflow_ils",
-        "inflow_ils",
-        "bank_txn_id",
-    ]
-    missing = [column for column in required if column not in bank_df.columns]
-    if missing:
-        raise ValueError(f"Bank CSV missing required columns: {missing}")
-
-    prepared = bank_df.copy().reset_index(drop=True)
-    prepared["row_index"] = prepared.index
-    prepared["account_name"] = _normalize_text_series(prepared["account_name"])
-    if "ynab_account_id" in prepared.columns:
-        prepared["ynab_account_id"] = _normalize_text_series(
-            prepared["ynab_account_id"]
-        )
-    else:
-        prepared["ynab_account_id"] = ""
-    prepared["source_account"] = _normalize_text_series(
-        prepared.get(
-            "source_account", pd.Series([""] * len(prepared), index=prepared.index)
-        )
-    )
-    prepared["secondary_date"] = _coerce_date_series(
-        prepared.get(
-            "secondary_date", pd.Series([None] * len(prepared), index=prepared.index)
-        )
-    )
-    prepared["date"] = _coerce_date_series(prepared["date"])
-    prepared["outflow_ils"] = _coerce_money_series(prepared["outflow_ils"])
-    prepared["inflow_ils"] = _coerce_money_series(prepared["inflow_ils"])
-    prepared["balance_ils"] = _coerce_money_series(
-        prepared.get(
-            "balance_ils", pd.Series([pd.NA] * len(prepared), index=prepared.index)
-        ),
-        allow_missing=True,
-    )
-    prepared["description_raw"] = _normalize_text_series(
-        prepared.get(
+def _prepare_bank_dataframe(bank_df: pl.DataFrame) -> pd.DataFrame:
+    prepared = (
+        bank_df.with_row_index("row_index")
+        .select(
+            "row_index",
+            "account_id",
+            "account_name",
+            "source_account",
+            "date",
+            "secondary_date",
+            "outflow_ils",
+            "inflow_ils",
+            "signed_amount_ils",
+            "balance_ils",
             "description_raw",
-            prepared.get("memo", pd.Series([""] * len(prepared), index=prepared.index)),
+            "ref",
+            "transaction_id",
+            "fingerprint",
         )
-    )
-    prepared["ref"] = _normalize_text_series(
-        prepared.get("ref", pd.Series([""] * len(prepared), index=prepared.index))
-    )
-    prepared["bank_txn_id"] = prepared["bank_txn_id"].map(
-        bank_identity.validate_bank_txn_id
-    )
-    prepared["amount_milliunits"] = prepared.apply(
-        lambda row: _amount_milliunits(row["outflow_ils"], row["inflow_ils"]),
-        axis=1,
-    )
-    prepared["amount_ils"] = prepared["amount_milliunits"].div(1000.0).round(2)
-    prepared["description_match_key"] = prepared["description_raw"].map(
-        bank_identity.normalize_bank_memo_match_text
-    )
-    prepared["fingerprint_match_key"] = _normalize_text_series(
-        prepared.get(
-            "fingerprint", pd.Series([""] * len(prepared), index=prepared.index)
+        .with_columns(
+            pl.col("account_id").fill_null("").str.strip_chars(),
+            pl.col("account_name").fill_null("").str.strip_chars(),
+            pl.col("source_account").fill_null("").str.strip_chars(),
+            pl.col("description_raw").fill_null("").str.strip_chars(),
+            pl.col("ref").fill_null("").str.strip_chars(),
+            pl.col("fingerprint").fill_null("").str.strip_chars(),
+            pl.col("transaction_id")
+            .fill_null("")
+            .map_elements(
+                bank_identity.validate_bank_txn_id,
+                return_dtype=pl.String,
+            )
+            .alias("bank_txn_id"),
+            (pl.col("signed_amount_ils") * 1000.0)
+            .round(0)
+            .cast(pl.Int64)
+            .alias("amount_milliunits"),
+            pl.col("signed_amount_ils").round(2).alias("amount_ils"),
+            pl.col("description_raw")
+            .map_elements(
+                bank_identity.normalize_bank_memo_match_text,
+                return_dtype=pl.String,
+            )
+            .alias("description_match_key"),
+            pl.col("fingerprint")
+            .map_elements(normalize.normalize_text, return_dtype=pl.String)
+            .alias("fingerprint_match_key"),
         )
-    ).map(normalize.normalize_text)
+    ).to_pandas()
+    prepared["date"] = _coerce_date_series(prepared["date"])
+    prepared["secondary_date"] = _coerce_date_series(prepared["secondary_date"])
     return prepared
 
 
@@ -277,7 +269,7 @@ def _resolve_account(
     mapped_ids = sorted(
         {
             value
-            for value in bank_df["ynab_account_id"]
+            for value in bank_df["account_id"]
             .astype("string")
             .fillna("")
             .str.strip()
@@ -287,7 +279,7 @@ def _resolve_account(
     )
     if len(mapped_ids) > 1:
         raise ValueError(
-            f"Bank CSV resolves to multiple ynab_account_id values: {mapped_ids}"
+            f"Bank source resolves to multiple account_id values: {mapped_ids}"
         )
     if mapped_ids:
         account_id = mapped_ids[0]
@@ -314,7 +306,7 @@ def _resolve_account(
     )
     if len(account_names) != 1:
         raise ValueError(
-            "Bank CSV must resolve to exactly one account_name when ynab_account_id is absent."
+            "Bank source must resolve to exactly one account_name when account_id is absent."
         )
     account_name = account_names[0]
     if account_name not in account_by_name:
@@ -718,7 +710,7 @@ def _uncleared_triage_row(
 
 
 def plan_uncleared_ynab_triage(
-    bank_df: pd.DataFrame,
+    bank_df: pl.DataFrame,
     accounts: list[dict[str, Any]],
     ynab_transactions: list[dict[str, Any]],
     *,
@@ -978,7 +970,7 @@ def _sync_report_row(
 
 
 def plan_bank_match_sync(
-    bank_df: pd.DataFrame,
+    bank_df: pl.DataFrame,
     accounts: list[dict[str, Any]],
     ynab_transactions: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -1141,7 +1133,7 @@ def plan_bank_match_sync(
 def _require_balance_column(bank_df: pd.DataFrame) -> None:
     if bank_df["balance_ils"].isna().any():
         missing_rows = bank_df.loc[bank_df["balance_ils"].isna(), "row_index"].tolist()
-        raise ValueError(f"Bank CSV is missing balance_ils on row(s): {missing_rows}")
+        raise ValueError(f"Bank source is missing balance_ils on row(s): {missing_rows}")
 
 
 def _last_reconciled_date(last_reconciled_at: str) -> pd.Timestamp | None:
@@ -1454,7 +1446,7 @@ def _reconciliation_result(
 
 
 def plan_bank_statement_reconciliation(
-    bank_df: pd.DataFrame,
+    bank_df: pl.DataFrame,
     accounts: list[dict[str, Any]],
     ynab_transactions: list[dict[str, Any]],
     *,
@@ -1503,7 +1495,7 @@ def plan_bank_statement_reconciliation(
                     ok=False,
                     anchor_type="last_reconciled_at",
                     reason=(
-                        "Bank CSV starts too late for auto-reconciliation: "
+                        "Bank source starts too late for auto-reconciliation: "
                         f"{earliest_bank_date} > {required_start}."
                     ),
                 )
@@ -1516,7 +1508,7 @@ def plan_bank_statement_reconciliation(
                 last_reconciled_exists=last_reconciled_exists,
                 ok=False,
                 anchor_type="last_reconciled_at",
-                reason=f"Bank CSV has fewer than {anchor_streak} rows; cannot establish anchor.",
+                reason=f"Bank source has fewer than {anchor_streak} rows; cannot establish anchor.",
             )
         anchor_start_index, best_anchor_start_index, best_anchor_count = (
             _find_anchor_window(resolutions, anchor_streak)
@@ -1617,7 +1609,7 @@ def plan_bank_statement_reconciliation(
                 ok=False,
                 anchor_type="starting_balance",
                 reason=(
-                    "Bank CSV must start on the starting balance date when last_reconciled_at is missing: "
+                    "Bank source must start on the starting balance date when last_reconciled_at is missing: "
                     f"{earliest_bank_date} != {starting_balance_date}."
                 ),
             )
@@ -1735,7 +1727,3 @@ def plan_bank_statement_reconciliation(
         updates=updates,
         final_balance_ils=final_bank_balance,
     )
-
-
-def load_bank_csv(path: str | Path) -> pd.DataFrame:
-    return _load_bank_csv(path)

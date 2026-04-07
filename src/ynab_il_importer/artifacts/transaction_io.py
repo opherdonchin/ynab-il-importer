@@ -88,6 +88,9 @@ def flat_projection_to_canonical_table(
         )
         transaction_id = transaction_id.mask(transaction_id == "", generated)
 
+    account_id = _text_column("account_id")
+    account_id = account_id.mask(account_id == "", _text_column("ynab_account_id"))
+
     inflow = _float_column("inflow_ils")
     outflow = _float_column("outflow_ils")
     canonical_df = pd.DataFrame(
@@ -99,7 +102,7 @@ def flat_projection_to_canonical_table(
             "ynab_id": _text_column("ynab_id"),
             "import_id": _text_column("import_id"),
             "parent_transaction_id": transaction_id,
-            "account_id": _text_column("account_id"),
+            "account_id": account_id,
             "account_name": _text_column("account_name"),
             "source_account": _text_column("source_account"),
             "date": _date_column("date"),
@@ -107,6 +110,7 @@ def flat_projection_to_canonical_table(
             "inflow_ils": inflow,
             "outflow_ils": outflow,
             "signed_amount_ils": (inflow - outflow).astype(float),
+            "balance_ils": _float_column("balance_ils"),
             "payee_raw": _text_column("payee_raw").mask(
                 _text_column("payee_raw") == "",
                 _text_column("merchant_raw"),

@@ -88,3 +88,38 @@ def test_resolve_context_ynab_path_requires_file(tmp_path: Path) -> None:
 
     with pytest.raises(FileNotFoundError, match="Missing normalized YNAB artifact"):
         context_config.resolve_context_ynab_path(context, run_paths)
+
+
+def test_resolve_context_normalized_source_path_requires_single_selected_source(
+    tmp_path: Path,
+) -> None:
+    defaults = context_config.DefaultsConfig(
+        raw_root=tmp_path / "raw",
+        derived_root=tmp_path / "derived",
+        paired_root=tmp_path / "paired",
+        outputs_root=tmp_path / "outputs",
+    )
+    run_paths = context_config.resolve_run_paths(defaults, run_tag="2026_04_01")
+    run_paths.derived_dir.mkdir(parents=True)
+    (run_paths.derived_dir / "family_leumi_norm.parquet").write_text("x", encoding="utf-8")
+    (run_paths.derived_dir / "family_max_norm.parquet").write_text("x", encoding="utf-8")
+    context = context_config.load_context("family")
+
+    with pytest.raises(ValueError, match="exactly one source"):
+        context_config.resolve_context_normalized_source_path(context, run_paths)
+
+    resolved = context_config.resolve_context_normalized_source_path(
+        context,
+        run_paths,
+        source_id="family_bank",
+    )
+    assert resolved.name == "family_leumi_norm.parquet"
+
+
+def test_resolve_context_budget_id_falls_back_to_local_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("YNAB_FAMILY_BUDGET_ID", raising=False)
+    context = context_config.load_context("family")
+
+    resolved = context_config.resolve_context_budget_id(context)
+
+    assert resolved == "15662d89-1e9a-4b67-b83c-38359bcea8a7"

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import pandas as pd
+import polars as pl
 import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.bank_reconciliation as bank_reconciliation
 
@@ -28,43 +28,49 @@ def _bank_row(
 ) -> dict[str, object]:
     outflow_ils = abs(amount_ils) if amount_ils < 0 else 0.0
     inflow_ils = amount_ils if amount_ils > 0 else 0.0
+    bank_txn_id = bank_identity.make_bank_txn_id(
+        source="bank",
+        source_account="123456",
+        date=date,
+        secondary_date=date,
+        outflow_ils=outflow_ils,
+        inflow_ils=inflow_ils,
+        ref=f"00{index}",
+        description_raw=description_raw,
+    )
     return {
+        "account_id": "acc-bank",
         "account_name": "Bank Leumi",
         "source_account": "123456",
-        "ynab_account_id": "acc-bank",
         "date": date,
         "secondary_date": date,
         "description_raw": description_raw,
         "ref": f"00{index}",
         "outflow_ils": outflow_ils,
         "inflow_ils": inflow_ils,
+        "signed_amount_ils": round(inflow_ils - outflow_ils, 2),
         "balance_ils": balance_ils,
-        "bank_txn_id": bank_identity.make_bank_txn_id(
-            source="bank",
-            source_account="123456",
-            date=date,
-            secondary_date=date,
-            outflow_ils=outflow_ils,
-            inflow_ils=inflow_ils,
-            ref=f"00{index}",
-            description_raw=description_raw,
-        ),
+        "transaction_id": bank_txn_id,
+        "bank_txn_id": bank_txn_id,
+        "fingerprint": "",
     }
 
 
+def _bank_df(*rows: dict[str, object]) -> pl.DataFrame:
+    return pl.DataFrame(list(rows))
+
+
 def test_plan_bank_match_sync_stamps_and_clears_unique_memo_match() -> None:
-    bank_df = pd.DataFrame(
-        [
-            _bank_row(
-                date="2026-03-01",
-                amount_ils=-10,
-                balance_ils=90,
-                description_raw="GROCERIES",
-                index=1,
-            )
-        ]
+    bank_df = _bank_df(
+        _bank_row(
+            date="2026-03-01",
+            amount_ils=-10,
+            balance_ils=90,
+            description_raw="GROCERIES",
+            index=1,
+        )
     )
-    bank_txn_id = bank_df.loc[0, "bank_txn_id"]
+    bank_txn_id = bank_df.item(0, "transaction_id")
     ynab_transactions = [
         {
             "id": "txn-1",
@@ -98,18 +104,16 @@ def test_plan_bank_match_sync_stamps_and_clears_unique_memo_match() -> None:
 
 def test_plan_bank_match_sync_stamps_unique_date_amount_match() -> None:
     """A unique unlinked date+amount candidate is accepted; bank_txn_id + ref get stamped."""
-    bank_df = pd.DataFrame(
-        [
-            _bank_row(
-                date="2026-03-01",
-                amount_ils=-10,
-                balance_ils=90,
-                description_raw="GROCERIES",
-                index=1,
-            )
-        ]
+    bank_df = _bank_df(
+        _bank_row(
+            date="2026-03-01",
+            amount_ils=-10,
+            balance_ils=90,
+            description_raw="GROCERIES",
+            index=1,
+        )
     )
-    bank_txn_id = bank_df.loc[0, "bank_txn_id"]
+    bank_txn_id = bank_df.item(0, "transaction_id")
     ynab_transactions = [
         {
             "id": "txn-1",
@@ -144,18 +148,16 @@ def test_plan_bank_match_sync_stamps_unique_date_amount_match() -> None:
 def test_plan_bank_match_sync_stamps_legacy_nonbank_import_id_on_exact_memo_match() -> (
     None
 ):
-    bank_df = pd.DataFrame(
-        [
-            _bank_row(
-                date="2026-03-01",
-                amount_ils=-10,
-                balance_ils=90,
-                description_raw="GROCERIES",
-                index=1,
-            )
-        ]
+    bank_df = _bank_df(
+        _bank_row(
+            date="2026-03-01",
+            amount_ils=-10,
+            balance_ils=90,
+            description_raw="GROCERIES",
+            index=1,
+        )
     )
-    bank_txn_id = bank_df.loc[0, "bank_txn_id"]
+    bank_txn_id = bank_df.item(0, "transaction_id")
     ynab_transactions = [
         {
             "id": "txn-1",
@@ -188,18 +190,16 @@ def test_plan_bank_match_sync_stamps_legacy_nonbank_import_id_on_exact_memo_matc
 
 
 def test_plan_bank_match_sync_stamps_unique_reconciled_date_amount_candidate() -> None:
-    bank_df = pd.DataFrame(
-        [
-            _bank_row(
-                date="2026-03-01",
-                amount_ils=-10,
-                balance_ils=90,
-                description_raw="BANK EXPORT TEXT",
-                index=1,
-            )
-        ]
+    bank_df = _bank_df(
+        _bank_row(
+            date="2026-03-01",
+            amount_ils=-10,
+            balance_ils=90,
+            description_raw="BANK EXPORT TEXT",
+            index=1,
+        )
     )
-    bank_txn_id = bank_df.loc[0, "bank_txn_id"]
+    bank_txn_id = bank_df.item(0, "transaction_id")
     ynab_transactions = [
         {
             "id": "txn-1",
@@ -249,7 +249,7 @@ def test_plan_bank_statement_reconciliation_uses_exact_lineage_and_running_balan
         )
         for i, (amount, balance) in enumerate(zip(amounts, balances))
     ]
-    bank_df = pd.DataFrame(bank_rows)
+    bank_df = _bank_df(*bank_rows)
 
     ynab_transactions: list[dict[str, object]] = []
     for i, bank_row in enumerate(bank_rows):
@@ -300,7 +300,7 @@ def test_plan_bank_statement_reconciliation_respects_custom_anchor_streak() -> N
         )
         for i, (amount, balance) in enumerate(zip(amounts, balances))
     ]
-    bank_df = pd.DataFrame(bank_rows)
+    bank_df = _bank_df(*bank_rows)
 
     ynab_transactions: list[dict[str, object]] = []
     for i, bank_row in enumerate(bank_rows):
@@ -348,7 +348,7 @@ def test_plan_bank_statement_reconciliation_reports_blocked_anchor_counts() -> N
         )
         for i, (amount, balance) in enumerate(zip(amounts, balances))
     ]
-    bank_df = pd.DataFrame(bank_rows)
+    bank_df = _bank_df(*bank_rows)
 
     ynab_transactions = [
         {
@@ -427,7 +427,7 @@ def test_plan_bank_statement_reconciliation_uses_starting_balance_when_last_reco
             index=2,
         ),
     ]
-    bank_df = pd.DataFrame(bank_rows)
+    bank_df = _bank_df(*bank_rows)
     ynab_transactions = [
         {
             "id": "starting-balance",
@@ -479,16 +479,14 @@ def test_plan_bank_statement_reconciliation_uses_starting_balance_when_last_reco
 def test_plan_bank_statement_reconciliation_requires_starting_balance_date_when_unset() -> (
     None
 ):
-    bank_df = pd.DataFrame(
-        [
-            _bank_row(
-                date="2026-03-02",
-                amount_ils=-10,
-                balance_ils=90,
-                description_raw="ROW 1",
-                index=1,
-            )
-        ]
+    bank_df = _bank_df(
+        _bank_row(
+            date="2026-03-02",
+            amount_ils=-10,
+            balance_ils=90,
+            description_raw="ROW 1",
+            index=1,
+        )
     )
     ynab_transactions = [
         {
@@ -515,16 +513,14 @@ def test_plan_bank_statement_reconciliation_requires_starting_balance_date_when_
 
 
 def test_plan_uncleared_ynab_triage_flags_exact_unlinked_bank_match() -> None:
-    bank_df = pd.DataFrame(
-        [
-            _bank_row(
-                date="2026-03-10",
-                amount_ils=200.0,
-                balance_ils=1200.0,
-                description_raw="BIT DANA",
-                index=1,
-            )
-        ]
+    bank_df = _bank_df(
+        _bank_row(
+            date="2026-03-10",
+            amount_ils=200.0,
+            balance_ils=1200.0,
+            description_raw="BIT DANA",
+            index=1,
+        )
     )
     ynab_transactions = [
         {
@@ -555,16 +551,14 @@ def test_plan_uncleared_ynab_triage_flags_exact_unlinked_bank_match() -> None:
 
 
 def test_plan_uncleared_ynab_triage_flags_recent_pending_without_bank_match() -> None:
-    bank_df = pd.DataFrame(
-        [
-            _bank_row(
-                date="2026-03-10",
-                amount_ils=-10.0,
-                balance_ils=990.0,
-                description_raw="FEE",
-                index=1,
-            )
-        ]
+    bank_df = _bank_df(
+        _bank_row(
+            date="2026-03-10",
+            amount_ils=-10.0,
+            balance_ils=990.0,
+            description_raw="FEE",
+            index=1,
+        )
     )
     ynab_transactions = [
         {
@@ -593,16 +587,14 @@ def test_plan_uncleared_ynab_triage_flags_recent_pending_without_bank_match() ->
 
 
 def test_plan_uncleared_ynab_triage_flags_stale_orphan_without_bank_match() -> None:
-    bank_df = pd.DataFrame(
-        [
-            _bank_row(
-                date="2026-03-10",
-                amount_ils=-10.0,
-                balance_ils=990.0,
-                description_raw="FEE",
-                index=1,
-            )
-        ]
+    bank_df = _bank_df(
+        _bank_row(
+            date="2026-03-10",
+            amount_ils=-10.0,
+            balance_ils=990.0,
+            description_raw="FEE",
+            index=1,
+        )
     )
     ynab_transactions = [
         {
@@ -631,18 +623,16 @@ def test_plan_uncleared_ynab_triage_flags_stale_orphan_without_bank_match() -> N
 
 
 def test_plan_uncleared_ynab_triage_flags_link_conflict() -> None:
-    bank_df = pd.DataFrame(
-        [
-            _bank_row(
-                date="2026-03-10",
-                amount_ils=200.0,
-                balance_ils=1200.0,
-                description_raw="BIT DANA",
-                index=1,
-            )
-        ]
+    bank_df = _bank_df(
+        _bank_row(
+            date="2026-03-10",
+            amount_ils=200.0,
+            balance_ils=1200.0,
+            description_raw="BIT DANA",
+            index=1,
+        )
     )
-    bank_txn_id = bank_df.loc[0, "bank_txn_id"]
+    bank_txn_id = bank_df.item(0, "transaction_id")
     ynab_transactions = [
         {
             "id": "txn-linked",

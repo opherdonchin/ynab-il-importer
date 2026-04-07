@@ -120,6 +120,7 @@ def test_flat_projection_to_canonical_table_uses_existing_row_ids() -> None:
             "source": ["bank"],
             "account_name": ["Family Leumi"],
             "source_account": ["Family Leumi"],
+            "ynab_account_id": ["acc-bank"],
             "date": ["2026-03-01"],
             "secondary_date": ["2026-03-02"],
             "txn_kind": ["expense"],
@@ -131,6 +132,7 @@ def test_flat_projection_to_canonical_table_uses_existing_row_ids() -> None:
             "ref": ["123"],
             "outflow_ils": [90.0],
             "inflow_ils": [0.0],
+            "balance_ils": [910.0],
             "bank_txn_id": ["BANK:1"],
             "currency": ["ILS"],
             "amount_bucket": [""],
@@ -144,8 +146,10 @@ def test_flat_projection_to_canonical_table_uses_existing_row_ids() -> None:
     )
 
     assert canonical["transaction_id"].to_pylist() == ["BANK:1"]
+    assert canonical["account_id"].to_pylist() == ["acc-bank"]
     assert canonical["merchant_raw"].to_pylist() == ["Mega Pet"]
     assert canonical["signed_amount_ils"].to_pylist() == [-90.0]
+    assert canonical["balance_ils"].to_pylist() == [910.0]
 
 
 def test_write_flat_transaction_artifacts_writes_csv_and_parquet(tmp_path) -> None:

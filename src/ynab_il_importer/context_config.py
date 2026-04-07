@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import re
 
@@ -14,6 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 DEFAULTS_PATH = Path("contexts/defaults.toml")
 CONTEXTS_ROOT = Path("contexts")
+LOCAL_BUDGET_CONFIG_PATH = Path("config/ynab.local.toml")
 
 
 class DefaultsFilesConfig(BaseModel):
@@ -24,6 +26,9 @@ class DefaultsFilesConfig(BaseModel):
     proposed_review: str = "{context}_proposed_transactions.parquet"
     reviewed_review: str = "{context}_proposed_transactions_reviewed.parquet"
     matched_pairs: str = "{context}_matched_pairs.csv"
+    bank_sync_report: str = "{context}_{source_id}_bank_sync_report.csv"
+    bank_uncleared_report: str = "{context}_{source_id}_bank_uncleared_ynab_report.csv"
+    bank_reconcile_report: str = "{context}_{source_id}_bank_reconcile_report.csv"
 
 
 class DefaultsConfig(BaseModel):
@@ -93,6 +98,30 @@ class ContextRunPaths:
     def matched_pairs_path(self, defaults: DefaultsConfig, context_name: str) -> Path:
         return self.paired_dir / defaults.files.matched_pairs.format(context=context_name)
 
+    def bank_sync_report_path(
+        self, defaults: DefaultsConfig, context_name: str, source_id: str
+    ) -> Path:
+        return self.paired_dir / defaults.files.bank_sync_report.format(
+            context=context_name,
+            source_id=source_id,
+        )
+
+    def bank_uncleared_report_path(
+        self, defaults: DefaultsConfig, context_name: str, source_id: str
+    ) -> Path:
+        return self.paired_dir / defaults.files.bank_uncleared_report.format(
+            context=context_name,
+            source_id=source_id,
+        )
+
+    def bank_reconcile_report_path(
+        self, defaults: DefaultsConfig, context_name: str, source_id: str
+    ) -> Path:
+        return self.paired_dir / defaults.files.bank_reconcile_report.format(
+            context=context_name,
+            source_id=source_id,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class LoadedContext:
@@ -142,6 +171,12 @@ def _resolve_relative_path(base_dir: Path, path: Path) -> Path:
     if path.is_absolute():
         return path
     return (base_dir / path).resolve()
+
+
+def _read_optional_toml(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    return tomllib.loads(path.read_text(encoding="utf-8"))
 
 
 def load_defaults(path: Path = DEFAULTS_PATH) -> DefaultsConfig:
@@ -236,6 +271,53 @@ def resolve_context_normalized_source_paths(
     return paths
 
 
+def select_context_sources(
+    context: LoadedContext,
+    *,
+    source_id: str | None = None,
+    allowed_kinds: set[str] | None = None,
+) -> list[ContextSourceConfig]:
+    selected = list(context.config.sources)
+    if source_id:
+        normalized_source_id = str(source_id).strip()
+        selected = [source for source in selected if source.id == normalized_source_id]
+        if not selected:
+            raise ValueError(
+                f"Context {context.name!r} has no declared source with id {normalized_source_id!r}."
+            )
+    if allowed_kinds is not None:
+        selected = [source for source in selected if source.kind in allowed_kinds]
+        if not selected:
+            raise ValueError(
+                f"Context {context.name!r} has no declared sources with kind in {sorted(allowed_kinds)}."
+            )
+    return selected
+
+
+def resolve_context_normalized_source_path(
+    context: LoadedContext,
+    run_paths: ContextRunPaths,
+    *,
+    source_id: str | None = None,
+    allowed_kinds: set[str] | None = None,
+) -> Path:
+    selected = select_context_sources(
+        context,
+        source_id=source_id,
+        allowed_kinds=allowed_kinds,
+    )
+    if len(selected) != 1:
+        raise ValueError(
+            f"Context {context.name!r} must resolve to exactly one source, found {[source.id for source in selected]}."
+        )
+    path = run_paths.derived_dir / selected[0].normalized_name
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Missing normalized source artifact for context {context.name!r}: {path}"
+        )
+    return path
+
+
 def resolve_context_ynab_path(context: LoadedContext, run_paths: ContextRunPaths) -> Path:
     path = run_paths.derived_dir / context.ynab_normalized_name
     if not path.exists():
@@ -243,3 +325,29 @@ def resolve_context_ynab_path(context: LoadedContext, run_paths: ContextRunPaths
             f"Missing normalized YNAB artifact for context {context.name!r}: {path}"
         )
     return path
+
+
+def resolve_context_budget_id(context: LoadedContext, *, budget_id: str = "") -> str:
+    override = str(budget_id or "").strip()
+    if override:
+        return override
+    env_name = str(context.budget_id_env or "").strip()
+    resolved = str(os.environ.get(env_name, "")).strip() if env_name else ""
+    if not resolved:
+        config = _read_optional_toml(LOCAL_BUDGET_CONFIG_PATH)
+        profiles = config.get("profiles", {})
+        if isinstance(profiles, dict):
+            section = profiles.get(context.name, {})
+            if isinstance(section, dict):
+                resolved = str(section.get("budget_id", "") or section.get("plan_id", "")).strip()
+        if not resolved and context.name == "family":
+            resolved = str(config.get("budget_id", "") or config.get("plan_id", "")).strip()
+    if not resolved:
+        if env_name:
+            raise ValueError(
+                f"Context {context.name!r} requires budget id env var {env_name!r} or a matching entry in {LOCAL_BUDGET_CONFIG_PATH}, but neither is set."
+            )
+        raise ValueError(
+            f"Context {context.name!r} requires a budget id override or a matching entry in {LOCAL_BUDGET_CONFIG_PATH}."
+        )
+    return resolved
