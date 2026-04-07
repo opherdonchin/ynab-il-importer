@@ -135,27 +135,21 @@ def _canonical_context_text(row: pd.Series, *names: str) -> str:
     return ""
 
 
-def _review_artifact_to_working_frame(
-    reviewed_source: pd.DataFrame | Any,
-) -> pd.DataFrame:
-    original_index = reviewed_source.index if isinstance(reviewed_source, pd.DataFrame) else None
-    if isinstance(reviewed_source, (str, Path)):
-        working = review_io.project_review_artifact_to_working_dataframe(
-            review_io.load_review_artifact(Path(reviewed_source))
-        ).to_pandas()
-    elif isinstance(reviewed_source, pd.DataFrame):
-        working = working_schema.build_working_dataframe(
-            pl.from_pandas(reviewed_source, include_index=False)
-        ).to_pandas()
-    else:
-        working = review_io.project_review_artifact_to_working_dataframe(
-            review_io.coerce_review_artifact_table(reviewed_source)
-        ).to_pandas()
-    if working.empty:
+def load_upload_working_frame(
+    reviewed_artifact_path: str | Path | pl.DataFrame,
+) -> pl.DataFrame:
+    if isinstance(reviewed_artifact_path, pl.DataFrame):
+        return working_schema.build_working_dataframe(reviewed_artifact_path)
+    return review_io.project_review_artifact_to_working_dataframe(
+        review_io.load_review_artifact(reviewed_artifact_path)
+    )
+
+
+def _working_frame_to_pandas(working_df: pl.DataFrame) -> pd.DataFrame:
+    normalized = working_schema.build_working_dataframe(working_df)
+    if normalized.is_empty():
         return pd.DataFrame(columns=REQUIRED_REVIEW_COLUMNS)
-    if original_index is not None and len(original_index) == len(working):
-        working.index = original_index
-    return working
+    return normalized.to_pandas()
 
 
 def _normalize_split_records(value: Any) -> list[dict[str, Any]]:
@@ -225,6 +219,8 @@ def _source_import_id(row: pd.Series) -> str:
         )
         if source_system == "bank" and source_transaction_id:
             bank_txn_id = source_transaction_id
+    if bank_txn_id and bank_identity.is_bank_txn_id(bank_txn_id):
+        return bank_identity.validate_bank_txn_id(bank_txn_id)
     if not bank_txn_id:
         card_txn_id = _normalize_text(row.get("card_txn_id", ""))
         if not card_txn_id:
@@ -236,10 +232,9 @@ def _source_import_id(row: pd.Series) -> str:
             )
             if source_system == "card" and source_transaction_id:
                 card_txn_id = source_transaction_id
-        if not card_txn_id:
-            return ""
-        return card_identity.validate_card_txn_id(card_txn_id)
-    return bank_identity.validate_bank_txn_id(bank_txn_id)
+        if card_txn_id and card_identity.is_card_txn_id(card_txn_id):
+            return card_identity.validate_card_txn_id(card_txn_id)
+    return ""
 
 
 def _validate_columns(df: pd.DataFrame, required: list[str]) -> None:
@@ -275,9 +270,9 @@ def _account_lookup(
 
 
 def uploadable_account_mask(
-    reviewed_source: pd.DataFrame | Any, accounts: list[dict[str, Any]]
+    working_df: pl.DataFrame, accounts: list[dict[str, Any]]
 ) -> pd.Series:
-    df = _review_artifact_to_working_frame(reviewed_source)
+    df = _working_frame_to_pandas(working_df)
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
     account_ids, _ = _account_lookup(accounts)
     account_names = _normalize_text_series(df["account_name"])
@@ -350,8 +345,8 @@ def _uncategorized_category_id(categories_df: pd.DataFrame) -> str:
     return category_alias_ids.get("uncategorized", "")
 
 
-def _upload_rows_for_validation(reviewed_source: pd.DataFrame | Any) -> pd.DataFrame:
-    df = _review_artifact_to_working_frame(reviewed_source)
+def _upload_rows_for_validation(working_df: pl.DataFrame) -> pd.DataFrame:
+    df = _working_frame_to_pandas(working_df)
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
     upload_df = df.loc[_decision_action_mask(df)].copy()
     if upload_df.empty:
@@ -365,8 +360,8 @@ def _upload_rows_for_validation(reviewed_source: pd.DataFrame | Any) -> pd.DataF
     return _explode_target_splits_for_upload(upload_df)
 
 
-def validate_ready_for_upload(reviewed_source: pd.DataFrame | Any) -> None:
-    upload_df = _upload_rows_for_validation(reviewed_source)
+def validate_ready_for_upload(working_df: pl.DataFrame) -> None:
+    upload_df = _upload_rows_for_validation(working_df)
     if upload_df.empty:
         return
 
@@ -388,14 +383,14 @@ def validate_ready_for_upload(reviewed_source: pd.DataFrame | Any) -> None:
         )
 
 
-def ready_mask(reviewed_source: pd.DataFrame | Any) -> pd.Series:
-    df = _review_artifact_to_working_frame(reviewed_source)
+def ready_mask(working_df: pl.DataFrame) -> pd.Series:
+    df = _working_frame_to_pandas(working_df)
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
     upload_mask = _decision_action_mask(df)
     if not upload_mask.any():
         return upload_mask
 
-    upload_df = _upload_rows_for_validation(df)
+    upload_df = _upload_rows_for_validation(working_df)
     payee = _parent_target_payee_series(upload_df)
     category = _target_category_series(upload_df)
     transfer = _target_payee_series(upload_df).map(review_model.is_transfer_payee)
@@ -414,15 +409,15 @@ def ready_mask(reviewed_source: pd.DataFrame | Any) -> pd.Series:
 
 
 def prepare_upload_transactions(
-    reviewed_source: pd.DataFrame | Any,
+    working_df: pl.DataFrame,
     *,
     accounts: list[dict[str, Any]],
     categories_df: pd.DataFrame,
     cleared: str = "cleared",
     approved: bool = False,
 ) -> pd.DataFrame:
-    reviewed_df = _review_artifact_to_working_frame(reviewed_source)
-    validate_ready_for_upload(reviewed_df)
+    reviewed_df = _working_frame_to_pandas(working_df)
+    validate_ready_for_upload(working_df)
 
     df = reviewed_df.loc[_decision_action_mask(reviewed_df)].copy()
     if df.empty:

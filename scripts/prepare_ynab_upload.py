@@ -11,11 +11,11 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 import ynab_il_importer.export as export
-import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.upload_prep as upload_prep
 import ynab_il_importer.workflow_profiles as workflow_profiles
 import ynab_il_importer.ynab_api as ynab_api
 from ynab_il_importer.safe_types import normalize_flag_series
+import polars as pl
 
 
 def _default_csv_out(input_path: Path) -> Path:
@@ -124,19 +124,29 @@ def main() -> None:
         budget_id=args.budget_id,
     )
 
-    reviewed = review_io.load_review_artifact(input_path).to_pandas()
+    reviewed = upload_prep.load_upload_working_frame(input_path)
     accounts = ynab_api.fetch_accounts(plan_id=plan_id or None)
     if args.reviewed_only:
-        reviewed = reviewed[normalize_flag_series(reviewed["reviewed"])].copy()
+        reviewed = reviewed.filter(
+            pl.Series(
+                normalize_flag_series(reviewed["reviewed"].to_pandas())
+                .astype(bool)
+                .tolist()
+            )
+        )
     if args.ready_only:
-        reviewed = reviewed[upload_prep.ready_mask(reviewed)].copy()
+        reviewed = reviewed.filter(
+            pl.Series("ready_mask", upload_prep.ready_mask(reviewed).astype(bool).tolist())
+        )
     if args.skip_missing_accounts:
         account_mask = upload_prep.uploadable_account_mask(reviewed, accounts)
         skipped = int((~account_mask).sum())
         if skipped:
             print(f"Skipping {skipped} rows with missing/unmapped account_name values.")
-        reviewed = reviewed[account_mask].copy()
-    if reviewed.empty:
+        reviewed = reviewed.filter(
+            pl.Series("account_mask", account_mask.astype(bool).tolist())
+        )
+    if reviewed.is_empty():
         raise ValueError("No rows remain after applying the selected upload filters.")
     existing_transactions = ynab_api.fetch_transactions(plan_id=plan_id or None)
     category_groups = ynab_api.fetch_categories(plan_id=plan_id or None)

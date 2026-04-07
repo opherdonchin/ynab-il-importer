@@ -37,7 +37,7 @@ def _api_like_categories() -> pd.DataFrame:
     )
 
 
-def _reviewed_df(columns: dict[str, list[object]]) -> pd.DataFrame:
+def _reviewed_df(columns: dict[str, list[object]]) -> pl.DataFrame:
     data = dict(columns)
     row_count = len(next(iter(data.values()))) if data else 0
     payee_selected = data.pop("payee_selected", [""] * row_count)
@@ -48,7 +48,7 @@ def _reviewed_df(columns: dict[str, list[object]]) -> pd.DataFrame:
     data.setdefault("reviewed", [True] * row_count)
     data.setdefault("source_present", [True] * row_count)
     data.setdefault("target_present", [False] * row_count)
-    return pd.DataFrame(data)
+    return pl.from_pandas(pd.DataFrame(data), include_index=False)
 
 
 def _txn(
@@ -95,7 +95,7 @@ def _txn(
     }
 
 
-def _split_edit_working_row(*, amount: float = 10.0) -> pd.DataFrame:
+def _split_edit_working_row(*, amount: float = 10.0) -> pl.DataFrame:
     source_txn = _txn(transaction_id="src-1", payee="Source Cafe", category="Groceries", amount=amount)
     target_original = _txn(transaction_id="tgt-1", payee="Target Cafe", category="Groceries", amount=amount)
     working = review_io.project_review_artifact_to_working_dataframe(
@@ -133,7 +133,7 @@ def _split_edit_working_row(*, amount: float = 10.0) -> pd.DataFrame:
                 )
             )
         )
-    ).to_pandas()
+    )
     return working
 
 
@@ -199,7 +199,7 @@ def test_prepare_upload_transactions_accepts_canonical_review_artifact(tmp_path)
     review_io.save_review_artifact(reviewed, artifact_path)
 
     prepared = upload_prep.prepare_upload_transactions(
-        artifact_path,
+        upload_prep.load_upload_working_frame(artifact_path),
         accounts=_accounts(),
         categories_df=_categories(),
     )
@@ -211,7 +211,7 @@ def test_prepare_upload_transactions_accepts_canonical_review_artifact(tmp_path)
 def test_prepare_upload_transactions_explodes_committed_target_splits() -> None:
     working = _split_edit_working_row(amount=10.0)
     split_working = review_state.apply_target_split_edit(
-        pl.from_pandas(working),
+        working,
         0,
         lines=[
             {
@@ -229,7 +229,7 @@ def test_prepare_upload_transactions_explodes_committed_target_splits() -> None:
                 "memo": "Line two",
             },
         ],
-    ).to_pandas()
+    )
 
     prepared = upload_prep.prepare_upload_transactions(
         split_working,
@@ -293,7 +293,7 @@ def test_prepare_upload_transactions_explodes_committed_target_splits() -> None:
 def test_prepare_upload_transactions_treats_one_line_collapsed_save_as_regular() -> None:
     working = _split_edit_working_row(amount=10.0)
     collapsed = review_state.apply_target_split_edit(
-        pl.from_pandas(working),
+        working,
         0,
         lines=[
             {
@@ -304,7 +304,7 @@ def test_prepare_upload_transactions_treats_one_line_collapsed_save_as_regular()
                 "memo": "Collapsed memo",
             }
         ],
-    ).to_pandas()
+    )
 
     prepared = upload_prep.prepare_upload_transactions(
         collapsed,
