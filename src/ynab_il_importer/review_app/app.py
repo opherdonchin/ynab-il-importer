@@ -1976,7 +1976,7 @@ def _render_row_controls(
         st.session_state.get(show_all_categories_key, show_all_categories_default)
     )
 
-    use_form = group_fingerprint is None
+    use_form = False
     form_context = st.form(key=_editor_key(f"row_form_{idx}")) if use_form else nullcontext()
     with form_context:
         source_payee_key = _editor_key(f"source_payee_{idx}")
