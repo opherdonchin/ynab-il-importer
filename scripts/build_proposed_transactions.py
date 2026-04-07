@@ -30,6 +30,7 @@ from ynab_il_importer.artifacts.transaction_schema import TRANSACTION_SCHEMA
 
 _CARD_SUFFIX_DIGITS_RE = re.compile(r"\D+")
 _CARD_SUFFIX_MEMO_TAG_RE = re.compile(r"\[card x\d{4}\]", flags=re.IGNORECASE)
+_BANK_CARD_SUFFIX_RE = re.compile(r"(?<!\d)(\d{4})-\s*בכרטיס המסתיים\b", re.IGNORECASE)
 TARGET_SUGGESTION_COLUMNS = [
     "transaction_id",
     "source",
@@ -147,27 +148,45 @@ def _expand_source_paths(files: list[Path], dirs: list[Path]) -> list[Path]:
             raise FileNotFoundError(f"Source directory does not exist: {dir_path}")
         if not dir_path.is_dir():
             raise ValueError(f"Source path is not a directory: {dir_path}")
-        csv_paths = sorted(dir_path.glob("*.csv"))
-        if not csv_paths:
-            raise ValueError(f"No CSV files found in source directory: {dir_path}")
-        paths.extend(csv_paths)
+        parquet_paths = sorted(dir_path.glob("*.parquet"))
+        if not parquet_paths:
+            raise ValueError(f"No parquet files found in source directory: {dir_path}")
+        paths.extend(parquet_paths)
 
     return paths
 
 
 def _dedupe_source_overlaps(source_df: pl.DataFrame) -> pl.DataFrame:
-    if source_df.is_empty() or "source" not in source_df.columns:
+    if source_df.is_empty():
         return source_df.clone()
 
+    text = lambda name: pl.col(name).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
+    source_norm = text("source_system").str.to_lowercase().replace("", "source")
+    bank_card_suffix = text("description_raw").map_elements(
+        _extract_bank_card_suffix,
+        return_dtype=pl.String,
+    )
+    card_card_suffix = pl.coalesce([text("source_account"), text("account_name"), pl.lit("")]).map_elements(
+        _normalize_card_suffix,
+        return_dtype=pl.String,
+    )
     work = source_df.with_row_index("_row_index").with_columns(
-        pl.col("source").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().str.to_lowercase().alias("_source_norm"),
-        pl.col("date").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().replace("", None).str.strptime(pl.Date, strict=False).alias("_date_key"),
-        pl.col("secondary_date").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().replace("", None).str.strptime(pl.Date, strict=False).alias("_secondary_date_key"),
-        pl.col("account_name").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().alias("_account_key"),
-        pl.col("card_suffix").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().alias("_card_suffix_key"),
+        source_norm.alias("_source_norm"),
+        text("date").replace("", None).str.strptime(pl.Date, strict=False).alias("_date_key"),
+        text("secondary_date")
+        .replace("", None)
+        .str.strptime(pl.Date, strict=False)
+        .alias("_secondary_date_key"),
+        text("account_name").alias("_account_key"),
+        pl.when(source_norm == "bank")
+        .then(bank_card_suffix)
+        .when(source_norm == "card")
+        .then(card_card_suffix)
+        .otherwise(pl.lit(""))
+        .alias("_linked_card_suffix"),
         pl.col("outflow_ils").round(2).alias("_outflow_key"),
         pl.col("inflow_ils").round(2).alias("_inflow_key"),
-        pl.col("fingerprint").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().alias("_fingerprint_key"),
+        text("fingerprint").alias("_fingerprint_key"),
     )
     has_bank, has_card = work.select(
         (pl.col("_source_norm") == "bank").any().alias("has_bank"),
@@ -182,12 +201,18 @@ def _dedupe_source_overlaps(source_df: pl.DataFrame) -> pl.DataFrame:
         "_outflow_key",
         "_inflow_key",
         "_fingerprint_key",
-        "_card_suffix_key",
+        "_linked_card_suffix",
     ]
-    valid = pl.col("_date_key").is_not_null() & (pl.col("_fingerprint_key") != "")
+    valid = (
+        pl.col("_date_key").is_not_null()
+        & (pl.col("_fingerprint_key") != "")
+        & (pl.col("_linked_card_suffix") != "")
+    )
 
-    bank = work.filter((pl.col("_source_norm") == "bank") & valid).select(key_cols).with_columns(
-        pl.int_range(0, pl.len()).over(key_cols).alias("_dup_rank")
+    bank = (
+        work.filter((pl.col("_source_norm") == "bank") & valid)
+        .select(key_cols)
+        .with_columns(pl.int_range(0, pl.len()).over(key_cols).alias("_dup_rank"))
     )
     card = work.filter((pl.col("_source_norm") == "card") & valid).select(
         "_row_index", *key_cols
@@ -204,13 +229,13 @@ def _dedupe_source_overlaps(source_df: pl.DataFrame) -> pl.DataFrame:
         "_secondary_date_key",
         "_outflow_key",
         "_inflow_key",
-        "_card_suffix_key",
+        "_fingerprint_key",
+        "_linked_card_suffix",
     ]
     secondary_card = work.filter(
         (pl.col("_source_norm") == "card")
         & valid
         & pl.col("_secondary_date_key").is_not_null()
-        & (pl.col("_account_key") != "")
     ).select("_row_index", *second_key_cols).with_columns(
         pl.int_range(0, pl.len()).over(second_key_cols).alias("_dup_rank")
     )
@@ -459,6 +484,16 @@ def _make_transaction_id(row: pd.Series) -> str:
     ]
     digest = hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
     return f"txn_{digest}"
+
+
+def _extract_bank_card_suffix(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    match = _BANK_CARD_SUFFIX_RE.search(text)
+    if not match:
+        return ""
+    return match.group(1).zfill(4)
 
 
 def _normalize_card_suffix(value: object) -> str:

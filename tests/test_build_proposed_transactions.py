@@ -88,36 +88,39 @@ def test_dedupe_source_overlaps_drops_matching_card_rows() -> None:
     source_df = pl.DataFrame(
         [
             {
-                "source": "bank",
-                "account_name": "",
+                "source_system": "bank",
+                "account_name": "Bank Leumi",
+                "source_account": "67833011333622",
                 "secondary_date": "",
-                "card_suffix": "",
                 "date": "2025-12-12",
                 "outflow_ils": 25.0,
                 "inflow_ils": 0.0,
                 "fingerprint": "מצפור פארק החורשות",
+                "description_raw": "מצפור פארק החורשות0849- בכרטיס המסתיים",
                 "memo": "bank row",
             },
             {
-                "source": "card",
-                "account_name": "",
+                "source_system": "card",
+                "account_name": "Bank Leumi",
+                "source_account": "x0849",
                 "secondary_date": "",
-                "card_suffix": "",
                 "date": "2025-12-12",
                 "outflow_ils": 25.0,
                 "inflow_ils": 0.0,
                 "fingerprint": "מצפור פארק החורשות",
+                "description_raw": "מצפור פארק החורשות",
                 "memo": "card row",
             },
             {
-                "source": "card",
-                "account_name": "",
+                "source_system": "card",
+                "account_name": "Bank Leumi",
+                "source_account": "x0849",
                 "secondary_date": "",
-                "card_suffix": "",
                 "date": "2025-12-12",
                 "outflow_ils": 18.0,
                 "inflow_ils": 0.0,
                 "fingerprint": "מצפור פארק החורשות",
+                "description_raw": "מצפור פארק החורשות",
                 "memo": "other card row",
             },
         ]
@@ -134,36 +137,39 @@ def test_dedupe_source_overlaps_preserves_extra_bank_rows() -> None:
     source_df = pl.DataFrame(
         [
             {
-                "source": "bank",
-                "account_name": "",
+                "source_system": "bank",
+                "account_name": "Bank Leumi",
+                "source_account": "67833011333622",
                 "secondary_date": "",
-                "card_suffix": "",
                 "date": "2025-12-12",
                 "outflow_ils": 25.0,
                 "inflow_ils": 0.0,
                 "fingerprint": "fp",
+                "description_raw": "merchant0849- בכרטיס המסתיים",
                 "memo": "bank 1",
             },
             {
-                "source": "bank",
-                "account_name": "",
+                "source_system": "bank",
+                "account_name": "Bank Leumi",
+                "source_account": "67833011333622",
                 "secondary_date": "",
-                "card_suffix": "",
                 "date": "2025-12-12",
                 "outflow_ils": 25.0,
                 "inflow_ils": 0.0,
                 "fingerprint": "fp",
+                "description_raw": "merchant0849- בכרטיס המסתיים",
                 "memo": "bank 2",
             },
             {
-                "source": "card",
-                "account_name": "",
+                "source_system": "card",
+                "account_name": "Bank Leumi",
+                "source_account": "x0849",
                 "secondary_date": "",
-                "card_suffix": "",
                 "date": "2025-12-12",
                 "outflow_ils": 25.0,
                 "inflow_ils": 0.0,
                 "fingerprint": "fp",
+                "description_raw": "merchant",
                 "memo": "card 1",
             },
         ]
@@ -598,25 +604,27 @@ def test_dedupe_source_overlaps_matches_immediate_debit_on_secondary_date() -> N
     source_df = pl.DataFrame(
         [
             {
-                "source": "bank",
+                "source_system": "bank",
                 "account_name": "Bank Leumi",
+                "source_account": "67833011333622",
                 "date": "2025-12-28",
                 "secondary_date": "2026-01-01",
                 "outflow_ils": 20.0,
                 "inflow_ils": 0.0,
                 "fingerprint": "lime",
-                "card_suffix": "0849",
+                "description_raw": "LIME*RIDE0849- בכרטיס המסתיים",
                 "memo": "bank row",
             },
             {
-                "source": "card",
+                "source_system": "card",
                 "account_name": "Bank Leumi",
+                "source_account": "x0849",
                 "date": "2025-12-30",
                 "secondary_date": "2026-01-01",
                 "outflow_ils": 20.0,
                 "inflow_ils": 0.0,
                 "fingerprint": "lime",
-                "card_suffix": "0849",
+                "description_raw": "LIME*RIDE",
                 "max_txn_type": "חיוב עסקות מיידי",
                 "memo": "card row",
             },
@@ -627,6 +635,66 @@ def test_dedupe_source_overlaps_matches_immediate_debit_on_secondary_date() -> N
         deduped = build_proposed_transactions._dedupe_source_overlaps(source_df)
 
     assert deduped["memo"].to_list() == ["bank row"]
+
+
+def test_dedupe_source_overlaps_collapses_four_way_linked_duplicates() -> None:
+    source_df = pl.DataFrame(
+        [
+            {
+                "source_system": "bank",
+                "account_name": "Bank Leumi",
+                "source_account": "67833011333622",
+                "date": "2026-03-03",
+                "secondary_date": "",
+                "outflow_ils": 200.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "bit",
+                "description_raw": "BIT- ב0849- בכרטיס המסתיים ב14:29  03/03/26",
+                "memo": "bank 1",
+            },
+            {
+                "source_system": "bank",
+                "account_name": "Bank Leumi",
+                "source_account": "67833011333622",
+                "date": "2026-03-03",
+                "secondary_date": "",
+                "outflow_ils": 200.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "bit",
+                "description_raw": "BIT- ב0849- בכרטיס המסתיים ב14:30  03/03/26",
+                "memo": "bank 2",
+            },
+            {
+                "source_system": "card",
+                "account_name": "Bank Leumi",
+                "source_account": "x0849",
+                "date": "2026-03-03",
+                "secondary_date": "",
+                "outflow_ils": 200.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "bit",
+                "description_raw": "BIT | למי: נעה גן צבי",
+                "memo": "card 1",
+            },
+            {
+                "source_system": "card",
+                "account_name": "Bank Leumi",
+                "source_account": "x0849",
+                "date": "2026-03-03",
+                "secondary_date": "",
+                "outflow_ils": 200.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "bit",
+                "description_raw": "BIT | למי: נבו פולק",
+                "memo": "card 2",
+            },
+        ]
+    )
+
+    with pytest.warns(UserWarning, match="Dropping 2 bank/card overlap rows"):
+        deduped = build_proposed_transactions._dedupe_source_overlaps(source_df)
+
+    assert deduped["memo"].to_list() == ["bank 1", "bank 2"]
 
 
 def test_build_review_rows_emits_institutional_statuses(tmp_path: Path) -> None:
