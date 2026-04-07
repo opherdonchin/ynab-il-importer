@@ -17,10 +17,10 @@ SPEC.loader.exec_module(prepare_ynab_upload_script)
 def test_build_parser_parses_approved_bool_values() -> None:
     parser = prepare_ynab_upload_script._build_parser()
 
-    args = parser.parse_args(["--in", "reviewed.csv", "--approved", "true"])
+    args = parser.parse_args(["family", "2026_04_01", "--approved", "true"])
     assert args.approved is True
 
-    args = parser.parse_args(["--in", "reviewed.csv", "--approved", "false"])
+    args = parser.parse_args(["family", "2026_04_01", "--approved", "false"])
     assert args.approved is False
 
 
@@ -28,4 +28,4 @@ def test_build_parser_rejects_invalid_approved_value() -> None:
     parser = prepare_ynab_upload_script._build_parser()
 
     with pytest.raises(SystemExit):
-        parser.parse_args(["--in", "reviewed.csv", "--approved", "maybe"])
+        parser.parse_args(["family", "2026_04_01", "--approved", "maybe"])

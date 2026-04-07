@@ -558,6 +558,45 @@ def test_prepare_upload_transactions_uses_card_txn_id_for_card_rows() -> None:
     assert prepared.loc[1, "import_id"] == "YNAB:-120000:2026-03-09:2"
 
 
+def test_prepare_upload_transactions_uses_source_import_id_for_bank_rows() -> None:
+    bank_txn_id = bank_identity.make_bank_txn_id(
+        source="bank",
+        source_account="123456",
+        date="2026-03-01",
+        secondary_date="2026-03-02",
+        outflow_ils=10,
+        inflow_ils=0,
+        ref="0042",
+        description_raw="groceries",
+    )
+    reviewed = _reviewed_df(
+        {
+            "transaction_id": ["t1"],
+            "source": ["bank"],
+            "account_name": ["Bank Leumi"],
+            "source_account": ["123456"],
+            "date": ["2026-03-01"],
+            "secondary_date": ["2026-03-02"],
+            "outflow_ils": ["10.00"],
+            "inflow_ils": ["0"],
+            "memo": ["groceries"],
+            "source_import_id": [bank_txn_id],
+            "source_bank_txn_id": [bank_txn_id],
+            "payee_selected": ["Shop"],
+            "category_selected": ["Groceries"],
+        }
+    )
+
+    prepared = upload_prep.prepare_upload_transactions(
+        reviewed,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+
+    assert prepared.loc[0, "import_id"] == bank_txn_id
+    assert prepared.loc[0, "bank_txn_id"] == bank_txn_id
+
+
 def test_prepare_upload_transactions_requires_category_for_non_transfer() -> None:
     reviewed = _reviewed_df(
         {

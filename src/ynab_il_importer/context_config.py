@@ -26,6 +26,8 @@ class DefaultsFilesConfig(BaseModel):
     proposed_review: str = "{context}_proposed_transactions.parquet"
     reviewed_review: str = "{context}_proposed_transactions_reviewed.parquet"
     matched_pairs: str = "{context}_matched_pairs.csv"
+    upload_csv: str = "{context}_upload.csv"
+    upload_json: str = "{context}_upload.json"
     bank_sync_report: str = "{context}_{source_id}_bank_sync_report.csv"
     bank_uncleared_report: str = "{context}_{source_id}_bank_uncleared_ynab_report.csv"
     bank_reconcile_report: str = "{context}_{source_id}_bank_reconcile_report.csv"
@@ -99,6 +101,12 @@ class ContextRunPaths:
 
     def matched_pairs_path(self, defaults: DefaultsConfig, context_name: str) -> Path:
         return self.paired_dir / defaults.files.matched_pairs.format(context=context_name)
+
+    def upload_csv_path(self, defaults: DefaultsConfig, context_name: str) -> Path:
+        return self.paired_dir / defaults.files.upload_csv.format(context=context_name)
+
+    def upload_json_path(self, defaults: DefaultsConfig, context_name: str) -> Path:
+        return self.paired_dir / defaults.files.upload_json.format(context=context_name)
 
     def bank_sync_report_path(
         self, defaults: DefaultsConfig, context_name: str, source_id: str

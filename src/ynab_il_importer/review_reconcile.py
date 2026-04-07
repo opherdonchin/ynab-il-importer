@@ -8,7 +8,7 @@ import pandas as pd
 import polars as pl
 
 
-PRESERVED_COLUMNS = [
+PRESERVED_REVIEW_COLUMNS = [
     "source_payee_selected",
     "source_category_selected",
     "target_payee_selected",
@@ -18,6 +18,8 @@ PRESERVED_COLUMNS = [
     "reviewed",
     "changed",
     "memo_append",
+]
+PRESERVED_EDIT_COLUMNS = [
     "source_splits",
     "target_splits",
     "source_current_transaction",
@@ -69,12 +71,15 @@ def _decision_value_counts(row: pd.Series) -> int:
 
 
 def _preserved_payload(row: pd.Series) -> dict[str, Any]:
-    return {column: row.get(column) for column in PRESERVED_COLUMNS}
+    payload = {column: row.get(column) for column in PRESERVED_REVIEW_COLUMNS}
+    if bool(row.get("changed", False)):
+        payload.update({column: row.get(column) for column in PRESERVED_EDIT_COLUMNS})
+    return payload
 
 
 def _serialized_payload(payload: dict[str, Any]) -> tuple[Any, ...]:
     serialized: list[Any] = []
-    for column in PRESERVED_COLUMNS:
+    for column in [*PRESERVED_REVIEW_COLUMNS, *PRESERVED_EDIT_COLUMNS]:
         value = payload.get(column)
         if isinstance(value, (dict, list)):
             serialized.append(json.dumps(value, sort_keys=True, ensure_ascii=False))
@@ -196,8 +201,14 @@ def _reconcile_reviewed_transactions_pandas(
         )
         direct_mask = direct_candidates.copy()
         direct_mask.loc[direct_candidates] = ~preserve_direct
-        for col in PRESERVED_COLUMNS:
-            result.loc[direct_mask, col] = matched.loc[~preserve_direct, col].to_numpy()
+        matched_to_preserve = matched.loc[~preserve_direct]
+        if not matched_to_preserve.empty:
+            for idx, old_row in matched_to_preserve.iterrows():
+                preserve_columns = list(PRESERVED_REVIEW_COLUMNS)
+                if bool(old_row.get("changed", False)):
+                    preserve_columns.extend(PRESERVED_EDIT_COLUMNS)
+                for col in preserve_columns:
+                    result.at[idx, col] = old_row.get(col)
         direct_matches = int(direct_mask.sum())
     else:
         direct_mask = direct_candidates

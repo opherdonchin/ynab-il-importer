@@ -986,6 +986,9 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
         .dt.strftime("%Y-%m-%d")
         .fill_null("")
         .alias("source_secondary_date"),
+        pl.coalesce([nonempty("bank_txn_id"), nonempty("card_txn_id"), nonempty("import_id"), pl.lit("")]).alias(
+            "import_id"
+        ),
     )
     if source_work.select(pl.col("fingerprint").eq("").any()).item():
         raise ValueError("Source data missing fingerprint values; run fingerprinting first.")

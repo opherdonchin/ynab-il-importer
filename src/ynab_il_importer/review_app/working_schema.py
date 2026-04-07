@@ -91,6 +91,8 @@ WORKING_COLUMNS = [
         "source_description_clean_norm",
         "source_merchant_raw",
         "source_ref",
+        "source_bank_txn_id",
+        "source_card_txn_id",
         "source_matched_transaction_id",
         "source_cleared",
         "source_approved",

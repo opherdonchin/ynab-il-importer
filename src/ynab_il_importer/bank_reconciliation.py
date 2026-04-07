@@ -21,6 +21,7 @@ SYNC_REPORT_COLUMNS = [
     "inflow_ils",
     "balance_ils",
     "bank_txn_id",
+    "legacy_import_id",
     "resolved_transaction_id",
     "resolved_via",
     "prior_cleared",
@@ -67,6 +68,7 @@ RECONCILIATION_REPORT_COLUMNS = [
     "inflow_ils",
     "balance_ils",
     "bank_txn_id",
+    "legacy_import_id",
     "resolved_transaction_id",
     "resolved_via",
     "prior_cleared",
@@ -140,6 +142,47 @@ def _amount_ils(outflow_ils: Any, inflow_ils: Any) -> float:
     return round(_amount_milliunits(outflow_ils, inflow_ils) / 1000.0, 2)
 
 
+def _row_identity_key(row: pd.Series) -> str:
+    parts = [
+        _normalize_text(row.get("account_name", "")),
+        _normalize_text(row.get("source_account", "")),
+        _normalize_text(row.get("date", "")),
+        _normalize_text(row.get("secondary_date", "")),
+        _normalize_text(row.get("outflow_ils", "")),
+        _normalize_text(row.get("inflow_ils", "")),
+        _normalize_text(row.get("fingerprint", "")),
+        _normalize_text(row.get("description_raw", "")),
+        _normalize_text(row.get("ref", "")),
+    ]
+    return normalize.normalize_text("|".join(parts))
+
+
+def _legacy_import_ids(df: pd.DataFrame) -> pd.Series:
+    if df.empty:
+        return pd.Series(dtype="string")
+
+    work = df.reset_index().copy()
+    work["account_key"] = _normalize_text_series(work["account_name"])
+    work["date_key"] = (
+        pd.to_datetime(work["date"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+    )
+    work["amount_milliunits"] = work["amount_milliunits"].astype(int)
+    work["stable_key"] = work.apply(_row_identity_key, axis=1)
+    ordered = work.sort_values(
+        ["account_key", "date_key", "amount_milliunits", "stable_key", "index"]
+    ).copy()
+    ordered["import_occurrence"] = (
+        ordered.groupby(["account_key", "date_key", "amount_milliunits"], dropna=False)
+        .cumcount()
+        .add(1)
+    )
+    ordered["legacy_import_id"] = ordered.apply(
+        lambda row: f"YNAB:{int(row['amount_milliunits'])}:{row['date_key']}:{int(row['import_occurrence'])}",
+        axis=1,
+    )
+    return ordered.set_index("index")["legacy_import_id"].reindex(df.index).astype("string")
+
+
 def _same_balance(left: float, right: float) -> bool:
     return abs(round(float(left), 2) - round(float(right), 2)) <= 0.005
 
@@ -208,6 +251,7 @@ def _prepare_bank_dataframe(bank_df: pl.DataFrame) -> pd.DataFrame:
     ).to_pandas()
     prepared["date"] = _coerce_date_series(prepared["date"])
     prepared["secondary_date"] = _coerce_date_series(prepared["secondary_date"])
+    prepared["legacy_import_id"] = _legacy_import_ids(prepared)
     return prepared
 
 
@@ -413,6 +457,21 @@ def _resolve_exact_lineage(
                 return candidate, "memo_ref", ""
             mismatch_reasons.append(
                 "memo ref marker is attached to a YNAB transaction with different date/amount"
+            )
+
+    legacy_import_id = _normalize_text(bank_row.get("legacy_import_id", ""))
+    if legacy_import_id:
+        legacy_hits = ynab_df.index[ynab_df["import_id"] == legacy_import_id].tolist()
+        if len(legacy_hits) > 1:
+            return None, "", f"duplicate YNAB legacy import_id matches for {legacy_import_id}"
+        if len(legacy_hits) == 1:
+            candidate = ynab_df.loc[legacy_hits[0]]
+            candidate_date = candidate.get("date")
+            candidate_amount = int(candidate.get("amount_milliunits", 0) or 0)
+            if candidate_date == bank_date and candidate_amount == bank_amount:
+                return candidate, "legacy_import_id", ""
+            mismatch_reasons.append(
+                "legacy import_id is attached to a YNAB transaction with different date/amount"
             )
 
     if mismatch_reasons:
@@ -956,6 +1015,7 @@ def _sync_report_row(
         "inflow_ils": round(float(bank_row["inflow_ils"]), 2),
         "balance_ils": bank_row["balance_ils"],
         "bank_txn_id": bank_row["bank_txn_id"],
+        "legacy_import_id": _normalize_text(bank_row.get("legacy_import_id", "")),
         "resolved_transaction_id": resolved_transaction_id,
         "resolved_via": resolved_via,
         "prior_cleared": prior_cleared,
@@ -1062,6 +1122,7 @@ def plan_bank_match_sync(
         actions: list[str] = []
 
         if resolved_via in {
+            "legacy_import_id",
             "memo_exact",
             "payee_exact",
             "date_amount_reconciled",
@@ -1181,6 +1242,7 @@ def _reconciliation_report_row(
         "inflow_ils": round(float(bank_row["inflow_ils"]), 2),
         "balance_ils": round(float(bank_row["balance_ils"]), 2),
         "bank_txn_id": bank_row["bank_txn_id"],
+        "legacy_import_id": _normalize_text(bank_row.get("legacy_import_id", "")),
         "resolved_transaction_id": resolved_transaction_id,
         "resolved_via": resolved_via,
         "prior_cleared": prior_cleared,

@@ -9,6 +9,8 @@ import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+import ynab_il_importer.bank_identity as bank_identity
+import ynab_il_importer.card_identity as card_identity
 from ynab_il_importer.artifacts.review_schema import (
     REVIEW_ARTIFACT_VERSION,
     REVIEW_CONTROL_FIELDS,
@@ -785,6 +787,19 @@ def _working_row_from_record(row: dict[str, Any]) -> dict[str, Any]:
         )
         working[f"{side}_merchant_raw"] = _normalize_text(txn.get("merchant_raw"))
         working[f"{side}_ref"] = _normalize_text(txn.get("ref"))
+        if side == "source":
+            working["source_bank_txn_id"] = ""
+            working["source_card_txn_id"] = ""
+            source_import_id = _normalize_text(txn.get("import_id"))
+            source_transaction_id = _normalize_text(txn.get("transaction_id"))
+            if bank_identity.is_bank_txn_id(source_import_id):
+                working["source_bank_txn_id"] = source_import_id
+            elif bank_identity.is_bank_txn_id(source_transaction_id):
+                working["source_bank_txn_id"] = source_transaction_id
+            if card_identity.is_card_txn_id(source_import_id):
+                working["source_card_txn_id"] = source_import_id
+            elif card_identity.is_card_txn_id(source_transaction_id):
+                working["source_card_txn_id"] = source_transaction_id
         working[f"{side}_matched_transaction_id"] = _normalize_text(
             txn.get("matched_transaction_id")
         )

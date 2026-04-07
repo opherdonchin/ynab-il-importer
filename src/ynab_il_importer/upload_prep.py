@@ -209,7 +209,14 @@ def _transfer_target(payee: str) -> str:
 
 
 def _source_import_id(row: pd.Series) -> str:
+    source_import_id = _normalize_text(row.get("source_import_id", ""))
+    if source_import_id and bank_identity.is_bank_txn_id(source_import_id):
+        return bank_identity.validate_bank_txn_id(source_import_id)
+    if source_import_id and card_identity.is_card_txn_id(source_import_id):
+        return card_identity.validate_card_txn_id(source_import_id)
     bank_txn_id = _normalize_text(row.get("bank_txn_id", ""))
+    if not bank_txn_id:
+        bank_txn_id = _normalize_text(row.get("source_bank_txn_id", ""))
     if not bank_txn_id:
         source_system = _normalize_text(
             row.get("source", row.get("source_source_system", ""))
@@ -223,6 +230,8 @@ def _source_import_id(row: pd.Series) -> str:
         return bank_identity.validate_bank_txn_id(bank_txn_id)
     if not bank_txn_id:
         card_txn_id = _normalize_text(row.get("card_txn_id", ""))
+        if not card_txn_id:
+            card_txn_id = _normalize_text(row.get("source_card_txn_id", ""))
         if not card_txn_id:
             source_system = _normalize_text(
                 row.get("source", row.get("source_source_system", ""))
@@ -544,6 +553,11 @@ def prepare_upload_transactions(
         .fillna("")
         .str.strip()
     )
+    if "source_bank_txn_id" in df.columns:
+        source_bank_ids = _normalize_text_series(df["source_bank_txn_id"])
+        missing_bank_ids = df["bank_txn_id"].eq("") & source_bank_ids.ne("")
+        if missing_bank_ids.any():
+            df.loc[missing_bank_ids, "bank_txn_id"] = source_bank_ids.loc[missing_bank_ids]
     missing_bank_ids = (
         df["bank_txn_id"].eq("")
         & _normalize_text_series(df.get("source", pd.Series([""] * len(df), index=df.index))).str.casefold().eq("bank")
@@ -558,6 +572,11 @@ def prepare_upload_transactions(
         .fillna("")
         .str.strip()
     )
+    if "source_card_txn_id" in df.columns:
+        source_card_ids = _normalize_text_series(df["source_card_txn_id"])
+        missing_card_ids = df["card_txn_id"].eq("") & source_card_ids.ne("")
+        if missing_card_ids.any():
+            df.loc[missing_card_ids, "card_txn_id"] = source_card_ids.loc[missing_card_ids]
     missing_card_ids = (
         df["card_txn_id"].eq("")
         & _normalize_text_series(df.get("source", pd.Series([""] * len(df), index=df.index))).str.casefold().eq("card")

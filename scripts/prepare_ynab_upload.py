@@ -10,21 +10,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+import ynab_il_importer.context_config as context_config
 import ynab_il_importer.export as export
 import ynab_il_importer.upload_prep as upload_prep
-import ynab_il_importer.workflow_profiles as workflow_profiles
 import ynab_il_importer.ynab_api as ynab_api
 from ynab_il_importer.safe_types import normalize_flag_series
 import polars as pl
-
-
-def _default_csv_out(input_path: Path) -> Path:
-    stem = input_path.with_suffix("") if input_path.suffix else input_path
-    return Path(f"{stem}_upload.csv")
-
-
-def _default_json_out(csv_out: Path) -> Path:
-    return csv_out.with_suffix(".json")
 
 
 def _print_section(title: str, rows: list[tuple[str, object]]) -> None:
@@ -56,20 +47,25 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Prepare reviewed transactions for YNAB upload"
     )
+    parser.add_argument("context", help="Context name, for example: family")
+    parser.add_argument("run_tag", help="Run folder name, for example: 2026_04_01")
     parser.add_argument(
-        "--in", dest="input_path", required=True, help="Reviewed review-artifact path."
+        "--reviewed",
+        dest="reviewed_path",
+        default="",
+        help="Reviewed canonical review-artifact path. Defaults to the paired run directory for the context/run-tag.",
     )
     parser.add_argument(
         "--out",
         dest="out_path",
         default="",
-        help="Prepared upload CSV path. Defaults to <input>_upload.csv.",
+        help="Prepared upload CSV path. Defaults to the paired run directory for the context/run-tag.",
     )
     parser.add_argument(
         "--json-out",
         dest="json_out_path",
         default="",
-        help="Payload JSON path. Defaults to <out>.json.",
+        help="Payload JSON path. Defaults to the paired run directory for the context/run-tag.",
     )
     parser.add_argument(
         "--cleared",
@@ -104,8 +100,26 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip rows whose account_name does not map to a live YNAB account.",
     )
-    parser.add_argument("--profile", default="", help="Workflow profile (for budget defaults).")
-    parser.add_argument("--budget-id", dest="budget_id", default="", help="Override YNAB budget/plan id.")
+    parser.add_argument(
+        "--defaults",
+        dest="defaults_path",
+        type=Path,
+        default=context_config.DEFAULTS_PATH,
+        help="Defaults TOML path.",
+    )
+    parser.add_argument(
+        "--contexts-root",
+        dest="contexts_root",
+        type=Path,
+        default=context_config.CONTEXTS_ROOT,
+        help="Contexts root directory.",
+    )
+    parser.add_argument(
+        "--budget-id",
+        dest="budget_id",
+        default="",
+        help="Override YNAB budget id instead of resolving it from the context env binding.",
+    )
     return parser
 
 
@@ -113,16 +127,25 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    input_path = Path(args.input_path)
-    out_path = Path(args.out_path) if args.out_path else _default_csv_out(input_path)
+    defaults = context_config.load_defaults(args.defaults_path)
+    context = context_config.load_context(args.context, contexts_root=args.contexts_root)
+    run_paths = context_config.resolve_run_paths(defaults, run_tag=args.run_tag)
+    input_path = (
+        Path(args.reviewed_path)
+        if args.reviewed_path
+        else run_paths.reviewed_review_path(defaults, context.name)
+    )
+    out_path = (
+        Path(args.out_path)
+        if args.out_path
+        else run_paths.upload_csv_path(defaults, context.name)
+    )
     json_out_path = (
-        Path(args.json_out_path) if args.json_out_path else _default_json_out(out_path)
+        Path(args.json_out_path)
+        if args.json_out_path
+        else run_paths.upload_json_path(defaults, context.name)
     )
-    profile = workflow_profiles.resolve_profile(args.profile or None)
-    plan_id = workflow_profiles.resolve_budget_id(
-        profile=profile.name,
-        budget_id=args.budget_id,
-    )
+    plan_id = context_config.resolve_context_budget_id(context, budget_id=args.budget_id)
 
     reviewed = upload_prep.load_upload_working_frame(input_path)
     accounts = ynab_api.fetch_accounts(plan_id=plan_id or None)

@@ -302,3 +302,53 @@ def test_reconcile_reviewed_transactions_preserves_current_transaction_refs() ->
     assert merged["target_current_transaction"].to_list()[0] == target_current
     assert merged["target_original_transaction"].to_list()[0] == target_original
     assert stats["direct_matches"] == 1
+
+
+def test_reconcile_reviewed_transactions_prefers_new_current_transaction_when_unchanged() -> None:
+    old_target_current = {
+        "transaction_id": "t1",
+        "payee_raw": "Old payee",
+        "category_raw": "Food",
+    }
+    new_target_current = {
+        "transaction_id": "t1",
+        "payee_raw": "New payee",
+        "category_raw": "Food",
+        "import_id": "BANK:V1:111111111111111111111111",
+    }
+    old = pd.DataFrame(
+        {
+            "transaction_id": ["t1"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["10"],
+            "inflow_ils": ["0"],
+            "fingerprint": ["fp1"],
+            "decision_action": ["create_target"],
+            "reviewed": ["TRUE"],
+            "changed": [""],
+            "target_current_transaction": [old_target_current],
+        }
+    )
+    new = pd.DataFrame(
+        {
+            "transaction_id": ["t1"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["10"],
+            "inflow_ils": ["0"],
+            "fingerprint": ["fp1"],
+            "decision_action": [""],
+            "reviewed": [""],
+            "changed": [""],
+            "target_current_transaction": [new_target_current],
+        }
+    )
+
+    merged, stats = review_reconcile.reconcile_reviewed_transactions(
+        pl.from_pandas(old),
+        pl.from_pandas(new),
+    )
+
+    assert bool(merged["changed"].to_list()[0]) is False
+    assert merged["target_current_transaction"].to_list()[0] == new_target_current
+    assert merged["decision_action"].to_list()[0] == "create_target"
+    assert stats["direct_matches"] == 1

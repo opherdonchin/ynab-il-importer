@@ -68,6 +68,69 @@ def test_project_review_artifact_to_working_dataframe_accepts_polars_artifact_ro
     assert bool(loaded.loc[0, "reviewed"]) is False
 
 
+def test_project_review_artifact_to_working_dataframe_preserves_source_lineage_ids() -> None:
+    table = review_io.coerce_review_artifact_table(
+        pd.DataFrame(
+            [
+                {
+                    "review_transaction_id": "row-1",
+                    "workflow_type": "institutional",
+                    "relation_kind": "source_only",
+                    "match_status": "source_only",
+                    "decision_action": "create_target",
+                    "source_present": True,
+                    "target_present": False,
+                    "source_current": {
+                        "artifact_kind": "review_source_transaction",
+                        "artifact_version": "transaction_v1",
+                        "source_system": "bank",
+                        "transaction_id": "src_1",
+                        "import_id": "BANK:V1:111111111111111111111111",
+                        "parent_transaction_id": "src_1",
+                        "account_name": "Bank Leumi",
+                        "source_account": "123456",
+                        "date": "2026-03-01",
+                        "inflow_ils": 0.0,
+                        "outflow_ils": 10.0,
+                        "signed_amount_ils": -10.0,
+                        "payee_raw": "Cafe",
+                        "category_raw": "",
+                        "memo": "memo",
+                        "fingerprint": "fp-1",
+                        "approved": False,
+                        "is_subtransaction": False,
+                    },
+                    "source_original": {
+                        "artifact_kind": "review_source_transaction",
+                        "artifact_version": "transaction_v1",
+                        "source_system": "bank",
+                        "transaction_id": "src_1",
+                        "import_id": "BANK:V1:111111111111111111111111",
+                        "parent_transaction_id": "src_1",
+                        "account_name": "Bank Leumi",
+                        "source_account": "123456",
+                        "date": "2026-03-01",
+                        "inflow_ils": 0.0,
+                        "outflow_ils": 10.0,
+                        "signed_amount_ils": -10.0,
+                        "payee_raw": "Cafe",
+                        "category_raw": "",
+                        "memo": "memo",
+                        "fingerprint": "fp-1",
+                        "approved": False,
+                        "is_subtransaction": False,
+                    },
+                }
+            ]
+        )
+    )
+
+    loaded = review_io.project_review_artifact_to_working_dataframe(table).to_pandas()
+
+    assert loaded.loc[0, "source_import_id"] == "BANK:V1:111111111111111111111111"
+    assert loaded.loc[0, "source_bank_txn_id"] == "BANK:V1:111111111111111111111111"
+
+
 def test_load_category_list_accepts_arrow_table() -> None:
     table = pa.table(
         {

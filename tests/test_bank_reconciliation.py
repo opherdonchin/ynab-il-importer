@@ -184,9 +184,52 @@ def test_plan_bank_match_sync_stamps_legacy_nonbank_import_id_on_exact_memo_matc
             "memo": f"GROCERIES\n[ynab-il bank_txn_id={bank_txn_id} ref=001]",
         }
     ]
-    assert result["report"].loc[0, "resolved_via"] == "memo_exact"
+    assert result["report"].loc[0, "resolved_via"] == "legacy_import_id"
     assert result["report"].loc[0, "candidate_status"] == "unique_memo_exact_candidate"
     assert result["report"].loc[0, "action"] == "stamp"
+
+
+def test_plan_bank_match_sync_uses_legacy_import_id_fallback() -> None:
+    bank_df = _bank_df(
+        _bank_row(
+            date="2026-03-26",
+            amount_ils=-700,
+            balance_ils=7604.85,
+            description_raw="DIGITAL TRANSFER",
+            index=1,
+        )
+    )
+    bank_txn_id = bank_df.item(0, "transaction_id")
+    ynab_transactions = [
+        {
+            "id": "txn-1",
+            "account_id": "acc-bank",
+            "date": "2026-03-26",
+            "amount": -700000,
+            "memo": "saved earlier without bank marker",
+            "import_id": "YNAB:-700000:2026-03-26:1",
+            "cleared": "uncleared",
+            "approved": True,
+        }
+    ]
+
+    result = bank_reconciliation.plan_bank_match_sync(
+        bank_df,
+        _accounts(),
+        ynab_transactions,
+    )
+
+    assert result["update_count"] == 1
+    assert result["updates"] == [
+        {
+            "id": "txn-1",
+            "memo": f"saved earlier without bank marker\n[ynab-il bank_txn_id={bank_txn_id} ref=001]",
+            "cleared": "cleared",
+        }
+    ]
+    assert result["report"].loc[0, "resolved_via"] == "legacy_import_id"
+    assert result["report"].loc[0, "legacy_import_id"] == "YNAB:-700000:2026-03-26:1"
+    assert result["report"].loc[0, "action"] == "stamp+clear"
 
 
 def test_plan_bank_match_sync_stamps_unique_reconciled_date_amount_candidate() -> None:
@@ -226,11 +269,7 @@ def test_plan_bank_match_sync_stamps_unique_reconciled_date_amount_candidate() -
             "memo": f"[ynab-il bank_txn_id={bank_txn_id} ref=001]",
         }
     ]
-    assert result["report"].loc[0, "resolved_via"] == "date_amount_reconciled"
-    assert (
-        result["report"].loc[0, "candidate_status"]
-        == "unique_reconciled_date_amount_candidate"
-    )
+    assert result["report"].loc[0, "resolved_via"] == "legacy_import_id"
     assert result["report"].loc[0, "action"] == "stamp"
 
 
