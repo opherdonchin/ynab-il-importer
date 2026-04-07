@@ -1,4 +1,5 @@
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -8,15 +9,17 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 import ynab_il_importer.card_reconciliation as card_reconciliation
+import ynab_il_importer.context_config as context_config
 import ynab_il_importer.export as export
-import ynab_il_importer.workflow_profiles as workflow_profiles
 import ynab_il_importer.ynab_api as ynab_api
 
 
-def _default_report_out(source_path: Path) -> Path:
-    suffix = source_path.suffix or ".csv"
-    stem = source_path.with_suffix("") if source_path.suffix else source_path
-    return Path(f"{stem}_card_reconcile_report.csv")
+CARD_SOURCE_KINDS = {"max", "leumi_card_html"}
+
+
+def _account_key(value: str) -> str:
+    text = re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower())
+    return text.strip("_") or "account"
 
 
 def _print_summary(result: dict[str, object], report_path: Path, execute: bool) -> None:
@@ -69,25 +72,25 @@ def _print_summary(result: dict[str, object], report_path: Path, execute: bool) 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Reconcile one card account using a current source file and optional previous finished-month file."
+        description="Reconcile one card account using canonical current and optional previous normalized parquets."
     )
+    parser.add_argument("context", help="Context name, for example: family")
+    parser.add_argument("run_tag", help="Run folder name, for example: 2026_04_01")
+    parser.add_argument("--account", required=True, help="Target YNAB card account name.")
     parser.add_argument(
-        "--account", required=True, help="Target YNAB card account name."
-    )
-    parser.add_argument(
-        "--source",
-        required=True,
-        help="New current card snapshot (.xlsx/.html or normalized .csv).",
+        "--source-id",
+        default="",
+        help="Declared context source id when a context has multiple card sources.",
     )
     parser.add_argument(
         "--previous",
         default="",
-        help="Previous finished-month card snapshot (.xlsx/.html or normalized .csv).",
+        help="Explicit normalized parquet for the previous finished-month card snapshot.",
     )
     parser.add_argument(
         "--report-out",
         default="",
-        help="CSV path for the reconciliation report. Defaults to <source>_card_reconcile_report.csv.",
+        help="CSV path for the reconciliation report. Defaults to the paired run directory.",
     )
     parser.add_argument(
         "--execute",
@@ -120,19 +123,57 @@ def main() -> None:
         default="",
         help="Filter previous rows by date <= YYYY-MM-DD (inclusive).",
     )
-    parser.add_argument("--profile", default="", help="Workflow profile (for budget defaults).")
-    parser.add_argument("--budget-id", dest="budget_id", default="", help="Override YNAB budget/plan id.")
+    parser.add_argument(
+        "--defaults",
+        dest="defaults_path",
+        type=Path,
+        default=context_config.DEFAULTS_PATH,
+        help="Defaults TOML path.",
+    )
+    parser.add_argument(
+        "--contexts-root",
+        dest="contexts_root",
+        type=Path,
+        default=context_config.CONTEXTS_ROOT,
+        help="Contexts root directory.",
+    )
+    parser.add_argument(
+        "--budget-id",
+        dest="budget_id",
+        default="",
+        help="Override YNAB budget id instead of resolving it from the context env binding.",
+    )
     args = parser.parse_args()
 
-    source_path = Path(args.source)
+    defaults = context_config.load_defaults(args.defaults_path)
+    context = context_config.load_context(args.context, contexts_root=args.contexts_root)
+    run_paths = context_config.resolve_run_paths(defaults, run_tag=args.run_tag)
+    selected_source = context_config.select_context_sources(
+        context,
+        source_id=args.source_id or None,
+        allowed_kinds=CARD_SOURCE_KINDS,
+    )
+    if len(selected_source) != 1:
+        raise ValueError(
+            f"Context {context.name!r} must resolve to exactly one card source, found {[source.id for source in selected_source]}."
+        )
+    source = selected_source[0]
+    source_path = context_config.resolve_context_normalized_source_path(
+        context,
+        run_paths,
+        source_id=source.id,
+    )
     report_path = (
-        Path(args.report_out) if args.report_out else _default_report_out(source_path)
+        Path(args.report_out)
+        if args.report_out
+        else run_paths.card_reconcile_report_path(
+            defaults,
+            context.name,
+            source.id,
+            _account_key(args.account),
+        )
     )
-    profile = workflow_profiles.resolve_profile(args.profile or None)
-    plan_id = workflow_profiles.resolve_budget_id(
-        profile=profile.name,
-        budget_id=args.budget_id,
-    )
+    plan_id = context_config.resolve_context_budget_id(context, budget_id=args.budget_id)
 
     source_df = card_reconciliation.load_card_source(source_path)
     previous_df = (

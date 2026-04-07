@@ -29,6 +29,8 @@ class DefaultsFilesConfig(BaseModel):
     bank_sync_report: str = "{context}_{source_id}_bank_sync_report.csv"
     bank_uncleared_report: str = "{context}_{source_id}_bank_uncleared_ynab_report.csv"
     bank_reconcile_report: str = "{context}_{source_id}_bank_reconcile_report.csv"
+    card_sync_report: str = "{context}_{source_id}_{account_key}_card_sync_report.csv"
+    card_reconcile_report: str = "{context}_{source_id}_{account_key}_card_reconcile_report.csv"
 
 
 class DefaultsConfig(BaseModel):
@@ -120,6 +122,32 @@ class ContextRunPaths:
         return self.paired_dir / defaults.files.bank_reconcile_report.format(
             context=context_name,
             source_id=source_id,
+        )
+
+    def card_sync_report_path(
+        self,
+        defaults: DefaultsConfig,
+        context_name: str,
+        source_id: str,
+        account_key: str,
+    ) -> Path:
+        return self.paired_dir / defaults.files.card_sync_report.format(
+            context=context_name,
+            source_id=source_id,
+            account_key=account_key,
+        )
+
+    def card_reconcile_report_path(
+        self,
+        defaults: DefaultsConfig,
+        context_name: str,
+        source_id: str,
+        account_key: str,
+    ) -> Path:
+        return self.paired_dir / defaults.files.card_reconcile_report.format(
+            context=context_name,
+            source_id=source_id,
+            account_key=account_key,
         )
 
 

@@ -4,7 +4,24 @@ from pathlib import Path
 
 import pandas as pd
 
+from ynab_il_importer.artifacts.transaction_io import write_transactions_parquet
 import ynab_il_importer.card_reconciliation as card_reconciliation
+import ynab_il_importer.io_max as io_max
+
+
+_REAL_LOAD_CARD_SOURCE = card_reconciliation.load_card_source
+
+
+def _load_card_source(path: Path):
+    if path.suffix.lower() == ".parquet":
+        return _REAL_LOAD_CARD_SOURCE(path)
+    canonical = io_max.read_canonical(path)
+    parquet_path = path.with_suffix(".parquet")
+    write_transactions_parquet(canonical, parquet_path)
+    return _REAL_LOAD_CARD_SOURCE(parquet_path)
+
+
+card_reconciliation.load_card_source = _load_card_source
 
 
 def _accounts() -> list[dict[str, str]]:
@@ -216,8 +233,8 @@ def test_load_card_source_ignores_pending_rows(tmp_path: Path) -> None:
     actual = card_reconciliation.load_card_source(source_path)
 
     assert len(actual) == 1
-    assert actual.loc[0, "account_name"] == "Opher x9922"
-    assert actual.loc[0, "card_txn_id"].startswith("CARD:V1:")
+    assert actual.item(0, "account_name") == "Opher x9922"
+    assert actual.item(0, "transaction_id").startswith("CARD:V1:")
 
 
 def test_source_only_blocks_when_older_cleared_rows_exist(tmp_path: Path) -> None:

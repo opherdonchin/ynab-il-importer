@@ -7,14 +7,12 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import polars as pl
 
+from ynab_il_importer.artifacts.transaction_io import read_transactions_polars
 import ynab_il_importer.card_identity as card_identity
-import ynab_il_importer.io_leumi_card_html as io_leumi_card_html
-import ynab_il_importer.io_max as io_max
 import ynab_il_importer.normalize as normalize
 
-
-PENDING_SHEET_NAME = "עסקאות שאושרו וטרם נקלטו"
 STAMP_CARD_SYNC_RESOLVED_VIAS = {
     "legacy_import_id",
     "memo_exact",
@@ -117,132 +115,72 @@ def _legacy_import_ids(df: pd.DataFrame) -> pd.Series:
     )
 
 
-def _ensure_card_txn_id(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    if "card_txn_id" in out.columns:
-        existing = _normalize_text_series(out["card_txn_id"])
-    else:
-        existing = pd.Series([""] * len(out), index=out.index, dtype="string")
-        out["card_txn_id"] = existing
-
-    missing = existing == ""
-    if not missing.any():
-        out["card_txn_id"] = existing
-        return out
-
-    out.loc[missing, "card_txn_id"] = out.loc[missing].apply(
-        lambda row: card_identity.make_card_txn_id(
-            source=row.get("source", "card"),
-            source_account=row.get("source_account", ""),
-            card_suffix=row.get("card_suffix", ""),
-            date=row.get("date", ""),
-            secondary_date=row.get("secondary_date", ""),
-            outflow_ils=row.get("outflow_ils", 0.0),
-            inflow_ils=row.get("inflow_ils", 0.0),
-            description_raw=row.get("description_raw", row.get("memo", "")),
-            max_sheet=row.get("max_sheet", ""),
-            max_txn_type=row.get("max_txn_type", ""),
-            max_original_amount=row.get("max_original_amount", ""),
-            max_original_currency=row.get("max_original_currency", ""),
-        ),
-        axis=1,
-    )
-    out["card_txn_id"] = _normalize_text_series(out["card_txn_id"])
-    return out
-
-
-def _drop_pending_rows(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    out["max_sheet"] = _normalize_text_series(
-        out.get("max_sheet", pd.Series([""] * len(out), index=out.index))
-    )
-    out["outflow_ils"] = pd.to_numeric(
-        out.get("outflow_ils", 0.0), errors="coerce"
-    ).fillna(0.0)
-    out["inflow_ils"] = pd.to_numeric(
-        out.get("inflow_ils", 0.0), errors="coerce"
-    ).fillna(0.0)
-    signed = _signed_amount_ils(out)
-    return out[(out["max_sheet"] != PENDING_SHEET_NAME) & (signed != 0)].copy()
-
-
-def load_card_source(path: str | Path) -> pd.DataFrame:
+def load_card_source(path: str | Path) -> pl.DataFrame:
     source_path = Path(path)
-    if source_path.suffix.lower() == ".csv":
-        df = pd.read_csv(source_path, dtype="string").fillna("")
-        for col in [
+    if source_path.suffix.lower() != ".parquet":
+        raise ValueError(
+            f"Card reconciliation requires canonical parquet input, got: {source_path}"
+        )
+    return read_transactions_polars(source_path)
+
+
+def _target_source_rows(df: pl.DataFrame, account_name: str) -> pd.DataFrame:
+    work = (
+        df.select(
+            "account_name",
+            "source_account",
+            "transaction_id",
+            "date",
+            "secondary_date",
             "outflow_ils",
             "inflow_ils",
-            "max_original_amount",
-            "max_exchange_rate",
-        ]:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-        if "date" in df.columns:
-            df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
-        if "secondary_date" in df.columns:
-            df["secondary_date"] = pd.to_datetime(
-                df["secondary_date"], errors="coerce"
-            ).dt.date
-        return _drop_pending_rows(_ensure_card_txn_id(df))
-
-    if source_path.suffix.lower() in {".xlsx", ".xls"}:
-        return _drop_pending_rows(_ensure_card_txn_id(io_max.read_raw(source_path)))
-
-    if source_path.suffix.lower() in {".html", ".htm"}:
-        return _drop_pending_rows(
-            _ensure_card_txn_id(io_leumi_card_html.read_raw(source_path))
+            "signed_amount_ils",
+            "description_raw",
+            "fingerprint",
         )
-
-    raise ValueError(f"Unsupported card source file type: {source_path}")
-
-
-def _target_source_rows(df: pd.DataFrame, account_name: str) -> pd.DataFrame:
-    work = _ensure_card_txn_id(df).copy()
-    work["account_name"] = _normalize_text_series(work["account_name"])
-    work["source_account"] = _normalize_text_series(
-        work.get("source_account", pd.Series([""] * len(work), index=work.index))
+        .with_columns(
+            pl.col("account_name").fill_null("").str.strip_chars(),
+            pl.col("source_account").fill_null("").str.strip_chars(),
+            pl.col("transaction_id").fill_null("").str.strip_chars().alias("card_txn_id"),
+            pl.col("description_raw").fill_null("").str.strip_chars(),
+            pl.col("fingerprint").fill_null("").str.strip_chars(),
+        )
     )
-    mask = (work["account_name"] == account_name) | (
-        work["source_account"] == account_name
+    mask = (pl.col("account_name") == account_name) | (
+        pl.col("source_account") == account_name
     )
-    filtered = work.loc[mask].copy()
-    if filtered.empty:
+    filtered = work.filter(mask)
+    if filtered.is_empty():
         available = sorted(
-            (set(work["account_name"].tolist()) | set(work["source_account"].tolist()))
+            (set(work["account_name"].to_list()) | set(work["source_account"].to_list()))
             - {""}
         )
         raise ValueError(
             f"Account {account_name!r} not found in card source. Available accounts: {available}"
         )
-    filtered["date"] = pd.to_datetime(filtered["date"], errors="coerce").dt.date
-    filtered["secondary_date"] = pd.to_datetime(
-        filtered["secondary_date"], errors="coerce"
+    filtered = filtered.with_row_index("row_index")
+    prepared = filtered.to_pandas()
+    prepared["date"] = pd.to_datetime(prepared["date"], errors="coerce").dt.date
+    prepared["secondary_date"] = pd.to_datetime(
+        prepared["secondary_date"], errors="coerce"
     ).dt.date
-    filtered["outflow_ils"] = (
-        pd.to_numeric(filtered["outflow_ils"], errors="coerce").fillna(0.0).round(2)
+    prepared["outflow_ils"] = (
+        pd.to_numeric(prepared["outflow_ils"], errors="coerce").fillna(0.0).round(2)
     )
-    filtered["inflow_ils"] = (
-        pd.to_numeric(filtered["inflow_ils"], errors="coerce").fillna(0.0).round(2)
+    prepared["inflow_ils"] = (
+        pd.to_numeric(prepared["inflow_ils"], errors="coerce").fillna(0.0).round(2)
     )
-    filtered["max_sheet"] = _normalize_text_series(
-        filtered.get("max_sheet", pd.Series([""] * len(filtered), index=filtered.index))
+    prepared["card_txn_id"] = _normalize_text_series(prepared["card_txn_id"])
+    prepared["legacy_import_id"] = _legacy_import_ids(prepared)
+    prepared["description_match"] = prepared["description_raw"].map(
+        _normalize_match_text
     )
-    filtered["card_txn_id"] = _normalize_text_series(filtered["card_txn_id"])
-    filtered["legacy_import_id"] = _legacy_import_ids(filtered)
-    filtered["description_match"] = filtered.apply(
-        lambda row: _normalize_match_text(
-            row.get("description_raw", row.get("memo", ""))
-        ),
-        axis=1,
+    prepared["signed_ils"] = (
+        pd.to_numeric(prepared["signed_amount_ils"], errors="coerce").fillna(0.0).round(2)
     )
-    filtered["row_index"] = range(len(filtered))
-    filtered["signed_ils"] = _signed_amount_ils(filtered)
-    filtered = filtered[filtered["max_sheet"] != PENDING_SHEET_NAME].copy()
-    filtered = filtered[filtered["signed_ils"] != 0].copy()
-    filtered.reset_index(drop=True, inplace=True)
-    filtered["row_index"] = range(len(filtered))
-    return filtered
+    prepared = prepared[prepared["signed_ils"] != 0].copy()
+    prepared["row_index"] = range(len(prepared))
+    return prepared
 
 
 def _coerce_optional_date(value: Any, *, field_name: str) -> date | None:
@@ -1074,7 +1012,7 @@ def _card_sync_report_row(
 def plan_card_match_sync(
     *,
     account_name: str,
-    source_df: pd.DataFrame,
+    source_df: pl.DataFrame,
     accounts: list[dict[str, Any]],
     transactions: list[dict[str, Any]],
     source_date_from: Any = None,
@@ -1209,10 +1147,10 @@ def plan_card_match_sync(
 def plan_card_cycle_reconciliation(
     *,
     account_name: str,
-    source_df: pd.DataFrame,
+    source_df: pl.DataFrame,
     accounts: list[dict[str, Any]],
     transactions: list[dict[str, Any]],
-    previous_df: pd.DataFrame | None = None,
+    previous_df: pl.DataFrame | None = None,
     allow_reconciled_source: bool = False,
     source_date_from: Any = None,
     source_date_to: Any = None,
