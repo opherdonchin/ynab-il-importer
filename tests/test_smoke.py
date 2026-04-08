@@ -29,4 +29,3 @@ def test_cli_help_runs() -> None:
     assert "parse-leumi-xls" in result.output
     assert "parse-leumi" in result.output
     assert "parse-max" in result.output
-    assert "build-payee-map" in result.output

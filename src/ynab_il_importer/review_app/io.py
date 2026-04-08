@@ -31,23 +31,6 @@ from ynab_il_importer.safe_types import TRUE_VALUES
 
 REQUIRED_COLUMNS = list(working_schema.WORKING_REQUIRED_COLUMNS)
 
-LEGACY_INSTITUTIONAL_REQUIRED_COLUMNS = [
-    "transaction_id",
-    "source",
-    "account_name",
-    "date",
-    "outflow_ils",
-    "inflow_ils",
-    "memo",
-    "fingerprint",
-    "payee_options",
-    "category_options",
-    "payee_selected",
-    "category_selected",
-    "match_status",
-    "reviewed",
-]
-
 REVIEW_FIELD_NAMES = [field.name for field in REVIEW_SCHEMA]
 REVIEW_CONTROL_FIELD_NAMES = [field.name for field in REVIEW_CONTROL_FIELDS]
 TRANSACTION_FIELD_NAMES = [field.name for field in TRANSACTION_SCHEMA]
@@ -241,80 +224,6 @@ def _transaction_has_material_state(txn: dict[str, Any] | None) -> bool:
     if abs(_normalize_float(txn.get("signed_amount_ils"))) > 1e-9:
         return True
     return bool(_normalize_split_records(txn.get("splits")))
-
-
-def _legacy_source_row_ids(df: pd.DataFrame) -> pd.Series:
-    source = _text_series(df, "source").str.casefold()
-    bank_ids = _text_series(df, "bank_txn_id")
-    card_ids = _text_series(df, "card_txn_id")
-    row_ids = pd.Series([""] * len(df), index=df.index, dtype="string")
-    row_ids = row_ids.mask(source.eq("bank"), bank_ids)
-    row_ids = row_ids.mask(source.eq("card"), card_ids)
-    return row_ids
-
-
-def _legacy_update_maps(df: pd.DataFrame) -> pd.Series:
-    if "update_map" not in df.columns:
-        return pd.Series([""] * len(df), index=df.index, dtype="string")
-    flagged = validation.normalize_flag_series(df["update_map"])
-    return pd.Series(
-        ["payee_add_fingerprint" if bool(value) else "" for value in flagged],
-        index=df.index,
-        dtype="string",
-    )
-
-
-def _legacy_institutional_mask(df: pd.DataFrame) -> bool:
-    if _missing_columns(df, LEGACY_INSTITUTIONAL_REQUIRED_COLUMNS):
-        return False
-    sources = set(_text_series(df, "source").str.casefold().tolist()) - {""}
-    return bool(sources) and sources <= {"bank", "card"}
-
-
-def _translate_legacy_institutional_review(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    out["legacy_review_schema"] = "legacy_institutional_v0"
-    out["legacy_match_status"] = _text_series(out, "match_status")
-    out["match_status"] = "source_only"
-    out["update_maps"] = _legacy_update_maps(out)
-    out["decision_action"] = "create_target"
-    out["workflow_type"] = "institutional"
-    out["source_payee_selected"] = _text_series(out, "payee_selected")
-    out["source_category_selected"] = _text_series(out, "category_selected")
-    out["target_payee_selected"] = _text_series(out, "payee_selected")
-    out["target_category_selected"] = _text_series(out, "category_selected")
-    out["source_present"] = True
-    out["target_present"] = False
-    out["source_row_id"] = _legacy_source_row_ids(out)
-    out["target_row_id"] = ""
-    out["target_account"] = _text_series(out, "account_name")
-    out["source_date"] = _text_series(out, "date")
-    out["target_date"] = ""
-    out["source_memo"] = _text_series(out, "memo")
-    out["target_memo"] = ""
-    out["source_fingerprint"] = _text_series(out, "fingerprint")
-    out["target_fingerprint"] = ""
-    out["source_splits"] = None
-    out["target_splits"] = None
-    out["changed"] = False
-    return out
-
-
-def detect_review_csv_format(df: pd.DataFrame) -> str:
-    if not _missing_columns(df, REQUIRED_COLUMNS):
-        return "unified_v1"
-    if _legacy_institutional_mask(df):
-        return "legacy_institutional_v0"
-    return "unknown"
-
-
-def translate_review_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    fmt = detect_review_csv_format(df)
-    if fmt == "unified_v1":
-        return df.copy()
-    if fmt == "legacy_institutional_v0":
-        return _translate_legacy_institutional_review(df)
-    raise ValueError("Unsupported review CSV format for translation.")
 
 
 def _input_to_pandas_dataframe(

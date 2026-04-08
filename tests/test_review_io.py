@@ -404,26 +404,6 @@ def test_load_review_artifact_rejects_legacy_review_csv(tmp_path) -> None:
         review_io.load_review_artifact(path)
 
 
-def test_translate_review_dataframe_converts_legacy_institutional_review_csv() -> None:
-    loaded = review_io.translate_review_dataframe(_legacy_institutional_df())
-
-    assert review_io.detect_review_csv_format(loaded) == "unified_v1"
-    assert loaded.loc[0, "legacy_review_schema"] == "legacy_institutional_v0"
-    assert loaded.loc[0, "legacy_match_status"] == "ambiguous"
-    assert loaded.loc[0, "match_status"] == "source_only"
-    assert loaded.loc[0, "workflow_type"] == "institutional"
-    assert loaded.loc[0, "decision_action"] == "create_target"
-    assert loaded.loc[0, "update_maps"] == "payee_add_fingerprint"
-    assert loaded.loc[0, "source_row_id"] == "BANK:1"
-    assert loaded.loc[0, "target_payee_selected"] == "Cafe Roma"
-    assert loaded.loc[0, "target_category_selected"] == "Eating Out"
-    assert loaded.loc[0, "payee_selected"] == "Cafe Roma"
-    assert loaded.loc[0, "category_selected"] == "Eating Out"
-    assert bool(loaded.loc[0, "source_present"]) is True
-    assert bool(loaded.loc[0, "target_present"]) is False
-    assert bool(loaded.loc[0, "reviewed"]) is True
-
-
 def test_load_review_artifact_rejects_false_changed_when_current_differs() -> None:
     df = pd.DataFrame(
         [

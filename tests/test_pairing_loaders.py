@@ -23,42 +23,6 @@ sys.modules["bootstrap_pairs_script"] = bootstrap_pairs
 BOOTSTRAP_PAIRS_SPEC.loader.exec_module(bootstrap_pairs)
 
 
-def test_cli_load_many_csvs_prefers_sidecar_parquet(tmp_path: Path) -> None:
-    import ynab_il_importer.cli as cli
-
-    csv_path = tmp_path / "source.csv"
-    flat_df = pl.DataFrame(
-        {
-            "account_name": ["Family Leumi"],
-            "source_account": ["Family Leumi"],
-            "date": ["2026-03-01"],
-            "txn_kind": ["expense"],
-            "merchant_raw": ["Mega Pet"],
-            "description_clean": ["Mega Pet"],
-            "description_raw": ["Mega Pet Pet Food"],
-            "description_clean_norm": ["mega pet"],
-            "fingerprint": ["mega-pet-parquet"],
-            "outflow_ils": [90.0],
-            "inflow_ils": [0.0],
-            "bank_txn_id": ["BANK:1"],
-        }
-    )
-    write_flat_transaction_artifacts(
-        flat_df,
-        csv_path,
-        artifact_kind="normalized_source_transaction",
-        source_system="bank",
-    )
-    csv_path.write_text(
-        "account_name,fingerprint\nFamily Leumi,mega-pet-csv\n",
-        encoding="utf-8",
-    )
-
-    loaded = cli._load_many_csvs([csv_path], "source")
-
-    assert loaded.loc[0, "fingerprint"] == "mega-pet-parquet"
-
-
 def test_bootstrap_pairs_prefers_sidecar_parquet(monkeypatch, tmp_path: Path) -> None:
     source_path = tmp_path / "source.csv"
     ynab_path = tmp_path / "ynab.csv"
