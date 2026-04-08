@@ -59,7 +59,7 @@ def main() -> None:
     resolved_sources = context_config.resolve_context_sources(context, raw_dir)
     for source in resolved_sources:
         normalized_name = source.normalized_name or f"{source.raw_path.stem}_{source.kind}_norm.parquet"
-        out_path = out_dir / normalized_name.replace(".parquet", ".csv")
+        out_path = out_dir / normalized_name
         normalize_runner.normalize_one(
             source.raw_path,
             source.kind,

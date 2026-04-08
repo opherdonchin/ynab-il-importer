@@ -20,7 +20,7 @@ SPEC.loader.exec_module(normalize_file)
 def test_normalize_one_writes_canonical_parquet(monkeypatch, tmp_path) -> None:
     in_path = tmp_path / "input.txt"
     in_path.write_text("placeholder", encoding="utf-8")
-    out_path = tmp_path / "normalized.csv"
+    out_path = tmp_path / "normalized.parquet"
     captured: dict[str, object] = {}
 
     module = type(
@@ -79,33 +79,33 @@ def test_normalize_one_writes_canonical_parquet(monkeypatch, tmp_path) -> None:
         },
     )
 
-    monkeypatch.setitem(normalize_file.FORMAT_MODULES, "fake", module)
+    monkeypatch.setitem(normalize_file.normalize_runner.FORMAT_MODULES, "fake", module)
     monkeypatch.setattr(
-        normalize_file,
+        normalize_file.normalize_runner,
         "write_canonical_transaction_artifacts",
-        lambda table, path, **kwargs: (
+        lambda table, path, **_kwargs: (
             captured.update(
                 {
                     "path": path,
-                    "csv_projection_rows": len(kwargs["csv_projection"]),
                     "transaction_id": table["transaction_id"].to_pylist()[0],
                 }
             )
-            or (path, path.with_suffix(".parquet"))
+            or (None, path)
         ),
     )
-    monkeypatch.setattr(normalize_file.export, "wrote_message", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(
+        normalize_file.normalize_runner.export, "wrote_message", lambda *_args, **_kwargs: ""
+    )
 
-    normalize_file._normalize_one(
+    normalize_file.normalize_runner.normalize_one(
         in_path,
         "fake",
         out_path,
-        True,
-        Path("mappings/account_name_map.csv"),
-        Path("mappings/fingerprint_map.csv"),
-        Path("outputs/fingerprint_log.csv"),
+        use_fingerprint_map=True,
+        account_map_path=Path("mappings/account_name_map.csv"),
+        fingerprint_map_path=Path("mappings/fingerprint_map.csv"),
+        fingerprint_log_path=Path("outputs/fingerprint_log.csv"),
     )
 
     assert captured["path"] == out_path
-    assert captured["csv_projection_rows"] == 1
     assert captured["transaction_id"] == "BANK:1"

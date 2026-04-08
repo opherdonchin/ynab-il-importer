@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -69,11 +70,10 @@ def _text_series(df: pd.DataFrame, column: str) -> pd.Series:
 def _normalize_text(value: Any) -> str:
     if value is None:
         return ""
-    try:
-        if pd.isna(value):
-            return ""
-    except TypeError:
-        pass
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    if value is pd.NA:
+        return ""
     return str(value).strip()
 
 
@@ -88,7 +88,18 @@ def _required_mapping_value(row: dict[str, Any], key: str) -> Any:
 
 
 def _normalize_float(value: Any) -> float:
-    return float(pd.to_numeric(pd.Series([value]), errors="coerce").fillna(0.0).iloc[0])
+    if value is None or value is pd.NA:
+        return 0.0
+    if isinstance(value, float):
+        return 0.0 if math.isnan(value) else float(value)
+    text = str(value).strip()
+    if not text:
+        return 0.0
+    try:
+        parsed = float(text)
+    except ValueError:
+        return 0.0
+    return 0.0 if math.isnan(parsed) else parsed
 
 
 def _json_dump(value: Any) -> str:

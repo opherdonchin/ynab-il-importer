@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Iterable
 
-import pandas as pd
 import polars as pl
 import pyarrow as pa
 
@@ -166,16 +166,24 @@ WORKING_BOOL_COLUMNS = [
 def _normalize_text(value: Any) -> str:
     if value is None:
         return ""
-    try:
-        if pd.isna(value):
-            return ""
-    except TypeError:
-        pass
+    if isinstance(value, float) and math.isnan(value):
+        return ""
     return str(value).strip()
 
 
 def _normalize_float(value: Any) -> float:
-    return float(pd.to_numeric(pd.Series([value]), errors="coerce").fillna(0.0).iloc[0])
+    if value is None:
+        return 0.0
+    if isinstance(value, float):
+        return 0.0 if math.isnan(value) else float(value)
+    text = str(value).strip()
+    if not text:
+        return 0.0
+    try:
+        parsed = float(text)
+    except ValueError:
+        return 0.0
+    return 0.0 if math.isnan(parsed) else parsed
 
 
 def _normalize_bool(value: Any) -> bool:
@@ -185,7 +193,7 @@ def _normalize_bool(value: Any) -> bool:
 
 
 def _normalize_split_records(value: Any) -> list[dict[str, Any]] | None:
-    if value is None or value is pd.NA:
+    if value is None:
         return None
     if isinstance(value, str):
         text = value.strip()
@@ -220,7 +228,7 @@ def _normalize_split_records(value: Any) -> list[dict[str, Any]] | None:
 
 
 def _normalize_transaction_record(value: Any) -> dict[str, Any] | None:
-    if value is None or value is pd.NA:
+    if value is None:
         return None
     if isinstance(value, str):
         text = value.strip()
@@ -236,7 +244,7 @@ def _normalize_transaction_record(value: Any) -> dict[str, Any] | None:
     normalized: dict[str, Any] = {}
     for field in TRANSACTION_SCHEMA:
         raw = value.get(field.name)
-        if raw is None or raw is pd.NA:
+        if raw is None:
             normalized[field.name] = None if pa.types.is_list(field.type) else ""
             if pa.types.is_boolean(field.type):
                 normalized[field.name] = False

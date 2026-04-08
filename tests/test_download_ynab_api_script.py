@@ -6,9 +6,6 @@ from pathlib import Path
 
 import pyarrow as pa
 
-import ynab_il_importer.workflow_profiles as workflow_profiles
-
-
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "download_ynab_api.py"
 SPEC = importlib.util.spec_from_file_location("download_ynab_api_script", SCRIPT_PATH)
@@ -17,27 +14,25 @@ download_ynab_api = importlib.util.module_from_spec(SPEC)
 sys.modules["download_ynab_api_script"] = download_ynab_api
 SPEC.loader.exec_module(download_ynab_api)
 
+import ynab_il_importer.context_config as context_config
 
-def test_main_writes_csv_and_canonical_parquet(monkeypatch) -> None:
-    profile = workflow_profiles.WorkflowProfile(
-        name="family",
-        account_map_path=Path("mappings/account_name_map.csv"),
-        fingerprint_map_path=Path("mappings/family/fingerprint_map.csv"),
-        payee_map_path=Path("mappings/payee_map.csv"),
-        categories_path=Path("outputs/ynab_categories.csv"),
-        budget_id="family-budget",
+
+def test_main_writes_context_parquet(monkeypatch, tmp_path) -> None:
+    defaults = context_config.DefaultsConfig(
+        raw_root=tmp_path / "raw",
+        derived_root=tmp_path / "derived",
+        paired_root=tmp_path / "paired",
+        outputs_root=tmp_path / "outputs",
     )
+    context = context_config.load_context("family")
     captured: dict[str, object] = {}
 
+    monkeypatch.setattr(download_ynab_api.context_config, "load_defaults", lambda *_args, **_kwargs: defaults)
+    monkeypatch.setattr(download_ynab_api.context_config, "load_context", lambda *_args, **_kwargs: context)
     monkeypatch.setattr(
-        download_ynab_api.workflow_profiles,
-        "resolve_profile",
-        lambda *_args, **_kwargs: profile,
-    )
-    monkeypatch.setattr(
-        download_ynab_api.workflow_profiles,
-        "resolve_budget_id",
-        lambda **kwargs: kwargs.get("budget_id") or "family-budget",
+        download_ynab_api.context_config,
+        "resolve_context_budget_id",
+        lambda *_args, **_kwargs: "family-budget",
     )
     monkeypatch.setattr(
         download_ynab_api.ynab_api,
@@ -65,23 +60,13 @@ def test_main_writes_csv_and_canonical_parquet(monkeypatch) -> None:
         ],
     )
     monkeypatch.setattr(
-        download_ynab_api.export,
-        "write_dataframe",
-        lambda df, path: captured.update(
-            {
-                "csv_path": path,
-                "csv_rows": len(df),
-                "csv_columns": df.columns.tolist(),
-            }
-        ),
-    )
-    monkeypatch.setattr(
         download_ynab_api,
         "write_transactions_parquet",
         lambda table, path: captured.update(
             {
-                "parquet_path": path,
-                "parquet_rows": table.num_rows,
+                "path": path,
+                "rows": table.num_rows,
+                "transaction_id": table["transaction_id"].to_pylist()[0],
             }
         ),
     )
@@ -89,16 +74,14 @@ def test_main_writes_csv_and_canonical_parquet(monkeypatch) -> None:
     monkeypatch.setattr(
         sys,
         "argv",
-        ["download_ynab_api.py", "--profile", "family"],
+        ["download_ynab_api.py", "family", "2026_04_01"],
     )
 
     download_ynab_api.main()
 
-    assert captured["csv_path"] == Path("data/derived/family/ynab_api_norm.csv")
-    assert captured["csv_rows"] == 1
-    assert captured["parquet_path"] == Path("data/derived/family/ynab_api_norm.parquet")
-    assert captured["parquet_rows"] == 1
-    assert "fingerprint" in captured["csv_columns"]
+    assert captured["path"] == tmp_path / "derived" / "2026_04_01" / "family_ynab_api_norm.parquet"
+    assert captured["rows"] == 1
+    assert captured["transaction_id"] == "txn-1"
 
 
 def test_filter_canonical_by_date_filters_string_dates() -> None:
