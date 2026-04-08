@@ -26,6 +26,7 @@ from ynab_il_importer.artifacts.transaction_schema import (
 import ynab_il_importer.review_app.model as model
 import ynab_il_importer.review_app.validation as validation
 import ynab_il_importer.review_app.working_schema as working_schema
+from ynab_il_importer.safe_types import TRUE_VALUES
 
 
 REQUIRED_COLUMNS = list(working_schema.WORKING_REQUIRED_COLUMNS)
@@ -78,7 +79,9 @@ def _normalize_text(value: Any) -> str:
 
 
 def _normalize_bool(value: Any) -> bool:
-    return bool(validation.normalize_flag_series(pd.Series([value])).iloc[0])
+    if value is True:
+        return True
+    return _normalize_text(value).casefold() in TRUE_VALUES
 
 
 def _required_mapping_value(row: dict[str, Any], key: str) -> Any:

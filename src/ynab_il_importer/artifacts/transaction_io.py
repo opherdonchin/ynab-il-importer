@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from pathlib import Path
 from typing import Any
 
@@ -47,90 +46,102 @@ def flat_projection_to_canonical_table(
     artifact_kind: str,
     source_system: str,
 ) -> pa.Table:
-    df = _to_arrow_table(data).to_pandas().copy()
-    row_count = len(df)
+    df = pl.from_arrow(_to_arrow_table(data))
+    row_count = df.height
 
-    def _text_column(name: str, default: str = "") -> pd.Series:
+    def _text_expr(name: str, default: str = "") -> pl.Expr:
         if name in df.columns:
-            return df[name].astype("string").fillna("").str.strip()
-        return pd.Series([default] * row_count, index=df.index, dtype="string")
+            return pl.col(name).cast(pl.String, strict=False).fill_null("").str.strip_chars()
+        return pl.lit(default, dtype=pl.String)
 
-    def _float_column(name: str) -> pd.Series:
+    def _float_expr(name: str) -> pl.Expr:
         if name in df.columns:
-            return pd.to_numeric(df[name], errors="coerce").fillna(0.0).astype(float)
-        return pd.Series([0.0] * row_count, index=df.index, dtype="float64")
+            return pl.col(name).cast(pl.Float64, strict=False).fill_null(0.0)
+        return pl.lit(0.0, dtype=pl.Float64)
 
-    def _bool_column(name: str, default: bool = False) -> pd.Series:
+    def _bool_expr(name: str, default: bool = False) -> pl.Expr:
         if name in df.columns:
-            values = df[name]
-            if pd.api.types.is_bool_dtype(values):
-                return values.fillna(default).astype(bool)
-            normalized = values.astype("string").fillna("").str.strip().str.casefold()
-            truthy = {"true", "1", "yes", "y"}
-            return normalized.isin(truthy)
-        return pd.Series([default] * row_count, index=df.index, dtype="bool")
+            return (
+                pl.when(pl.col(name).cast(pl.Boolean, strict=False).is_not_null())
+                .then(pl.col(name).cast(pl.Boolean, strict=False))
+                .otherwise(
+                    pl.col(name)
+                    .cast(pl.String, strict=False)
+                    .fill_null("")
+                    .str.strip_chars()
+                    .str.to_lowercase()
+                    .is_in(["true", "1", "yes", "y"])
+                )
+                .fill_null(default)
+            )
+        return pl.lit(default, dtype=pl.Boolean)
 
-    def _date_column(name: str) -> pd.Series:
+    def _date_expr(name: str) -> pl.Expr:
         if name not in df.columns:
-            return pd.Series([""] * row_count, index=df.index, dtype="string")
-        parsed = pd.to_datetime(df[name], errors="coerce")
-        return parsed.dt.strftime("%Y-%m-%d").fillna("").astype("string")
-
-    transaction_id = _text_column("transaction_id")
-    for fallback in ("bank_txn_id", "card_txn_id", "ynab_id", "import_id"):
-        fallback_values = _text_column(fallback)
-        transaction_id = transaction_id.mask(transaction_id == "", fallback_values)
-    if (transaction_id == "").any():
-        generated = pd.Series(
-            [f"{source_system}:{idx}" for idx in range(row_count)],
-            index=df.index,
-            dtype="string",
+            return pl.lit("", dtype=pl.String)
+        return (
+            pl.col(name)
+            .cast(pl.String, strict=False)
+            .fill_null("")
+            .str.strip_chars()
+            .str.to_datetime(strict=False)
+            .dt.strftime("%Y-%m-%d")
+            .fill_null("")
         )
-        transaction_id = transaction_id.mask(transaction_id == "", generated)
 
-    account_id = _text_column("account_id")
-    account_id = account_id.mask(account_id == "", _text_column("ynab_account_id"))
+    transaction_id = _text_expr("transaction_id")
+    for fallback in ("bank_txn_id", "card_txn_id", "ynab_id", "import_id"):
+        fallback_values = _text_expr(fallback)
+        transaction_id = pl.when(transaction_id == "").then(fallback_values).otherwise(transaction_id)
+    if row_count:
+        generated = pl.Series(
+            "generated_transaction_id",
+            [f"{source_system}:{idx}" for idx in range(row_count)],
+            dtype=pl.String,
+        )
+        transaction_id = pl.when(transaction_id == "").then(generated).otherwise(transaction_id)
 
-    inflow = _float_column("inflow_ils")
-    outflow = _float_column("outflow_ils")
-    canonical_df = pd.DataFrame(
-        {
-            "artifact_kind": artifact_kind,
-            "artifact_version": "transaction_v1",
-            "source_system": source_system,
-            "transaction_id": transaction_id,
-            "ynab_id": _text_column("ynab_id"),
-            "import_id": _text_column("import_id"),
-            "parent_transaction_id": transaction_id,
-            "account_id": account_id,
-            "account_name": _text_column("account_name"),
-            "source_account": _text_column("source_account"),
-            "date": _date_column("date"),
-            "secondary_date": _date_column("secondary_date"),
-            "inflow_ils": inflow,
-            "outflow_ils": outflow,
-            "signed_amount_ils": (inflow - outflow).astype(float),
-            "balance_ils": _float_column("balance_ils"),
-            "payee_raw": _text_column("payee_raw").mask(
-                _text_column("payee_raw") == "",
-                _text_column("merchant_raw"),
-            ),
-            "category_id": _text_column("category_id"),
-            "category_raw": _text_column("category_raw"),
-            "memo": _text_column("memo"),
-            "txn_kind": _text_column("txn_kind"),
-            "fingerprint": _text_column("fingerprint"),
-            "description_raw": _text_column("description_raw"),
-            "description_clean": _text_column("description_clean"),
-            "description_clean_norm": _text_column("description_clean_norm"),
-            "merchant_raw": _text_column("merchant_raw"),
-            "ref": _text_column("ref"),
-            "matched_transaction_id": _text_column("matched_transaction_id"),
-            "cleared": _text_column("cleared"),
-            "approved": _bool_column("approved"),
-            "is_subtransaction": _bool_column("is_subtransaction"),
-            "splits": pd.Series([None] * row_count, index=df.index, dtype="object"),
-        }
+    account_id = _text_expr("account_id")
+    account_id = pl.when(account_id == "").then(_text_expr("ynab_account_id")).otherwise(account_id)
+
+    inflow = _float_expr("inflow_ils")
+    outflow = _float_expr("outflow_ils")
+    canonical_df = df.select(
+        pl.lit(artifact_kind, dtype=pl.String).alias("artifact_kind"),
+        pl.lit("transaction_v1", dtype=pl.String).alias("artifact_version"),
+        pl.lit(source_system, dtype=pl.String).alias("source_system"),
+        transaction_id.alias("transaction_id"),
+        _text_expr("ynab_id").alias("ynab_id"),
+        _text_expr("import_id").alias("import_id"),
+        transaction_id.alias("parent_transaction_id"),
+        account_id.alias("account_id"),
+        _text_expr("account_name").alias("account_name"),
+        _text_expr("source_account").alias("source_account"),
+        _date_expr("date").alias("date"),
+        _date_expr("secondary_date").alias("secondary_date"),
+        inflow.alias("inflow_ils"),
+        outflow.alias("outflow_ils"),
+        (inflow - outflow).alias("signed_amount_ils"),
+        _float_expr("balance_ils").alias("balance_ils"),
+        pl.when(_text_expr("payee_raw") == "")
+        .then(_text_expr("merchant_raw"))
+        .otherwise(_text_expr("payee_raw"))
+        .alias("payee_raw"),
+        _text_expr("category_id").alias("category_id"),
+        _text_expr("category_raw").alias("category_raw"),
+        _text_expr("memo").alias("memo"),
+        _text_expr("txn_kind").alias("txn_kind"),
+        _text_expr("fingerprint").alias("fingerprint"),
+        _text_expr("description_raw").alias("description_raw"),
+        _text_expr("description_clean").alias("description_clean"),
+        _text_expr("description_clean_norm").alias("description_clean_norm"),
+        _text_expr("merchant_raw").alias("merchant_raw"),
+        _text_expr("ref").alias("ref"),
+        _text_expr("matched_transaction_id").alias("matched_transaction_id"),
+        _text_expr("cleared").alias("cleared"),
+        _bool_expr("approved").alias("approved"),
+        _bool_expr("is_subtransaction").alias("is_subtransaction"),
+        pl.lit(None, dtype=pl.Null).alias("splits"),
     )
     return normalize_transaction_table(canonical_df)
 
@@ -145,11 +156,11 @@ def write_flat_transaction_artifacts(
     output_path = Path(csv_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if isinstance(data, pd.DataFrame):
-        flat_df = data.copy()
+        flat_df = pl.from_pandas(data)
     elif isinstance(data, pl.DataFrame):
-        flat_df = data.to_pandas()
+        flat_df = data
     elif isinstance(data, pa.Table):
-        flat_df = data.to_pandas()
+        flat_df = pl.from_arrow(data)
     else:
         raise TypeError(
             "flat transaction artifacts must be written from a pandas DataFrame, polars DataFrame, or pyarrow Table"
@@ -161,7 +172,7 @@ def write_flat_transaction_artifacts(
     )
     parquet_path = output_path.with_suffix(".parquet")
     write_transactions_parquet(canonical, parquet_path)
-    flat_df.to_csv(output_path, index=False, encoding="utf-8-sig")
+    flat_df.write_csv(output_path, include_bom=True)
     return output_path, parquet_path
 
 
@@ -192,18 +203,18 @@ def write_canonical_transaction_artifacts(
             project_top_level_transactions,
         )
 
-        flat_df = project_top_level_transactions(table).to_pandas()
+        flat_df = project_top_level_transactions(table)
     elif isinstance(csv_projection, pd.DataFrame):
-        flat_df = csv_projection.copy()
+        flat_df = pl.from_pandas(csv_projection)
     elif isinstance(csv_projection, pl.DataFrame):
-        flat_df = csv_projection.to_pandas()
+        flat_df = csv_projection
     elif isinstance(csv_projection, pa.Table):
-        flat_df = csv_projection.to_pandas()
+        flat_df = pl.from_arrow(csv_projection)
     else:
         raise TypeError(
             "csv_projection must be a pandas DataFrame, polars DataFrame, pyarrow Table, or None"
         )
-    flat_df.to_csv(output_path, index=False, encoding="utf-8-sig")
+    flat_df.write_csv(output_path, include_bom=True)
     return output_path, parquet_path
 
 

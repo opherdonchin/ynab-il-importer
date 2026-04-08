@@ -683,7 +683,9 @@ def _account_key_candidates(row: pd.Series, *, id_col: str, name_col: str) -> li
     return candidates
 
 
-def build_target_suggestions(transactions: pd.DataFrame, *, map_path: Path) -> pd.DataFrame:
+def _build_target_suggestions_pandas(
+    transactions: pd.DataFrame, *, map_path: Path
+) -> pd.DataFrame:
     if transactions.empty:
         return pd.DataFrame(columns=TARGET_SUGGESTION_COLUMNS)
 
@@ -724,6 +726,15 @@ def build_target_suggestions(transactions: pd.DataFrame, *, map_path: Path) -> p
     ]
     columns = TARGET_SUGGESTION_COLUMNS + [col for col in optional_columns if col in out.columns]
     return out[columns].copy()
+
+
+def build_target_suggestions(transactions: pl.DataFrame, *, map_path: Path) -> pl.DataFrame:
+    if transactions.is_empty():
+        return pl.DataFrame(schema={column: pl.String for column in TARGET_SUGGESTION_COLUMNS})
+    suggested = _build_target_suggestions_pandas(transactions.to_pandas(), map_path=map_path)
+    if suggested.empty:
+        return pl.DataFrame(schema={column: pl.String for column in TARGET_SUGGESTION_COLUMNS})
+    return pl.from_pandas(suggested)
 
 
 def _review_split_options(value: object) -> list[str]:
@@ -1293,9 +1304,7 @@ def _apply_review_target_suggestions(
             ]
         )
     else:
-        suggested = pl.from_pandas(
-            build_target_suggestions(candidates.to_pandas(), map_path=map_path)
-        ).rename(
+        suggested = build_target_suggestions(candidates, map_path=map_path).rename(
             {
                 "payee_options": "suggested_payee_options",
                 "category_options": "suggested_category_options",

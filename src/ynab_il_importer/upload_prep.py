@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import math
 from pathlib import Path
 import re
 from typing import Any
@@ -65,15 +66,30 @@ def _is_selected_category(value: Any) -> bool:
     return bool(text) and not review_model.is_no_category_required(text)
 
 
+def _numeric_value(value: Any) -> float:
+    if value is None:
+        return 0.0
+    if isinstance(value, float):
+        return 0.0 if math.isnan(value) else float(value)
+    text = str(value).strip()
+    if not text:
+        return 0.0
+    try:
+        parsed = float(text)
+    except ValueError:
+        return 0.0
+    return 0.0 if math.isnan(parsed) else parsed
+
+
 def _amount_milliunits(row: pd.Series) -> int:
-    outflow = float(pd.to_numeric(row.get("outflow_ils", 0.0), errors="coerce") or 0.0)
-    inflow = float(pd.to_numeric(row.get("inflow_ils", 0.0), errors="coerce") or 0.0)
+    outflow = _numeric_value(row.get("outflow_ils", 0.0))
+    inflow = _numeric_value(row.get("inflow_ils", 0.0))
     return int(round((inflow - outflow) * 1000))
 
 
 def _amount_milliunits_from_values(*, inflow_ils: Any, outflow_ils: Any) -> int:
-    outflow = float(pd.to_numeric(pd.Series([outflow_ils]), errors="coerce").fillna(0.0).iloc[0])
-    inflow = float(pd.to_numeric(pd.Series([inflow_ils]), errors="coerce").fillna(0.0).iloc[0])
+    outflow = _numeric_value(outflow_ils)
+    inflow = _numeric_value(inflow_ils)
     return int(round((inflow - outflow) * 1000))
 
 
