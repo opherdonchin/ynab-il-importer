@@ -33,12 +33,9 @@ Done:
   - [state.py](src/ynab_il_importer/review_app/state.py), [validation.py](src/ynab_il_importer/review_app/validation.py), [map_updates.py](src/ynab_il_importer/map_updates.py), and [app.py](src/ynab_il_importer/review_app/app.py) now keep the working frame as `pl.DataFrame`
   - review-app helpers now use Polars row/series access directly instead of pandas adapters
   - full test suite is green again: `pixi run pytest tests/ -q`
-- upload prep internals are now Polars-first too:
-  - [upload_prep.py](src/ynab_il_importer/upload_prep.py) no longer converts the working frame to pandas at the top of its active path
-  - `ready_mask`, `uploadable_account_mask`, `prepare_upload_transactions`, `assemble_upload_transaction_units`, `upload_payload_records`, `upload_preflight`, and `verify_upload_response` now operate on `pl.DataFrame` / `pl.Series`
-  - [prepare_ynab_upload.py](scripts/prepare_ynab_upload.py) now consumes those Polars return types directly
-  - [tests/test_upload_prep.py](tests/test_upload_prep.py) now builds prepared/upload frames with Polars
-  - full test suite is green: `pixi run pytest tests/ -q`
+- formatter-only cleanup pass is ready to commit:
+  - the remaining modified files are pure wrap/line-length formatting changes
+  - full test suite still passes after the formatter pass: `306 passed`
 
 ## Review App Polars Migration
 
@@ -284,7 +281,7 @@ The important recovery problems are now addressed:
    - remove or quarantine the remaining legacy CSV translation helpers in [review_app/io.py](src/ynab_il_importer/review_app/io.py)
    - decide whether [download_ynab_api.py](scripts/download_ynab_api.py) should become [download_context_ynab.py](scripts/download_context_ynab.py) for naming consistency
    - either convert or isolate the remaining real pandas islands in:
-     - ~~[upload_prep.py](src/ynab_il_importer/upload_prep.py)~~ — done: active upload-prep path is now Polars-first; `categories_df` remains the intentional pandas boundary from `ynab_api`
+     - [upload_prep.py](src/ynab_il_importer/upload_prep.py)
      - ~~[build_proposed_transactions.py](scripts/build_proposed_transactions.py) row-level rule application and legacy `_dedupe_sources(...)`~~ — done: dead code removed; remaining pandas is the intentional `_build_target_suggestions_pandas` adapter
      - ~~[transaction_io.py](src/ynab_il_importer/artifacts/transaction_io.py) legacy flat projection loaders~~ — kept: serves real input-layer callers (parsers, `save_review_artifact`); explicit multi-type boundary, not defensive code
 

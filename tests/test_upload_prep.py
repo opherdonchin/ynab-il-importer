@@ -48,7 +48,11 @@ def _reviewed_df(columns: dict[str, list[object]]) -> pl.DataFrame:
     data.setdefault("reviewed", [True] * row_count)
     data.setdefault("source_present", [True] * row_count)
     data.setdefault("target_present", [False] * row_count)
-    return pl.from_pandas(pd.DataFrame(data), include_index=False)
+    return pl.DataFrame(data)
+
+
+def _row(df: pl.DataFrame, index: int = 0) -> dict[str, object]:
+    return df.row(index, named=True)
 
 
 def _txn(
@@ -157,14 +161,14 @@ def test_prepare_upload_transactions_maps_regular_and_transfer_rows() -> None:
         categories_df=_categories(),
     )
 
-    assert prepared.loc[0, "account_id"] == "acc-bank"
-    assert prepared.loc[0, "category_id"] == "cat-groceries"
-    assert prepared.loc[0, "payee_name_upload"] == "Superpharm"
-    assert prepared.loc[0, "payee_id"] == ""
-    assert prepared.loc[0, "amount_milliunits"] == -10500
-    assert prepared.loc[1, "payee_id"] == "payee-cash"
-    assert prepared.loc[1, "category_id"] == ""
-    assert prepared.loc[1, "upload_kind"] == "transfer"
+    assert _row(prepared, 0)["account_id"] == "acc-bank"
+    assert _row(prepared, 0)["category_id"] == "cat-groceries"
+    assert _row(prepared, 0)["payee_name_upload"] == "Superpharm"
+    assert _row(prepared, 0)["payee_id"] == ""
+    assert _row(prepared, 0)["amount_milliunits"] == -10500
+    assert _row(prepared, 1)["payee_id"] == "payee-cash"
+    assert _row(prepared, 1)["category_id"] == ""
+    assert _row(prepared, 1)["upload_kind"] == "transfer"
 
     payload = upload_prep.upload_payload_records(prepared)
     assert payload[0]["payee_name"] == "Superpharm"
@@ -204,8 +208,8 @@ def test_prepare_upload_transactions_accepts_canonical_review_artifact(tmp_path)
         categories_df=_categories(),
     )
 
-    assert prepared.loc[0, "account_id"] == "acc-bank"
-    assert prepared.loc[0, "category_id"] == "cat-groceries"
+    assert _row(prepared, 0)["account_id"] == "acc-bank"
+    assert _row(prepared, 0)["category_id"] == "cat-groceries"
 
 
 def test_prepare_upload_transactions_explodes_committed_target_splits() -> None:
@@ -239,24 +243,24 @@ def test_prepare_upload_transactions_explodes_committed_target_splits() -> None:
     units = upload_prep.assemble_upload_transaction_units(prepared)
     payload = upload_prep.upload_payload_records(prepared)
 
-    assert prepared["upload_transaction_id"].tolist() == ["review-1", "review-1"]
-    assert prepared["import_id"].tolist() == [
+    assert prepared["upload_transaction_id"].to_list() == ["review-1", "review-1"]
+    assert prepared["import_id"].to_list() == [
         "YNAB:-10000:2026-03-01:1",
         "YNAB:-10000:2026-03-01:1",
     ]
-    assert prepared["amount_milliunits"].tolist() == [-7000, -3000]
-    assert prepared["parent_payee_name_upload"].tolist() == ["Parent Payee", "Parent Payee"]
-    assert prepared["payee_name_upload"].tolist() == ["", "Line Payee"]
-    assert prepared["parent_memo"].tolist() == ["Parent memo", "Parent memo"]
-    assert prepared["subtransaction_memo"].tolist() == ["Line one", "Line two"]
-    assert prepared["category_id"].tolist() == ["cat-groceries", "cat-uncat"]
+    assert prepared["amount_milliunits"].to_list() == [-7000, -3000]
+    assert prepared["parent_payee_name_upload"].to_list() == ["Parent Payee", "Parent Payee"]
+    assert prepared["payee_name_upload"].to_list() == ["", "Line Payee"]
+    assert prepared["parent_memo"].to_list() == ["Parent memo", "Parent memo"]
+    assert prepared["subtransaction_memo"].to_list() == ["Line one", "Line two"]
+    assert prepared["category_id"].to_list() == ["cat-groceries", "cat-uncat"]
 
     assert len(units) == 1
-    assert units.loc[0, "upload_kind"] == "split"
-    assert units.loc[0, "memo"] == "Parent memo"
-    assert units.loc[0, "payee_name_upload"] == "Parent Payee"
-    assert units.loc[0, "amount_milliunits"] == -10000
-    assert units.loc[0, "subtransactions"] == [
+    assert _row(units, 0)["upload_kind"] == "split"
+    assert _row(units, 0)["memo"] == "Parent memo"
+    assert _row(units, 0)["payee_name_upload"] == "Parent Payee"
+    assert _row(units, 0)["amount_milliunits"] == -10000
+    assert _row(units, 0)["subtransactions"] == [
         {"amount": -7000, "memo": "Line one", "category_id": "cat-groceries"},
         {
             "amount": -3000,
@@ -314,10 +318,10 @@ def test_prepare_upload_transactions_treats_one_line_collapsed_save_as_regular()
     payload = upload_prep.upload_payload_records(prepared)
 
     assert len(prepared) == 1
-    assert prepared.loc[0, "upload_kind"] == "regular"
-    assert prepared.loc[0, "amount_milliunits"] == -10000
-    assert prepared.loc[0, "payee_name_upload"] == "Collapsed Payee"
-    assert prepared.loc[0, "category_id"] == "cat-groceries"
+    assert _row(prepared, 0)["upload_kind"] == "regular"
+    assert _row(prepared, 0)["amount_milliunits"] == -10000
+    assert _row(prepared, 0)["payee_name_upload"] == "Collapsed Payee"
+    assert _row(prepared, 0)["category_id"] == "cat-groceries"
     assert payload[0]["payee_name"] == "Collapsed Payee"
     assert payload[0]["category_id"] == "cat-groceries"
 
@@ -343,15 +347,15 @@ def test_assemble_upload_transaction_units_preserves_regular_and_transfer_rows()
     )
     units = upload_prep.assemble_upload_transaction_units(prepared)
 
-    assert units["upload_transaction_id"].tolist() == ["t1", "t2"]
-    assert units["source_row_count"].tolist() == [1, 1]
-    assert units["upload_kind"].tolist() == ["regular", "transfer"]
-    assert units["payee_name_upload"].tolist() == ["Superpharm", ""]
-    assert units["payee_id"].tolist() == ["", "payee-cash"]
+    assert units["upload_transaction_id"].to_list() == ["t1", "t2"]
+    assert units["source_row_count"].to_list() == [1, 1]
+    assert units["upload_kind"].to_list() == ["regular", "transfer"]
+    assert units["payee_name_upload"].to_list() == ["Superpharm", ""]
+    assert units["payee_id"].to_list() == ["", "payee-cash"]
 
 
 def test_upload_payload_records_uses_transaction_units() -> None:
-    prepared = pd.DataFrame(
+    prepared = pl.DataFrame(
         {
             "upload_transaction_id": ["u1"],
             "account_id": ["acc-bank"],
@@ -374,14 +378,14 @@ def test_upload_payload_records_uses_transaction_units() -> None:
     payload = upload_prep.upload_payload_records(prepared)
 
     assert len(units) == 1
-    assert units.loc[0, "source_row_count"] == 1
+    assert _row(units, 0)["source_row_count"] == 1
     assert len(payload) == 1
     assert payload[0]["payee_name"] == "Superpharm"
     assert payload[0]["category_id"] == "cat-groceries"
 
 
 def test_assemble_upload_transaction_units_builds_split_units_from_grouped_rows() -> None:
-    prepared = pd.DataFrame(
+    prepared = pl.DataFrame(
         {
             "upload_transaction_id": ["split-1", "split-1"],
             "account_id": ["acc-bank", "acc-bank"],
@@ -404,10 +408,10 @@ def test_assemble_upload_transaction_units_builds_split_units_from_grouped_rows(
     payload = upload_prep.upload_payload_records(prepared)
 
     assert len(units) == 1
-    assert units.loc[0, "upload_kind"] == "split"
-    assert units.loc[0, "amount_milliunits"] == -12000
-    assert units.loc[0, "category_id"] == ""
-    assert len(units.loc[0, "subtransactions"]) == 2
+    assert _row(units, 0)["upload_kind"] == "split"
+    assert _row(units, 0)["amount_milliunits"] == -12000
+    assert _row(units, 0)["category_id"] == ""
+    assert len(_row(units, 0)["subtransactions"]) == 2
     assert payload[0]["category_id"] is None
     assert len(payload[0]["subtransactions"]) == 2
     assert payload[0]["subtransactions"][0]["category_id"] == "cat-books"
@@ -415,7 +419,7 @@ def test_assemble_upload_transaction_units_builds_split_units_from_grouped_rows(
 
 
 def test_upload_payload_records_rejects_unsupported_split_transfer_units() -> None:
-    prepared = pd.DataFrame(
+    prepared = pl.DataFrame(
         {
             "upload_transaction_id": ["split-transfer", "split-transfer"],
             "account_id": ["acc-bank", "acc-bank"],
@@ -436,7 +440,7 @@ def test_upload_payload_records_rejects_unsupported_split_transfer_units() -> No
 
     units = upload_prep.assemble_upload_transaction_units(prepared)
 
-    assert units.loc[0, "unsupported_reason"] == "split_transfer_unsupported"
+    assert _row(units, 0)["unsupported_reason"] == "split_transfer_unsupported"
     with pytest.raises(ValueError, match="Unsupported upload transaction unit"):
         upload_prep.upload_payload_records(prepared)
 
@@ -461,7 +465,7 @@ def test_prepare_upload_transactions_generates_stable_occurrence_import_ids() ->
         categories_df=_categories(),
     )
 
-    assert prepared["import_id"].tolist() == [
+    assert prepared["import_id"].to_list() == [
         "YNAB:-10000:2026-03-01:1",
         "YNAB:-10000:2026-03-01:2",
     ]
@@ -505,13 +509,13 @@ def test_prepare_upload_transactions_uses_bank_txn_id_for_bank_rows() -> None:
         categories_df=_categories(),
     )
 
-    assert prepared.loc[0, "import_id"] == bank_txn_id
-    assert prepared.loc[1, "import_id"] == "YNAB:-10000:2026-03-01:1"
-    assert prepared.loc[0, "bank_txn_id"] == bank_txn_id
-    assert prepared.loc[0, "source_account"] == "123456"
-    assert prepared.loc[0, "card_suffix"] == "7195"
-    assert prepared.loc[0, "secondary_date"] == "2026-03-02"
-    assert prepared.loc[0, "ref"] == "0042"
+    assert _row(prepared, 0)["import_id"] == bank_txn_id
+    assert _row(prepared, 1)["import_id"] == "YNAB:-10000:2026-03-01:1"
+    assert _row(prepared, 0)["bank_txn_id"] == bank_txn_id
+    assert _row(prepared, 0)["source_account"] == "123456"
+    assert _row(prepared, 0)["card_suffix"] == "7195"
+    assert _row(prepared, 0)["secondary_date"] == "2026-03-02"
+    assert _row(prepared, 0)["ref"] == "0042"
 
 
 def test_prepare_upload_transactions_uses_card_txn_id_for_card_rows() -> None:
@@ -553,9 +557,9 @@ def test_prepare_upload_transactions_uses_card_txn_id_for_card_rows() -> None:
         categories_df=_categories(),
     )
 
-    assert prepared.loc[0, "import_id"] == card_txn_id
-    assert prepared.loc[0, "card_txn_id"] == card_txn_id
-    assert prepared.loc[1, "import_id"] == "YNAB:-120000:2026-03-09:2"
+    assert _row(prepared, 0)["import_id"] == card_txn_id
+    assert _row(prepared, 0)["card_txn_id"] == card_txn_id
+    assert _row(prepared, 1)["import_id"] == "YNAB:-120000:2026-03-09:2"
 
 
 def test_prepare_upload_transactions_uses_source_import_id_for_bank_rows() -> None:
@@ -593,8 +597,8 @@ def test_prepare_upload_transactions_uses_source_import_id_for_bank_rows() -> No
         categories_df=_categories(),
     )
 
-    assert prepared.loc[0, "import_id"] == bank_txn_id
-    assert prepared.loc[0, "bank_txn_id"] == bank_txn_id
+    assert _row(prepared, 0)["import_id"] == bank_txn_id
+    assert _row(prepared, 0)["bank_txn_id"] == bank_txn_id
 
 
 def test_prepare_upload_transactions_requires_category_for_non_transfer() -> None:
@@ -633,7 +637,7 @@ def test_ready_mask_treats_transfer_without_category_as_ready() -> None:
         }
     )
 
-    assert upload_prep.ready_mask(reviewed).tolist() == [True, False]
+    assert upload_prep.ready_mask(reviewed).to_list() == [True, False]
 
 
 def test_ready_mask_treats_explicit_no_category_as_transfer_only() -> None:
@@ -650,7 +654,7 @@ def test_ready_mask_treats_explicit_no_category_as_transfer_only() -> None:
         }
     )
 
-    assert upload_prep.ready_mask(reviewed).tolist() == [True, False]
+    assert upload_prep.ready_mask(reviewed).to_list() == [True, False]
 
 
 def test_ready_mask_allows_uncategorized_category() -> None:
@@ -667,7 +671,7 @@ def test_ready_mask_allows_uncategorized_category() -> None:
         }
     )
 
-    assert upload_prep.ready_mask(reviewed).tolist() == [True, True]
+    assert upload_prep.ready_mask(reviewed).to_list() == [True, True]
 
 
 def test_ready_mask_excludes_zero_amount_rows_even_if_other_fields_are_ready() -> None:
@@ -684,7 +688,7 @@ def test_ready_mask_excludes_zero_amount_rows_even_if_other_fields_are_ready() -
         }
     )
 
-    assert upload_prep.ready_mask(reviewed).tolist() == [False, True]
+    assert upload_prep.ready_mask(reviewed).to_list() == [False, True]
 
 
 def test_prepare_upload_transactions_maps_uncategorized_category() -> None:
@@ -707,7 +711,7 @@ def test_prepare_upload_transactions_maps_uncategorized_category() -> None:
         categories_df=_categories(),
     )
 
-    assert prepared.loc[0, "category_id"] == "cat-uncat"
+    assert _row(prepared, 0)["category_id"] == "cat-uncat"
 
 
 def test_prepare_upload_transactions_maps_explicit_no_category_transfer_to_blank() -> None:
@@ -730,8 +734,8 @@ def test_prepare_upload_transactions_maps_explicit_no_category_transfer_to_blank
         categories_df=_categories(),
     )
 
-    assert prepared.loc[0, "category_id"] == ""
-    assert prepared.loc[0, "upload_kind"] == "transfer"
+    assert _row(prepared, 0)["category_id"] == ""
+    assert _row(prepared, 0)["upload_kind"] == "transfer"
 
 
 def test_prepare_upload_transactions_falls_back_to_uncategorized_for_missing_category() -> None:
@@ -754,7 +758,7 @@ def test_prepare_upload_transactions_falls_back_to_uncategorized_for_missing_cat
         categories_df=_categories(),
     )
 
-    assert prepared.loc[0, "category_id"] == "cat-uncat"
+    assert _row(prepared, 0)["category_id"] == "cat-uncat"
 
 
 def test_prepare_upload_transactions_rejects_zero_amount_rows() -> None:
@@ -793,7 +797,7 @@ def test_uploadable_account_mask_marks_unknown_accounts() -> None:
         }
     )
 
-    assert upload_prep.uploadable_account_mask(reviewed, _accounts()).tolist() == [True, False]
+    assert upload_prep.uploadable_account_mask(reviewed, _accounts()).to_list() == [True, False]
 
 
 def test_prepare_upload_transactions_resolves_simplified_category_aliases() -> None:
@@ -816,7 +820,7 @@ def test_prepare_upload_transactions_resolves_simplified_category_aliases() -> N
         categories_df=_api_like_categories(),
     )
 
-    assert prepared["category_id"].tolist() == ["cat-groceries", "cat-rta"]
+    assert prepared["category_id"].to_list() == ["cat-groceries", "cat-rta"]
 
 
 def test_category_lookup_keeps_visible_categories_when_hidden_is_string_false() -> None:
@@ -843,7 +847,7 @@ def test_category_lookup_keeps_visible_categories_when_hidden_is_string_false() 
 
 
 def test_upload_preflight_reports_duplicate_and_match_risks() -> None:
-    prepared = pd.DataFrame(
+    prepared = pl.DataFrame(
         {
             "import_id": ["YNAB:-1000:2026-01-01:1", "YNAB:-1000:2026-01-01:1", "YNAB:-2000:2026-01-02:1"],
             "account_id": ["acc-bank", "acc-bank", "acc-bank"],
@@ -876,7 +880,7 @@ def test_upload_preflight_reports_duplicate_and_match_risks() -> None:
 
 
 def test_upload_preflight_allows_same_import_id_on_different_accounts() -> None:
-    prepared = pd.DataFrame(
+    prepared = pl.DataFrame(
         {
             "import_id": ["YNAB:-1000:2026-01-01:1", "YNAB:-1000:2026-01-01:1"],
             "account_id": ["acc-bank", "acc-card"],
@@ -973,7 +977,7 @@ def test_classify_upload_result_requires_verification_when_transactions_saved() 
 
 
 def test_verify_upload_response_checks_transfer_and_category_fields() -> None:
-    prepared = pd.DataFrame(
+    prepared = pl.DataFrame(
         {
             "import_id": ["imp-regular", "imp-transfer"],
             "account_id": ["acc-bank", "acc-bank"],
@@ -1023,7 +1027,7 @@ def test_verify_upload_response_checks_transfer_and_category_fields() -> None:
 
 
 def test_verify_upload_response_allows_same_import_id_on_different_accounts() -> None:
-    prepared = pd.DataFrame(
+    prepared = pl.DataFrame(
         {
             "import_id": ["imp-shared", "imp-shared"],
             "account_id": ["acc-bank", "acc-card"],
@@ -1073,7 +1077,7 @@ def test_verify_upload_response_allows_same_import_id_on_different_accounts() ->
 
 
 def test_verify_upload_response_accepts_uncategorized_name_without_category_id() -> None:
-    prepared = pd.DataFrame(
+    prepared = pl.DataFrame(
         {
             "import_id": ["imp-uncat"],
             "account_id": ["acc-bank"],
@@ -1116,7 +1120,7 @@ def test_verify_upload_response_accepts_uncategorized_name_without_category_id()
 
 
 def test_verify_upload_response_checks_split_child_structure() -> None:
-    prepared = pd.DataFrame(
+    prepared = pl.DataFrame(
         {
             "upload_transaction_id": ["split-1", "split-1"],
             "account_id": ["acc-bank", "acc-bank"],
