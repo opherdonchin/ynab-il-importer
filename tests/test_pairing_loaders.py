@@ -90,8 +90,12 @@ def test_bootstrap_pairs_prefers_sidecar_parquet(monkeypatch, tmp_path: Path) ->
             or pd.DataFrame()
         ),
     )
-    monkeypatch.setattr(bootstrap_pairs.export, "write_dataframe", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(bootstrap_pairs.export, "wrote_message", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(
+        bootstrap_pairs.export, "write_dataframe", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        bootstrap_pairs.export, "wrote_message", lambda *_args, **_kwargs: ""
+    )
     monkeypatch.setattr(
         sys,
         "argv",

@@ -40,8 +40,12 @@ def test_resolve_context_sources_requires_unique_regex_match(tmp_path: Path) -> 
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
     (raw_dir / "Bankin family.dat").write_text("bank", encoding="utf-8")
-    (raw_dir / "transaction-details_export_1.xlsx").write_text("card1", encoding="utf-8")
-    (raw_dir / "transaction-details_export_2.xlsx").write_text("card2", encoding="utf-8")
+    (raw_dir / "transaction-details_export_1.xlsx").write_text(
+        "card1", encoding="utf-8"
+    )
+    (raw_dir / "transaction-details_export_2.xlsx").write_text(
+        "card2", encoding="utf-8"
+    )
 
     loaded = context_config.load_context("family")
 
@@ -60,10 +64,16 @@ def test_resolve_run_paths_and_context_artifacts(tmp_path: Path) -> None:
     context = context_config.load_context("family")
 
     run_paths.derived_dir.mkdir(parents=True)
-    for name in ["family_leumi_norm.parquet", "family_max_norm.parquet", "family_ynab_api_norm.parquet"]:
+    for name in [
+        "family_leumi_norm.parquet",
+        "family_max_norm.parquet",
+        "family_ynab_api_norm.parquet",
+    ]:
         (run_paths.derived_dir / name).write_text("x", encoding="utf-8")
 
-    source_paths = context_config.resolve_context_normalized_source_paths(context, run_paths)
+    source_paths = context_config.resolve_context_normalized_source_paths(
+        context, run_paths
+    )
     ynab_path = context_config.resolve_context_ynab_path(context, run_paths)
 
     assert [path.name for path in source_paths] == [
@@ -71,8 +81,14 @@ def test_resolve_run_paths_and_context_artifacts(tmp_path: Path) -> None:
         "family_max_norm.parquet",
     ]
     assert ynab_path.name == "family_ynab_api_norm.parquet"
-    assert run_paths.proposal_review_path(defaults, "family").name == "family_proposed_transactions.parquet"
-    assert run_paths.matched_pairs_path(defaults, "family").name == "family_matched_pairs.parquet"
+    assert (
+        run_paths.proposal_review_path(defaults, "family").name
+        == "family_proposed_transactions.parquet"
+    )
+    assert (
+        run_paths.matched_pairs_path(defaults, "family").name
+        == "family_matched_pairs.parquet"
+    )
 
 
 def test_resolve_context_ynab_path_requires_file(tmp_path: Path) -> None:
@@ -101,8 +117,12 @@ def test_resolve_context_normalized_source_path_requires_single_selected_source(
     )
     run_paths = context_config.resolve_run_paths(defaults, run_tag="2026_04_01")
     run_paths.derived_dir.mkdir(parents=True)
-    (run_paths.derived_dir / "family_leumi_norm.parquet").write_text("x", encoding="utf-8")
-    (run_paths.derived_dir / "family_max_norm.parquet").write_text("x", encoding="utf-8")
+    (run_paths.derived_dir / "family_leumi_norm.parquet").write_text(
+        "x", encoding="utf-8"
+    )
+    (run_paths.derived_dir / "family_max_norm.parquet").write_text(
+        "x", encoding="utf-8"
+    )
     context = context_config.load_context("family")
 
     with pytest.raises(ValueError, match="exactly one source"):
@@ -116,7 +136,9 @@ def test_resolve_context_normalized_source_path_requires_single_selected_source(
     assert resolved.name == "family_leumi_norm.parquet"
 
 
-def test_resolve_context_budget_id_falls_back_to_local_config(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_context_budget_id_falls_back_to_local_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("YNAB_FAMILY_BUDGET_ID", raising=False)
     context = context_config.load_context("family")
 

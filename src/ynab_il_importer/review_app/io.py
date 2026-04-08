@@ -174,15 +174,24 @@ def _normalize_transaction_record(value: Any) -> dict[str, Any] | None:
             record[field.name] = _normalize_text(raw)
 
     record["artifact_kind"] = record.get("artifact_kind") or "transaction"
-    record["artifact_version"] = record.get("artifact_version") or TRANSACTION_ARTIFACT_VERSION
-    record["transaction_id"] = record.get("transaction_id") or record.get("ynab_id") or ""
+    record["artifact_version"] = (
+        record.get("artifact_version") or TRANSACTION_ARTIFACT_VERSION
+    )
+    record["transaction_id"] = (
+        record.get("transaction_id") or record.get("ynab_id") or ""
+    )
     record["parent_transaction_id"] = (
         record.get("parent_transaction_id") or record.get("transaction_id") or ""
     )
-    record["account_name"] = record.get("account_name") or record.get("source_account") or ""
-    record["source_account"] = record.get("source_account") or record.get("account_name") or ""
+    record["account_name"] = (
+        record.get("account_name") or record.get("source_account") or ""
+    )
+    record["source_account"] = (
+        record.get("source_account") or record.get("account_name") or ""
+    )
     record["signed_amount_ils"] = _normalize_float(
-        _normalize_float(record.get("inflow_ils")) - _normalize_float(record.get("outflow_ils"))
+        _normalize_float(record.get("inflow_ils"))
+        - _normalize_float(record.get("outflow_ils"))
     )
     return record
 
@@ -262,7 +271,9 @@ def _coerce_review_artifact_table(table: pa.Table) -> pa.Table:
 
 
 def _signed_amount(row: pd.Series) -> float:
-    return _normalize_float(row.get("inflow_ils")) - _normalize_float(row.get("outflow_ils"))
+    return _normalize_float(row.get("inflow_ils")) - _normalize_float(
+        row.get("outflow_ils")
+    )
 
 
 def _value_from_row(row: pd.Series, *names: str) -> str:
@@ -331,55 +342,65 @@ def _transaction_from_flat_row(
     current_category = model.normalize_category_value(
         _value_from_row(row, f"{side}_category_current")
     )
-    payee_value = selected_payee if use_selected_values and selected_payee else current_payee
+    payee_value = (
+        selected_payee if use_selected_values and selected_payee else current_payee
+    )
     category_value = (
-        selected_category if use_selected_values and selected_category else current_category
+        selected_category
+        if use_selected_values and selected_category
+        else current_category
     )
 
     txn["artifact_kind"] = txn.get("artifact_kind") or "transaction"
-    txn["artifact_version"] = txn.get("artifact_version") or TRANSACTION_ARTIFACT_VERSION
+    txn["artifact_version"] = (
+        txn.get("artifact_version") or TRANSACTION_ARTIFACT_VERSION
+    )
     txn["source_system"] = _value_from_row(
         row,
         f"{side}_source_system",
         "source" if side == "source" else "",
     ) or _normalize_text(txn.get("source_system"))
-    txn["transaction_id"] = (
-        _value_from_row(
-            row,
-            f"{side}_transaction_id",
-            "bank_txn_id" if side == "source" else "",
-            "card_txn_id" if side == "source" else "",
-            f"{side}_row_id",
-        )
-        or _normalize_text(txn.get("transaction_id"))
+    txn["transaction_id"] = _value_from_row(
+        row,
+        f"{side}_transaction_id",
+        "bank_txn_id" if side == "source" else "",
+        "card_txn_id" if side == "source" else "",
+        f"{side}_row_id",
+    ) or _normalize_text(txn.get("transaction_id"))
+    txn["ynab_id"] = _value_from_row(row, f"{side}_ynab_id") or _normalize_text(
+        txn.get("ynab_id")
     )
-    txn["ynab_id"] = _value_from_row(row, f"{side}_ynab_id") or _normalize_text(txn.get("ynab_id"))
-    txn["import_id"] = _value_from_row(row, f"{side}_import_id") or _normalize_text(txn.get("import_id"))
+    txn["import_id"] = _value_from_row(row, f"{side}_import_id") or _normalize_text(
+        txn.get("import_id")
+    )
     txn["parent_transaction_id"] = (
         _value_from_row(row, f"{side}_parent_transaction_id")
         or txn["transaction_id"]
         or _normalize_text(txn.get("parent_transaction_id"))
     )
-    txn["account_id"] = (
-        _value_from_row(row, f"{side}_account_id", "ynab_account_id" if side == "target" else "")
-        or _normalize_text(txn.get("account_id"))
-    )
-    txn["account_name"] = (
-        _value_from_row(row, f"{side}_account", "account_name")
-        or _normalize_text(txn.get("account_name"))
-    )
+    txn["account_id"] = _value_from_row(
+        row, f"{side}_account_id", "ynab_account_id" if side == "target" else ""
+    ) or _normalize_text(txn.get("account_id"))
+    txn["account_name"] = _value_from_row(
+        row, f"{side}_account", "account_name"
+    ) or _normalize_text(txn.get("account_name"))
     txn["source_account"] = (
         _value_from_row(row, f"{side}_account", "account_name")
         or _normalize_text(txn.get("source_account"))
         or txn["account_name"]
     )
-    txn["date"] = _value_from_row(row, f"{side}_date", "date") or _normalize_text(txn.get("date"))
-    txn["secondary_date"] = (
-        _value_from_row(row, f"{side}_secondary_date", "secondary_date")
-        or _normalize_text(txn.get("secondary_date"))
+    txn["date"] = _value_from_row(row, f"{side}_date", "date") or _normalize_text(
+        txn.get("date")
     )
-    txn["inflow_ils"] = _normalize_float(row.get("inflow_ils", txn.get("inflow_ils", 0.0)))
-    txn["outflow_ils"] = _normalize_float(row.get("outflow_ils", txn.get("outflow_ils", 0.0)))
+    txn["secondary_date"] = _value_from_row(
+        row, f"{side}_secondary_date", "secondary_date"
+    ) or _normalize_text(txn.get("secondary_date"))
+    txn["inflow_ils"] = _normalize_float(
+        row.get("inflow_ils", txn.get("inflow_ils", 0.0))
+    )
+    txn["outflow_ils"] = _normalize_float(
+        row.get("outflow_ils", txn.get("outflow_ils", 0.0))
+    )
     txn["signed_amount_ils"] = _signed_amount(row)
     txn["payee_raw"] = payee_value or _normalize_text(txn.get("payee_raw"))
     txn["category_raw"] = category_value or _normalize_text(txn.get("category_raw"))
@@ -388,35 +409,37 @@ def _transaction_from_flat_row(
         side=side,
         category_value=txn["category_raw"],
     ) or _normalize_text(txn.get("category_id"))
-    txn["memo"] = _value_from_row(row, f"{side}_memo", "memo") or _normalize_text(txn.get("memo"))
+    txn["memo"] = _value_from_row(row, f"{side}_memo", "memo") or _normalize_text(
+        txn.get("memo")
+    )
     txn["txn_kind"] = _normalize_text(txn.get("txn_kind"))
-    txn["fingerprint"] = (
-        _value_from_row(row, f"{side}_fingerprint", "fingerprint")
-        or _normalize_text(txn.get("fingerprint"))
+    txn["fingerprint"] = _value_from_row(
+        row, f"{side}_fingerprint", "fingerprint"
+    ) or _normalize_text(txn.get("fingerprint"))
+    txn["description_raw"] = _value_from_row(
+        row, f"{side}_description_raw", "description_raw"
+    ) or _normalize_text(txn.get("description_raw"))
+    txn["description_clean"] = _value_from_row(
+        row, f"{side}_description_clean", "description_clean"
+    ) or _normalize_text(txn.get("description_clean"))
+    txn["description_clean_norm"] = _value_from_row(
+        row, f"{side}_description_clean_norm"
+    ) or _normalize_text(txn.get("description_clean_norm"))
+    txn["merchant_raw"] = _value_from_row(
+        row, f"{side}_merchant_raw", "merchant_raw"
+    ) or _normalize_text(txn.get("merchant_raw"))
+    txn["ref"] = _value_from_row(row, f"{side}_ref", "ref") or _normalize_text(
+        txn.get("ref")
     )
-    txn["description_raw"] = (
-        _value_from_row(row, f"{side}_description_raw", "description_raw")
-        or _normalize_text(txn.get("description_raw"))
+    txn["matched_transaction_id"] = _value_from_row(
+        row, f"{side}_matched_transaction_id"
+    ) or _normalize_text(txn.get("matched_transaction_id"))
+    txn["cleared"] = _value_from_row(row, f"{side}_cleared") or _normalize_text(
+        txn.get("cleared")
     )
-    txn["description_clean"] = (
-        _value_from_row(row, f"{side}_description_clean", "description_clean")
-        or _normalize_text(txn.get("description_clean"))
+    txn["approved"] = _bool_from_row(row, f"{side}_approved") or bool(
+        txn.get("approved", False)
     )
-    txn["description_clean_norm"] = (
-        _value_from_row(row, f"{side}_description_clean_norm")
-        or _normalize_text(txn.get("description_clean_norm"))
-    )
-    txn["merchant_raw"] = (
-        _value_from_row(row, f"{side}_merchant_raw", "merchant_raw")
-        or _normalize_text(txn.get("merchant_raw"))
-    )
-    txn["ref"] = _value_from_row(row, f"{side}_ref", "ref") or _normalize_text(txn.get("ref"))
-    txn["matched_transaction_id"] = (
-        _value_from_row(row, f"{side}_matched_transaction_id")
-        or _normalize_text(txn.get("matched_transaction_id"))
-    )
-    txn["cleared"] = _value_from_row(row, f"{side}_cleared") or _normalize_text(txn.get("cleared"))
-    txn["approved"] = _bool_from_row(row, f"{side}_approved") or bool(txn.get("approved", False))
     txn["is_subtransaction"] = _bool_from_row(row, f"{side}_is_subtransaction") or bool(
         txn.get("is_subtransaction", False)
     )
@@ -426,19 +449,31 @@ def _transaction_from_flat_row(
     return txn
 
 
-def _original_transaction_from_row(row: pd.Series, *, side: str) -> dict[str, Any] | None:
-    for key in [f"{side}_original", f"{side}_original_transaction", f"{side}_transaction"]:
+def _original_transaction_from_row(
+    row: pd.Series, *, side: str
+) -> dict[str, Any] | None:
+    for key in [
+        f"{side}_original",
+        f"{side}_original_transaction",
+        f"{side}_transaction",
+    ]:
         txn = _normalize_transaction_record(row.get(key))
         if txn:
             return txn
     return None
 
 
-def _current_transaction_from_row(row: pd.Series, *, side: str) -> dict[str, Any] | None:
+def _current_transaction_from_row(
+    row: pd.Series, *, side: str
+) -> dict[str, Any] | None:
     explicit_current = False
     for key in [f"{side}_current", f"{side}_current_transaction"]:
         txn = _normalize_transaction_record(row.get(key))
-        if txn and not _side_present(row, side) and not _transaction_has_material_state(txn):
+        if (
+            txn
+            and not _side_present(row, side)
+            and not _transaction_has_material_state(txn)
+        ):
             txn = None
         if txn:
             return txn
@@ -463,9 +498,17 @@ def _review_record_from_row(row: pd.Series) -> dict[str, Any]:
     target_current = _current_transaction_from_row(row, side="target")
     source_original = _original_transaction_from_row(row, side="source")
     target_original = _original_transaction_from_row(row, side="target")
-    if source_original is None and source_current is not None and _side_present(row, "source"):
+    if (
+        source_original is None
+        and source_current is not None
+        and _side_present(row, "source")
+    ):
         source_original = dict(source_current)
-    if target_original is None and target_current is not None and _side_present(row, "target"):
+    if (
+        target_original is None
+        and target_current is not None
+        and _side_present(row, "target")
+    ):
         target_original = dict(target_current)
     return {
         "artifact_kind": "review_artifact",
@@ -482,7 +525,9 @@ def _review_record_from_row(row: pd.Series) -> dict[str, Any]:
         "update_maps": validation.join_update_maps(
             validation.parse_update_maps(_normalize_text(row.get("update_maps", "")))
         ),
-        "decision_action": validation.normalize_decision_action(row.get("decision_action")),
+        "decision_action": validation.normalize_decision_action(
+            row.get("decision_action")
+        ),
         "reviewed": _normalize_bool(row.get("reviewed", False)),
         "changed": _normalize_bool(row.get("changed", False)),
         "memo_append": _normalize_text(row.get("memo_append")),
@@ -492,8 +537,12 @@ def _review_record_from_row(row: pd.Series) -> dict[str, Any]:
         "target_row_id": _normalize_text(row.get("target_row_id")),
         "target_account": _value_from_row(row, "target_account", "account_name"),
         "source_context_kind": _normalize_text(row.get("source_context_kind")),
-        "source_context_category_id": _normalize_text(row.get("source_context_category_id")),
-        "source_context_category_name": _normalize_text(row.get("source_context_category_name")),
+        "source_context_category_id": _normalize_text(
+            row.get("source_context_category_id")
+        ),
+        "source_context_category_name": _normalize_text(
+            row.get("source_context_category_name")
+        ),
         "source_context_matching_split_ids": _normalize_text(
             row.get("source_context_matching_split_ids")
         ),
@@ -531,7 +580,9 @@ def _review_table_from_dataframe(df: pd.DataFrame) -> pa.Table:
         "target_original_transaction",
     }
     if not canonicalish_columns.intersection(set(review_df.columns)):
-        review_df = working_schema.build_working_dataframe(pl.from_pandas(review_df)).to_pandas()
+        review_df = working_schema.build_working_dataframe(
+            pl.from_pandas(review_df)
+        ).to_pandas()
     records = [_review_record_from_row(row) for _, row in review_df.iterrows()]
     if not records:
         return pa.Table.from_arrays(
@@ -565,7 +616,9 @@ def coerce_review_artifact_table(
         table = _review_table_from_dataframe(source)
         validate_review_table(table)
         return table
-    raise TypeError("Review artifact coercion expects a pandas dataframe, polars dataframe, or Arrow table.")
+    raise TypeError(
+        "Review artifact coercion expects a pandas dataframe, polars dataframe, or Arrow table."
+    )
 
 
 def load_review_artifact(path: str | Path) -> pa.Table:
@@ -604,8 +657,14 @@ def _preferred_summary_number(*values: Any) -> float:
 
 
 def _working_row_from_record(row: dict[str, Any]) -> dict[str, Any]:
-    source_current = _normalize_transaction_record(row.get("source_current")) or _empty_transaction_record()
-    target_current = _normalize_transaction_record(row.get("target_current")) or _empty_transaction_record()
+    source_current = (
+        _normalize_transaction_record(row.get("source_current"))
+        or _empty_transaction_record()
+    )
+    target_current = (
+        _normalize_transaction_record(row.get("target_current"))
+        or _empty_transaction_record()
+    )
     source_original = _normalize_transaction_record(row.get("source_original"))
     target_original = _normalize_transaction_record(row.get("target_original"))
 
@@ -621,7 +680,9 @@ def _working_row_from_record(row: dict[str, Any]) -> dict[str, Any]:
             target_current.get("account_name"),
             source_current.get("account_name"),
         ),
-        "date": _preferred_summary_value(source_current.get("date"), target_current.get("date")),
+        "date": _preferred_summary_value(
+            source_current.get("date"), target_current.get("date")
+        ),
         "outflow_ils": _preferred_summary_number(
             source_current.get("outflow_ils"),
             target_current.get("outflow_ils"),
@@ -630,7 +691,9 @@ def _working_row_from_record(row: dict[str, Any]) -> dict[str, Any]:
             source_current.get("inflow_ils"),
             target_current.get("inflow_ils"),
         ),
-        "memo": _preferred_summary_value(source_current.get("memo"), target_current.get("memo")),
+        "memo": _preferred_summary_value(
+            source_current.get("memo"), target_current.get("memo")
+        ),
         "fingerprint": _preferred_summary_value(
             source_current.get("fingerprint"),
             target_current.get("fingerprint"),
@@ -657,8 +720,12 @@ def _working_row_from_record(row: dict[str, Any]) -> dict[str, Any]:
             row.get("account_name"),
         ),
         "source_context_kind": _normalize_text(row.get("source_context_kind")),
-        "source_context_category_id": _normalize_text(row.get("source_context_category_id")),
-        "source_context_category_name": _normalize_text(row.get("source_context_category_name")),
+        "source_context_category_id": _normalize_text(
+            row.get("source_context_category_id")
+        ),
+        "source_context_category_name": _normalize_text(
+            row.get("source_context_category_name")
+        ),
         "source_context_matching_split_ids": _normalize_text(
             row.get("source_context_matching_split_ids")
         ),
@@ -688,18 +755,26 @@ def _working_row_from_record(row: dict[str, Any]) -> dict[str, Any]:
         working[f"{side}_transaction_id"] = _normalize_text(txn.get("transaction_id"))
         working[f"{side}_ynab_id"] = _normalize_text(txn.get("ynab_id"))
         working[f"{side}_import_id"] = _normalize_text(txn.get("import_id"))
-        working[f"{side}_parent_transaction_id"] = _normalize_text(txn.get("parent_transaction_id"))
+        working[f"{side}_parent_transaction_id"] = _normalize_text(
+            txn.get("parent_transaction_id")
+        )
         working[f"{side}_account_id"] = _normalize_text(txn.get("account_id"))
-        working[f"{side}_account"] = _normalize_text(txn.get("account_name") or txn.get("source_account"))
+        working[f"{side}_account"] = _normalize_text(
+            txn.get("account_name") or txn.get("source_account")
+        )
         working[f"{side}_date"] = _normalize_text(txn.get("date"))
         working[f"{side}_secondary_date"] = _normalize_text(txn.get("secondary_date"))
         working[f"{side}_payee_current"] = _normalize_text(txn.get("payee_raw"))
         working[f"{side}_category_id"] = _normalize_text(txn.get("category_id"))
-        working[f"{side}_category_current"] = model.normalize_category_value(txn.get("category_raw"))
+        working[f"{side}_category_current"] = model.normalize_category_value(
+            txn.get("category_raw")
+        )
         working[f"{side}_memo"] = _normalize_text(txn.get("memo"))
         working[f"{side}_fingerprint"] = _normalize_text(txn.get("fingerprint"))
         working[f"{side}_description_raw"] = _normalize_text(txn.get("description_raw"))
-        working[f"{side}_description_clean"] = _normalize_text(txn.get("description_clean"))
+        working[f"{side}_description_clean"] = _normalize_text(
+            txn.get("description_clean")
+        )
         working[f"{side}_description_clean_norm"] = _normalize_text(
             txn.get("description_clean_norm")
         )
@@ -741,12 +816,16 @@ def project_review_artifact_to_working_dataframe(
 ) -> pl.DataFrame:
     if isinstance(source, pa.Table):
         if not _is_review_artifact_table(source):
-            raise ValueError("Working projection expects a canonical review artifact table.")
+            raise ValueError(
+                "Working projection expects a canonical review artifact table."
+            )
         table = _coerce_review_artifact_table(source)
     elif isinstance(source, pl.DataFrame):
         table = source.to_arrow()
         if not _is_review_artifact_table(table):
-            raise ValueError("Working projection expects canonical review artifact columns.")
+            raise ValueError(
+                "Working projection expects canonical review artifact columns."
+            )
         table = _coerce_review_artifact_table(table)
     else:
         raise TypeError("Working projection expects a polars dataframe or Arrow table.")
@@ -804,7 +883,9 @@ def save_reviewed_transactions(
         coerce_review_artifact_table(df)
     ).to_pandas()
     out = out.drop(
-        columns=[col for col in ["payee_selected", "category_selected"] if col in out.columns]
+        columns=[
+            col for col in ["payee_selected", "category_selected"] if col in out.columns
+        ]
     )
     out["update_maps"] = validation.normalize_update_maps(out["update_maps"])
     out["reviewed"] = out["reviewed"].map(lambda value: "TRUE" if bool(value) else "")
@@ -818,7 +899,9 @@ def save_reviewed_transactions(
         "target_is_subtransaction",
     ]:
         if flag_col in out.columns:
-            out[flag_col] = out[flag_col].map(lambda value: "TRUE" if bool(value) else "")
+            out[flag_col] = out[flag_col].map(
+                lambda value: "TRUE" if bool(value) else ""
+            )
     for column in SPLIT_COLUMNS:
         if column in out.columns:
             out[column] = out[column].map(_json_dump)

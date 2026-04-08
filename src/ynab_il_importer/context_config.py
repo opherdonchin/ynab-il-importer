@@ -32,7 +32,9 @@ class DefaultsFilesConfig(BaseModel):
     bank_uncleared_report: str = "{context}_{source_id}_bank_uncleared_ynab_report.csv"
     bank_reconcile_report: str = "{context}_{source_id}_bank_reconcile_report.csv"
     card_sync_report: str = "{context}_{source_id}_{account_key}_card_sync_report.csv"
-    card_reconcile_report: str = "{context}_{source_id}_{account_key}_card_reconcile_report.csv"
+    card_reconcile_report: str = (
+        "{context}_{source_id}_{account_key}_card_reconcile_report.csv"
+    )
 
 
 class DefaultsConfig(BaseModel):
@@ -72,7 +74,9 @@ class ContextSourceConfig(BaseModel):
     def _validate_source_selector(self) -> "ContextSourceConfig":
         selectors = [bool(self.raw_file), bool(self.raw_match)]
         if sum(selectors) != 1:
-            raise ValueError("Each source must define exactly one of raw_file or raw_match.")
+            raise ValueError(
+                "Each source must define exactly one of raw_file or raw_match."
+            )
         return self
 
 
@@ -94,13 +98,19 @@ class ContextRunPaths:
     outputs_dir: Path
 
     def proposal_review_path(self, defaults: DefaultsConfig, context_name: str) -> Path:
-        return self.paired_dir / defaults.files.proposed_review.format(context=context_name)
+        return self.paired_dir / defaults.files.proposed_review.format(
+            context=context_name
+        )
 
     def reviewed_review_path(self, defaults: DefaultsConfig, context_name: str) -> Path:
-        return self.paired_dir / defaults.files.reviewed_review.format(context=context_name)
+        return self.paired_dir / defaults.files.reviewed_review.format(
+            context=context_name
+        )
 
     def matched_pairs_path(self, defaults: DefaultsConfig, context_name: str) -> Path:
-        return self.paired_dir / defaults.files.matched_pairs.format(context=context_name)
+        return self.paired_dir / defaults.files.matched_pairs.format(
+            context=context_name
+        )
 
     def upload_csv_path(self, defaults: DefaultsConfig, context_name: str) -> Path:
         return self.paired_dir / defaults.files.upload_csv.format(context=context_name)
@@ -178,7 +188,9 @@ class LoadedContext:
 
     @property
     def fingerprint_map_path(self) -> Path:
-        return _resolve_relative_path(self.context_dir, self.config.maps.fingerprint_map)
+        return _resolve_relative_path(
+            self.context_dir, self.config.maps.fingerprint_map
+        )
 
     @property
     def payee_map_path(self) -> Path:
@@ -233,7 +245,9 @@ def load_context(name: str, *, contexts_root: Path = CONTEXTS_ROOT) -> LoadedCon
     return LoadedContext(config=loaded, context_dir=context_dir.resolve())
 
 
-def resolve_context_sources(context: LoadedContext, raw_dir: Path) -> list[ResolvedContextSource]:
+def resolve_context_sources(
+    context: LoadedContext, raw_dir: Path
+) -> list[ResolvedContextSource]:
     if not raw_dir.exists():
         raise FileNotFoundError(f"Missing raw run directory: {raw_dir}")
     if not raw_dir.is_dir():
@@ -297,7 +311,10 @@ def resolve_context_normalized_source_paths(
     context: LoadedContext,
     run_paths: ContextRunPaths,
 ) -> list[Path]:
-    paths = [run_paths.derived_dir / source.normalized_name for source in context.config.sources]
+    paths = [
+        run_paths.derived_dir / source.normalized_name
+        for source in context.config.sources
+    ]
     missing = [path for path in paths if not path.exists()]
     if missing:
         raise FileNotFoundError(
@@ -354,7 +371,9 @@ def resolve_context_normalized_source_path(
     return path
 
 
-def resolve_context_ynab_path(context: LoadedContext, run_paths: ContextRunPaths) -> Path:
+def resolve_context_ynab_path(
+    context: LoadedContext, run_paths: ContextRunPaths
+) -> Path:
     path = run_paths.derived_dir / context.ynab_normalized_name
     if not path.exists():
         raise FileNotFoundError(
@@ -375,9 +394,13 @@ def resolve_context_budget_id(context: LoadedContext, *, budget_id: str = "") ->
         if isinstance(profiles, dict):
             section = profiles.get(context.name, {})
             if isinstance(section, dict):
-                resolved = str(section.get("budget_id", "") or section.get("plan_id", "")).strip()
+                resolved = str(
+                    section.get("budget_id", "") or section.get("plan_id", "")
+                ).strip()
         if not resolved and context.name == "family":
-            resolved = str(config.get("budget_id", "") or config.get("plan_id", "")).strip()
+            resolved = str(
+                config.get("budget_id", "") or config.get("plan_id", "")
+            ).strip()
     if not resolved:
         if env_name:
             raise ValueError(

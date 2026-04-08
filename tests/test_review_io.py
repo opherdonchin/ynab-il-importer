@@ -22,7 +22,9 @@ def _working_from_artifact_df(df: pd.DataFrame | pl.DataFrame) -> pd.DataFrame:
 
 def test_load_review_artifact_requires_parquet(tmp_path) -> None:
     path = tmp_path / "empty_review.csv"
-    pd.DataFrame(columns=review_io.REQUIRED_COLUMNS).to_csv(path, index=False, encoding="utf-8-sig")
+    pd.DataFrame(columns=review_io.REQUIRED_COLUMNS).to_csv(
+        path, index=False, encoding="utf-8-sig"
+    )
 
     with pytest.raises(ValueError, match="must be parquet"):
         review_io.load_review_artifact(path)
@@ -36,7 +38,9 @@ def test_load_review_artifact_rejects_non_artifact_parquet(tmp_path) -> None:
         review_io.load_review_artifact(path)
 
 
-def test_project_review_artifact_to_working_dataframe_accepts_polars_artifact_rows() -> None:
+def test_project_review_artifact_to_working_dataframe_accepts_polars_artifact_rows() -> (
+    None
+):
     df = pl.DataFrame(
         {
             "transaction_id": ["t1"],
@@ -68,7 +72,9 @@ def test_project_review_artifact_to_working_dataframe_accepts_polars_artifact_ro
     assert bool(loaded.loc[0, "reviewed"]) is False
 
 
-def test_project_review_artifact_to_working_dataframe_preserves_source_lineage_ids() -> None:
+def test_project_review_artifact_to_working_dataframe_preserves_source_lineage_ids() -> (
+    None
+):
     table = review_io.coerce_review_artifact_table(
         pd.DataFrame(
             [
@@ -223,7 +229,9 @@ def test_save_then_load_round_trip_preserves_review_fields(tmp_path) -> None:
     assert "category_selected" not in loaded.columns
 
 
-def test_save_review_artifact_parquet_round_trip_preserves_flat_sides_and_splits(tmp_path) -> None:
+def test_save_review_artifact_parquet_round_trip_preserves_flat_sides_and_splits(
+    tmp_path,
+) -> None:
     path = tmp_path / "review.parquet"
     df = pd.DataFrame(
         [
@@ -291,7 +299,9 @@ def test_save_review_artifact_parquet_round_trip_preserves_flat_sides_and_splits
     assert loaded.loc[0, "source_splits"] is None
 
 
-def test_project_review_artifact_to_working_dataframe_preserves_flat_sides_and_context(tmp_path) -> None:
+def test_project_review_artifact_to_working_dataframe_preserves_flat_sides_and_context(
+    tmp_path,
+) -> None:
     path = tmp_path / "review_polars.parquet"
     df = pd.DataFrame(
         [

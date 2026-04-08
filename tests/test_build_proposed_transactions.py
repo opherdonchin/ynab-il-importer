@@ -12,7 +12,9 @@ from ynab_il_importer.artifacts.transaction_io import write_flat_transaction_art
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "build_proposed_transactions.py"
-SPEC = importlib.util.spec_from_file_location("build_proposed_transactions", SCRIPT_PATH)
+SPEC = importlib.util.spec_from_file_location(
+    "build_proposed_transactions", SCRIPT_PATH
+)
 assert SPEC is not None and SPEC.loader is not None
 build_proposed_transactions = importlib.util.module_from_spec(SPEC)
 sys.modules["build_proposed_transactions"] = build_proposed_transactions
@@ -39,9 +41,9 @@ def _write_payee_map(path: Path) -> None:
             "card_suffix": "",
         }
     ]
-    pd.DataFrame(rows, columns=build_proposed_transactions.rules_mod.PAYEE_MAP_COLUMNS).to_csv(
-        path, index=False, encoding="utf-8-sig"
-    )
+    pd.DataFrame(
+        rows, columns=build_proposed_transactions.rules_mod.PAYEE_MAP_COLUMNS
+    ).to_csv(path, index=False, encoding="utf-8-sig")
 
 
 def _canonical_source_polars(df: pd.DataFrame) -> pl.DataFrame:
@@ -440,25 +442,33 @@ def test_build_review_rows_emits_institutional_statuses(tmp_path: Path) -> None:
         "target_only",
     }
 
-    source_only = review_rows.filter(pl.col("match_status") == "source_only").row(0, named=True)
+    source_only = review_rows.filter(pl.col("match_status") == "source_only").row(
+        0, named=True
+    )
     assert source_only["target_payee_selected"] == "Coffee Shop"
     assert source_only["target_category_selected"] == "Eating Out"
     assert source_only["decision_action"] == "create_target"
     assert source_only["workflow_type"] == "institutional"
 
-    matched = review_rows.filter(pl.col("match_status") == "matched_auto").row(0, named=True)
+    matched = review_rows.filter(pl.col("match_status") == "matched_auto").row(
+        0, named=True
+    )
     assert bool(matched["reviewed"]) is False
     assert matched["target_payee_current"] == "Groceries"
     assert matched["decision_action"] == "keep_match"
 
-    target_only = review_rows.filter(pl.col("match_status") == "target_only").row(0, named=True)
+    target_only = review_rows.filter(pl.col("match_status") == "target_only").row(
+        0, named=True
+    )
     assert target_only["target_payee_current"] == "Manual Cash"
     assert target_only["source"] == "ynab"
     assert target_only["decision_action"] == "No decision"
     assert bool(target_only["reviewed"]) is False
 
 
-def test_build_review_rows_marks_cleared_exact_matches_as_settled(tmp_path: Path) -> None:
+def test_build_review_rows_marks_cleared_exact_matches_as_settled(
+    tmp_path: Path,
+) -> None:
     map_path = tmp_path / "payee_map.csv"
     _write_payee_map(map_path)
 
@@ -564,7 +574,9 @@ def test_build_review_rows_normalizes_transfer_uncategorized_to_explicit_none(
     assert matched["category_options"] == review_model.NO_CATEGORY_REQUIRED
 
 
-def test_build_review_rows_auto_settles_target_only_transfer_counterparts(tmp_path: Path) -> None:
+def test_build_review_rows_auto_settles_target_only_transfer_counterparts(
+    tmp_path: Path,
+) -> None:
     map_path = tmp_path / "payee_map.csv"
     _write_payee_map(map_path)
 
@@ -634,7 +646,9 @@ def test_build_review_rows_auto_settles_target_only_transfer_counterparts(tmp_pa
     assert target_only["target_category_selected"] == review_model.NO_CATEGORY_REQUIRED
 
 
-def test_build_review_rows_auto_settles_reconciled_target_only_rows(tmp_path: Path) -> None:
+def test_build_review_rows_auto_settles_reconciled_target_only_rows(
+    tmp_path: Path,
+) -> None:
     map_path = tmp_path / "payee_map.csv"
     _write_payee_map(map_path)
 
@@ -694,7 +708,9 @@ def test_build_review_rows_auto_settles_reconciled_target_only_rows(tmp_path: Pa
         map_path=map_path,
     )
 
-    target_only = review_rows.filter(pl.col("target_payee_selected") == "Manual Cash").row(0, named=True)
+    target_only = review_rows.filter(
+        pl.col("target_payee_selected") == "Manual Cash"
+    ).row(0, named=True)
     assert target_only["match_status"] == "target_only"
     assert target_only["decision_action"] == "ignore_row"
     assert bool(target_only["reviewed"]) is True
@@ -761,14 +777,18 @@ def test_build_review_rows_auto_settles_manual_target_only_rows(tmp_path: Path) 
         map_path=map_path,
     )
 
-    target_only = review_rows.filter(pl.col("target_payee_selected") == "Manual Cash").row(0, named=True)
+    target_only = review_rows.filter(
+        pl.col("target_payee_selected") == "Manual Cash"
+    ).row(0, named=True)
     assert target_only["match_status"] == "target_only"
     assert target_only["decision_action"] == "ignore_row"
     assert bool(target_only["reviewed"]) is True
     assert target_only["relation_kind"] == "target_only_manual"
 
 
-def test_build_review_rows_emits_institutional_ambiguous_candidates(tmp_path: Path) -> None:
+def test_build_review_rows_emits_institutional_ambiguous_candidates(
+    tmp_path: Path,
+) -> None:
     map_path = tmp_path / "payee_map.csv"
     _write_payee_map(map_path)
 
@@ -836,7 +856,9 @@ def test_build_review_rows_emits_institutional_ambiguous_candidates(tmp_path: Pa
     assert set(ambiguous["target_payee_current"].to_list()) == {"Cafe A", "Cafe B"}
 
 
-def test_institutional_candidate_pairs_prefer_exact_lineage_and_clear_false_ambiguity() -> None:
+def test_institutional_candidate_pairs_prefer_exact_lineage_and_clear_false_ambiguity() -> (
+    None
+):
     prepared_source = pd.DataFrame(
         [
             {
@@ -944,7 +966,9 @@ def test_institutional_candidate_pairs_prefer_exact_memo_lineage_markers() -> No
     assert pairs["ambiguous_key"].to_list() == [False]
 
 
-def test_institutional_candidate_pairs_prefer_exact_import_over_memo_lineage_marker() -> None:
+def test_institutional_candidate_pairs_prefer_exact_import_over_memo_lineage_marker() -> (
+    None
+):
     prepared_source = pd.DataFrame(
         [
             {

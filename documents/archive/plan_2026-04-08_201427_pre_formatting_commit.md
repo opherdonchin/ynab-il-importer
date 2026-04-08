@@ -33,9 +33,6 @@ Done:
   - [state.py](src/ynab_il_importer/review_app/state.py), [validation.py](src/ynab_il_importer/review_app/validation.py), [map_updates.py](src/ynab_il_importer/map_updates.py), and [app.py](src/ynab_il_importer/review_app/app.py) now keep the working frame as `pl.DataFrame`
   - review-app helpers now use Polars row/series access directly instead of pandas adapters
   - full test suite is green again: `pixi run pytest tests/ -q`
-- formatter-only cleanup pass is ready to commit:
-  - the remaining modified files are pure wrap/line-length formatting changes
-  - full test suite still passes after the formatter pass: `306 passed`
 
 ## Review App Polars Migration
 

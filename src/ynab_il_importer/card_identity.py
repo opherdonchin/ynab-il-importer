@@ -152,7 +152,9 @@ def append_card_txn_id_marker(memo: Any, card_txn_id: Any) -> str:
     text = str(memo or "")
     found = extract_card_txn_ids_from_memo(text)
     if found and found != [validated]:
-        raise ValueError(f"Memo already contains conflicting card_txn_id marker(s): {found}")
+        raise ValueError(
+            f"Memo already contains conflicting card_txn_id marker(s): {found}"
+        )
     if found == [validated]:
         return text
 

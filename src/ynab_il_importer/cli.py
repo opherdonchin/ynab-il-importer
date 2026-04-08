@@ -27,13 +27,17 @@ def _print_wrote(path: Path, row_count: int) -> None:
     print(export.wrote_message(path, row_count))
 
 
-def _write_normalized_with_parquet(df: pd.DataFrame, out_path: Path, *, fmt: str) -> None:
+def _write_normalized_with_parquet(
+    df: pd.DataFrame, out_path: Path, *, fmt: str
+) -> None:
     source_series = (
         df["source"].astype("string").fillna("").str.strip()
         if "source" in df.columns
         else pd.Series([""] * len(df), index=df.index, dtype="string")
     )
-    source_system = str(source_series.iloc[0] if not source_series.empty else "").strip() or fmt
+    source_system = (
+        str(source_series.iloc[0] if not source_series.empty else "").strip() or fmt
+    )
     _, parquet_path = write_flat_transaction_artifacts(
         df,
         out_path,
@@ -44,7 +48,9 @@ def _write_normalized_with_parquet(df: pd.DataFrame, out_path: Path, *, fmt: str
     _print_wrote(out_path, len(df))
 
 
-def _write_normalized_from_module(module, in_path: Path, out_path: Path, *, fmt: str) -> None:
+def _write_normalized_from_module(
+    module, in_path: Path, out_path: Path, *, fmt: str
+) -> None:
     df = module.read_raw(in_path)
     if hasattr(module, "read_canonical"):
         canonical = module.read_canonical(in_path)
@@ -59,7 +65,9 @@ def _write_normalized_from_module(module, in_path: Path, out_path: Path, *, fmt:
     _write_normalized_with_parquet(df, out_path, fmt=fmt)
 
 
-def _fill_and_validate_ynab_account(df: pd.DataFrame, fallback_account_name: str) -> pd.DataFrame:
+def _fill_and_validate_ynab_account(
+    df: pd.DataFrame, fallback_account_name: str
+) -> pd.DataFrame:
     out = df.copy()
     if "account_name" not in out.columns:
         out["account_name"] = ""
@@ -108,7 +116,9 @@ if typer is not None:
                 canonical_df["account_name"].astype("string").fillna("").str.strip()
             )
             if account_name:
-                canonical_df.loc[canonical_df["account_name"] == "", "account_name"] = account_name
+                canonical_df.loc[canonical_df["account_name"] == "", "account_name"] = (
+                    account_name
+                )
             canonical = pa.Table.from_pandas(canonical_df, preserve_index=False)
             _, parquet_path = write_canonical_transaction_artifacts(
                 canonical,
@@ -157,13 +167,17 @@ def _fallback_main() -> None:
     if args.command == "parse-leumi-xls":
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
-        _write_normalized_from_module(leumi_xls, Path(args.in_path), out_path, fmt="leumi_xls")
+        _write_normalized_from_module(
+            leumi_xls, Path(args.in_path), out_path, fmt="leumi_xls"
+        )
     elif args.command == "parse-max":
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
         _write_normalized_from_module(maxio, Path(args.in_path), out_path, fmt="max")
     elif args.command == "parse-ynab":
-        df = _fill_and_validate_ynab_account(ynab.read_raw(args.in_path), args.account_name)
+        df = _fill_and_validate_ynab_account(
+            ynab.read_raw(args.in_path), args.account_name
+        )
         out_path = Path(args.out_path)
         _ensure_parent(out_path)
         if hasattr(ynab, "read_canonical"):
