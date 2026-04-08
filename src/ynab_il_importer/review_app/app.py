@@ -3,13 +3,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, MutableMapping
 
-import pandas as pd
 import polars as pl
 import streamlit as st
 import streamlit.components.v1 as components
@@ -249,30 +249,30 @@ setTimeout(scrollTopNow, 0);
 
 
 def _accept_reviewed_components(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     review_indices: list[Any],
     *,
     component_map: dict[Any, int],
-) -> tuple[pd.DataFrame, list[str], list[Any]]:
+) -> tuple[pl.DataFrame, list[str], list[Any]]:
     updated, errors, reviewed_indices = review_validation.apply_review_state_best_effort(
-        pl.from_pandas(df),
+        df,
         review_indices,
         reviewed=True,
         component_map=component_map,
     )
-    return updated.to_pandas(), errors, reviewed_indices
+    return updated, errors, reviewed_indices
 
 
 def _call_apply_row_edit(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     idx: Any,
     **kwargs: Any,
-) -> pd.DataFrame:
-    return review_state.apply_row_edit(pl.from_pandas(df), idx, **kwargs).to_pandas()
+) -> pl.DataFrame:
+    return review_state.apply_row_edit(df, idx, **kwargs)
 
 
 def _call_apply_to_same_fingerprint(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     fingerprint: str,
     *,
     payee: str | None = None,
@@ -280,50 +280,41 @@ def _call_apply_to_same_fingerprint(
     update_maps: str | None = None,
     decision_action: str | None = None,
     reviewed: bool | None = None,
-    eligible_mask: pd.Series | None = None,
-) -> pd.DataFrame:
-    polars_mask = (
-        pl.Series(eligible_mask.astype(bool).tolist())
-        if isinstance(eligible_mask, pd.Series)
-        else None
-    )
+    eligible_mask: pl.Series | None = None,
+) -> pl.DataFrame:
     return review_model.apply_to_same_fingerprint(
-        pl.from_pandas(df),
+        df,
         fingerprint,
         payee=payee,
         category=category,
         update_maps=update_maps,
         decision_action=decision_action,
         reviewed=reviewed,
-        eligible_mask=polars_mask,
-    ).to_pandas()
+        eligible_mask=eligible_mask,
+    )
 
 
 def _call_apply_competing_row_resolution(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     indices: list[Any],
-) -> tuple[pd.DataFrame, list[Any]]:
-    updated, touched = review_model.apply_competing_row_resolution(
-        pl.from_pandas(df),
-        indices,
-    )
-    return updated.to_pandas(), touched
+) -> tuple[pl.DataFrame, list[Any]]:
+    return review_model.apply_competing_row_resolution(df, indices)
 
 
 def _call_apply_review_state(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     indices: list[Any],
     *,
     reviewed: bool,
     component_map: dict[Any, int] | None = None,
-) -> tuple[pd.DataFrame, list[str]]:
+) -> tuple[pl.DataFrame, list[str]]:
     updated, errors = review_validation.apply_review_state(
-        pl.from_pandas(df),
+        df,
         indices,
         reviewed=reviewed,
         component_map=component_map,
     )
-    return updated.to_pandas(), errors
+    return updated, errors
 
 
 def _quit_request_path(control_dir: Path) -> Path:
@@ -356,7 +347,7 @@ def _bump_df_generation() -> None:
 
 
 def _refresh_validation_state(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     *,
     changed_indices: list[Any] | None = None,
 ) -> None:
@@ -369,10 +360,10 @@ def _refresh_validation_state(
     st.session_state["_validation_state"] = validation_state
 
 
-def _canonical_review_bundle(df: pd.DataFrame | None) -> dict[str, Any]:
+def _canonical_review_bundle(df: pl.DataFrame | None) -> dict[str, Any]:
     if df is None:
         return {"table": None, "helpers": None, "helper_lookup": None}
-    table = working_schema.build_working_dataframe(pl.from_pandas(df, include_index=False))
+    table = working_schema.build_working_dataframe(df)
     helper_columns = [
         "source_is_split",
         "target_is_split",
@@ -390,15 +381,15 @@ def _canonical_review_bundle(df: pd.DataFrame | None) -> dict[str, Any]:
     helpers = review_state.canonical_review_helpers(table).with_row_index("_row_pos").select(
         "_row_pos", *helper_columns
     )
-    helper_lookup = review_state.view_row_lookup(helpers, df.index)
+    helper_lookup = review_state.view_row_lookup(helpers, list(range(len(df))))
     return {"table": table, "helpers": helpers, "helper_lookup": helper_lookup}
 
 
 def _set_review_frames(
     *,
-    df: pd.DataFrame | None = None,
-    original: pd.DataFrame | None = None,
-    base: pd.DataFrame | None = None,
+    df: pl.DataFrame | None = None,
+    original: pl.DataFrame | None = None,
+    base: pl.DataFrame | None = None,
     changed_indices: list[Any] | None = None,
 ) -> None:
     changed = False
@@ -408,7 +399,6 @@ def _set_review_frames(
         st.session_state["review_table"] = canonical["table"]
         st.session_state["review_helpers"] = canonical["helpers"]
         st.session_state["review_helper_lookup"] = canonical["helper_lookup"]
-        _refresh_validation_state(df, changed_indices=changed_indices)
         changed = True
     if original is not None:
         canonical = _canonical_review_bundle(original)
@@ -428,10 +418,10 @@ def _set_review_frames(
         _bump_df_generation()
 
 
-def _require_groupable_review_rows(df: pd.DataFrame) -> None:
+def _require_groupable_review_rows(df: pl.DataFrame) -> None:
     if "fingerprint" not in df.columns:
         raise ValueError("Review dataframe missing required fingerprint column.")
-    fingerprint = df["fingerprint"].astype("string").fillna("").str.strip()
+    fingerprint = df.get_column("fingerprint").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
     if fingerprint.eq("").any():
         raise ValueError(
             "Loaded review artifact contains blank fingerprint values; "
@@ -442,9 +432,9 @@ def _require_groupable_review_rows(df: pd.DataFrame) -> None:
 def _load_df(path: Path, *, set_source_path: bool = False) -> None:
     df = review_io.project_review_artifact_to_working_dataframe(
         review_io.load_review_artifact(path)
-    ).to_pandas()
+    )
     _require_groupable_review_rows(df)
-    _set_review_frames(df=df, original=df.copy())
+    _set_review_frames(df=df, original=df)
     if set_source_path:
         st.session_state["source_path"] = str(path)
     _clear_editor_state()
@@ -453,14 +443,14 @@ def _load_df(path: Path, *, set_source_path: bool = False) -> None:
 def _load_base(path: Path) -> None:
     base = review_io.project_review_artifact_to_working_dataframe(
         review_io.load_review_artifact(path)
-    ).to_pandas()
+    )
     _require_groupable_review_rows(base)
     _set_review_frames(base=base)
 
 
 def _load_categories(path: Path) -> None:
     try:
-        df = review_io.load_category_list(path)
+        df = pl.from_pandas(review_io.load_category_list(path))
     except (FileNotFoundError, ValueError) as exc:
         st.session_state["category_list"] = []
         st.session_state["category_group_map"] = {}
@@ -470,7 +460,7 @@ def _load_categories(path: Path) -> None:
 
     categories: list[str] = []
     group_map: dict[str, str] = {}
-    for _, row in df.iterrows():
+    for row in df.iter_rows(named=True):
         name = str(row.get("category_name", "") or "").strip()
         group = str(row.get("category_group", "") or "").strip()
         hidden = (
@@ -502,7 +492,7 @@ def _refresh_categories_from_api(*, profile: str, categories_path: Path) -> None
 
     groups = ynab_api.fetch_categories(plan_id=budget_id or None)
     df = ynab_api.categories_to_dataframe(groups)
-    if df.empty:
+    if len(df) == 0:
         raise ValueError("No categories returned from YNAB API.")
 
     categories_path.parent.mkdir(parents=True, exist_ok=True)
@@ -582,11 +572,9 @@ def _ensure_loaded() -> None:
         _load_df(source_path, set_source_path=True)
 
 
-def _format_amount(row: pd.Series) -> str:
-    outflow = pd.to_numeric(row.get("outflow_ils", 0.0), errors="coerce")
-    inflow = pd.to_numeric(row.get("inflow_ils", 0.0), errors="coerce")
-    outflow = float(outflow) if pd.notna(outflow) else 0.0
-    inflow = float(inflow) if pd.notna(inflow) else 0.0
+def _format_amount(row: dict[str, Any]) -> str:
+    outflow = _parse_float_value(row.get("outflow_ils", 0.0))
+    inflow = _parse_float_value(row.get("inflow_ils", 0.0))
     if outflow > 0:
         return f"-{outflow:g}"
     if inflow > 0:
@@ -598,7 +586,18 @@ def _fp_key(fp: str) -> str:
     return hashlib.sha1(fp.encode("utf-8")).hexdigest()[:8]
 
 
-def _pick_summary_text(row: pd.Series) -> str:
+def _parse_float_value(value: Any) -> float:
+    try:
+        if value is None:
+            return 0.0
+        if isinstance(value, str) and not value.strip():
+            return 0.0
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _pick_summary_text(row: dict[str, Any]) -> str:
     for col in [
         "description_clean",
         "merchant_raw",
@@ -628,7 +627,7 @@ def _pick_summary_text(row: pd.Series) -> str:
     return ""
 
 
-def _split_summary_suffix(helper_row: pd.Series | None) -> str:
+def _split_summary_suffix(helper_row: dict[str, Any] | None) -> str:
     if helper_row is None:
         return ""
     source_count = int(helper_row.get("source_split_count", 0) or 0)
@@ -643,7 +642,7 @@ def _split_summary_suffix(helper_row: pd.Series | None) -> str:
     return " | " + " | ".join(parts)
 
 
-def _helper_text(helper_row: pd.Series | None, key: str) -> str:
+def _helper_text(helper_row: dict[str, Any] | None, key: str) -> str:
     if helper_row is None:
         return ""
     return str(helper_row.get(key, "") or "").strip()
@@ -711,7 +710,7 @@ def _group_status_counts(
     }
 
 
-def _summary_date(row: pd.Series, helper_row: pd.Series | None) -> str:
+def _summary_date(row: dict[str, Any], helper_row: dict[str, Any] | None) -> str:
     return (
         _helper_text(helper_row, "source_display_date")
         or _helper_text(helper_row, "target_display_date")
@@ -719,7 +718,7 @@ def _summary_date(row: pd.Series, helper_row: pd.Series | None) -> str:
     )
 
 
-def _summary_account(row: pd.Series, helper_row: pd.Series | None) -> str:
+def _summary_account(row: dict[str, Any], helper_row: dict[str, Any] | None) -> str:
     return (
         _helper_text(helper_row, "source_display_account")
         or _helper_text(helper_row, "target_display_account")
@@ -1039,9 +1038,9 @@ def _render_secondary_tag_badges(
 
 
 def _compute_derived_state(
-    df: pd.DataFrame,
-    original: pd.DataFrame | None,
-    base: pd.DataFrame | None,
+    df: pl.DataFrame,
+    original: pl.DataFrame | None,
+    base: pl.DataFrame | None,
     *,
     review_table: pl.DataFrame | None = None,
     validation_state: dict[str, Any] | None = None,
@@ -1050,26 +1049,27 @@ def _compute_derived_state(
     modified = review_state.modified_count(df, original)
     unsaved_mask = review_state.modified_mask(df, original)
     changed_mask = review_state.changed_mask(df, base)
-    reviewed_mask = review_validation.normalize_flag_series(
-        df.get("reviewed", pd.Series([False] * len(df), index=df.index))
+    reviewed_mask = (
+        df.get_column("reviewed").cast(pl.Boolean, strict=False).fill_null(False)
+        if "reviewed" in df.columns
+        else pl.Series([False] * len(df), dtype=pl.Boolean)
     )
-    saved_mask = review_state.saved_mask(original, base, df.index)
-    updated_mask = (changed_mask | reviewed_mask).astype(bool)
+    saved_mask = review_state.saved_mask(original, base, list(range(len(df))))
+    updated_mask = changed_mask | reviewed_mask
     inconsistent = review_validation.inconsistent_fingerprints(df)
     uncategorized_mask = review_state.uncategorized_mask(df)
     if not isinstance(validation_state, dict):
         validation_state = review_validation.build_validation_state(df)
     component_map = validation_state.get("component_map", {})
     blocker_series = validation_state.get("blocker_series")
-    if not isinstance(blocker_series, pd.Series) or not blocker_series.index.equals(df.index):
+    if not isinstance(blocker_series, pl.Series) or len(blocker_series) != len(df):
         blocker_series = review_validation.build_validation_state(
             df,
             component_map=component_map if component_map else None,
         )["blocker_series"]
-    save_state = pd.Series(
-        ["Saved" if bool(value) else "Unsaved" for value in saved_mask],
-        index=df.index,
-        dtype="string",
+    save_state = pl.Series(
+        ["Saved" if bool(value) else "Unsaved" for value in saved_mask.to_list()],
+        dtype=pl.Utf8,
     )
     data_view = review_state.review_data_view(df)
     state_view = review_state.review_filter_state_view(
@@ -1091,7 +1091,7 @@ def _compute_derived_state(
             "source_present",
             "target_present",
         ),
-        df.index,
+        list(range(len(df))),
     )
     state_lookup = review_state.view_row_lookup(
         state_view.select(
@@ -1103,16 +1103,15 @@ def _compute_derived_state(
             "changed_bool",
             "uncategorized_bool",
         ),
-        df.index,
+        list(range(len(df))),
     )
     inference_tag = review_state.initial_inference_tags(df, base)
-    progress_tag = pd.Series(
-        ["resolved" if bool(value) else "unchanged" for value in updated_mask],
-        index=df.index,
-        dtype="string",
+    progress_tag = pl.Series(
+        ["resolved" if bool(value) else "unchanged" for value in updated_mask.to_list()],
+        dtype=pl.Utf8,
     )
-    persistence_tag = save_state.str.lower()
-    base_count = len(base) if isinstance(base, pd.DataFrame) and not base.empty else len(df)
+    persistence_tag = save_state.str.to_lowercase()
+    base_count = len(base) if isinstance(base, pl.DataFrame) and not base.is_empty() else len(df)
     updated_confirmed_count = int(updated_mask.sum())
     saved_reviewed_count = int(saved_mask.sum())
     uncategorized_count = int(uncategorized_mask.sum())
@@ -1144,9 +1143,9 @@ def _compute_derived_state(
 
 def _get_cached_derived_state(
     cache: MutableMapping[str, Any],
-    df: pd.DataFrame,
-    original: pd.DataFrame | None,
-    base: pd.DataFrame | None,
+    df: pl.DataFrame,
+    original: pl.DataFrame | None,
+    base: pl.DataFrame | None,
     *,
     review_table: pl.DataFrame | None = None,
     validation_state: dict[str, Any] | None = None,
@@ -1238,7 +1237,7 @@ def _category_choice_list(
     return options
 
 
-def _selected_side_value(row: pd.Series, *, side: str, field: str) -> str:
+def _selected_side_value(row: dict[str, Any], *, side: str, field: str) -> str:
     column = f"{side}_{field}_selected"
     value = str(row.get(column, "") or "").strip()
     if field == "category":
@@ -1246,15 +1245,15 @@ def _selected_side_value(row: pd.Series, *, side: str, field: str) -> str:
     return value
 
 
-def _apply_staged_row_widget_values(df: pd.DataFrame, indices: list[Any]) -> pd.DataFrame:
-    if df.empty or not indices:
-        return df.copy()
+def _apply_staged_row_widget_values(df: pl.DataFrame, indices: list[Any]) -> pl.DataFrame:
+    if df.is_empty() or not indices:
+        return df
 
-    updated = df.copy()
+    updated = df
     for idx in indices:
-        if idx not in updated.index:
+        if not isinstance(idx, int) or idx < 0 or idx >= len(updated):
             continue
-        row = updated.loc[idx]
+        row = updated.row(idx, named=True)
         source_payee_key = _editor_key(f"source_payee_{idx}")
         source_category_key = _editor_key(f"source_category_{idx}")
         target_payee_select_key = _editor_key(f"target_payee_select_{idx}")
@@ -1344,18 +1343,10 @@ def _apply_staged_row_widget_values(df: pd.DataFrame, indices: list[Any]) -> pd.
     return updated
 
 
-def _grouped_row_indices(filtered: pd.DataFrame) -> tuple[list[str], dict[str, list[Any]]]:
-    if filtered.empty:
+def _grouped_row_indices(filtered: pl.DataFrame) -> tuple[list[str], dict[str, list[int]]]:
+    if filtered.is_empty():
         return [], {}
-    projected = pl.DataFrame(
-        {"fingerprint": filtered["fingerprint"].astype("string").fillna("").tolist()}
-    )
-    fingerprints, position_map = review_state.grouped_row_indices(projected)
-    index_values = list(filtered.index)
-    return fingerprints, {
-        fp: [index_values[pos] for pos in positions if 0 <= pos < len(index_values)]
-        for fp, positions in position_map.items()
-    }
+    return review_state.grouped_row_indices(filtered.select("fingerprint"))
 
 
 def _render_detail_section(title: str, entries: list[tuple[str, Any]]) -> None:
@@ -1406,7 +1397,7 @@ def _split_category_summary(splits: list[dict[str, Any]] | None) -> str:
     return "Yes"
 
 
-def _row_context_lines(row: pd.Series) -> list[str]:
+def _row_context_lines(row: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     source_context = str(row.get("source_context_kind", "") or "").strip()
     target_context = str(row.get("target_context_kind", "") or "").strip()
@@ -1426,8 +1417,8 @@ def _split_id_set(value: str) -> set[str]:
 
 
 def _split_amount_text(split: dict[str, Any]) -> str:
-    outflow = float(pd.to_numeric(split.get("outflow_ils", 0.0), errors="coerce") or 0.0)
-    inflow = float(pd.to_numeric(split.get("inflow_ils", 0.0), errors="coerce") or 0.0)
+    outflow = _parse_float_value(split.get("outflow_ils", 0.0))
+    inflow = _parse_float_value(split.get("inflow_ils", 0.0))
     if outflow > 0:
         return f"-{outflow:g}"
     if inflow > 0:
@@ -1436,14 +1427,20 @@ def _split_amount_text(split: dict[str, Any]) -> str:
 
 
 def _split_signed_amount(split: dict[str, Any]) -> float:
-    outflow = float(pd.to_numeric(split.get("outflow_ils", 0.0), errors="coerce") or 0.0)
-    inflow = float(pd.to_numeric(split.get("inflow_ils", 0.0), errors="coerce") or 0.0)
+    outflow = _parse_float_value(split.get("outflow_ils", 0.0))
+    inflow = _parse_float_value(split.get("inflow_ils", 0.0))
     return inflow - outflow
 
 
 def _split_editor_amount_text(value: Any) -> str:
-    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
-    if pd.isna(numeric):
+    text = str(value or "").strip()
+    if text in {"", "-", "+"}:
+        return ""
+    try:
+        numeric = float(text)
+    except ValueError:
+        return ""
+    if math.isnan(numeric):
         return ""
     return f"{float(numeric):g}"
 
@@ -1499,7 +1496,7 @@ def _collect_split_editor_lines() -> list[dict[str, Any]]:
     return result
 
 
-def _source_context_caption(row: pd.Series) -> str:
+def _source_context_caption(row: dict[str, Any]) -> str:
     context_kind = str(row.get("source_context_kind", "") or "").strip()
     category_name = str(row.get("source_context_category_name", "") or "").strip()
     matching_ids = str(row.get("source_context_matching_split_ids", "") or "").strip()
@@ -1545,7 +1542,7 @@ def _split_caption_lines(
     return lines
 
 
-def _target_split_editor_rows(row: pd.Series) -> list[dict[str, Any]]:
+def _target_split_editor_rows(row: dict[str, Any]) -> list[dict[str, Any]]:
     splits = review_io._normalize_split_records(row.get("target_splits"))
     if splits:
         rows: list[dict[str, Any]] = []
@@ -1595,7 +1592,7 @@ def _target_split_editor_rows(row: pd.Series) -> list[dict[str, Any]]:
 
 
 def _open_target_split_editor(
-    row: pd.Series,
+    row: dict[str, Any],
     *,
     idx: Any,
     group_fingerprint: str | None = None,
@@ -1619,17 +1616,17 @@ def _close_target_split_editor() -> None:
 @st.dialog("Split editor", width="large")
 def _render_target_split_editor_dialog(
     *,
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     idx: Any,
     category_choices: list[str],
     group_fingerprint: str = "",
 ) -> None:
     editor_state = st.session_state.get("_split_editor")
-    if not isinstance(editor_state, dict) or idx not in df.index:
+    if not isinstance(editor_state, dict) or not isinstance(idx, int) or idx < 0 or idx >= len(df):
         _close_target_split_editor()
         return
 
-    row = df.loc[idx]
+    row = df.row(idx, named=True)
     parent_amount = review_state._signed_amount_from_row_values(
         inflow=row.get("inflow_ils", 0.0),
         outflow=row.get("outflow_ils", 0.0),
@@ -1756,8 +1753,8 @@ def _render_target_split_editor_dialog(
         amount_text = st.session_state.get(
             f"_split_editor_amount_{lid}", line.get("amount_ils", "")
         )
-        numeric = pd.to_numeric(pd.Series([amount_text]), errors="coerce").iloc[0]
-        if not pd.isna(numeric):
+        numeric = _parse_float_value(amount_text)
+        if str(amount_text or "").strip():
             split_total += float(numeric)
     difference = split_total - parent_amount
     st.caption(
@@ -1771,10 +1768,10 @@ def _render_target_split_editor_dialog(
             line_records = _collect_split_editor_lines()
             try:
                 updated = review_state.apply_target_split_edit(
-                    pl.from_pandas(df),
+                    df,
                     idx,
                     lines=line_records,
-                ).to_pandas()
+                )
             except ValueError as exc:
                 st.error(str(exc))
             else:
@@ -1796,7 +1793,7 @@ def _render_target_split_editor_dialog(
 
 
 def _render_split_action_buttons(
-    row: pd.Series,
+    row: dict[str, Any],
     *,
     idx: Any,
     group_fingerprint: str | None = None,
@@ -1811,14 +1808,14 @@ def _render_split_action_buttons(
 
 def _maybe_render_target_split_editor_dialog(
     *,
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     category_choices: list[str],
 ) -> None:
     editor_state = st.session_state.get("_split_editor")
     if not isinstance(editor_state, dict):
         return
     idx = editor_state.get("idx")
-    if idx not in df.index:
+    if not isinstance(idx, int) or idx < 0 or idx >= len(df):
         _close_target_split_editor()
         return
     _render_target_split_editor_dialog(
@@ -1830,12 +1827,12 @@ def _maybe_render_target_split_editor_dialog(
 
 
 def _render_row_details(
-    row: pd.Series,
+    row: dict[str, Any],
     *,
     primary_state: str,
     blocker: str,
     category_group_map: dict[str, str],
-    helper_row: pd.Series | None = None,
+    helper_row: dict[str, Any] | None = None,
 ) -> None:
     source_splits = review_io._normalize_split_records(row.get("source_splits"))
     target_splits = review_io._normalize_split_records(row.get("target_splits"))
@@ -1916,7 +1913,7 @@ def _render_row_details(
 
 
 def _render_row_controls(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     idx: Any,
     category_choices: list[str],
     category_group_map: dict[str, str],
@@ -1924,12 +1921,12 @@ def _render_row_controls(
     category_defaults: dict[str, str],
     show_apply: bool = True,
     group_fingerprint: str | None = None,
-    updated_mask: pd.Series | None = None,
+    updated_mask: pl.Series | None = None,
     component_map: dict[Any, int] | None = None,
     row_order: list[Any] | None = None,
     row_page_size: int | None = None,
 ) -> None:
-    row = df.loc[idx]
+    row = df.row(idx, named=True)
     fingerprint = str(row.get("fingerprint", "") or "")
     payee_options = review_model.parse_option_string(row.get("payee_options", ""))
     category_options = review_model.parse_option_string(row.get("category_options", ""))
@@ -1938,9 +1935,9 @@ def _render_row_controls(
     source_category_selected = _selected_side_value(row, side="source", field="category")
     target_payee_selected = _selected_side_value(row, side="target", field="payee")
     target_category_selected = _selected_side_value(row, side="target", field="category")
-    current_action = review_validation.normalize_decision_actions(
-        pd.Series([row.get("decision_action", review_validation.NO_DECISION)])
-    ).iloc[0]
+    current_action = review_validation.normalize_decision_action(
+        row.get("decision_action", review_validation.NO_DECISION)
+    )
     target_present = bool(row["target_present"])
     create_target_default = current_action == "create_target" and not target_present
     uncategorized_default = "Uncategorized" if "Uncategorized" in category_choices else ""
@@ -2192,7 +2189,7 @@ def _render_row_controls(
         else:
             st.session_state["expanded_row_id"] = idx
 
-        working_df = df.copy()
+        working_df = df
         working_df = _call_apply_row_edit(
             working_df,
             idx,
@@ -2212,7 +2209,7 @@ def _render_row_controls(
         if apply_all and show_apply:
             untouched_mask = None
             if updated_mask is not None:
-                untouched_mask = ~updated_mask.astype(bool)
+                untouched_mask = ~updated_mask.cast(pl.Boolean, strict=False).fill_null(False)
             applied_mask = review_state.series_or_default(working_df, "fingerprint").eq(
                 str(row.get("fingerprint", "") or "").strip()
             )
@@ -2228,14 +2225,18 @@ def _render_row_controls(
                 else None,
                 eligible_mask=untouched_mask,
             )
-            applied_indices = working_df.index[applied_mask].tolist()
+            applied_indices = [
+                current_idx
+                for current_idx, flag in enumerate(applied_mask.to_list())
+                if flag
+            ]
             review_indices.extend(applied_indices)
             working_df, competing_indices = _call_apply_competing_row_resolution(
                 working_df, applied_indices
             )
             review_indices.extend(competing_indices)
 
-        row_errors, warnings = review_validation.validate_row(working_df.loc[idx])
+        row_errors, warnings = review_validation.validate_row(working_df.row(idx, named=True))
         final_df, review_errors = _call_apply_review_state(
             working_df,
             review_indices,
@@ -2302,9 +2303,9 @@ def main() -> None:
             st.rerun()
         return
 
-    df: pd.DataFrame = st.session_state["df"]
-    original: pd.DataFrame = st.session_state.get("df_original")
-    base: pd.DataFrame = st.session_state.get("df_base")
+    df: pl.DataFrame = st.session_state["df"]
+    original: pl.DataFrame = st.session_state.get("df_original")
+    base: pl.DataFrame = st.session_state.get("df_base")
     review_table: pl.DataFrame | None = st.session_state.get("review_table")
     review_helper_lookup: dict[Any, dict[str, Any]] | None = st.session_state.get("review_helper_lookup")
     category_list: list[str] = st.session_state.get("category_list", [])
@@ -2415,7 +2416,7 @@ def main() -> None:
             )
             map_updates_df = map_updates.save_map_update_candidates(df, base, map_updates_path)
             st.session_state["last_saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            _set_review_frames(original=df.copy())
+            _set_review_frames(original=df.clone())
             st.session_state["save_notice"] = (
                 f"Saved to {save_path} and wrote {len(map_updates_df)} map updates to {map_updates_path}"
             )
@@ -2438,15 +2439,18 @@ def main() -> None:
         st.header("View")
         view_mode = st.radio("Mode", ["Grouped", "Row"], index=0, key="view_mode")
         if st.button("Accept all set decisions", use_container_width=True):
-            working_df = _apply_staged_row_widget_values(df, df.index.tolist())
+            working_df = _apply_staged_row_widget_values(df, list(range(len(df))))
             working_actions = review_validation.normalize_decision_actions(
-                working_df.get(
-                    "decision_action",
-                    pd.Series([""] * len(working_df), index=working_df.index),
-                )
+                working_df.get_column("decision_action")
+                if "decision_action" in working_df.columns
+                else pl.Series([""] * len(working_df), dtype=pl.Utf8)
             )
             reviewable_mask = working_actions.ne(review_validation.NO_DECISION)
-            review_indices = working_df.index[reviewable_mask].tolist()
+            review_indices = [
+                current_idx
+                for current_idx, flag in enumerate(reviewable_mask.to_list())
+                if flag
+            ]
             if not review_indices:
                 st.session_state["review_notice"] = "No rows have a decision to accept yet."
             else:
@@ -2466,7 +2470,7 @@ def main() -> None:
                     st.session_state["review_error"] = message
                 else:
                     settled_count = int(
-                        review_validation.normalize_flag_series(final_df["reviewed"]).sum()
+                        review_validation.normalize_flag_series(final_df.get_column("reviewed")).sum()
                     )
                     st.session_state["review_notice"] = (
                         f"Marked {settled_count} rows reviewed in memory. Click Save to persist."
@@ -2601,13 +2605,13 @@ def main() -> None:
     if uncategorized_count > 0:
         st.warning(f"Uncategorized still selected in {uncategorized_count} rows.")
 
-    if not inconsistent.empty:
+    if not inconsistent.is_empty():
         st.warning(f"Inconsistent repeated transaction selections: {len(inconsistent)}")
 
     filtered_indices = review_state.filtered_row_indices_from_views(
         data_view,
         state_view,
-        df.index,
+        list(range(len(df))),
         primary_state=primary_state,
         row_kind=selected_row_kind,
         action_filter=selected_action,
@@ -2617,17 +2621,14 @@ def main() -> None:
         map_update_filter=selected_map_updates,
         search_query=str(search_query or "").strip().casefold(),
     )
-    filtered = df.loc[filtered_indices]
+    filtered = pl.from_dicts([df.row(idx, named=True) for idx in filtered_indices], infer_schema_length=None)
 
-    working_defaults_view = pl.from_pandas(
-        df[["fingerprint", "payee_selected", "category_selected"]].copy(),
-        include_index=False,
-    )
+    working_defaults_view = df.select(["fingerprint", "payee_selected", "category_selected"])
     payee_defaults = review_state.most_common_by_fingerprint(working_defaults_view, "payee_selected")
     category_defaults = review_state.most_common_by_fingerprint(working_defaults_view, "category_selected")
     if view_mode == "Row":
         page_size = st.selectbox("Page size", [25, 50, 100], index=1, key="page_size")
-        indices = filtered.index.tolist()
+        indices = filtered_indices
         total_pages = max(1, (len(indices) + page_size - 1) // page_size)
         page_key = _editor_key("row_page")
         if page_key not in st.session_state:
@@ -2643,7 +2644,7 @@ def main() -> None:
         start = (page - 1) * page_size
         end = start + page_size
         for idx in indices[start:end]:
-            row = df.loc[idx]
+            row = df.row(idx, named=True)
             helper_row = (
                 review_helper_lookup.get(idx)
                 if isinstance(review_helper_lookup, dict)
@@ -2675,20 +2676,20 @@ def main() -> None:
             with st.expander(summary, expanded=expanded):
                 _render_primary_state_banner(row_readiness, row_save_state)
                 _render_status_badges(
-                    unsaved=bool(unsaved_mask.loc[idx]),
-                    changed=bool(changed_mask.loc[idx]),
-                    reviewed=bool(reviewed_mask.loc[idx]),
-                    uncategorized=bool(uncategorized_mask.loc[idx]),
+                    unsaved=bool(unsaved_mask[idx]),
+                    changed=bool(changed_mask[idx]),
+                    reviewed=bool(reviewed_mask[idx]),
+                    uncategorized=bool(uncategorized_mask[idx]),
                 )
                 _render_secondary_tag_badges(
-                    inference=str(inference_tag.loc[idx] or ""),
-                    progress=str(progress_tag.loc[idx] or ""),
-                    persistence=str(persistence_tag.loc[idx] or ""),
+                    inference=str(inference_tag[idx] or ""),
+                    progress=str(progress_tag[idx] or ""),
+                    persistence=str(persistence_tag[idx] or ""),
                 )
                 _render_row_details(
                     row,
                     primary_state=row_readiness,
-                    blocker=str(blocker_series.loc[idx] or ""),
+                    blocker=str(blocker_series[idx] or ""),
                     category_group_map=category_group_map,
                     helper_row=helper_row,
                 )
@@ -2732,7 +2733,8 @@ def main() -> None:
         end = start + group_page_size
         for fp in fingerprints[start:end]:
             group_indices = fp_to_indices.get(fp, [])
-            group = df.loc[group_indices]
+            group_rows = [df.row(idx, named=True) for idx in group_indices]
+            group = pl.from_dicts(group_rows, infer_schema_length=None)
             group_rows = _lookup_rows(data_lookup, group_indices)
             group_payee_options = _option_list(
                 [str(row.get("payee_options", "") or "") for row in group_rows]
@@ -2755,7 +2757,7 @@ def main() -> None:
             )
             group_primary_meta = _primary_state_meta(group_ready_value, group_save_value)
             header = (
-                f"[{group_primary_meta['short']}] {header_fp} ({len(group)}) | "
+                f"[{group_primary_meta['short']}] {header_fp} ({len(group_rows)}) | "
                 f"Payee: {group_payee_summary} | Cat: {group_category_summary}"
             )
 
@@ -2919,12 +2921,9 @@ def main() -> None:
                     index=group_decision_options.index(group_decision_default),
                     key=group_decision_key,
                 )
-                staged_group = _apply_staged_row_widget_values(df, group.index.tolist())
+                staged_group = _apply_staged_row_widget_values(df, group_indices)
                 staged_group_actions = review_validation.normalize_decision_actions(
-                    staged_group.loc[group.index].get(
-                        "decision_action",
-                        pd.Series([""] * len(group), index=group.index),
-                    )
+                    pl.Series([staged_group.row(idx, named=True).get("decision_action", "") for idx in group_indices], dtype=pl.Utf8)
                 )
                 ready_group_count = int(
                     staged_group_actions.ne(review_validation.NO_DECISION).sum()
@@ -2979,11 +2978,11 @@ def main() -> None:
                         if group_category_select_value
                         else None
                     )
-                    working_df = df.copy()
-                    untouched_mask = ~updated_mask.astype(bool)
-                    visible_group_mask = pd.Series(
-                        working_df.index.isin(group.index),
-                        index=working_df.index,
+                    working_df = df
+                    untouched_mask = ~updated_mask.cast(pl.Boolean, strict=False).fill_null(False)
+                    visible_group_mask = pl.Series(
+                        [idx in set(group_indices) for idx in range(len(working_df))],
+                        dtype=pl.Boolean,
                     )
                     eligible_mask = untouched_mask & visible_group_mask
                     applied_mask = eligible_mask & review_state.series_or_default(
@@ -2999,7 +2998,11 @@ def main() -> None:
                         else None,
                         eligible_mask=eligible_mask,
                     )
-                    affected_indices = working_df.index[applied_mask].tolist()
+                    affected_indices = [
+                        current_idx
+                        for current_idx, flag in enumerate(applied_mask.to_list())
+                        if flag
+                    ]
                     working_df, competing_indices = _call_apply_competing_row_resolution(
                         working_df, affected_indices
                     )
@@ -3025,17 +3028,19 @@ def main() -> None:
                     st.rerun()
 
                 if accept_group:
-                    working_df = staged_group.copy()
-                    working_group = working_df.loc[group.index]
+                    working_df = staged_group
+                    working_group_rows = [working_df.row(idx, named=True) for idx in group_indices]
                     group_actions = review_validation.normalize_decision_actions(
-                        working_group.get(
-                            "decision_action",
-                            pd.Series([""] * len(working_group), index=working_group.index),
+                        pl.Series(
+                            [row.get("decision_action", "") for row in working_group_rows],
+                            dtype=pl.Utf8,
                         )
                     )
-                    review_indices = working_group.index[
-                        group_actions.ne(review_validation.NO_DECISION)
-                    ].tolist()
+                    review_indices = [
+                        idx
+                        for idx, flag in zip(group_indices, group_actions.ne(review_validation.NO_DECISION).to_list(), strict=False)
+                        if flag
+                    ]
                     st.session_state["expanded_group_fp"] = fp
                     st.session_state["expanded_group_row_id"] = None
                     if not review_indices:
@@ -3067,7 +3072,7 @@ def main() -> None:
                     st.rerun()
 
                 st.markdown("**Rows**")
-                row_indices = group.index.tolist()
+                row_indices = group_indices
                 row_pages = max(1, (len(row_indices) + group_row_page_size - 1) // group_row_page_size)
                 fp_key = _fp_key(fp)
                 row_page_key = _editor_key(f"group_row_page_{fp_key}")
@@ -3084,7 +3089,7 @@ def main() -> None:
                 row_start = (row_page - 1) * group_row_page_size
                 row_end = row_start + group_row_page_size
                 for idx in row_indices[row_start:row_end]:
-                    row = df.loc[idx]
+                    row = df.row(idx, named=True)
                     helper_row = (
                         review_helper_lookup.get(idx)
                         if isinstance(review_helper_lookup, dict)
@@ -3121,20 +3126,20 @@ def main() -> None:
                     with st.expander(summary, expanded=row_expanded):
                         _render_primary_state_banner(row_readiness, row_save_state)
                         _render_status_badges(
-                            unsaved=bool(unsaved_mask.loc[idx]),
-                            changed=bool(changed_mask.loc[idx]),
-                            reviewed=bool(reviewed_mask.loc[idx]),
-                            uncategorized=bool(uncategorized_mask.loc[idx]),
+                            unsaved=bool(unsaved_mask[idx]),
+                            changed=bool(changed_mask[idx]),
+                            reviewed=bool(reviewed_mask[idx]),
+                            uncategorized=bool(uncategorized_mask[idx]),
                         )
                         _render_secondary_tag_badges(
-                            inference=str(inference_tag.loc[idx] or ""),
-                            progress=str(progress_tag.loc[idx] or ""),
-                            persistence=str(persistence_tag.loc[idx] or ""),
+                            inference=str(inference_tag[idx] or ""),
+                            progress=str(progress_tag[idx] or ""),
+                            persistence=str(persistence_tag[idx] or ""),
                         )
                         _render_row_details(
                             row,
                             primary_state=row_readiness,
-                            blocker=str(blocker_series.loc[idx] or ""),
+                            blocker=str(blocker_series[idx] or ""),
                             category_group_map=category_group_map,
                             helper_row=helper_row,
                         )

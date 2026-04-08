@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import math
 from collections import Counter
 from typing import Any
 
-import pandas as pd
 import polars as pl
 import pyarrow as pa
 
 import ynab_il_importer.review_app.model as model
-from ynab_il_importer.safe_types import normalize_flag_series
 from ynab_il_importer.artifacts.transaction_schema import SPLIT_LINE_STRUCT
+from ynab_il_importer.safe_types import TRUE_VALUES
 
 
 _SPLIT_LIST_DTYPE = pl.from_arrow(
@@ -48,6 +48,40 @@ _REVIEW_DATA_TEXT_COLUMNS = [
     "target_merchant_raw",
 ]
 _REVIEW_DATA_BOOL_COLUMNS = ["reviewed", "source_present", "target_present"]
+
+
+def _empty_text_series(length: int) -> pl.Series:
+    return pl.Series([""] * length, dtype=pl.Utf8)
+
+
+def _empty_bool_series(length: int) -> pl.Series:
+    return pl.Series([False] * length, dtype=pl.Boolean)
+
+
+def _normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    return str(value).strip()
+
+
+def _normalize_flag_series(series: pl.Series) -> pl.Series:
+    return pl.Series(
+        [_normalize_text(value).casefold() in TRUE_VALUES for value in series.to_list()],
+        dtype=pl.Boolean,
+    )
+
+
+def _parse_float_value(value: Any) -> float:
+    text = _normalize_text(value)
+    if not text:
+        return 0.0
+    try:
+        parsed = float(text)
+    except ValueError:
+        return 0.0
+    return 0.0 if math.isnan(parsed) else parsed
 
 
 def _split_count(name: str) -> pl.Expr:
@@ -139,8 +173,8 @@ def canonical_review_helpers(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def review_data_view(df: pd.DataFrame) -> pl.DataFrame:
-    if df.empty:
+def review_data_view(df: pl.DataFrame) -> pl.DataFrame:
+    if df.is_empty():
         return pl.DataFrame(
             {
                 "_row_pos": pl.Series([], dtype=pl.UInt32),
@@ -156,15 +190,15 @@ def review_data_view(df: pd.DataFrame) -> pl.DataFrame:
             }
         )
 
-    frame = pl.from_pandas(
-        df,
-        include_index=False,
-        schema_overrides={
-            "source_splits": _SPLIT_LIST_DTYPE,
-            "target_splits": _SPLIT_LIST_DTYPE,
-        },
-    ).with_row_index("_row_pos")
-    frame = _normalized_review_data_frame(frame)
+    frame = _normalized_review_data_frame(
+        df.with_row_index("_row_pos").with_columns(
+            [
+                pl.col(name).cast(_SPLIT_LIST_DTYPE, strict=False).alias(name)
+                for name in ("source_splits", "target_splits")
+                if name in df.columns
+            ]
+        )
+    )
     helpers = canonical_review_helpers(frame)
 
     target_payee_selected = pl.col("target_payee_selected")
@@ -284,10 +318,10 @@ def review_data_view(df: pd.DataFrame) -> pl.DataFrame:
 def review_filter_state_view(
     data_view: pl.DataFrame,
     *,
-    blocker_series: pd.Series,
-    save_state: pd.Series,
-    changed_mask: pd.Series | None = None,
-    uncategorized_mask: pd.Series | None = None,
+    blocker_series: pl.Series,
+    save_state: pl.Series,
+    changed_mask: pl.Series | None = None,
+    uncategorized_mask: pl.Series | None = None,
 ) -> pl.DataFrame:
     if data_view.is_empty():
         return pl.DataFrame(
@@ -303,16 +337,16 @@ def review_filter_state_view(
             }
         )
 
-    blocker_values = blocker_series.astype("string").fillna("").tolist()
-    save_values = save_state.astype("string").fillna("Unsaved").tolist()
+    blocker_values = blocker_series.cast(pl.Utf8, strict=False).fill_null("").to_list()
+    save_values = save_state.cast(pl.Utf8, strict=False).fill_null("Unsaved").to_list()
     changed_values = (
-        changed_mask.astype(bool).tolist()
-        if isinstance(changed_mask, pd.Series)
+        changed_mask.cast(pl.Boolean, strict=False).fill_null(False).to_list()
+        if isinstance(changed_mask, pl.Series)
         else [False] * data_view.height
     )
     uncategorized_values = (
-        uncategorized_mask.astype(bool).tolist()
-        if isinstance(uncategorized_mask, pd.Series)
+        uncategorized_mask.cast(pl.Boolean, strict=False).fill_null(False).to_list()
+        if isinstance(uncategorized_mask, pl.Series)
         else [False] * data_view.height
     )
     return data_view.select("_row_pos", "reviewed_bool", "action_label", "has_suggestions", "has_update_maps").with_columns(
@@ -356,7 +390,7 @@ def review_filter_state_view(
 def filtered_row_indices_from_views(
     data_view: pl.DataFrame,
     state_view: pl.DataFrame,
-    index: pd.Index | list[Any],
+    index: list[Any],
     *,
     primary_state: list[str],
     row_kind: list[str],
@@ -395,7 +429,7 @@ def filtered_row_indices_from_views(
 
 def view_row_lookup(
     view: pl.DataFrame,
-    index: pd.Index | list[Any],
+    index: list[Any],
 ) -> dict[Any, dict[str, Any]]:
     index_values = list(index)
     if view.is_empty() or not index_values or "_row_pos" not in view.columns:
@@ -409,89 +443,91 @@ def view_row_lookup(
     return lookup
 
 
-def series_or_default(df: pd.DataFrame, col: str) -> pd.Series:
+def series_or_default(df: pl.DataFrame, col: str) -> pl.Series:
     if col in df.columns:
-        return df[col].astype("string").fillna("")
+        return df.get_column(col).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
     if col == "payee_selected" and "target_payee_selected" in df.columns:
-        return df["target_payee_selected"].astype("string").fillna("")
+        return df.get_column("target_payee_selected").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
     if col == "category_selected" and "target_category_selected" in df.columns:
-        return df["target_category_selected"].astype("string").fillna("")
-    return pd.Series([""] * len(df), index=df.index, dtype="string")
+        return df.get_column("target_category_selected").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
+    return _empty_text_series(len(df))
 
 
-def _decision_action_series(df: pd.DataFrame) -> pd.Series:
-    return (
-        series_or_default(df, "decision_action")
-        .str.strip()
-        .replace("", "No decision")
-        .str.casefold()
+def _decision_action_series(df: pl.DataFrame) -> pl.Series:
+    return pl.Series(
+        [(_normalize_text(value) or "No decision").casefold() for value in series_or_default(df, "decision_action").to_list()],
+        dtype=pl.Utf8,
     )
 
 
-def _update_maps_series(df: pd.DataFrame) -> pd.Series:
+def _update_maps_series(df: pl.DataFrame) -> pl.Series:
     if "update_maps" in df.columns:
-        return df["update_maps"].astype("string").fillna("").str.strip()
-    return pd.Series([""] * len(df), index=df.index, dtype="string")
+        return df.get_column("update_maps").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
+    return _empty_text_series(len(df))
 
 
-def _bool_series(df: pd.DataFrame, col: str) -> pd.Series:
+def _bool_series(df: pl.DataFrame, col: str) -> pl.Series:
     if col not in df.columns:
-        return pd.Series([False] * len(df), index=df.index)
-    return normalize_flag_series(df[col])
+        return _empty_bool_series(len(df))
+    return _normalize_flag_series(df.get_column(col))
 
 
-def _id_series(df: pd.DataFrame, col: str) -> pd.Series:
-    return series_or_default(df, col).str.strip()
+def _id_series(df: pl.DataFrame, col: str) -> pl.Series:
+    return series_or_default(df, col).str.strip_chars()
 
 
-def _id_list(df: pd.DataFrame | pl.DataFrame, col: str) -> list[str]:
-    if isinstance(df, pd.DataFrame):
-        return _id_series(df, col).tolist()
+def _id_list(df: pl.DataFrame, col: str) -> list[str]:
     if col not in df.columns:
         return [""] * df.height
-    return [
-        str(value or "").strip()
-        for value in df.select(pl.col(col).cast(pl.Utf8, strict=False).fill_null("")).to_series().to_list()
-    ]
+    return [str(value or "").strip() for value in _id_series(df, col).to_list()]
 
 
 def _component_mask_from_map(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     idx: Any,
     component_map: dict[Any, int],
-) -> pd.Series:
+) -> pl.Series:
     component_label = component_map.get(idx)
     if component_label is None:
-        return pd.Series([False] * len(df), index=df.index)
-    return pd.Series(
-        [component_map.get(current_idx) == component_label for current_idx in df.index],
-        index=df.index,
+        return _empty_bool_series(len(df))
+    return pl.Series(
+        [component_map.get(current_idx) == component_label for current_idx in range(len(df))],
+        dtype=pl.Boolean,
     )
 
 
-def _missing_value_masks(df: pd.DataFrame) -> tuple[pd.Series, pd.Series, pd.Series]:
+def _missing_value_masks(df: pl.DataFrame) -> tuple[pl.Series, pl.Series, pl.Series]:
     decision_action = _decision_action_series(df)
     create_target = decision_action.eq("create_target")
-    payee_blank = series_or_default(df, "payee_selected").str.strip() == ""
-    payee = series_or_default(df, "payee_selected").str.strip()
-    category = series_or_default(df, "category_selected").map(model.normalize_category_value)
+    payee = series_or_default(df, "payee_selected").str.strip_chars()
+    payee_blank = payee.eq("")
+    category = pl.Series(
+        [model.normalize_category_value(value) for value in series_or_default(df, "category_selected").to_list()],
+        dtype=pl.Utf8,
+    )
     category_blank = category.eq("")
-    no_category_required = category.map(model.is_no_category_required)
-    transfer_payee = payee.map(model.is_transfer_payee)
+    no_category_required = pl.Series(
+        [model.is_no_category_required(value) for value in category.to_list()],
+        dtype=pl.Boolean,
+    )
+    transfer_payee = pl.Series(
+        [model.is_transfer_payee(value) for value in payee.to_list()],
+        dtype=pl.Boolean,
+    )
     missing_payee = create_target & payee_blank
     missing_category = create_target & (category_blank | no_category_required) & ~transfer_payee
     return missing_payee, missing_category, create_target
 
 
-def unresolved_mask(df: pd.DataFrame) -> pd.Series:
+def unresolved_mask(df: pl.DataFrame) -> pl.Series:
     missing_payee, missing_category, _ = _missing_value_masks(df)
     decision_action = _decision_action_series(df)
-    match_status = series_or_default(df, "match_status").str.strip().str.casefold()
-    pending_decision = match_status.isin(["ambiguous", "source_only", "target_only"]) & decision_action.eq("no decision")
+    match_status = series_or_default(df, "match_status").str.strip_chars().str.to_lowercase()
+    pending_decision = match_status.is_in(["ambiguous", "source_only", "target_only"]) & decision_action.eq("no decision")
     return missing_payee | missing_category | pending_decision
 
 
-def summary_counts(df: pd.DataFrame) -> dict[str, int]:
+def summary_counts(df: pl.DataFrame) -> dict[str, int]:
     missing_payee, missing_category, _ = _missing_value_masks(df)
     unresolved = unresolved_mask(df)
     update_maps = _update_maps_series(df).ne("")
@@ -504,13 +540,13 @@ def summary_counts(df: pd.DataFrame) -> dict[str, int]:
     }
 
 
-def accept_defaults_mask(df: pd.DataFrame) -> pd.Series:
-    return pd.Series([False] * len(df), index=df.index)
+def accept_defaults_mask(df: pl.DataFrame) -> pl.Series:
+    return _empty_bool_series(len(df))
 
 
-def modified_mask(df: pd.DataFrame, original: pd.DataFrame | None) -> pd.Series:
-    if original is None or original.empty:
-        return pd.Series([False] * len(df), index=df.index)
+def modified_mask(df: pl.DataFrame, original: pl.DataFrame | None) -> pl.Series:
+    if original is None or original.is_empty():
+        return _empty_bool_series(len(df))
     cols = [
         col
         for col in [
@@ -525,19 +561,25 @@ def modified_mask(df: pd.DataFrame, original: pd.DataFrame | None) -> pd.Series:
         if col in df.columns and col in original.columns
     ]
     if not cols:
-        return pd.Series([False] * len(df), index=df.index)
-    return (df[cols] != original[cols]).any(axis=1)
+        return _empty_bool_series(len(df))
+    return pl.Series(
+        [
+            any(left.get(col) != right.get(col) for col in cols)
+            for left, right in zip(df.to_dicts(), original.to_dicts(), strict=False)
+        ],
+        dtype=pl.Boolean,
+    )
 
 
-def modified_count(df: pd.DataFrame, original: pd.DataFrame | None) -> int:
+def modified_count(df: pl.DataFrame, original: pl.DataFrame | None) -> int:
     return int(modified_mask(df, original).sum())
 
 
-def changed_mask(df: pd.DataFrame, base: pd.DataFrame | None) -> pd.Series:
+def changed_mask(df: pl.DataFrame, base: pl.DataFrame | None) -> pl.Series:
     if "changed" in df.columns:
         return _bool_series(df, "changed")
-    if base is None or base.empty:
-        return pd.Series([False] * len(df), index=df.index)
+    if base is None or base.is_empty():
+        return _empty_bool_series(len(df))
     cols = [
         col
         for col in [
@@ -552,100 +594,118 @@ def changed_mask(df: pd.DataFrame, base: pd.DataFrame | None) -> pd.Series:
         if col in df.columns and col in base.columns
     ]
     if not cols:
-        return pd.Series([False] * len(df), index=df.index)
+        return _empty_bool_series(len(df))
     if "transaction_id" in df.columns and "transaction_id" in base.columns:
-        df_ids = df["transaction_id"].astype("string").fillna("")
-        base_ids = base["transaction_id"].astype("string").fillna("")
-        df_keys = df_ids + "|" + df_ids.groupby(df_ids).cumcount().astype("string")
-        base_keys = base_ids + "|" + base_ids.groupby(base_ids).cumcount().astype("string")
-        current = df.assign(_key=df_keys).set_index("_key")[cols].copy()
-        baseline = base.assign(_key=base_keys).set_index("_key")[cols].copy()
-        aligned = baseline.reindex(current.index)
-        missing_in_base = aligned.isna().all(axis=1)
-        changed = (current != aligned).any(axis=1) | missing_in_base
-        return pd.Series(changed.to_numpy(), index=df.index)
+        current_rows = df.select(["transaction_id", *cols]).to_dicts()
+        base_rows = base.select(["transaction_id", *cols]).to_dicts()
+        base_counts: dict[str, int] = {}
+        base_lookup: dict[tuple[str, int], dict[str, Any]] = {}
+        for row in base_rows:
+            txn_id = _normalize_text(row.get("transaction_id"))
+            occurrence = base_counts.get(txn_id, 0)
+            base_counts[txn_id] = occurrence + 1
+            base_lookup[(txn_id, occurrence)] = row
+        current_counts: dict[str, int] = {}
+        changed = []
+        for row in current_rows:
+            txn_id = _normalize_text(row.get("transaction_id"))
+            occurrence = current_counts.get(txn_id, 0)
+            current_counts[txn_id] = occurrence + 1
+            baseline = base_lookup.get((txn_id, occurrence))
+            if baseline is None:
+                changed.append(True)
+                continue
+            changed.append(any(row.get(col) != baseline.get(col) for col in cols))
+        return pl.Series(changed, dtype=pl.Boolean)
 
-    current = df[cols].copy()
-    baseline = base[cols].reindex(df.index)
-    missing_in_base = baseline.isna().all(axis=1)
-    return (current != baseline).any(axis=1) | missing_in_base
+    current_rows = df.select(cols).to_dicts()
+    baseline_rows = base.select(cols).to_dicts()
+    changed = []
+    for current_row, baseline_row in zip(current_rows, baseline_rows, strict=False):
+        if baseline_row is None:
+            changed.append(True)
+            continue
+        changed.append(any(current_row.get(col) != baseline_row.get(col) for col in cols))
+    if len(current_rows) > len(baseline_rows):
+        changed.extend([True] * (len(current_rows) - len(baseline_rows)))
+    return pl.Series(changed[: len(df)], dtype=pl.Boolean)
 
 
-def saved_mask(original: pd.DataFrame | None, base: pd.DataFrame | None, current_index: pd.Index) -> pd.Series:
-    if original is None or original.empty:
-        return pd.Series([False] * len(current_index), index=current_index)
+def saved_mask(original: pl.DataFrame | None, base: pl.DataFrame | None, current_index: list[Any]) -> pl.Series:
+    if original is None or original.is_empty():
+        return _empty_bool_series(len(current_index))
 
-    changed = changed_mask(original, base).reindex(original.index, fill_value=False)
+    changed = changed_mask(original, base)
     reviewed = _bool_series(original, "reviewed")
 
-    saved = (changed | reviewed).reindex(current_index, fill_value=False)
-    return saved.astype(bool)
+    saved = (changed | reviewed).to_list()
+    return pl.Series(saved[: len(current_index)], dtype=pl.Boolean)
 
 
-def apply_filters(df: pd.DataFrame, filters: dict[str, Any]) -> pd.DataFrame:
-    filtered = df.copy()
+def apply_filters(df: pl.DataFrame, filters: dict[str, Any]) -> pl.DataFrame:
+    filtered = df
 
     match_status = filters.get("match_status")
     if match_status:
-        filtered = filtered[filtered["match_status"].isin(match_status)]
+        filtered = filtered.filter(pl.col("match_status").is_in(match_status))
 
     reviewed = _bool_series(df, "reviewed")
     reviewed_mode = str(filters.get("reviewed_mode", "") or "").strip().lower()
     if reviewed_mode == "unreviewed":
-        filtered = filtered[~reviewed.reindex(filtered.index, fill_value=False)]
+        filtered = filtered.filter(~reviewed)
     elif reviewed_mode == "reviewed":
-        filtered = filtered[reviewed.reindex(filtered.index, fill_value=False)]
+        filtered = filtered.filter(reviewed)
 
     missing_payee, missing_category, _ = _missing_value_masks(filtered)
     unresolved = unresolved_mask(filtered)
     if filters.get("unresolved_only"):
-        filtered = filtered[unresolved]
+        filtered = filtered.filter(unresolved)
     if filters.get("missing_payee_only"):
-        filtered = filtered[missing_payee]
+        filtered = filtered.filter(missing_payee)
     if filters.get("missing_category_only"):
-        filtered = filtered[missing_category]
+        filtered = filtered.filter(missing_category)
 
     fingerprint_query = str(filters.get("fingerprint_query", "") or "").strip().casefold()
     if fingerprint_query:
-        filtered = filtered[
-            series_or_default(filtered, "fingerprint").str.casefold().str.contains(fingerprint_query, regex=False)
-        ]
+        filtered = filtered.filter(
+            series_or_default(filtered, "fingerprint")
+            .str.to_lowercase()
+            .str.contains(fingerprint_query, literal=True)
+        )
 
     payee_query = str(filters.get("payee_query", "") or "").strip().casefold()
     if payee_query:
         payee_text = series_or_default(filtered, "payee_selected") + " " + series_or_default(filtered, "payee_options")
-        filtered = filtered[payee_text.str.casefold().str.contains(payee_query, regex=False)]
+        filtered = filtered.filter(payee_text.str.to_lowercase().str.contains(payee_query, literal=True))
 
     memo_query = str(filters.get("memo_query", "") or "").strip().casefold()
     if memo_query:
         memo_text = series_or_default(filtered, "memo") + " " + series_or_default(filtered, "description_raw") + " " + series_or_default(filtered, "description_clean")
-        filtered = filtered[memo_text.str.casefold().str.contains(memo_query, regex=False)]
+        filtered = filtered.filter(memo_text.str.to_lowercase().str.contains(memo_query, literal=True))
 
     source_query = str(filters.get("source_query", "") or "").strip().casefold()
     if source_query:
-        filtered = filtered[
-            series_or_default(filtered, "source").str.casefold().str.contains(source_query, regex=False)
-        ]
+        filtered = filtered.filter(
+            series_or_default(filtered, "source").str.to_lowercase().str.contains(source_query, literal=True)
+        )
 
     account_query = str(filters.get("account_query", "") or "").strip().casefold()
     if account_query:
-        filtered = filtered[
-            series_or_default(filtered, "account_name").str.casefold().str.contains(account_query, regex=False)
-        ]
+        filtered = filtered.filter(
+            series_or_default(filtered, "account_name").str.to_lowercase().str.contains(account_query, literal=True)
+        )
 
     return filtered
 
 
 def _clean_text_list(values: Any) -> list[str]:
-    if isinstance(values, pd.Series):
-        raw_values = values.astype("string").fillna("").tolist()
-    elif isinstance(values, pl.Series):
+    if isinstance(values, pl.Series):
         raw_values = values.cast(pl.Utf8, strict=False).fill_null("").to_list()
     elif isinstance(values, list):
         raw_values = values
     else:
         raw_values = list(values) if values is not None else []
-    return [str(value or "").strip() for value in raw_values if str(value or "").strip()]
+    return [str(value or "").strip() for value in raw_values]
 
 
 def _most_common_from_values(values: list[str]) -> str:
@@ -666,16 +726,8 @@ def most_common_value(series: pl.Series | list[str]) -> str:
 def most_common_by_fingerprint(df: pl.DataFrame, column: str) -> dict[str, str]:
     if "fingerprint" not in df.columns or column not in df.columns:
         return {}
-    fingerprints = [
-        str(value or "").strip()
-        for value in df.select(
-            pl.col("fingerprint").cast(pl.Utf8, strict=False).fill_null("")
-        ).to_series().to_list()
-    ]
-    values = [
-        str(value or "").strip()
-        for value in df.select(pl.col(column).cast(pl.Utf8, strict=False).fill_null("")).to_series().to_list()
-    ]
+    fingerprints = _clean_text_list(df.get_column("fingerprint"))
+    values = _clean_text_list(df.get_column(column))
     grouped: dict[str, list[str]] = {}
     for fp, value in zip(fingerprints, values, strict=False):
         fp_text = str(fp or "").strip()
@@ -693,15 +745,7 @@ def most_common_by_fingerprint(df: pl.DataFrame, column: str) -> dict[str, str]:
 
 def grouped_row_indices(filtered: pl.DataFrame) -> tuple[list[str], dict[str, list[Any]]]:
     indices = list(range(filtered.height))
-    if "fingerprint" in filtered.columns:
-        fingerprints = [
-            str(value or "").strip()
-            for value in filtered.select(
-                pl.col("fingerprint").cast(pl.Utf8, strict=False).fill_null("")
-            ).to_series().to_list()
-        ]
-    else:
-        fingerprints = [""] * filtered.height
+    fingerprints = _clean_text_list(filtered.get_column("fingerprint")) if "fingerprint" in filtered.columns else [""] * filtered.height
     group_indices: dict[str, list[Any]] = {}
     counts: Counter[str] = Counter()
     first_seen: list[str] = []
@@ -718,110 +762,149 @@ def grouped_row_indices(filtered: pl.DataFrame) -> tuple[list[str], dict[str, li
     return ordered, group_indices
 
 
-def required_category_missing_mask(df: pd.DataFrame) -> pd.Series:
-    payee = series_or_default(df, "payee_selected").str.strip()
-    category = series_or_default(df, "category_selected").map(model.normalize_category_value)
-    transfer = payee.map(model.is_transfer_payee)
-    return (category.eq("") | category.map(model.is_no_category_required)) & ~transfer
-
-
-def uncategorized_mask(df: pd.DataFrame) -> pd.Series:
-    payee = series_or_default(df, "payee_selected").str.strip()
-    transfer = payee.map(model.is_transfer_payee)
-    category = (
-        series_or_default(df, "category_selected")
-        .map(model.normalize_category_value)
-        .str.casefold()
+def required_category_missing_mask(df: pl.DataFrame) -> pl.Series:
+    payee_values = _clean_text_list(series_or_default(df, "payee_selected"))
+    category_values = [
+        model.normalize_category_value(value)
+        for value in _clean_text_list(series_or_default(df, "category_selected"))
+    ]
+    return pl.Series(
+        [
+            (category == "" or model.is_no_category_required(category))
+            and not model.is_transfer_payee(payee)
+            for payee, category in zip(payee_values, category_values, strict=False)
+        ],
+        dtype=pl.Boolean,
     )
-    return category.str.contains("uncategorized", regex=False) & ~transfer
 
 
-def truthy_series(df: pd.DataFrame, column: str) -> pd.Series:
+def uncategorized_mask(df: pl.DataFrame) -> pl.Series:
+    payee_values = _clean_text_list(series_or_default(df, "payee_selected"))
+    category_values = [
+        model.normalize_category_value(value).casefold()
+        for value in _clean_text_list(series_or_default(df, "category_selected"))
+    ]
+    return pl.Series(
+        [
+            ("uncategorized" in category) and not model.is_transfer_payee(payee)
+            for payee, category in zip(payee_values, category_values, strict=False)
+        ],
+        dtype=pl.Boolean,
+    )
+
+
+def truthy_series(df: pl.DataFrame, column: str) -> pl.Series:
     if column not in df.columns:
-        return pd.Series([False] * len(df), index=df.index)
-    return normalize_flag_series(df[column])
+        return _empty_bool_series(len(df))
+    return _normalize_flag_series(df.get_column(column))
 
 
-def primary_state_series(df: pd.DataFrame, blocker_series: pd.Series) -> pd.Series:
+def primary_state_series(df: pl.DataFrame, blocker_series: pl.Series) -> pl.Series:
     reviewed = truthy_series(df, "reviewed")
-    blocker = blocker_series.astype("string").fillna("").str.strip()
-    action = action_series(df)
+    blocker = [str(value or "").strip() for value in blocker_series.to_list()]
+    action = [str(value or "").strip() for value in action_series(df).to_list()]
+    reviewed_values = reviewed.to_list()
     states: list[str] = []
-    for idx in df.index:
-        if bool(reviewed.loc[idx]) and blocker.loc[idx] in {"", "None"}:
+    for is_reviewed, blocker_value, action_value in zip(reviewed_values, blocker, action, strict=False):
+        if is_reviewed and blocker_value in {"", "None"}:
             states.append("Settled")
-        elif blocker.loc[idx] not in {"", "None"}:
+        elif blocker_value not in {"", "None"}:
             states.append("Fix")
-        elif action.loc[idx] != "No decision":
+        elif action_value != "No decision":
             states.append("Decide")
         else:
             states.append("Fix")
-    return pd.Series(states, index=df.index, dtype="string")
+    return pl.Series(states, dtype=pl.Utf8)
 
 
-def row_kind_series(df: pd.DataFrame) -> pd.Series:
-    match_status = series_or_default(df, "match_status").str.strip().str.casefold()
-    labels = pd.Series(["Other"] * len(df), index=df.index, dtype="string")
-    labels = labels.where(~match_status.eq("matched_cleared"), "Matched cleared")
-    labels = labels.where(~match_status.eq("matched_auto"), "Matched")
-    labels = labels.where(~match_status.eq("source_only"), "Source only")
-    labels = labels.where(~match_status.eq("target_only"), "Target only")
-    labels = labels.where(~match_status.eq("ambiguous"), "Ambiguous")
-    labels = labels.where(~match_status.eq("unrecognized"), "Unrecognized")
-    return labels
+def row_kind_series(df: pl.DataFrame) -> pl.Series:
+    match_status = [
+        str(value or "").strip().casefold()
+        for value in series_or_default(df, "match_status").to_list()
+    ]
+    return pl.Series(
+        [
+            "Matched cleared"
+            if value == "matched_cleared"
+            else "Matched"
+            if value == "matched_auto"
+            else "Source only"
+            if value == "source_only"
+            else "Target only"
+            if value == "target_only"
+            else "Ambiguous"
+            if value == "ambiguous"
+            else "Unrecognized"
+            if value == "unrecognized"
+            else "Other"
+            for value in match_status
+        ],
+        dtype=pl.Utf8,
+    )
 
 
-def action_series(df: pd.DataFrame) -> pd.Series:
+def action_series(df: pl.DataFrame) -> pl.Series:
     import ynab_il_importer.review_app.validation as review_validation
 
     return review_validation.normalize_decision_actions(
         series_or_default(df, "decision_action")
-    ).astype("string")
+    )
 
 
-def suggestion_series(df: pd.DataFrame) -> pd.Series:
+def suggestion_series(df: pl.DataFrame) -> pl.Series:
     source_present = truthy_series(df, "source_present")
     target_present = truthy_series(df, "target_present")
-    source_payee_selected = series_or_default(df, "source_payee_selected").str.strip()
-    source_category_selected = series_or_default(df, "source_category_selected").str.strip()
-    target_payee_selected = series_or_default(df, "target_payee_selected").str.strip()
-    target_category_selected = series_or_default(df, "target_category_selected").str.strip()
-    payee_options = series_or_default(df, "payee_options").str.strip()
-    category_options = series_or_default(df, "category_options").str.strip()
-    has_missing_side_suggestions = (
-        ~source_present
-        & (
-            source_payee_selected.ne("")
-            | source_category_selected.ne("")
-        )
-    ) | (
-        ~target_present
-        & (
-            target_payee_selected.ne("")
-            | target_category_selected.ne("")
-            | payee_options.ne("")
-            | category_options.ne("")
-        )
-    )
-    return pd.Series(
-        ["Has suggestions" if bool(value) else "No suggestions" for value in has_missing_side_suggestions],
-        index=df.index,
-        dtype="string",
+    source_payee_selected = _clean_text_list(series_or_default(df, "source_payee_selected"))
+    source_category_selected = _clean_text_list(series_or_default(df, "source_category_selected"))
+    target_payee_selected = _clean_text_list(series_or_default(df, "target_payee_selected"))
+    target_category_selected = _clean_text_list(series_or_default(df, "target_category_selected"))
+    payee_options = _clean_text_list(series_or_default(df, "payee_options"))
+    category_options = _clean_text_list(series_or_default(df, "category_options"))
+    source_present_values = source_present.to_list()
+    target_present_values = target_present.to_list()
+    return pl.Series(
+        [
+            "Has suggestions"
+            if (
+                (not src_present and (src_payee != "" or src_category != ""))
+                or (
+                    not tgt_present
+                    and (
+                        tgt_payee != ""
+                        or tgt_category != ""
+                        or payee_option != ""
+                        or category_option != ""
+                    )
+                )
+            )
+            else "No suggestions"
+            for src_present, tgt_present, src_payee, src_category, tgt_payee, tgt_category, payee_option, category_option in zip(
+                source_present_values,
+                target_present_values,
+                source_payee_selected,
+                source_category_selected,
+                target_payee_selected,
+                target_category_selected,
+                payee_options,
+                category_options,
+                strict=False,
+            )
+        ],
+        dtype=pl.Utf8,
     )
 
 
-def map_update_filter_series(df: pd.DataFrame) -> pd.Series:
-    has_updates = series_or_default(df, "update_maps").str.strip().ne("")
-    return pd.Series(
-        ["Has update_maps" if bool(value) else "No update_maps" for value in has_updates],
-        index=df.index,
-        dtype="string",
+def map_update_filter_series(df: pl.DataFrame) -> pl.Series:
+    has_updates = _clean_text_list(series_or_default(df, "update_maps"))
+    return pl.Series(
+        ["Has update_maps" if value else "No update_maps" for value in has_updates],
+        dtype=pl.Utf8,
     )
 
 
 def state_matrix_counts(
-    primary_state_series: pd.Series | pl.Series | list[str],
-    save_state_series: pd.Series | pl.Series | list[str],
+    primary_state_series: pl.Series | list[str],
+    save_state_series: pl.Series | list[str],
 ) -> dict[str, int]:
     primary_values = _clean_text_list(primary_state_series)
     save_values = _clean_text_list(save_state_series)
@@ -831,7 +914,7 @@ def state_matrix_counts(
     return dict(counts)
 
 
-def search_text_series(df: pd.DataFrame) -> pd.Series:
+def search_text_series(df: pl.DataFrame) -> pl.Series:
     columns = [
         "fingerprint",
         "memo",
@@ -855,56 +938,67 @@ def search_text_series(df: pd.DataFrame) -> pd.Series:
         "decision_action",
         "update_maps",
     ]
-    parts = [series_or_default(df, column) for column in columns]
-    text = pd.Series([""] * len(df), index=df.index, dtype="string")
-    for part in parts:
-        text = text + " " + part.astype("string").fillna("")
-    return text.str.casefold()
+    parts = [series_or_default(df, column).to_list() for column in columns]
+    rows: list[str] = []
+    for values in zip(*parts, strict=False):
+        text = " ".join(_normalize_text(value) for value in values if _normalize_text(value))
+        rows.append(text.casefold())
+    return pl.Series(rows, dtype=pl.Utf8)
 
 
-def _row_key_series(df: pd.DataFrame) -> pd.Series:
+def _row_key_series(df: pl.DataFrame) -> pl.Series:
     if "transaction_id" not in df.columns:
-        return pd.Series(df.index.astype("string"), index=df.index, dtype="string")
-    txn_id = df["transaction_id"].astype("string").fillna("")
-    occurrence = txn_id.groupby(txn_id).cumcount().astype("string")
-    return txn_id + "|" + occurrence
+        return pl.Series([str(index) for index in range(len(df))], dtype=pl.Utf8)
+    txn_ids = _clean_text_list(df.get_column("transaction_id"))
+    counts: dict[str, int] = {}
+    keys: list[str] = []
+    for txn_id in txn_ids:
+        occurrence = counts.get(txn_id, 0)
+        counts[txn_id] = occurrence + 1
+        keys.append(f"{txn_id}|{occurrence}")
+    return pl.Series(keys, dtype=pl.Utf8)
 
 
-def derive_inference_tags(df: pd.DataFrame) -> pd.Series:
-    match_status = series_or_default(df, "match_status").str.strip().str.lower()
-    payee = series_or_default(df, "payee_selected").str.strip()
-    missing_required = payee.eq("") | required_category_missing_mask(df)
+def derive_inference_tags(df: pl.DataFrame) -> pl.Series:
+    match_status = [
+        str(value or "").strip().lower()
+        for value in series_or_default(df, "match_status").to_list()
+    ]
+    payee = _clean_text_list(series_or_default(df, "payee_selected"))
+    missing_required = required_category_missing_mask(df).to_list()
+    inferred: list[str] = []
+    for status, payee_value, missing in zip(match_status, payee, missing_required, strict=False):
+        if status == "none":
+            value = "unrecognized"
+        elif status == "ambiguous":
+            value = "ambiguous"
+        elif status not in {"", "none", "ambiguous", "unique"} and not missing:
+            value = status
+        elif (status not in {"none", "ambiguous"} and missing) or payee_value == "":
+            value = "missing" if missing else "unique"
+        else:
+            value = "unique"
+        inferred.append(value)
+    return pl.Series(inferred, dtype=pl.Utf8)
 
-    inferred = pd.Series(["unique"] * len(df), index=df.index, dtype="string")
-    inferred = inferred.where(~match_status.eq("none"), "unrecognized")
-    inferred = inferred.where(~match_status.eq("ambiguous"), "ambiguous")
-    inferred = inferred.where(
-        ~(~match_status.isin(["none", "ambiguous"]) & missing_required), "missing"
-    )
-    unknown = (
-        ~match_status.isin(["", "none", "ambiguous", "unique"])
-        & ~missing_required
-    )
-    inferred = inferred.where(~unknown, match_status)
-    return inferred
 
-
-def initial_inference_tags(df: pd.DataFrame, base: pd.DataFrame | None) -> pd.Series:
+def initial_inference_tags(df: pl.DataFrame, base: pl.DataFrame | None) -> pl.Series:
     fallback = derive_inference_tags(df)
-    if base is None or base.empty:
+    if base is None or base.is_empty():
         return fallback
 
     base_keys = _row_key_series(base)
     base_inference = derive_inference_tags(base)
-    base_map = pd.Series(base_inference.to_numpy(), index=base_keys)
-
+    base_map = {key: value for key, value in zip(base_keys.to_list(), base_inference.to_list(), strict=False)}
     current_keys = _row_key_series(df)
-    aligned = current_keys.map(base_map)
-    return aligned.fillna(fallback).astype("string")
+    return pl.Series(
+        [base_map.get(key, fallback_value) for key, fallback_value in zip(current_keys.to_list(), fallback.to_list(), strict=False)],
+        dtype=pl.Utf8,
+    )
 
 
 def apply_row_filters(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     *,
     primary_state: list[str],
     row_kind: list[str],
@@ -913,33 +1007,34 @@ def apply_row_filters(
     blocker_filter: list[str],
     suggestion_filter: list[str],
     map_update_filter: list[str],
-    primary_state_series: pd.Series,
-    row_kind_series: pd.Series,
-    action_series: pd.Series,
-    save_state: pd.Series,
-    blocker_series: pd.Series,
-    suggestion_series: pd.Series,
-    map_update_series: pd.Series,
+    primary_state_series: pl.Series,
+    row_kind_series: pl.Series,
+    action_series: pl.Series,
+    save_state: pl.Series,
+    blocker_series: pl.Series,
+    suggestion_series: pl.Series,
+    map_update_series: pl.Series,
     search_query: str,
-    search_text: pd.Series,
-) -> pd.DataFrame:
-    mask = pd.Series([True] * len(df), index=df.index)
-    mask &= primary_state_series.isin(primary_state)
-    mask &= row_kind_series.isin(row_kind)
-    mask &= action_series.isin(action_filter)
-    mask &= save_state.isin(save_status)
-    mask &= blocker_series.isin(blocker_filter)
-    mask &= suggestion_series.isin(suggestion_filter)
-    mask &= map_update_series.isin(map_update_filter)
+    search_text: pl.Series,
+) -> pl.DataFrame:
+    mask = (
+        primary_state_series.is_in(primary_state)
+        & row_kind_series.is_in(row_kind)
+        & action_series.is_in(action_filter)
+        & save_state.is_in(save_status)
+        & blocker_series.is_in(blocker_filter)
+        & suggestion_series.is_in(suggestion_filter)
+        & map_update_series.is_in(map_update_filter)
+    )
 
     if search_query:
-        mask &= search_text.str.contains(search_query, regex=False)
+        mask &= search_text.str.contains(search_query, literal=True)
 
-    return df[mask]
+    return df.filter(mask)
 
 
 def filtered_row_indices(
-    index: pd.Index | list[Any],
+    index: list[Any],
     *,
     primary_state: list[str],
     row_kind: list[str],
@@ -948,15 +1043,15 @@ def filtered_row_indices(
     blocker_filter: list[str],
     suggestion_filter: list[str],
     map_update_filter: list[str],
-    primary_state_series: pd.Series,
-    row_kind_series: pd.Series,
-    action_series: pd.Series,
-    save_state: pd.Series,
-    blocker_series: pd.Series,
-    suggestion_series: pd.Series,
-    map_update_series: pd.Series,
+    primary_state_series: pl.Series,
+    row_kind_series: pl.Series,
+    action_series: pl.Series,
+    save_state: pl.Series,
+    blocker_series: pl.Series,
+    suggestion_series: pl.Series,
+    map_update_series: pl.Series,
     search_query: str,
-    search_text: pd.Series,
+    search_text: pl.Series,
 ) -> list[Any]:
     indices = list(index)
     if not indices:
@@ -970,20 +1065,14 @@ def filtered_row_indices(
     allowed_suggestion = set(suggestion_filter)
     allowed_map_update = set(map_update_filter)
 
-    primary_values = (
-        primary_state_series.reindex(indices).astype("string").fillna("").tolist()
-    )
-    row_kind_values = row_kind_series.reindex(indices).astype("string").fillna("").tolist()
-    action_values = action_series.reindex(indices).astype("string").fillna("").tolist()
-    save_values = save_state.reindex(indices).astype("string").fillna("").tolist()
-    blocker_values = blocker_series.reindex(indices).astype("string").fillna("").tolist()
-    suggestion_values = (
-        suggestion_series.reindex(indices).astype("string").fillna("").tolist()
-    )
-    map_update_values = (
-        map_update_series.reindex(indices).astype("string").fillna("").tolist()
-    )
-    search_values = search_text.reindex(indices).astype("string").fillna("").tolist()
+    primary_values = _clean_text_list(primary_state_series)
+    row_kind_values = _clean_text_list(row_kind_series)
+    action_values = _clean_text_list(action_series)
+    save_values = _clean_text_list(save_state)
+    blocker_values = _clean_text_list(blocker_series)
+    suggestion_values = _clean_text_list(suggestion_series)
+    map_update_values = _clean_text_list(map_update_series)
+    search_values = _clean_text_list(search_text)
 
     selected: list[Any] = []
     query = str(search_query or "")
@@ -1020,29 +1109,18 @@ def filtered_row_indices(
 
 
 def related_row_indices(
-    df: pd.DataFrame | pl.DataFrame,
+    df: pl.DataFrame,
     idx: Any,
     *,
     include_source: bool = False,
     include_target: bool = False,
 ) -> list[Any]:
-    if isinstance(df, pd.DataFrame):
-        if idx not in df.index:
-            return []
-        index_values = list(df.index)
-        source_ids = _id_series(df, "source_row_id").tolist()
-        target_ids = _id_series(df, "target_row_id").tolist()
-        try:
-            pos = index_values.index(idx)
-        except ValueError:
-            return []
-    else:
-        if not isinstance(idx, int) or idx < 0 or idx >= df.height:
-            return []
-        index_values = list(range(df.height))
-        source_ids = _id_list(df, "source_row_id")
-        target_ids = _id_list(df, "target_row_id")
-        pos = idx
+    if not isinstance(idx, int) or idx < 0 or idx >= df.height:
+        return []
+    index_values = list(range(df.height))
+    source_ids = _id_list(df, "source_row_id")
+    target_ids = _id_list(df, "target_row_id")
+    pos = idx
 
     matched: list[Any] = [idx]
     matched_set = {idx}
@@ -1067,33 +1145,35 @@ def related_row_indices(
 
 
 def related_rows_mask(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     idx: Any,
     *,
     include_source: bool = False,
     include_target: bool = False,
-) -> pd.Series:
+) -> pl.Series:
     indices = related_row_indices(
         df,
         idx,
         include_source=include_source,
         include_target=include_target,
     )
-    mask = pd.Series([False] * len(df), index=df.index)
+    values = [False] * len(df)
     for related_idx in indices:
-        if related_idx in mask.index:
-            mask.loc[related_idx] = True
-    return mask
+        if isinstance(related_idx, int) and 0 <= related_idx < len(df):
+            values[related_idx] = True
+    return pl.Series(values, dtype=pl.Boolean)
 
 
-def _original_side_present(df: pd.DataFrame, idx: Any, side: str) -> bool:
+def _original_side_present(df: pl.DataFrame, idx: Any, side: str) -> bool:
+    if not isinstance(idx, int) or idx < 0 or idx >= df.height:
+        return False
     original_column = f"{side}_original_transaction"
     if original_column in df.columns:
-        value = df.at[idx, original_column]
+        value = df.row(idx, named=True).get(original_column)
         return isinstance(value, dict) and bool(value)
     present_column = f"{side}_present"
     if present_column in df.columns:
-        return bool(df.at[idx, present_column])
+        return bool(df.row(idx, named=True).get(present_column))
     return False
 
 
@@ -1124,44 +1204,41 @@ def _presence_after_action(
     return source_present, target_present
 
 
-def _recompute_presence(df: pd.DataFrame, indices: list[Any]) -> pd.DataFrame:
+def _recompute_presence(df: pl.DataFrame, indices: list[Any]) -> pl.DataFrame:
     if "source_present" not in df.columns or "target_present" not in df.columns:
         return df
-    updated = df.copy()
     import ynab_il_importer.review_app.validation as review_validation
 
-    for idx in indices:
-        if idx not in updated.index:
+    rows = df.to_dicts()
+    for idx in dict.fromkeys(indices):
+        if not isinstance(idx, int) or idx < 0 or idx >= len(rows):
             continue
-        action = (
-            updated.at[idx, "decision_action"]
-            if "decision_action" in updated.columns
-            else review_validation.NO_DECISION
-        )
+        row = rows[idx]
+        action = row.get("decision_action", review_validation.NO_DECISION)
         source_present, target_present = _presence_after_action(
-            source_present_original=_original_side_present(updated, idx, "source"),
-            target_present_original=_original_side_present(updated, idx, "target"),
+            source_present_original=_original_side_present(df, idx, "source"),
+            target_present_original=_original_side_present(df, idx, "target"),
             action=str(action).strip(),
         )
-        updated.at[idx, "source_present"] = source_present
-        updated.at[idx, "target_present"] = target_present
-    return updated
+        row["source_present"] = source_present
+        row["target_present"] = target_present
+    return pl.from_dicts(rows, infer_schema_length=None)
 
 
 def _transaction_reference_column(side: str, *, kind: str) -> str:
     return f"{side}_{kind}_transaction"
 
 
-def _review_record_row(row: pd.Series) -> dict[str, Any]:
+def _review_record_row(row: dict[str, Any]) -> dict[str, Any]:
     import ynab_il_importer.review_app.io as review_io
 
-    table = review_io.coerce_review_artifact_table(pd.DataFrame([row.to_dict()]))
+    table = review_io.coerce_review_artifact_table(pl.DataFrame([row]))
     rows = table.to_pylist()
     return rows[0] if rows else {}
 
 
 def _transaction_reference_from_row(
-    row: pd.Series,
+    row: dict[str, Any],
     *,
     side: str,
     kind: str,
@@ -1183,7 +1260,7 @@ def _transaction_reference_from_row(
 
 
 def _category_id_for_transaction_value(
-    row: pd.Series,
+    row: dict[str, Any],
     *,
     side: str,
     category_value: str,
@@ -1202,18 +1279,19 @@ def _category_id_for_transaction_value(
 
 
 def _update_current_transaction_values(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     indices: list[Any],
     *,
     side: str,
     payee: str | None = None,
     category: str | None = None,
-) -> pd.DataFrame:
-    updated = df.copy()
+) -> pl.DataFrame:
     column = _transaction_reference_column(side, kind="current")
-    touched = [current_idx for current_idx in indices if current_idx in updated.index]
-    for current_idx in touched:
-        row = updated.loc[current_idx]
+    rows = df.to_dicts()
+    for current_idx in dict.fromkeys(indices):
+        if not isinstance(current_idx, int) or current_idx < 0 or current_idx >= len(rows):
+            continue
+        row = rows[current_idx]
         txn = _transaction_reference_from_row(row, side=side, kind="current")
         if txn is None:
             continue
@@ -1229,73 +1307,79 @@ def _update_current_transaction_values(
                 category_value=normalized_category,
                 current_txn=prior_txn,
             )
-        updated.at[current_idx, column] = txn
-    return updated
+        row[column] = txn
+    return pl.from_dicts(rows, infer_schema_length=None)
 
 
-def rebuild_working_rows(df: pd.DataFrame, indices: list[Any]) -> pd.DataFrame:
+def rebuild_working_rows(df: pl.DataFrame, indices: list[Any]) -> pl.DataFrame:
     import ynab_il_importer.review_app.io as review_io
     import ynab_il_importer.review_app.working_schema as working_schema
 
-    touched = [current_idx for current_idx in dict.fromkeys(indices) if current_idx in df.index]
+    touched = [current_idx for current_idx in dict.fromkeys(indices) if isinstance(current_idx, int) and 0 <= current_idx < len(df)]
     if not touched:
-        return df.copy()
+        return df
 
-    updated = df.copy()
-    subset = df.loc[touched].copy()
+    rows = df.to_dicts()
+    subset = pl.from_dicts([rows[current_idx] for current_idx in touched], infer_schema_length=None)
     missing_input = working_schema.missing_working_columns(
         subset.columns,
         working_schema.WORKING_INPUT_REQUIRED_COLUMNS,
     )
     if missing_input:
-        return updated
+        return df
     rebuilt = review_io.project_review_artifact_to_working_dataframe(
         pl.from_arrow(review_io.coerce_review_artifact_table(subset))
-    ).to_pandas()
+    )
     if len(rebuilt) != len(subset):
-        return updated
-    rebuilt.index = subset.index
+        return df
 
-    for column in rebuilt.columns:
-        if column not in updated.columns:
-            updated[column] = pd.Series([None] * len(updated), index=updated.index, dtype="object")
-        updated.loc[touched, column] = rebuilt.loc[touched, column]
-    return updated
+    rebuilt_rows = rebuilt.to_dicts()
+    for position, current_idx in enumerate(touched):
+        rows[current_idx] = rebuilt_rows[position]
+    return pl.from_dicts(rows, infer_schema_length=None)
 
 
-def recompute_changed_for_rows(df: pd.DataFrame, indices: list[Any]) -> pd.DataFrame:
+def recompute_changed_for_rows(df: pl.DataFrame, indices: list[Any]) -> pl.DataFrame:
     if "changed" not in df.columns:
-        return df.copy()
+        return df
 
-    updated = df.copy()
-    touched = [current_idx for current_idx in dict.fromkeys(indices) if current_idx in updated.index]
+    rows = df.to_dicts()
+    touched = [current_idx for current_idx in dict.fromkeys(indices) if isinstance(current_idx, int) and 0 <= current_idx < len(rows)]
     for current_idx in touched:
-        row = updated.loc[current_idx]
+        row = rows[current_idx]
         source_current = _transaction_reference_from_row(row, side="source", kind="current")
         source_original = _transaction_reference_from_row(row, side="source", kind="original")
         target_current = _transaction_reference_from_row(row, side="target", kind="current")
         target_original = _transaction_reference_from_row(row, side="target", kind="original")
-        updated.at[current_idx, "changed"] = bool(
+        row["changed"] = bool(
             source_current != source_original or target_current != target_original
         )
-    return updated
+    return pl.from_dicts(rows, infer_schema_length=None)
 
 
 def _signed_amount_from_row_values(*, inflow: Any, outflow: Any) -> float:
-    inflow_value = float(pd.to_numeric(pd.Series([inflow]), errors="coerce").fillna(0.0).iloc[0])
-    outflow_value = float(pd.to_numeric(pd.Series([outflow]), errors="coerce").fillna(0.0).iloc[0])
+    inflow_value = _parse_float_value(inflow)
+    outflow_value = _parse_float_value(outflow)
     return inflow_value - outflow_value
 
 
-def _target_transaction_for_split_edit(row: pd.Series) -> dict[str, Any]:
+def _target_transaction_for_split_edit(row: dict[str, Any]) -> dict[str, Any]:
     import ynab_il_importer.review_app.io as review_io
+
+    class _RowAdapter:
+        def __init__(self, data: dict[str, Any]) -> None:
+            self._data = data
+            self.index = list(data.keys())
+
+        def get(self, key: str, default: Any = None) -> Any:
+            return self._data.get(key, default)
 
     current = _transaction_reference_from_row(row, side="target", kind="current")
     if bool(row.get("target_present", False)) and current is not None:
         return current
     original = _transaction_reference_from_row(row, side="target", kind="original")
     return review_io._transaction_from_flat_row(
-        row,
+        _RowAdapter(row),
         side="target",
         use_selected_values=True,
         base_transaction=original,
@@ -1326,12 +1410,7 @@ def _normalize_split_editor_lines(
     for index, raw in enumerate(lines, start=1):
         if not isinstance(raw, dict):
             continue
-        amount_value = float(
-            pd.to_numeric(
-                pd.Series([raw.get("amount_ils", raw.get("amount", 0.0))]),
-                errors="coerce",
-            ).fillna(0.0).iloc[0]
-        )
+        amount_value = _parse_float_value(raw.get("amount_ils", raw.get("amount", 0.0)))
         payee_value = str(raw.get("payee_raw", raw.get("payee", "")) or "").strip()
         category_value = model.normalize_category_value(
             raw.get("category_raw", raw.get("category", ""))
@@ -1386,7 +1465,7 @@ def _normalize_split_editor_lines(
 
 
 def _apply_target_split_lines_to_transaction(
-    row: pd.Series,
+    row: dict[str, Any],
     *,
     target_transaction: dict[str, Any],
     split_lines: list[dict[str, Any]],
@@ -1418,23 +1497,13 @@ def apply_target_split_edit(
     *,
     lines: list[dict[str, Any]],
 ) -> pl.DataFrame:
-    updated = _apply_target_split_edit_pandas(df.to_pandas(), idx, lines=lines)
-    return pl.from_pandas(updated)
-
-
-def _apply_target_split_edit_pandas(
-    df: pd.DataFrame,
-    idx: Any,
-    *,
-    lines: list[dict[str, Any]],
-) -> pd.DataFrame:
-    if idx not in df.index:
-        return df.copy()
+    if not isinstance(idx, int) or idx < 0 or idx >= len(df):
+        return df
 
     import ynab_il_importer.review_app.validation as review_validation
 
-    updated = df.copy()
-    row = updated.loc[idx]
+    rows = df.to_dicts()
+    row = rows[idx]
     target_transaction = _target_transaction_for_split_edit(row)
     normalized_lines = _normalize_split_editor_lines(lines, parent_transaction=target_transaction)
     if not normalized_lines:
@@ -1446,22 +1515,23 @@ def _apply_target_split_edit_pandas(
         split_lines=normalized_lines,
     )
     split_errors = review_validation.validate_target_split_transaction(
-        updated.loc[idx],
+        row,
         updated_target,
     )
     if split_errors:
         raise ValueError("; ".join(split_errors))
 
-    updated.at[idx, "target_current_transaction"] = updated_target
-    updated.at[idx, "target_payee_selected"] = str(updated_target.get("payee_raw", "") or "").strip()
-    updated.at[idx, "payee_selected"] = str(updated_target.get("payee_raw", "") or "").strip()
-    updated.at[idx, "target_category_selected"] = model.normalize_category_value(
+    row["target_current_transaction"] = updated_target
+    row["target_payee_selected"] = str(updated_target.get("payee_raw", "") or "").strip()
+    row["payee_selected"] = str(updated_target.get("payee_raw", "") or "").strip()
+    row["target_category_selected"] = model.normalize_category_value(
         updated_target.get("category_raw", "")
     )
-    updated.at[idx, "category_selected"] = model.normalize_category_value(
+    row["category_selected"] = model.normalize_category_value(
         updated_target.get("category_raw", "")
     )
 
+    updated = pl.from_dicts(rows, infer_schema_length=None)
     updated = recompute_changed_for_rows(updated, [idx])
     updated = rebuild_working_rows(updated, [idx])
     updated = recompute_changed_for_rows(updated, [idx])
@@ -1484,54 +1554,30 @@ def apply_row_edit(
     decision_action: str | None = None,
     component_map: dict[Any, int] | None = None,
 ) -> pl.DataFrame:
-    updated = _apply_row_edit_pandas(
-        df.to_pandas(),
-        idx,
-        payee=payee,
-        category=category,
-        source_payee=source_payee,
-        source_category=source_category,
-        target_payee=target_payee,
-        target_category=target_category,
-        memo_append=memo_append,
-        update_maps=update_maps,
-        reviewed=reviewed,
-        decision_action=decision_action,
-        component_map=component_map,
-    )
-    return pl.from_pandas(updated)
+    if not isinstance(idx, int) or idx < 0 or idx >= len(df):
+        return df
 
+    import ynab_il_importer.review_app.validation as review_validation
 
-def _apply_row_edit_pandas(
-    df: pd.DataFrame,
-    idx: Any,
-    *,
-    payee: str | None = None,
-    category: str | None = None,
-    source_payee: str | None = None,
-    source_category: str | None = None,
-    target_payee: str | None = None,
-    target_category: str | None = None,
-    memo_append: str | None = None,
-    update_maps: str | None = None,
-    reviewed: bool | None = None,
-    decision_action: str | None = None,
-    component_map: dict[Any, int] | None = None,
-) -> pd.DataFrame:
-    updated = df.copy()
+    rows = df.to_dicts()
+    row = rows[idx]
     target_payee = payee if target_payee is None else target_payee
     target_category = category if target_category is None else target_category
 
-    source_indices = related_row_indices(updated, idx, include_source=True, include_target=False) or [idx]
-    target_indices = related_row_indices(updated, idx, include_source=False, include_target=True) or [idx]
+    source_indices = related_row_indices(df, idx, include_source=True, include_target=False) or [idx]
+    target_indices = related_row_indices(df, idx, include_source=False, include_target=True) or [idx]
 
     if source_payee is not None or source_category is not None:
-        if source_payee is not None and "source_payee_selected" in updated.columns:
-            updated.loc[source_indices, "source_payee_selected"] = str(source_payee).strip()
-        if source_category is not None and "source_category_selected" in updated.columns:
-            updated.loc[source_indices, "source_category_selected"] = model.normalize_category_value(
-                source_category
-            )
+        for current_idx in source_indices:
+            if current_idx < 0 or current_idx >= len(rows):
+                continue
+            if source_payee is not None and "source_payee_selected" in rows[current_idx]:
+                rows[current_idx]["source_payee_selected"] = str(source_payee).strip()
+            if source_category is not None and "source_category_selected" in rows[current_idx]:
+                rows[current_idx]["source_category_selected"] = model.normalize_category_value(
+                    source_category
+                )
+        updated = pl.from_dicts(rows, infer_schema_length=None)
         updated = _update_current_transaction_values(
             updated,
             source_indices,
@@ -1539,22 +1585,24 @@ def _apply_row_edit_pandas(
             payee=source_payee,
             category=source_category,
         )
+        rows = updated.to_dicts()
 
     if target_payee is not None or target_category is not None:
-        if target_payee is not None:
-            if "payee_selected" in updated.columns:
-                updated.loc[target_indices, "payee_selected"] = str(target_payee).strip()
-            if "target_payee_selected" in updated.columns:
-                updated.loc[target_indices, "target_payee_selected"] = str(target_payee).strip()
-        if target_category is not None:
-            if "category_selected" in updated.columns:
-                updated.loc[target_indices, "category_selected"] = model.normalize_category_value(
-                    target_category
-                )
-            if "target_category_selected" in updated.columns:
-                updated.loc[target_indices, "target_category_selected"] = model.normalize_category_value(
-                    target_category
-                )
+        for current_idx in target_indices:
+            if current_idx < 0 or current_idx >= len(rows):
+                continue
+            if target_payee is not None:
+                if "payee_selected" in rows[current_idx]:
+                    rows[current_idx]["payee_selected"] = str(target_payee).strip()
+                if "target_payee_selected" in rows[current_idx]:
+                    rows[current_idx]["target_payee_selected"] = str(target_payee).strip()
+            if target_category is not None:
+                normalized_category = model.normalize_category_value(target_category)
+                if "category_selected" in rows[current_idx]:
+                    rows[current_idx]["category_selected"] = normalized_category
+                if "target_category_selected" in rows[current_idx]:
+                    rows[current_idx]["target_category_selected"] = normalized_category
+        updated = pl.from_dicts(rows, infer_schema_length=None)
         updated = _update_current_transaction_values(
             updated,
             target_indices,
@@ -1562,28 +1610,36 @@ def _apply_row_edit_pandas(
             payee=target_payee,
             category=target_category,
         )
+        rows = updated.to_dicts()
 
-    if update_maps is not None and "update_maps" in updated.columns:
-        updated.at[idx, "update_maps"] = str(update_maps).strip()
-    if memo_append is not None and "memo_append" in updated.columns:
-        updated.at[idx, "memo_append"] = str(memo_append).strip()
+    if update_maps is not None and "update_maps" in rows[idx]:
+        rows[idx]["update_maps"] = str(update_maps).strip()
+    if memo_append is not None and "memo_append" in rows[idx]:
+        rows[idx]["memo_append"] = str(memo_append).strip()
 
-    if decision_action is not None and "decision_action" in updated.columns:
-        updated.at[idx, "decision_action"] = str(decision_action).strip()
+    if decision_action is not None and "decision_action" in rows[idx]:
+        rows[idx]["decision_action"] = str(decision_action).strip()
+    updated = pl.from_dicts(rows, infer_schema_length=None)
     updated = _recompute_presence(updated, [idx])
-    if reviewed is not None and "reviewed" in updated.columns:
+    rows = updated.to_dicts()
+    if reviewed is not None and "reviewed" in rows[idx]:
         if component_map is None:
-            from ynab_il_importer.review_app.validation import connected_component_mask
-
-            reviewed_mask = connected_component_mask(updated, idx)
-            reviewed_indices = updated.index[reviewed_mask].tolist()
+            reviewed_mask = review_validation.connected_component_mask(updated, idx)
+            reviewed_indices = [
+                current_idx
+                for current_idx, flag in enumerate(reviewed_mask.to_list())
+                if flag
+            ]
         else:
             reviewed_indices = [
                 current_idx
                 for current_idx, label in component_map.items()
                 if label == component_map.get(idx)
             ]
-        updated.loc[reviewed_indices, "reviewed"] = bool(reviewed)
+        for current_idx in reviewed_indices:
+            if 0 <= current_idx < len(rows):
+                rows[current_idx]["reviewed"] = bool(reviewed)
+        updated = pl.from_dicts(rows, infer_schema_length=None)
     changed_indices = list(dict.fromkeys([*source_indices, *target_indices, idx]))
     updated = recompute_changed_for_rows(updated, changed_indices)
     updated = rebuild_working_rows(updated, changed_indices)

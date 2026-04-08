@@ -5,11 +5,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
+import polars as pl
 
 import ynab_il_importer.export as export
 import ynab_il_importer.rules as rules
-from ynab_il_importer.safe_types import normalize_flag_series
 
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -20,25 +19,26 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
-def _string_series(df: pd.DataFrame, column: str) -> pd.Series:
+def _string_series(df: pl.DataFrame, column: str) -> pl.Series:
     if column in df.columns:
-        return df[column].astype("string").fillna("").str.strip()
-    return pd.Series([""] * len(df), index=df.index, dtype="string")
+        return df.get_column(column).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
+    return pl.Series([""] * len(df), dtype=pl.Utf8)
 
 
-def _bool_series(df: pd.DataFrame, column: str) -> pd.Series:
+def _bool_series(df: pl.DataFrame, column: str) -> pl.Series:
     if column not in df.columns:
-        return pd.Series([False] * len(df), index=df.index)
-    return normalize_flag_series(df[column])
+        return pl.Series([False] * len(df), dtype=pl.Boolean)
+    values = df.get_column(column).to_list()
+    return pl.Series([str(value or "").strip().casefold() in {"1", "true", "t", "yes", "y"} for value in values], dtype=pl.Boolean)
 
 
-def _selected_series(df: pd.DataFrame, *, side: str, field: str) -> pd.Series:
+def _selected_series(df: pl.DataFrame, *, side: str, field: str) -> pl.Series:
     side_column = f"{side}_{field}_selected"
     if side_column in df.columns:
         return _string_series(df, side_column)
     if side == "target":
         return _string_series(df, f"{field}_selected")
-    return pd.Series([""] * len(df), index=df.index, dtype="string")
+    return pl.Series([""] * len(df), dtype=pl.Utf8)
 
 
 def _slug(value: str) -> str:
@@ -52,7 +52,7 @@ def _is_transfer_payee(value: Any) -> bool:
     return _text(value).startswith(_TRANSFER_PREFIX)
 
 
-def _candidate_rule_id(row: pd.Series) -> str:
+def _candidate_rule_id(row: Any) -> str:
     basis = "|".join(
         [
             _text(row.get("txn_kind", "")),
@@ -71,75 +71,113 @@ def _candidate_rule_id(row: pd.Series) -> str:
     return f"candidate_{base}_{digest}"
 
 
-def _normalize_for_compare(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    out["transaction_id"] = _string_series(out, "transaction_id")
-    out["target_payee_selected"] = _selected_series(out, side="target", field="payee")
-    out["target_category_selected"] = _selected_series(out, side="target", field="category")
-    out["reviewed"] = _bool_series(out, "reviewed")
-    out["update_maps"] = _string_series(out, "update_maps")
-    if "source_present" in out.columns:
-        out["source_present"] = _bool_series(out, "source_present")
+def _candidate_notes(row: Any) -> str:
+    notes = f"review-log count={int(row.get('count', 0) or 0)}"
+    update_maps = _text(row.get("update_maps_any", ""))
+    if update_maps:
+        notes += f" update_maps={update_maps}"
+    example_memo = _text(row.get("example_memo", ""))
+    if example_memo:
+        notes += f" example={example_memo[:80]}"
+    return notes.strip()
+
+
+def _normalize_for_compare(df: pl.DataFrame) -> pl.DataFrame:
+    out = df.with_columns(
+        [
+            pl.col("transaction_id").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().alias("transaction_id")
+            if "transaction_id" in df.columns
+            else pl.lit("").alias("transaction_id"),
+            _selected_series(df, side="target", field="payee").alias("target_payee_selected"),
+            _selected_series(df, side="target", field="category").alias("target_category_selected"),
+            _bool_series(df, "reviewed").alias("reviewed"),
+            _string_series(df, "update_maps").alias("update_maps"),
+        ]
+    )
+    if "source_present" in df.columns:
+        out = out.with_columns(_bool_series(df, "source_present").alias("source_present"))
     return out
 
 
-def _changed_mask(current: pd.DataFrame, base: pd.DataFrame) -> pd.Series:
-    base_lookup = base[
-        ["transaction_id", "target_payee_selected", "target_category_selected"]
-    ].copy()
-    base_lookup = base_lookup.drop_duplicates(subset=["transaction_id"], keep="last").set_index("transaction_id")
-    current_ids = current["transaction_id"]
-    base_payee = current_ids.map(base_lookup["target_payee_selected"]).fillna("")
-    base_category = current_ids.map(base_lookup["target_category_selected"]).fillna("")
-    return (current["target_payee_selected"] != base_payee) | (
-        current["target_category_selected"] != base_category
+def _changed_mask(current: pl.DataFrame, base: pl.DataFrame) -> pl.Series:
+    if "transaction_id" not in current.columns or "transaction_id" not in base.columns:
+        return pl.Series([False] * len(current), dtype=pl.Boolean)
+
+    base_lookup = (
+        base.select(["transaction_id", "target_payee_selected", "target_category_selected"])
+        .unique(subset=["transaction_id"], keep="last")
+        .rename(
+            {
+                "target_payee_selected": "base_target_payee_selected",
+                "target_category_selected": "base_target_category_selected",
+            }
+        )
+    )
+    joined = current.select(
+        [
+            "transaction_id",
+            "target_payee_selected",
+            "target_category_selected",
+        ]
+    ).join(base_lookup, on="transaction_id", how="left")
+    return (
+        joined.get_column("target_payee_selected")
+        != joined.get_column("base_target_payee_selected").fill_null("")
+    ) | (
+        joined.get_column("target_category_selected")
+        != joined.get_column("base_target_category_selected").fill_null("")
     )
 
 
-def build_map_update_candidates(current_df: pd.DataFrame, base_df: pd.DataFrame | None) -> pd.DataFrame:
+def build_map_update_candidates(current_df: pl.DataFrame, base_df: pl.DataFrame | None) -> pl.DataFrame:
     current = _normalize_for_compare(current_df)
-    if current.empty:
+    if current.is_empty():
         columns = list(rules.PAYEE_MAP_COLUMNS) + ["count"]
-        return pd.DataFrame(columns=columns)
+        return pl.DataFrame({column: [] for column in columns})
 
-    if base_df is None or base_df.empty:
-        changed = pd.Series([False] * len(current), index=current.index)
+    if base_df is None or base_df.is_empty():
+        changed = pl.Series([False] * len(current), dtype=pl.Boolean)
     else:
         changed = _changed_mask(current, _normalize_for_compare(base_df))
 
-    reviewed = current["reviewed"]
-    update_maps = current["update_maps"]
-    payee = current["target_payee_selected"]
-    category = current["target_category_selected"]
-    transfer = payee.map(_is_transfer_payee)
+    reviewed = _bool_series(current, "reviewed")
+    update_maps = _string_series(current, "update_maps")
+    payee = _selected_series(current, side="target", field="payee")
+    category = _selected_series(current, side="target", field="category")
+    transfer = pl.Series([_is_transfer_payee(value) for value in payee.to_list()], dtype=pl.Boolean)
     usable = payee.ne("") & (transfer | category.ne(""))
-    source_present = _bool_series(current, "source_present")
     if "source_present" in current.columns:
-        usable = usable & source_present
+        usable = usable & _bool_series(current, "source_present")
     candidate_mask = reviewed & usable & (changed | update_maps.ne(""))
-    if not candidate_mask.any():
+    if not bool(candidate_mask.any()):
         columns = list(rules.PAYEE_MAP_COLUMNS) + ["count"]
-        return pd.DataFrame(columns=columns)
+        return pl.DataFrame({column: [] for column in columns})
 
-    candidates = current_df.loc[candidate_mask].copy()
-    prepared = rules.prepare_transactions_for_rules(candidates)
-    out = pd.DataFrame(index=prepared.index)
-    out["txn_kind"] = prepared["txn_kind"].astype("string").fillna("")
-    out["fingerprint"] = prepared["fingerprint"].astype("string").fillna("")
-    out["description_clean_norm"] = ""
-    out["account_name"] = prepared["account_name"].astype("string").fillna("")
-    out["source"] = prepared["source"].astype("string").fillna("")
-    out["direction"] = prepared["direction"].astype("string").fillna("")
-    out["currency"] = prepared["currency"].astype("string").fillna("")
-    out["amount_bucket"] = ""
-    out["payee_canonical"] = _selected_series(candidates, side="target", field="payee")
-    out["category_target"] = _selected_series(candidates, side="target", field="category").where(
-        ~_selected_series(candidates, side="target", field="payee").map(_is_transfer_payee),
-        "",
+    candidates = current.filter(candidate_mask)
+    prepared = pl.from_pandas(rules.prepare_transactions_for_rules(candidates.to_pandas()))
+    payee_canonical = _selected_series(candidates, side="target", field="payee")
+    category_target = _selected_series(candidates, side="target", field="category").to_list()
+    category_target = [
+        "" if _is_transfer_payee(payee_value) else category_value
+        for payee_value, category_value in zip(payee_canonical.to_list(), category_target, strict=False)
+    ]
+    out = pl.DataFrame(
+        {
+            "txn_kind": _string_series(prepared, "txn_kind"),
+            "fingerprint": _string_series(prepared, "fingerprint"),
+            "description_clean_norm": _string_series(prepared, "description_clean_norm"),
+            "account_name": _string_series(prepared, "account_name"),
+            "source": _string_series(prepared, "source"),
+            "direction": _string_series(prepared, "direction"),
+            "currency": _string_series(prepared, "currency"),
+            "amount_bucket": _string_series(prepared, "amount_bucket"),
+            "payee_canonical": payee_canonical,
+            "category_target": pl.Series(category_target, dtype=pl.Utf8),
+            "card_suffix": _string_series(prepared, "card_suffix"),
+            "review_memo": _string_series(candidates, "memo"),
+            "update_maps": _string_series(candidates, "update_maps"),
+        }
     )
-    out["card_suffix"] = prepared["card_suffix"].astype("string").fillna("")
-    out["review_memo"] = _string_series(candidates, "memo")
-    out["update_maps"] = _string_series(candidates, "update_maps")
 
     group_cols = [
         "txn_kind",
@@ -155,32 +193,29 @@ def build_map_update_candidates(current_df: pd.DataFrame, base_df: pd.DataFrame 
         "card_suffix",
     ]
     grouped = (
-        out.groupby(group_cols, dropna=False)
+        out.group_by(group_cols)
         .agg(
-            count=("fingerprint", "size"),
-            update_maps_any=("update_maps", lambda s: ";".join(sorted({v for v in s if _text(v)}))),
-            example_memo=("review_memo", lambda s: next((v for v in s if _text(v)), "")),
+            pl.len().alias("count"),
+            pl.col("update_maps").filter(pl.col("update_maps").ne("")).unique().sort().alias("update_maps_values"),
+            pl.col("review_memo").filter(pl.col("review_memo").ne("")).first().fill_null("").alias("example_memo"),
         )
-        .reset_index()
+        .with_columns(
+            pl.col("update_maps_values").list.join(";").fill_null("").alias("update_maps_any"),
+        )
     )
-    grouped["rule_id"] = grouped.apply(_candidate_rule_id, axis=1)
-    grouped["is_active"] = True
-    grouped["priority"] = 0
-    grouped["notes"] = grouped.apply(
-        lambda row: (
-            f"review-log count={int(row['count'])}"
-            + (
-                f" update_maps={row['update_maps_any']}"
-                if _text(row["update_maps_any"])
-                else ""
-            )
-            + (f" example={row['example_memo'][:80]}" if _text(row["example_memo"]) else "")
-        ).strip(),
-        axis=1,
+    grouped = grouped.with_columns(
+        pl.struct(group_cols + ["count", "update_maps_any", "example_memo"])
+        .map_elements(_candidate_rule_id, return_dtype=pl.Utf8)
+        .alias("rule_id"),
+        pl.lit(True).alias("is_active"),
+        pl.lit(0).alias("priority"),
+        pl.struct(["count", "update_maps_any", "example_memo"])
+        .map_elements(_candidate_notes, return_dtype=pl.Utf8)
+        .alias("notes"),
     )
-    final = grouped[rules.PAYEE_MAP_COLUMNS + ["count"]].copy()
+    final = grouped.select(rules.PAYEE_MAP_COLUMNS + ["count"])
     sort_cols = ["fingerprint", "payee_canonical", "category_target", "account_name", "source", "card_suffix"]
-    return final.sort_values(sort_cols, na_position="last").reset_index(drop=True)
+    return final.sort(sort_cols)
 
 
 def default_map_updates_path(reviewed_path: str | Path) -> Path:
@@ -191,10 +226,10 @@ def default_map_updates_path(reviewed_path: str | Path) -> Path:
 
 
 def save_map_update_candidates(
-    current_df: pd.DataFrame,
-    base_df: pd.DataFrame | None,
+    current_df: pl.DataFrame,
+    base_df: pl.DataFrame | None,
     path: str | Path,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     out = build_map_update_candidates(current_df, base_df)
-    export.write_dataframe(out, path)
+    export.write_dataframe(out.to_pandas(), path)
     return out

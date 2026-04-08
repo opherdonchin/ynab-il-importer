@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 from typing import Any
 
-import pandas as pd
 import polars as pl
 
 
@@ -54,92 +53,6 @@ def is_no_category_required(value: Any) -> bool:
     return normalize_category_value(value) == NO_CATEGORY_REQUIRED
 
 
-def apply_to_same_fingerprint(
-    df: pl.DataFrame,
-    fingerprint: str,
-    payee: str | None = None,
-    category: str | None = None,
-    update_maps: str | None = None,
-    decision_action: str | None = None,
-    reviewed: bool | None = None,
-    eligible_mask: pl.Series | list[bool] | None = None,
-) -> pl.DataFrame:
-    pandas_df = df.to_pandas()
-    updated = _apply_to_same_fingerprint_pandas(
-        pandas_df,
-        fingerprint,
-        payee=payee,
-        category=category,
-        update_maps=update_maps,
-        decision_action=decision_action,
-        reviewed=reviewed,
-        eligible_mask=_eligible_mask_for_index(eligible_mask, pandas_df.index),
-    )
-    return pl.from_pandas(updated)
-
-
-def _eligible_mask_for_index(
-    eligible_mask: pl.Series | list[bool] | None,
-    index: pd.Index,
-) -> pd.Series | None:
-    if eligible_mask is None:
-        return None
-    if isinstance(eligible_mask, pl.Series):
-        values = eligible_mask.cast(pl.Boolean, strict=False).fill_null(False).to_list()
-    else:
-        values = [bool(value) for value in eligible_mask]
-    series = pd.Series(values, dtype=bool)
-    if len(series) < len(index):
-        series = series.reindex(range(len(index)), fill_value=False)
-    return pd.Series(series.iloc[: len(index)].to_list(), index=index, dtype=bool)
-
-
-def _apply_to_same_fingerprint_pandas(
-    df: pd.DataFrame,
-    fingerprint: str,
-    *,
-    payee: str | None = None,
-    category: str | None = None,
-    update_maps: str | None = None,
-    decision_action: str | None = None,
-    reviewed: bool | None = None,
-    eligible_mask: pd.Series | None = None,
-) -> pd.DataFrame:
-    import ynab_il_importer.review_app.state as review_state
-
-    updated = df.copy()
-    mask = updated["fingerprint"].astype("string").fillna("").str.strip() == str(fingerprint).strip()
-    if eligible_mask is not None:
-        mask = mask & eligible_mask
-    touched_indices = updated.index[mask].tolist()
-    if payee is not None:
-        updated.loc[mask, "payee_selected"] = payee
-        if "target_payee_selected" in updated.columns:
-            updated.loc[mask, "target_payee_selected"] = payee
-    if category is not None:
-        updated.loc[mask, "category_selected"] = category
-        if "target_category_selected" in updated.columns:
-            updated.loc[mask, "target_category_selected"] = category
-    if payee is not None or category is not None:
-        updated = review_state._update_current_transaction_values(
-            updated,
-            touched_indices,
-            side="target",
-            payee=payee,
-            category=category,
-        )
-    if update_maps is not None and "update_maps" in updated.columns:
-        updated.loc[mask, "update_maps"] = str(update_maps).strip()
-    if decision_action is not None and "decision_action" in updated.columns:
-        updated.loc[mask, "decision_action"] = str(decision_action).strip()
-    updated = review_state._recompute_presence(updated, touched_indices)
-    if reviewed is not None:
-        updated.loc[mask, "reviewed"] = bool(reviewed)
-    updated = review_state.recompute_changed_for_rows(updated, touched_indices)
-    updated = review_state.rebuild_working_rows(updated, touched_indices)
-    return updated
-
-
 def competing_row_scope(decision_action: str) -> tuple[bool, bool]:
     import ynab_il_importer.review_app.validation as review_validation
 
@@ -153,29 +66,99 @@ def competing_row_scope(decision_action: str) -> tuple[bool, bool]:
     return include_source, include_target
 
 
+def _eligible_mask_values(
+    eligible_mask: pl.Series | list[bool] | None,
+    length: int,
+) -> list[bool] | None:
+    if eligible_mask is None:
+        return None
+    if isinstance(eligible_mask, pl.Series):
+        values = eligible_mask.cast(pl.Boolean, strict=False).fill_null(False).to_list()
+    else:
+        values = [bool(value) for value in eligible_mask]
+    if len(values) < length:
+        values.extend([False] * (length - len(values)))
+    return values[:length]
+
+
+def apply_to_same_fingerprint(
+    df: pl.DataFrame,
+    fingerprint: str,
+    payee: str | None = None,
+    category: str | None = None,
+    update_maps: str | None = None,
+    decision_action: str | None = None,
+    reviewed: bool | None = None,
+    eligible_mask: pl.Series | list[bool] | None = None,
+) -> pl.DataFrame:
+    import ynab_il_importer.review_app.state as review_state
+
+    if df.is_empty() or "fingerprint" not in df.columns:
+        return df
+
+    fingerprint_value = str(fingerprint).strip()
+    rows = df.to_dicts()
+    eligible_values = _eligible_mask_values(eligible_mask, len(rows))
+    touched_indices: list[int] = []
+
+    for idx, row in enumerate(rows):
+        row_fingerprint = str(row.get("fingerprint", "") or "").strip()
+        if row_fingerprint != fingerprint_value:
+            continue
+        if eligible_values is not None and not eligible_values[idx]:
+            continue
+        touched_indices.append(idx)
+        if payee is not None:
+            row["payee_selected"] = payee
+            if "target_payee_selected" in row:
+                row["target_payee_selected"] = payee
+        if category is not None:
+            normalized_category = normalize_category_value(category)
+            row["category_selected"] = normalized_category
+            if "target_category_selected" in row:
+                row["target_category_selected"] = normalized_category
+        if update_maps is not None and "update_maps" in row:
+            row["update_maps"] = str(update_maps).strip()
+        if decision_action is not None and "decision_action" in row:
+            row["decision_action"] = str(decision_action).strip()
+        if reviewed is not None and "reviewed" in row:
+            row["reviewed"] = bool(reviewed)
+
+    if not touched_indices:
+        return df
+
+    updated = pl.from_dicts(rows, infer_schema_length=None)
+    if payee is not None or category is not None:
+        updated = review_state._update_current_transaction_values(
+            updated,
+            touched_indices,
+            side="target",
+            payee=payee,
+            category=category,
+        )
+    updated = review_state._recompute_presence(updated, touched_indices)
+    updated = review_state.recompute_changed_for_rows(updated, touched_indices)
+    updated = review_state.rebuild_working_rows(updated, touched_indices)
+    return updated
+
+
 def apply_competing_row_resolution(
     df: pl.DataFrame,
     indices: list[Any],
 ) -> tuple[pl.DataFrame, list[Any]]:
-    pandas_df = df.to_pandas()
-    updated, touched = _apply_competing_row_resolution_pandas(pandas_df, indices)
-    return pl.from_pandas(updated), touched
-
-
-def _apply_competing_row_resolution_pandas(
-    df: pd.DataFrame,
-    indices: list[Any],
-) -> tuple[pd.DataFrame, list[Any]]:
     import ynab_il_importer.review_app.state as review_state
     import ynab_il_importer.review_app.validation as review_validation
 
-    updated = df.copy()
+    if df.is_empty():
+        return df, []
+
+    rows = df.to_dicts()
     touched: list[Any] = []
     for idx in dict.fromkeys(indices):
-        if idx not in updated.index:
+        if not isinstance(idx, int) or idx < 0 or idx >= len(rows):
             continue
         action = review_validation.normalize_decision_action(
-            updated.loc[idx, "decision_action"] if "decision_action" in updated.columns else ""
+            rows[idx].get("decision_action", review_validation.NO_DECISION)
         )
         if action in {review_validation.NO_DECISION, "ignore_row"}:
             continue
@@ -183,7 +166,7 @@ def _apply_competing_row_resolution_pandas(
         if not include_source and not include_target:
             continue
         competing_indices = review_state.related_row_indices(
-            updated,
+            df,
             idx,
             include_source=include_source,
             include_target=include_target,
@@ -191,8 +174,14 @@ def _apply_competing_row_resolution_pandas(
         competing_indices = [current_idx for current_idx in competing_indices if current_idx != idx]
         if not competing_indices:
             continue
-        if "decision_action" in updated.columns:
-            updated.loc[competing_indices, "decision_action"] = "ignore_row"
-        updated = review_state._recompute_presence(updated, competing_indices)
+        for current_idx in competing_indices:
+            if "decision_action" in rows[current_idx]:
+                rows[current_idx]["decision_action"] = "ignore_row"
         touched.extend(competing_indices)
+
+    if not touched:
+        return df, []
+
+    updated = pl.from_dicts(rows, infer_schema_length=None)
+    updated = review_state._recompute_presence(updated, touched)
     return updated, list(dict.fromkeys(touched))

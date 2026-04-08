@@ -356,7 +356,7 @@ def test_format_category_label_special_cases_no_category_required() -> None:
 
 
 def test_canonical_review_bundle_preserves_flat_splits_and_aligns_helpers() -> None:
-    df = pd.DataFrame(
+    df = pl.DataFrame(
         [
             {
                 "transaction_id": "t1",
@@ -402,7 +402,6 @@ def test_canonical_review_bundle_preserves_flat_splits_and_aligns_helpers() -> N
                 ],
             }
         ],
-        index=[42],
     )
 
     bundle = review_app._canonical_review_bundle(df)
@@ -415,8 +414,8 @@ def test_canonical_review_bundle_preserves_flat_splits_and_aligns_helpers() -> N
     assert helpers["source_is_split"].to_list() == [True]
     helper_lookup = bundle["helper_lookup"]
     assert helper_lookup is not None
-    assert int(helper_lookup[42]["source_split_count"]) == 1
-    assert bool(helper_lookup[42]["source_is_split"]) is True
+    assert int(helper_lookup[0]["source_split_count"]) == 1
+    assert bool(helper_lookup[0]["source_is_split"]) is True
 
 
 def test_split_summary_suffix_reports_source_and_target_counts() -> None:
@@ -822,29 +821,25 @@ def test_app_save_split_without_changes_closes_modal_and_keeps_row_stable(
     session_df = app.session_state["df"]
     assert "_split_editor" not in app.session_state
     assert app.session_state["expanded_row_id"] == 0
-    assert session_df.loc[0, "target_splits"] is None
-    assert session_df.loc[0, "target_payee_selected"] == "Cafe"
-    assert session_df.loc[0, "target_category_selected"] == "Food"
-    assert session_df.loc[0, "target_current_transaction"]["payee_raw"] == "Cafe"
-    assert session_df.loc[0, "target_current_transaction"]["category_raw"] == "Food"
+    row = session_df.row(0, named=True)
+    assert row["target_splits"] is None
+    assert row["target_payee_selected"] == "Cafe"
+    assert row["target_category_selected"] == "Food"
+    assert row["target_current_transaction"]["payee_raw"] == "Cafe"
+    assert row["target_current_transaction"]["category_raw"] == "Food"
 
 
 def test_grouped_row_indices_only_include_filtered_rows() -> None:
-    filtered = pd.DataFrame(
-        {
-            "fingerprint": ["fp-a", "fp-b", "fp-a"],
-        },
-        index=[10, 20, 30],
-    )
+    filtered = pl.DataFrame({"fingerprint": ["fp-a", "fp-b", "fp-a"]})
 
     fingerprints, group_indices = review_app._grouped_row_indices(filtered)
 
     assert fingerprints == ["fp-a", "fp-b"]
-    assert group_indices == {"fp-a": [10, 30], "fp-b": [20]}
+    assert group_indices == {"fp-a": [0, 2], "fp-b": [1]}
 
 
 def test_require_groupable_review_rows_rejects_blank_fingerprint() -> None:
-    df = pd.DataFrame({"fingerprint": ["fp-1", ""]})
+    df = pl.DataFrame({"fingerprint": ["fp-1", ""]})
 
     with pytest.raises(ValueError, match="blank fingerprint values"):
         review_app._require_groupable_review_rows(df)
@@ -1009,7 +1004,7 @@ def test_app_renders_canonical_split_detail_from_parquet(tmp_path: Path) -> None
 
 
 def test_changed_mask_aligns_duplicate_transaction_ids() -> None:
-    base = pd.DataFrame(
+    base = pl.DataFrame(
         {
             "transaction_id": ["dup", "dup"],
             "target_payee_selected": ["A", "A"],
@@ -1019,7 +1014,7 @@ def test_changed_mask_aligns_duplicate_transaction_ids() -> None:
             "reviewed": [False, False],
         }
     )
-    current = pd.DataFrame(
+    current = pl.DataFrame(
         {
             "transaction_id": ["dup", "dup"],
             "target_payee_selected": ["A", "A"],
@@ -1032,11 +1027,11 @@ def test_changed_mask_aligns_duplicate_transaction_ids() -> None:
 
     changed = review_state.changed_mask(current, base)
 
-    assert changed.tolist() == [False, True]
+    assert changed.to_list() == [False, True]
 
 
 def test_changed_mask_marks_rows_missing_from_baseline() -> None:
-    base = pd.DataFrame(
+    base = pl.DataFrame(
         {
             "transaction_id": ["t1", "t2"],
             "target_payee_selected": ["A", "B"],
@@ -1046,7 +1041,7 @@ def test_changed_mask_marks_rows_missing_from_baseline() -> None:
             "reviewed": [False, False],
         }
     )
-    current = pd.DataFrame(
+    current = pl.DataFrame(
         {
             "transaction_id": ["t1", "t2", "t3"],
             "target_payee_selected": ["A", "B", "C"],
@@ -1059,7 +1054,7 @@ def test_changed_mask_marks_rows_missing_from_baseline() -> None:
 
     changed = review_state.changed_mask(current, base)
 
-    assert changed.tolist() == [False, False, True]
+    assert changed.to_list() == [False, False, True]
 
 
 def test_allowed_decision_actions_block_source_mutation_for_institutional() -> None:
@@ -1094,10 +1089,11 @@ def test_app_row_save_persists_side_specific_fields_and_review_state(tmp_path: P
     app.run()
 
     session_df = app.session_state["df"]
-    assert session_df.loc[0, "target_category_selected"] == "Dining"
-    assert session_df.loc[0, "category_selected"] == "Dining"
-    assert session_df.loc[0, "decision_action"] == "keep_match"
-    assert bool(session_df.loc[0, "reviewed"]) is True
+    row = session_df.row(0, named=True)
+    assert row["target_category_selected"] == "Dining"
+    assert row["category_selected"] == "Dining"
+    assert row["decision_action"] == "keep_match"
+    assert bool(row["reviewed"]) is True
 
     _find_button_by_label(app.sidebar, "Save").click()
     app.run()
@@ -1138,7 +1134,7 @@ def test_mark_reviewed_opens_next_row_in_row_view(tmp_path: Path) -> None:
     app.run()
 
     session_df = app.session_state["df"]
-    assert bool(session_df.loc[0, "reviewed"]) is True
+    assert bool(session_df.row(0, named=True)["reviewed"]) is True
     assert app.session_state["expanded_row_id"] == 1
     assert int(app.session_state["scroll_to_top_nonce"]) == 1
 
@@ -1165,12 +1161,8 @@ def test_app_review_blocked_for_cascaded_component_with_no_decision_rows(tmp_pat
     app.run()
 
     session_df = app.session_state["df"]
-    assert session_df.loc[0, "decision_action"] == "keep_match"
-    assert session_df.loc[1, "decision_action"] == "ignore_row"
-    assert session_df.loc[2, "decision_action"] == review_validation.NO_DECISION
-    assert bool(session_df.loc[0, "reviewed"]) is False
-    assert bool(session_df.loc[1, "reviewed"]) is False
-    assert bool(session_df.loc[2, "reviewed"]) is False
+    assert session_df["decision_action"].to_list() == ["keep_match", "ignore_row", review_validation.NO_DECISION]
+    assert session_df["reviewed"].to_list() == [False, False, False]
 
 
 def test_app_create_target_auto_ignores_same_source_rows(tmp_path: Path) -> None:
@@ -1194,8 +1186,8 @@ def test_app_create_target_auto_ignores_same_source_rows(tmp_path: Path) -> None
     app.run()
 
     session_df = app.session_state["df"]
-    assert session_df["decision_action"].tolist() == ["create_target", "ignore_row"]
-    assert session_df["reviewed"].tolist() == [False, False]
+    assert session_df["decision_action"].to_list() == ["create_target", "ignore_row"]
+    assert session_df["reviewed"].to_list() == [False, False]
     assert app.session_state["expanded_row_id"] == 0
 
 
@@ -1221,7 +1213,7 @@ def test_app_keep_match_auto_ignores_same_source_and_target_rows(tmp_path: Path)
     app.run()
 
     session_df = app.session_state["df"]
-    assert session_df["decision_action"].tolist() == ["keep_match", "ignore_row", "ignore_row"]
+    assert session_df["decision_action"].to_list() == ["keep_match", "ignore_row", "ignore_row"]
 
 
 def test_app_ignore_row_does_not_propagate(tmp_path: Path) -> None:
@@ -1245,7 +1237,7 @@ def test_app_ignore_row_does_not_propagate(tmp_path: Path) -> None:
     app.run()
 
     session_df = app.session_state["df"]
-    assert session_df["decision_action"].tolist() == ["ignore_row", review_validation.NO_DECISION]
+    assert session_df["decision_action"].to_list() == ["ignore_row", review_validation.NO_DECISION]
 
 
 def test_mark_reviewed_reviews_auto_ignored_competing_rows(tmp_path: Path) -> None:
@@ -1269,8 +1261,8 @@ def test_mark_reviewed_reviews_auto_ignored_competing_rows(tmp_path: Path) -> No
     app.run()
 
     session_df = app.session_state["df"]
-    assert session_df["decision_action"].tolist() == ["create_target", "ignore_row"]
-    assert session_df["reviewed"].tolist() == [True, True]
+    assert session_df["decision_action"].to_list() == ["create_target", "ignore_row"]
+    assert session_df["reviewed"].to_list() == [True, True]
 
 
 def test_group_accept_reviews_set_decisions_without_overwriting_them(tmp_path: Path) -> None:
@@ -1304,8 +1296,8 @@ def test_group_accept_reviews_set_decisions_without_overwriting_them(tmp_path: P
     app.run()
 
     session_df = app.session_state["df"]
-    assert session_df["decision_action"].tolist() == ["keep_match", "create_target"]
-    assert session_df["reviewed"].tolist() == [True, True]
+    assert session_df["decision_action"].to_list() == ["keep_match", "create_target"]
+    assert session_df["reviewed"].to_list() == [True, True]
 
 
 def test_group_accept_uses_live_group_row_decisions(tmp_path: Path) -> None:
@@ -1343,8 +1335,8 @@ def test_group_accept_uses_live_group_row_decisions(tmp_path: Path) -> None:
     app.run()
 
     session_df = app.session_state["df"]
-    assert session_df["decision_action"].tolist() == ["keep_match", "ignore_row"]
-    assert session_df["reviewed"].tolist() == [True, True]
+    assert session_df["decision_action"].to_list() == ["keep_match", "ignore_row"]
+    assert session_df["reviewed"].to_list() == [True, True]
 
 
 def test_group_accept_resolves_competing_rows_for_ambiguous_group(tmp_path: Path) -> None:
@@ -1382,8 +1374,8 @@ def test_group_accept_resolves_competing_rows_for_ambiguous_group(tmp_path: Path
     app.run()
 
     session_df = app.session_state["df"]
-    assert session_df["decision_action"].tolist() == ["keep_match", "ignore_row"]
-    assert session_df["reviewed"].tolist() == [True, True]
+    assert session_df["decision_action"].to_list() == ["keep_match", "ignore_row"]
+    assert session_df["reviewed"].to_list() == [True, True]
 
 
 def test_group_accept_button_disabled_until_group_has_chosen_row_decisions(tmp_path: Path) -> None:
@@ -1444,7 +1436,7 @@ def test_accept_all_set_decisions_reviews_only_rows_with_actions(tmp_path: Path)
     app.run()
 
     session_df = app.session_state["df"]
-    assert session_df["reviewed"].tolist() == [True, True, False]
+    assert session_df["reviewed"].to_list() == [True, True, False]
 
 
 def test_accept_all_set_decisions_uses_staged_values_and_skips_blocked_components(
@@ -1482,8 +1474,8 @@ def test_accept_all_set_decisions_uses_staged_values_and_skips_blocked_component
     app.run()
 
     session_df = app.session_state["df"]
-    assert session_df["decision_action"].tolist() == ["keep_match", "create_source"]
-    assert session_df["reviewed"].tolist() == [True, False]
+    assert session_df["decision_action"].to_list() == ["keep_match", "create_source"]
+    assert session_df["reviewed"].to_list() == [True, False]
     assert any(
         "Accepted 1 rows in memory. Blocked 1 rows" in str(element.value)
         for element in app.error
@@ -1491,7 +1483,7 @@ def test_accept_all_set_decisions_uses_staged_values_and_skips_blocked_component
 
 
 def test_primary_state_series_treats_no_decision_as_fix_and_component_conflicts_fix() -> None:
-    df = pd.DataFrame(
+    df = pl.DataFrame(
         [
             _row(transaction_id="draft", decision_action=review_validation.NO_DECISION),
             _row(
@@ -1510,21 +1502,21 @@ def test_primary_state_series_treats_no_decision_as_fix_and_component_conflicts_
             ),
         ]
     )
-    df["reviewed"] = review_validation.normalize_flag_series(df["reviewed"])
+    df = df.with_columns(review_validation.normalize_flag_series(df["reviewed"]).alias("reviewed"))
 
     blocker_series = review_validation.blocker_series(df)
     primary_state_series = review_state.primary_state_series(df, blocker_series)
 
-    assert blocker_series.tolist() == [
+    assert blocker_series.to_list() == [
         "No decision",
         "Contradiction in component",
         "Contradiction in component",
     ]
-    assert primary_state_series.tolist() == ["Fix", "Fix", "Fix"]
+    assert primary_state_series.to_list() == ["Fix", "Fix", "Fix"]
 
 
 def test_transfer_uncategorized_is_not_treated_as_fix() -> None:
-    df = pd.DataFrame(
+    df = pl.DataFrame(
         [
             {
                 "transaction_id": "transfer-row",
@@ -1552,17 +1544,17 @@ def test_transfer_uncategorized_is_not_treated_as_fix() -> None:
             }
         ]
     )
-    df["reviewed"] = review_validation.normalize_flag_series(df["reviewed"])
+    df = df.with_columns(review_validation.normalize_flag_series(df["reviewed"]).alias("reviewed"))
 
     blocker_series = review_validation.blocker_series(df)
     primary_state_series = review_state.primary_state_series(df, blocker_series)
 
-    assert blocker_series.tolist() == ["None"]
-    assert primary_state_series.tolist() == ["Settled"]
+    assert blocker_series.to_list() == ["None"]
+    assert primary_state_series.to_list() == ["Settled"]
 
 
 def test_apply_row_filters_supports_action_blocker_suggestions_map_updates_and_search() -> None:
-    df = pd.DataFrame(
+    df = pl.DataFrame(
         [
             _row(
                 transaction_id="create-target",
@@ -1578,13 +1570,13 @@ def test_apply_row_filters_supports_action_blocker_suggestions_map_updates_and_s
             ),
         ]
     )
-    df["reviewed"] = review_validation.normalize_flag_series(df["reviewed"])
+    df = df.with_columns(review_validation.normalize_flag_series(df["reviewed"]).alias("reviewed"))
 
     blocker_series = review_validation.blocker_series(df)
     primary_state_series = review_state.primary_state_series(df, blocker_series)
     row_kind_series = review_state.row_kind_series(df)
     action_series = review_state.action_series(df)
-    save_state = pd.Series(["Unsaved", "Saved"], index=df.index, dtype="string")
+    save_state = pl.Series(["Unsaved", "Saved"], dtype=pl.Utf8)
     suggestion_series = review_state.suggestion_series(df)
     map_update_series = review_state.map_update_filter_series(df)
     search_text = review_state.search_text_series(df)
@@ -1609,4 +1601,4 @@ def test_apply_row_filters_supports_action_blocker_suggestions_map_updates_and_s
         search_text=search_text,
     )
 
-    assert filtered["transaction_id"].tolist() == ["create-target"]
+    assert filtered["transaction_id"].to_list() == ["create-target"]

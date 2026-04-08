@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import pandas as pd
+import polars as pl
 
 import ynab_il_importer.map_updates as map_updates
 
 
 def test_build_map_update_candidates_dedupes_changed_reviewed_rows() -> None:
-    base = pd.DataFrame(
+    base = pl.DataFrame(
         [
             {
                 "transaction_id": "t1",
@@ -24,7 +24,7 @@ def test_build_map_update_candidates_dedupes_changed_reviewed_rows() -> None:
             },
         ]
     )
-    current = pd.DataFrame(
+    current = pl.DataFrame(
         [
             {
                 "transaction_id": "t1",
@@ -64,15 +64,16 @@ def test_build_map_update_candidates_dedupes_changed_reviewed_rows() -> None:
     actual = map_updates.build_map_update_candidates(current, base)
 
     assert len(actual) == 1
-    assert actual.loc[0, "fingerprint"] == "coffee"
-    assert actual.loc[0, "payee_canonical"] == "Cafe"
-    assert actual.loc[0, "category_target"] == "Dining"
-    assert actual.loc[0, "count"] == 2
-    assert actual.loc[0, "rule_id"].startswith("candidate_")
+    row = actual.row(0, named=True)
+    assert row["fingerprint"] == "coffee"
+    assert row["payee_canonical"] == "Cafe"
+    assert row["category_target"] == "Dining"
+    assert row["count"] == 2
+    assert row["rule_id"].startswith("candidate_")
 
 
 def test_build_map_update_candidates_includes_explicit_update_maps_even_if_unchanged() -> None:
-    base = pd.DataFrame(
+    base = pl.DataFrame(
         [
             {
                 "transaction_id": "t1",
@@ -83,7 +84,7 @@ def test_build_map_update_candidates_includes_explicit_update_maps_even_if_uncha
             }
         ]
     )
-    current = pd.DataFrame(
+    current = pl.DataFrame(
         [
             {
                 "transaction_id": "t1",
@@ -107,6 +108,7 @@ def test_build_map_update_candidates_includes_explicit_update_maps_even_if_uncha
     actual = map_updates.build_map_update_candidates(current, base)
 
     assert len(actual) == 1
-    assert actual.loc[0, "payee_canonical"] == "Transfer : Cash"
-    assert actual.loc[0, "category_target"] == ""
-    assert "update_maps=fingerprint_add_source;payee_limit_fingerprint" in actual.loc[0, "notes"]
+    row = actual.row(0, named=True)
+    assert row["payee_canonical"] == "Transfer : Cash"
+    assert row["category_target"] == ""
+    assert "update_maps=fingerprint_add_source;payee_limit_fingerprint" in row["notes"]

@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-import pandas as pd
 import polars as pl
 
 import ynab_il_importer.review_app.state as review_state
-from ynab_il_importer.safe_types import TRUE_VALUES, normalize_flag_series as _normalize_flag_series
+from ynab_il_importer.safe_types import TRUE_VALUES
 
 import ynab_il_importer.review_app.model as model
 
@@ -25,17 +24,35 @@ SOURCE_DELETE_ACTIONS = {"delete_source", "delete_both"}
 TARGET_DELETE_ACTIONS = {"delete_target", "delete_both"}
 
 
-def normalize_update_maps(series: pd.Series) -> pd.Series:
-    return series.astype("string").fillna("").str.strip()
+def _text_list(values: pl.Series | list[Any]) -> list[str]:
+    if isinstance(values, pl.Series):
+        raw_values = values.cast(pl.Utf8, strict=False).fill_null("").to_list()
+    else:
+        raw_values = list(values)
+    return [str(value or "").strip() for value in raw_values]
 
 
-def normalize_flag_series(series: pd.Series) -> pd.Series:
-    return _normalize_flag_series(series)
+def _bool_series(values: pl.Series | list[Any]) -> pl.Series:
+    if isinstance(values, pl.Series):
+        raw_values = values.to_list()
+    else:
+        raw_values = list(values)
+    return pl.Series(
+        [str(value or "").strip().casefold() in TRUE_VALUES for value in raw_values],
+        dtype=pl.Boolean,
+    )
 
 
-def normalize_decision_actions(series: pd.Series) -> pd.Series:
-    text = series.astype("string").fillna("").str.strip()
-    return text.mask(text.eq(""), NO_DECISION)
+def normalize_update_maps(series: pl.Series) -> pl.Series:
+    return pl.Series(_text_list(series), dtype=pl.Utf8)
+
+
+def normalize_flag_series(series: pl.Series) -> pl.Series:
+    return _bool_series(series)
+
+
+def normalize_decision_actions(series: pl.Series) -> pl.Series:
+    return pl.Series([value or NO_DECISION for value in _text_list(series)], dtype=pl.Utf8)
 
 
 def parse_update_maps(value: Any) -> list[str]:
@@ -83,16 +100,12 @@ def _truthy(value: Any) -> bool:
 
 
 def _row_has(row: Any, key: str) -> bool:
-    if isinstance(row, pd.Series):
-        return key in row.index
     if isinstance(row, dict):
         return key in row
     return hasattr(row, "__contains__") and key in row
 
 
 def _row_get(row: Any, key: str, default: Any = "") -> Any:
-    if isinstance(row, pd.Series):
-        return row.get(key, default)
     if isinstance(row, dict):
         return row.get(key, default)
     getter = getattr(row, "get", None)
@@ -120,22 +133,16 @@ def _selected_value(row: Any, field: str, *, side: str) -> str:
     return value
 
 
-def _id_series(df: pd.DataFrame, column: str) -> pd.Series:
+def _id_series(df: pl.DataFrame, column: str) -> pl.Series:
     if column not in df.columns:
-        return pd.Series([""] * len(df), index=df.index, dtype="string")
-    return df[column].astype("string").fillna("").str.strip()
+        return pl.Series([""] * len(df), dtype=pl.Utf8)
+    return df.get_column(column).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
 
 
-def _id_list(frame: pd.DataFrame | pl.DataFrame, column: str) -> list[str]:
-    if isinstance(frame, pd.DataFrame):
-        return _id_series(frame, column).tolist()
+def _id_list(frame: pl.DataFrame, column: str) -> list[str]:
     if column not in frame.columns:
         return [""] * frame.height
-    return (
-        frame.select(pl.col(column).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars())
-        .to_series()
-        .to_list()
-    )
+    return [str(value or "").strip() for value in _id_series(frame, column).to_list()]
 
 
 def _component_map_from_lists(
@@ -208,9 +215,7 @@ def _component_members(component_map: dict[Any, int]) -> dict[int, list[Any]]:
     return members
 
 
-def _row_items(df: pd.DataFrame | pl.DataFrame, indices: list[Any]) -> list[tuple[Any, Any]]:
-    if isinstance(df, pd.DataFrame):
-        return [(idx, df.loc[idx]) for idx in indices if idx in df.index]
+def _row_items(df: pl.DataFrame, indices: list[Any]) -> list[tuple[Any, Any]]:
     rows = df.to_dicts()
     items: list[tuple[Any, Any]] = []
     for idx in indices:
@@ -220,28 +225,23 @@ def _row_items(df: pd.DataFrame | pl.DataFrame, indices: list[Any]) -> list[tupl
     return items
 
 
-def connected_component_mask(df: pd.DataFrame, start_idx: Any) -> pd.Series:
-    if start_idx not in df.index:
-        return pd.Series([False] * len(df), index=df.index)
+def connected_component_mask(df: pl.DataFrame, start_idx: Any) -> pl.Series:
+    if not isinstance(start_idx, int) or start_idx < 0 or start_idx >= len(df):
+        return pl.Series([False] * len(df), dtype=pl.Boolean)
     component_map = compute_components(df)
     component_label = component_map.get(start_idx)
     if component_label is None:
-        return pd.Series([False] * len(df), index=df.index)
-    return pd.Series(
-        [component_map.get(idx) == component_label for idx in df.index],
-        index=df.index,
+        return pl.Series([False] * len(df), dtype=pl.Boolean)
+    return pl.Series(
+        [component_map.get(idx) == component_label for idx in range(len(df))],
+        dtype=pl.Boolean,
     )
 
 
-def compute_components(df: pd.DataFrame | pl.DataFrame) -> dict[Any, int]:
-    if isinstance(df, pd.DataFrame):
-        if df.empty:
-            return {}
-        index_values = list(df.index)
-    else:
-        if df.is_empty():
-            return {}
-        index_values = list(range(df.height))
+def compute_components(df: pl.DataFrame) -> dict[Any, int]:
+    if df.is_empty():
+        return {}
+    index_values = list(range(df.height))
     source_ids = _id_list(df, "source_row_id")
     target_ids = _id_list(df, "target_row_id")
     return _component_map_from_lists(
@@ -252,7 +252,7 @@ def compute_components(df: pd.DataFrame | pl.DataFrame) -> dict[Any, int]:
 
 
 def compute_component_errors(
-    df: pd.DataFrame | pl.DataFrame,
+    df: pl.DataFrame,
     component_map: dict[Any, int],
     *,
     row_errors_by_index: dict[Any, list[str]] | None = None,
@@ -275,36 +275,37 @@ def compute_component_errors(
 
 
 def blocker_series_with_components(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     *,
     component_map: dict[Any, int] | None = None,
-) -> tuple[pd.Series, dict[Any, int]]:
+) -> tuple[pl.Series, dict[Any, int]]:
     state = build_validation_state(df, component_map=component_map)
     return state["blocker_series"], state["component_map"]
 
 
 def blocker_series_from_state(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     *,
     component_map: dict[Any, int],
     row_errors_by_index: dict[Any, list[str]],
     component_errors: dict[int, list[str]],
-) -> pd.Series:
+) -> pl.Series:
     uncategorized = review_state.uncategorized_mask(df)
+    rows = df.to_dicts()
     values = [
         blocker_label(
             row,
             component_errors=component_errors.get(component_map.get(idx, -1), []),
-            uncategorized=bool(uncategorized.loc[idx]),
+            uncategorized=bool(uncategorized[idx]),
             row_errors=row_errors_by_index.get(idx, []),
         )
-        for idx, row in df.iterrows()
+        for idx, row in enumerate(rows)
     ]
-    return pd.Series(values, index=df.index, dtype="string")
+    return pl.Series(values, dtype=pl.Utf8)
 
 
 def build_validation_state(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     *,
     component_map: dict[Any, int] | None = None,
 ) -> dict[str, Any]:
@@ -323,7 +324,7 @@ def build_validation_state(
         component_errors=component_errors,
     )
     return {
-        "index": list(df.index),
+        "index": list(range(len(df))),
         "component_map": component_map,
         "row_errors_by_index": row_errors_by_index,
         "component_errors": component_errors,
@@ -332,7 +333,7 @@ def build_validation_state(
 
 
 def refresh_validation_state(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     *,
     validation_state: dict[str, Any] | None = None,
     changed_indices: list[Any] | None = None,
@@ -341,11 +342,12 @@ def refresh_validation_state(
         return build_validation_state(df)
 
     cached_index = list(validation_state.get("index", []))
-    if cached_index != list(df.index):
+    current_index = list(range(len(df)))
+    if cached_index != current_index:
         return build_validation_state(df)
 
     component_map = validation_state.get("component_map")
-    if not isinstance(component_map, dict) or set(component_map.keys()) != set(df.index):
+    if not isinstance(component_map, dict) or set(component_map.keys()) != set(current_index):
         return build_validation_state(df)
 
     row_errors_by_index = {
@@ -357,15 +359,15 @@ def refresh_validation_state(
         for label, messages in dict(validation_state.get("component_errors", {})).items()
     }
     blocker_series = validation_state.get("blocker_series")
-    if not isinstance(blocker_series, pd.Series) or not blocker_series.index.equals(df.index):
-        blocker_series = pd.Series([""] * len(df), index=df.index, dtype="string")
+    if not isinstance(blocker_series, pl.Series) or len(blocker_series) != len(df):
+        blocker_series = pl.Series([""] * len(df), dtype=pl.Utf8)
     else:
-        blocker_series = blocker_series.copy()
+        blocker_series = pl.Series(blocker_series.to_list(), dtype=pl.Utf8)
 
-    touched = [idx for idx in dict.fromkeys(changed_indices) if idx in df.index]
+    touched = [idx for idx in dict.fromkeys(changed_indices) if isinstance(idx, int) and 0 <= idx < len(df)]
     if not touched:
         return {
-            "index": list(df.index),
+            "index": current_index,
             "component_map": component_map,
             "row_errors_by_index": row_errors_by_index,
             "component_errors": component_errors,
@@ -373,7 +375,7 @@ def refresh_validation_state(
         }
 
     for idx in touched:
-        row_errors_by_index[idx] = validate_row(df.loc[idx])[0]
+        row_errors_by_index[idx] = validate_row(df.row(idx, named=True))[0]
 
     component_members = _component_members(component_map)
     touched_components = {
@@ -394,15 +396,18 @@ def refresh_validation_state(
             row_errors_by_index=row_errors_by_index,
         )
         for idx in indices:
-            blocker_series.loc[idx] = blocker_label(
-                df.loc[idx],
-                component_errors=component_errors.get(component_label, []),
-                uncategorized=bool(uncategorized.loc[idx]),
-                row_errors=row_errors_by_index.get(idx, []),
-            )
+            if 0 <= idx < len(df):
+                current = blocker_series.to_list()
+                current[idx] = blocker_label(
+                    df.row(idx, named=True),
+                    component_errors=component_errors.get(component_label, []),
+                    uncategorized=bool(uncategorized[idx]),
+                    row_errors=row_errors_by_index.get(idx, []),
+                )
+                blocker_series = pl.Series(current, dtype=pl.Utf8)
 
     return {
-        "index": list(df.index),
+        "index": current_index,
         "component_map": component_map,
         "row_errors_by_index": row_errors_by_index,
         "component_errors": component_errors,
@@ -461,15 +466,18 @@ def validate_row(row: Any) -> tuple[list[str], list[str]]:
 
 
 def validate_target_split_transaction(
-    row: pd.Series,
+    row: dict[str, Any],
     target_transaction: dict[str, Any],
 ) -> list[str]:
     from ynab_il_importer.artifacts.review_schema import validate_review_record
-    import ynab_il_importer.review_app.io as review_io
 
-    record = review_io._review_record_from_row(row)
-    record["target_current"] = target_transaction
-    record["changed"] = True
+    record = {
+        "source_current": row.get("source_current"),
+        "source_original": row.get("source_original"),
+        "target_current": target_transaction,
+        "target_original": row.get("target_original"),
+        "changed": True,
+    }
     return [
         message
         for message in validate_review_record(record)
@@ -477,28 +485,26 @@ def validate_target_split_transaction(
     ]
 
 
-def compute_row_errors(df: pd.DataFrame) -> dict[Any, list[str]]:
+def compute_row_errors(df: pl.DataFrame) -> dict[Any, list[str]]:
     return {
         idx: validate_row(row)[0]
-        for idx, row in df.iterrows()
+        for idx, row in enumerate(df.to_dicts())
     }
 
 
 def review_component_errors(
-    df: pd.DataFrame | pl.DataFrame,
+    df: pl.DataFrame,
     start_idx: Any,
     *,
-    component_mask: pd.Series | None = None,
+    component_mask: pl.Series | None = None,
     component_indices: list[Any] | None = None,
     row_errors_by_index: dict[Any, list[str]] | None = None,
 ) -> list[str]:
     if component_indices is None:
-        if isinstance(df, pd.DataFrame):
-            if component_mask is None:
-                component_mask = connected_component_mask(df, start_idx)
-            else:
-                component_mask = component_mask.reindex(df.index, fill_value=False)
-            component_indices = df.index[component_mask].tolist()
+        if component_mask is not None:
+            component_indices = [
+                idx for idx, keep in enumerate(component_mask.to_list()) if bool(keep)
+            ]
         else:
             component_map = compute_components(df)
             component_label = component_map.get(start_idx)
@@ -584,7 +590,7 @@ def blocker_label(
     return "None"
 
 
-def blocker_series(df: pd.DataFrame) -> pd.Series:
+def blocker_series(df: pl.DataFrame) -> pl.Series:
     blocker_values, _ = blocker_series_with_components(df)
     return blocker_values
 
@@ -623,29 +629,13 @@ def apply_review_state(
     reviewed: bool,
     component_map: dict[Any, int] | None = None,
 ) -> tuple[pl.DataFrame, list[str]]:
-    updated, errors = _apply_review_state_pandas(
-        edited_df.to_pandas(),
-        indices,
-        reviewed=reviewed,
-        component_map=component_map,
-    )
-    return pl.from_pandas(updated), errors
-
-
-def _apply_review_state_pandas(
-    edited_df: pd.DataFrame,
-    indices: list[Any],
-    *,
-    reviewed: bool,
-    component_map: dict[Any, int] | None = None,
-) -> tuple[pd.DataFrame, list[str]]:
-    touched = [idx for idx in dict.fromkeys(indices) if idx in edited_df.index]
+    touched = [idx for idx in dict.fromkeys(indices) if isinstance(idx, int) and 0 <= idx < len(edited_df)]
     if not touched:
-        return edited_df.copy(), []
+        return edited_df, []
 
-    updated = edited_df.copy()
+    updated = edited_df
     for idx in touched:
-        updated = review_state._apply_row_edit_pandas(
+        updated = review_state.apply_row_edit(
             updated,
             idx,
             reviewed=reviewed,
@@ -658,22 +648,25 @@ def _apply_review_state_pandas(
     errors: list[str] = []
     if component_map is None:
         component_map = compute_components(updated)
-    component_series = pd.Series(component_map).reindex(updated.index)
+    component_series = component_map
     seen_components: set[int] = set()
     for idx in touched:
         component_label = component_map.get(idx)
         if component_label is None or component_label in seen_components:
             continue
         seen_components.add(component_label)
-        component_mask = component_series.eq(component_label).fillna(False)
+        component_mask = pl.Series(
+            [component_series.get(current_idx) == component_label for current_idx in range(len(updated))],
+            dtype=pl.Boolean,
+        )
         errors.extend(
             review_component_errors(updated, idx, component_mask=component_mask)
         )
 
     if errors:
-        reverted = edited_df.copy()
+        reverted = edited_df
         for idx in touched:
-            reverted = review_state._apply_row_edit_pandas(
+            reverted = review_state.apply_row_edit(
                 reverted,
                 idx,
                 reviewed=False,
@@ -692,28 +685,12 @@ def apply_review_state_best_effort(
     reviewed: bool,
     component_map: dict[Any, int] | None = None,
 ) -> tuple[pl.DataFrame, list[str], list[Any]]:
-    updated, errors, reviewed_indices = _apply_review_state_best_effort_pandas(
-        edited_df.to_pandas(),
-        indices,
-        reviewed=reviewed,
-        component_map=component_map,
-    )
-    return pl.from_pandas(updated), errors, reviewed_indices
-
-
-def _apply_review_state_best_effort_pandas(
-    edited_df: pd.DataFrame,
-    indices: list[Any],
-    *,
-    reviewed: bool,
-    component_map: dict[Any, int] | None = None,
-) -> tuple[pd.DataFrame, list[str], list[Any]]:
-    touched = [idx for idx in dict.fromkeys(indices) if idx in edited_df.index]
+    touched = [idx for idx in dict.fromkeys(indices) if isinstance(idx, int) and 0 <= idx < len(edited_df)]
     if not touched:
-        return edited_df.copy(), [], []
+        return edited_df, [], []
 
     if not reviewed:
-        updated, errors = _apply_review_state_pandas(
+        updated, errors = apply_review_state(
             edited_df,
             touched,
             reviewed=reviewed,
@@ -721,7 +698,7 @@ def _apply_review_state_best_effort_pandas(
         )
         return updated, errors, touched if not errors else []
 
-    working = edited_df.copy()
+    working = edited_df
     reviewed_indices: list[Any] = []
     errors: list[str] = []
     if component_map is None:
@@ -736,7 +713,7 @@ def _apply_review_state_best_effort_pandas(
 
     for component_label in sorted(grouped_indices):
         component_indices = grouped_indices[component_label]
-        updated, component_errors = _apply_review_state_pandas(
+        updated, component_errors = apply_review_state(
             working,
             component_indices,
             reviewed=True,
@@ -751,8 +728,8 @@ def _apply_review_state_best_effort_pandas(
     return working, list(dict.fromkeys(errors)), reviewed_indices
 
 
-def inconsistent_fingerprints(df: pd.DataFrame) -> pd.DataFrame:
-    frames: list[pd.DataFrame] = []
+def inconsistent_fingerprints(df: pl.DataFrame) -> pl.DataFrame:
+    frames: list[pl.DataFrame] = []
 
     for side in ["source", "target"]:
         id_col = f"{side}_row_id"
@@ -760,23 +737,26 @@ def inconsistent_fingerprints(df: pd.DataFrame) -> pd.DataFrame:
         category_col = f"{side}_category_selected"
         if id_col not in df.columns or payee_col not in df.columns or category_col not in df.columns:
             continue
-        ids = _id_series(df, id_col)
-        combos = (
-            df[payee_col].astype("string").fillna("").str.strip()
-            + "||"
-            + df[category_col].astype("string").fillna("").str.strip()
-        )
         grouped = (
-            pd.DataFrame({"row_id": ids, "_combo": combos})
-            .loc[ids.ne("")]
-            .groupby("row_id", dropna=False)["_combo"]
-            .nunique()
-            .reset_index(name="combo_count")
+            df.select(
+                pl.col(id_col).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars().alias("row_id"),
+                pl.concat_str(
+                    [
+                        pl.col(payee_col).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars(),
+                        pl.lit("||"),
+                        pl.col(category_col).cast(pl.Utf8, strict=False).fill_null("").str.strip_chars(),
+                    ]
+                ).alias("_combo"),
+            )
+            .filter(pl.col("row_id").ne(""))
+            .group_by("row_id")
+            .agg(pl.col("_combo").n_unique().alias("combo_count"))
+            .filter(pl.col("combo_count") > 1)
+            .with_columns(pl.lit(side).alias("side"))
         )
-        if not grouped.empty:
-            grouped.insert(0, "side", side)
-            frames.append(grouped[grouped["combo_count"] > 1])
+        if not grouped.is_empty():
+            frames.append(grouped.select("side", "row_id", "combo_count"))
 
     if not frames:
-        return pd.DataFrame(columns=["side", "row_id", "combo_count"])
-    return pd.concat(frames, ignore_index=True)
+        return pl.DataFrame({"side": [], "row_id": [], "combo_count": []})
+    return pl.concat(frames)

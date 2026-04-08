@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import time
 
-import pandas as pd
+import polars as pl
 
 import ynab_il_importer.review_app.app as review_app
 import ynab_il_importer.review_app.validation as review_validation
 
 
-def make_review_df(n: int) -> pd.DataFrame:
+def make_review_df(n: int) -> pl.DataFrame:
     rows: list[dict[str, object]] = []
     pair_count = max(1, n // 2)
     for pair_idx in range(pair_count):
@@ -84,7 +84,7 @@ def make_review_df(n: int) -> pd.DataFrame:
                 "reviewed": False,
             }
         )
-    return pd.DataFrame(rows[:n])
+    return pl.DataFrame(rows[:n])
 
 
 def test_blocker_series_with_components_smoke_500_rows() -> None:
@@ -95,12 +95,14 @@ def test_blocker_series_with_components_smoke_500_rows() -> None:
     duration = time.perf_counter() - started
 
     assert len(blocker_series) == len(df)
-    assert blocker_series.dtype == "string"
+    assert blocker_series.dtype == pl.Utf8
     assert len(component_map) == len(df)
     assert duration < 10
 
 
-def test_cached_derived_state_skips_recompute_when_generation_is_unchanged(monkeypatch) -> None:
+def test_cached_derived_state_skips_recompute_when_generation_is_unchanged(
+    monkeypatch,
+) -> None:
     df = make_review_df(500)
     cache: dict[str, object] = {"_df_generation": 0}
     call_count = 0
@@ -128,7 +130,7 @@ def test_blocker_series_with_components_validates_each_row_once(monkeypatch) -> 
     call_count = 0
     original = review_validation.validate_row
 
-    def wrapped(row: pd.Series) -> tuple[list[str], list[str]]:
+    def wrapped(row: object) -> tuple[list[str], list[str]]:
         nonlocal call_count
         call_count += 1
         return original(row)

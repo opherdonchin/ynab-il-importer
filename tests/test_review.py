@@ -13,13 +13,13 @@ import ynab_il_importer.review_app.state as review_state
 import ynab_il_importer.review_app.validation as review_validation
 
 
-def _working_from_df(df: pd.DataFrame) -> pd.DataFrame:
+def _working_from_df(df: pd.DataFrame | pl.DataFrame) -> pl.DataFrame:
     return review_io.project_review_artifact_to_working_dataframe(
-        pl.from_arrow(review_io.coerce_review_artifact_table(df))
-    ).to_pandas()
+        review_io.coerce_review_artifact_table(df)
+    )
 
 
-def _review_rows(rows: list[dict[str, object]]) -> pd.DataFrame:
+def _review_rows(rows: list[dict[str, object]]) -> pl.DataFrame:
     normalized_rows: list[dict[str, object]] = []
     for row in rows:
         normalized = dict(row)
@@ -72,7 +72,7 @@ def _txn(
     }
 
 
-def _canonical_working_rows(rows: list[dict[str, object]]) -> pd.DataFrame:
+def _canonical_working_rows(rows: list[dict[str, object]]) -> pl.DataFrame:
     return _working_from_df(pd.DataFrame(rows))
 
 
@@ -194,7 +194,7 @@ def test_blocker_series_marks_missing_reviewed_payee() -> None:
 
     blockers = review_validation.blocker_series(df)
 
-    assert blockers.tolist() == ["Missing payee"]
+    assert blockers.to_list() == ["Missing payee"]
 
 
 def test_blocker_series_is_none_for_settled_consistent_rows() -> None:
@@ -217,7 +217,7 @@ def test_blocker_series_is_none_for_settled_consistent_rows() -> None:
 
     blockers = review_validation.blocker_series(df)
 
-    assert blockers.tolist() == ["None"]
+    assert blockers.to_list() == ["None"]
 
 
 def test_allowed_decision_actions_accepts_plain_mapping() -> None:
@@ -385,7 +385,8 @@ def test_summary_counts_and_filters_follow_new_decision_action_rules() -> None:
         "unresolved": 2,
         "update_maps": 1,
     }
-    assert reviewed_only.index.tolist() == [2]
+    assert reviewed_only.height == 1
+    assert reviewed_only["reviewed"].to_list() == [True]
 
 
 def test_filtered_row_indices_follow_series_filters_without_dataframe_masks() -> None:
@@ -416,13 +417,13 @@ def test_filtered_row_indices_follow_series_filters_without_dataframe_masks() ->
     primary_state_series = review_state.primary_state_series(df, blocker_series)
     row_kind_series = review_state.row_kind_series(df)
     action_series = review_state.action_series(df)
-    save_state = pd.Series(["Unsaved", "Saved"], index=df.index, dtype="string")
+    save_state = pl.Series(["Unsaved", "Saved"], dtype=pl.Utf8)
     suggestion_series = review_state.suggestion_series(df)
     map_update_series = review_state.map_update_filter_series(df)
-    search_text = pd.Series(["keep me", "hide me"], index=df.index, dtype="string")
+    search_text = pl.Series(["keep me", "hide me"], dtype=pl.Utf8)
 
     indices = review_state.filtered_row_indices(
-        df.index,
+        list(range(len(df))),
         primary_state=["Decide"],
         row_kind=["Source only", "Ambiguous"],
         action_filter=["create_target"],
@@ -477,7 +478,7 @@ def test_review_data_and_state_views_separate_data_from_app_state() -> None:
         ]
     )
     blocker_series = review_validation.blocker_series(df)
-    save_state = pd.Series(["Unsaved", "Saved"], index=df.index, dtype="string")
+    save_state = pl.Series(["Unsaved", "Saved"], dtype=pl.Utf8)
 
     data_view = review_state.review_data_view(df)
     state_view = review_state.review_filter_state_view(
@@ -524,7 +525,7 @@ def test_filtered_row_indices_from_views_use_polars_helper_columns() -> None:
         ]
     )
     blocker_series = review_validation.blocker_series(df)
-    save_state = pd.Series(["Unsaved", "Saved"], index=df.index, dtype="string")
+    save_state = pl.Series(["Unsaved", "Saved"], dtype=pl.Utf8)
     data_view = review_state.review_data_view(df)
     state_view = review_state.review_filter_state_view(
         data_view,
@@ -535,7 +536,7 @@ def test_filtered_row_indices_from_views_use_polars_helper_columns() -> None:
     indices = review_state.filtered_row_indices_from_views(
         data_view,
         state_view,
-        df.index,
+        list(range(len(df))),
         primary_state=["Decide"],
         row_kind=["Source only", "Ambiguous"],
         action_filter=["create_target"],
@@ -592,7 +593,7 @@ def test_primary_state_series_maps_fix_decide_and_settled() -> None:
 
     states = review_state.primary_state_series(df, blockers)
 
-    assert states.tolist() == ["Fix", "Decide", "Settled"]
+    assert states.to_list() == ["Fix", "Decide", "Settled"]
 
 
 def test_allowed_decision_actions_allow_source_mutation_for_cross_budget_target_only() -> None:
@@ -628,7 +629,7 @@ def test_apply_review_state_rejects_reviewed_no_decision() -> None:
         ]
     )
 
-    updated, errors = review_validation.apply_review_state(pl.from_pandas(df), [0], reviewed=True)
+    updated, errors = review_validation.apply_review_state(df, [0], reviewed=True)
 
     assert updated["reviewed"].to_list() == [False]
     assert errors == [
@@ -676,7 +677,7 @@ def test_apply_review_state_reuses_provided_component_map(monkeypatch) -> None:
     monkeypatch.setattr(review_validation, "compute_components", fail)
 
     updated, errors = review_validation.apply_review_state(
-        pl.from_pandas(df),
+        df,
         [0],
         reviewed=True,
         component_map=component_map,
@@ -695,7 +696,7 @@ def test_apply_competing_row_resolution_ignores_conflicts() -> None:
         ]
     )
 
-    df, touched = review_model.apply_competing_row_resolution(pl.from_pandas(df), [0])
+    df, touched = review_model.apply_competing_row_resolution(df, [0])
 
     assert touched == [1, 2]
     assert df["decision_action"].to_list() == ["keep_match", "ignore_row", "ignore_row"]
@@ -711,7 +712,7 @@ def test_uncategorized_mask_detects_uncategorized_label() -> None:
 
     mask = review_state.uncategorized_mask(df)
 
-    assert mask.tolist() == [True, False]
+    assert mask.to_list() == [True, False]
 
 
 def test_blocker_series_allows_reviewed_uncategorized_row() -> None:
@@ -736,8 +737,8 @@ def test_blocker_series_allows_reviewed_uncategorized_row() -> None:
     blockers = review_validation.blocker_series(df)
     states = review_state.primary_state_series(df, blockers)
 
-    assert blockers.tolist() == ["None"]
-    assert states.tolist() == ["Settled"]
+    assert blockers.to_list() == ["None"]
+    assert states.to_list() == ["Settled"]
 
 
 def test_search_text_series_contains_payee_and_memo() -> None:
@@ -753,8 +754,8 @@ def test_search_text_series_contains_payee_and_memo() -> None:
 
     search_text = review_state.search_text_series(df)
 
-    assert "weekly groceries" in search_text.iloc[0]
-    assert "cafe roma" in search_text.iloc[0]
+    assert "weekly groceries" in search_text.to_list()[0]
+    assert "cafe roma" in search_text.to_list()[0]
 
 
 def test_related_rows_mask_can_expand_by_source_and_target() -> None:
@@ -769,7 +770,7 @@ def test_related_rows_mask_can_expand_by_source_and_target() -> None:
 
     mask = review_state.related_rows_mask(df, 0, include_source=True, include_target=True)
 
-    assert mask.tolist() == [True, True, True, False]
+    assert mask.to_list() == [True, True, True, False]
 
 
 def test_related_row_indices_accept_polars_and_preserve_order() -> None:
@@ -824,7 +825,7 @@ def test_apply_row_edit_propagates_to_related_indices() -> None:
     )
 
     df = review_state.apply_row_edit(
-        pl.from_pandas(df),
+        df,
         0,
         source_payee="Source Cafe",
         target_payee="Target Cafe",
@@ -892,7 +893,7 @@ def test_apply_row_edit_recomputes_changed_from_current_vs_original() -> None:
     )
 
     edited = review_state.apply_row_edit(
-        pl.from_pandas(df),
+        df,
         0,
         target_category="Dining",
     ).to_pandas()
@@ -945,7 +946,7 @@ def test_apply_target_split_edit_saves_split_lines_and_collapses_one_line() -> N
     )
 
     split_saved = review_state.apply_target_split_edit(
-        pl.from_pandas(df),
+        df,
         0,
         lines=[
             {"split_id": "sub-1", "payee_raw": "Target Cafe", "category_raw": "Food", "amount_ils": -7.0},
@@ -1104,7 +1105,7 @@ def test_apply_target_split_edit_uses_row_amount_for_target_absent_rows() -> Non
     )
 
     split_saved = review_state.apply_target_split_edit(
-        pl.from_pandas(df),
+        df,
         0,
         lines=[
             {
@@ -1271,7 +1272,7 @@ def test_blocker_series_with_components_returns_series_and_component_map() -> No
 
     blockers, component_map = review_validation.blocker_series_with_components(df)
 
-    assert blockers.index.tolist() == df.index.tolist()
+    assert len(blockers) == len(df)
     assert component_map[0] == component_map[1]
     assert component_map[2] != component_map[0]
 
@@ -1295,7 +1296,7 @@ def test_blocker_series_with_components_uses_supplied_component_map(monkeypatch)
         component_map=component_map,
     )
 
-    assert blockers.index.tolist() == df.index.tolist()
+    assert len(blockers) == len(df)
     assert reused_map == component_map
 
 
@@ -1322,8 +1323,9 @@ def test_refresh_validation_state_updates_only_touched_component() -> None:
     )
     initial_state = review_validation.build_validation_state(df)
 
-    updated = df.copy()
-    updated.at[0, "target_payee_selected"] = ""
+    updated_rows = df.to_dicts()
+    updated_rows[0]["target_payee_selected"] = ""
+    updated = pl.from_dicts(updated_rows, infer_schema_length=None)
     refreshed = review_validation.refresh_validation_state(
         updated,
         validation_state=initial_state,
@@ -1332,8 +1334,7 @@ def test_refresh_validation_state_updates_only_touched_component() -> None:
 
     assert refreshed["row_errors_by_index"][0] == ["missing target payee"]
     assert refreshed["row_errors_by_index"][1] == []
-    assert refreshed["blocker_series"].loc[0] == "Missing payee"
-    assert refreshed["blocker_series"].loc[1] == "None"
+    assert refreshed["blocker_series"].to_list() == ["Missing payee", "None"]
 
 
 def test_derive_inference_tags_marks_missing_rows() -> None:
@@ -1356,7 +1357,7 @@ def test_derive_inference_tags_marks_missing_rows() -> None:
 
     inferred = review_state.derive_inference_tags(df)
 
-    assert inferred.tolist() == ["missing", "ambiguous"]
+    assert inferred.to_list() == ["missing", "ambiguous"]
 
 
 def test_initial_inference_tags_aligns_by_transaction_occurrence() -> None:
@@ -1376,12 +1377,13 @@ def test_initial_inference_tags_aligns_by_transaction_occurrence() -> None:
             },
         ]
     )
-    current = base.copy()
-    current.loc[1, "match_status"] = "source_only"
+    current_rows = base.to_dicts()
+    current_rows[1]["match_status"] = "source_only"
+    current = pl.from_dicts(current_rows, infer_schema_length=None)
 
     inferred = review_state.initial_inference_tags(current, base)
 
-    assert inferred.tolist() == ["ambiguous", "matched_auto"]
+    assert inferred.to_list() == ["ambiguous", "matched_auto"]
 
 
 def test_canonical_review_helpers_derive_split_and_display_fields() -> None:

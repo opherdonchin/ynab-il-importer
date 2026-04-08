@@ -29,10 +29,6 @@ Done:
   - legacy translation helpers (`translate_review_csv.py`, `detect_review_csv_format`, `translate_review_dataframe`, `LEGACY_INSTITUTIONAL_REQUIRED_COLUMNS`, and four private helpers) deleted from [review_app/io.py](src/ynab_il_importer/review_app/io.py)
   - associated tests removed
   - 306/306 passing
-- review app session state migration to Polars is complete:
-  - [state.py](src/ynab_il_importer/review_app/state.py), [validation.py](src/ynab_il_importer/review_app/validation.py), [map_updates.py](src/ynab_il_importer/map_updates.py), and [app.py](src/ynab_il_importer/review_app/app.py) now keep the working frame as `pl.DataFrame`
-  - review-app helpers now use Polars row/series access directly instead of pandas adapters
-  - full test suite is green again: `pixi run pytest tests/ -q`
 
 ## Next: Remove remaining pandas from the review app
 
