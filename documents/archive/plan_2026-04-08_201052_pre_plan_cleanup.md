@@ -34,14 +34,18 @@ Done:
   - review-app helpers now use Polars row/series access directly instead of pandas adapters
   - full test suite is green again: `pixi run pytest tests/ -q`
 
-## Review App Polars Migration
+## Next: Remove remaining pandas from the review app
 
-Done:
-- [state.py](src/ynab_il_importer/review_app/state.py), [validation.py](src/ynab_il_importer/review_app/validation.py), [map_updates.py](src/ynab_il_importer/map_updates.py), and [app.py](src/ynab_il_importer/review_app/app.py) now keep the working frame as `pl.DataFrame`
-- the review app session state now uses Polars directly instead of pandas adapters
-- the full test suite is green: `pixi run pytest tests/ -q`
+The review app session state (`app.py`) currently holds `pd.DataFrame`. All actual editing logic already operates natively on `pl.DataFrame` (in `apply_row_edit`, `apply_to_same_fingerprint`, `apply_competing_row_resolution`, `apply_review_state`). The pandas frames are only held as a conversion wrapper between session storage and those Polars operations.
 
-The migration prompt remains at [documents/prompts/app_polars_migration.md](documents/prompts/app_polars_migration.md) for reference, but the work itself is complete.
+The remaining pandas islands in the review app are:
+
+1. **[app.py](src/ynab_il_importer/review_app/app.py)**: session state holds `pd.DataFrame`; adapter wrappers (`_call_apply_row_edit`, `_call_apply_to_same_fingerprint`, `_call_apply_competing_row_resolution`, `_call_apply_review_state`, `_accept_reviewed_components`) all do `pl.from_pandas(df)...to_pandas()`; `_require_groupable_review_rows`, `_format_amount`, `_pick_summary_text` use pandas row access
+2. **[state.py](src/ynab_il_importer/review_app/state.py)**: many functions (`summary_counts`, `modified_mask`, `changed_mask`, `apply_filters`, `unresolved_mask`, `uncategorized_mask`, `review_data_view`, etc.) take `pd.DataFrame`
+3. **[validation.py](src/ynab_il_importer/review_app/validation.py)**: most validation functions (`blocker_series`, `inconsistent_fingerprints`, `build_validation_state`, `refresh_validation_state`, `compute_row_errors`, etc.) take `pd.DataFrame`
+4. **[map_updates.py](src/ynab_il_importer/map_updates.py)**: `build_map_update_candidates` takes `pd.DataFrame`
+
+An agent prompt for this migration is at [documents/prompts/app_polars_migration.md](documents/prompts/app_polars_migration.md).
 
 Done:
 - Step 4 split editing is complete:
