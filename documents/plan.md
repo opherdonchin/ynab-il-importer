@@ -23,6 +23,27 @@ Parallel workflow cleanup has now started:
 ## Current Status
 
 Done:
+- dead code cluster removed (`dd22cd9`):
+  - cli analytics commands (`build-payee-map`, `build-groups`, `list-accounts`, `match-pairs`) and all their helpers deleted from [cli.py](src/ynab_il_importer/cli.py)
+  - `cross_budget_pairing.py`, `cross_budget_reconciliation.py` and all cross-budget scripts (`build_cross_budget_review_rows.py`, `bootstrap_cross_budget_pairs.py`, `reconcile_cross_budget_balance.py`) deleted
+  - legacy translation helpers (`translate_review_csv.py`, `detect_review_csv_format`, `translate_review_dataframe`, `LEGACY_INSTITUTIONAL_REQUIRED_COLUMNS`, and four private helpers) deleted from [review_app/io.py](src/ynab_il_importer/review_app/io.py)
+  - associated tests removed
+  - 306/306 passing
+
+## Next: Remove remaining pandas from the review app
+
+The review app session state (`app.py`) currently holds `pd.DataFrame`. All actual editing logic already operates natively on `pl.DataFrame` (in `apply_row_edit`, `apply_to_same_fingerprint`, `apply_competing_row_resolution`, `apply_review_state`). The pandas frames are only held as a conversion wrapper between session storage and those Polars operations.
+
+The remaining pandas islands in the review app are:
+
+1. **[app.py](src/ynab_il_importer/review_app/app.py)**: session state holds `pd.DataFrame`; adapter wrappers (`_call_apply_row_edit`, `_call_apply_to_same_fingerprint`, `_call_apply_competing_row_resolution`, `_call_apply_review_state`, `_accept_reviewed_components`) all do `pl.from_pandas(df)...to_pandas()`; `_require_groupable_review_rows`, `_format_amount`, `_pick_summary_text` use pandas row access
+2. **[state.py](src/ynab_il_importer/review_app/state.py)**: many functions (`summary_counts`, `modified_mask`, `changed_mask`, `apply_filters`, `unresolved_mask`, `uncategorized_mask`, `review_data_view`, etc.) take `pd.DataFrame`
+3. **[validation.py](src/ynab_il_importer/review_app/validation.py)**: most validation functions (`blocker_series`, `inconsistent_fingerprints`, `build_validation_state`, `refresh_validation_state`, `compute_row_errors`, etc.) take `pd.DataFrame`
+4. **[map_updates.py](src/ynab_il_importer/map_updates.py)**: `build_map_update_candidates` takes `pd.DataFrame`
+
+An agent prompt for this migration is at [documents/prompts/app_polars_migration.md](documents/prompts/app_polars_migration.md).
+
+Done:
 - Step 4 split editing is complete:
   - modal split editor uses explicit per-line widgets
   - committed split edits round-trip through save/load/reconcile/upload prep
