@@ -2,10 +2,11 @@
 
 import argparse
 import hashlib
+import math
 import re
 import sys
 import warnings
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 import pandas as pd
@@ -20,7 +21,6 @@ from ynab_il_importer.artifacts.transaction_io import (
     read_transactions_arrow,
 )
 import ynab_il_importer.export as export
-import ynab_il_importer.pairing as pairing
 import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.rules as rules_mod
@@ -273,131 +273,6 @@ def _dedupe_source_overlaps(source_df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def _dedupe_sources(
-    source_df: pd.DataFrame, ynab_df: pd.DataFrame
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    source_clean = source_df.reset_index(drop=True).copy()
-    source_clean["candidate_import_id"] = _candidate_import_ids(source_clean)
-
-    ynab_with_import = ynab_df.copy()
-    if "import_id" not in ynab_with_import.columns:
-        ynab_with_import["import_id"] = ""
-    ynab_with_import["import_id"] = (
-        ynab_with_import["import_id"].astype("string").fillna("").str.strip()
-    )
-    ynab_import_keys = {
-        (key, row["import_id"])
-        for _, row in ynab_with_import.iterrows()
-        for key in _account_key_candidates(row, id_col="account_id", name_col="account_name")
-        if row["import_id"] and key
-    }
-
-    exact_import_mask = source_clean.apply(
-        lambda row: any(
-            (key, str(row.get("candidate_import_id", "")).strip()) in ynab_import_keys
-            for key in _account_key_candidates(
-                row, id_col="ynab_account_id", name_col="account_name"
-            )
-        ),
-        axis=1,
-    )
-    if exact_import_mask.any():
-        warnings.warn(
-            f"Dropping {int(exact_import_mask.sum())} source rows matched to YNAB by exact import_id.",
-            UserWarning,
-        )
-
-    source_remaining = (
-        source_clean.loc[~exact_import_mask].drop(columns=["candidate_import_id"]).copy()
-    )
-    pairs = pairing.match_pairs(source_remaining, ynab_df)
-    if pairs.empty:
-        return source_remaining.copy(), pairs
-
-    key_cols = ["account_name", "date", "outflow_ils", "inflow_ils"]
-    ambiguous_mask = (
-        pairs["ambiguous_key"].fillna(False).astype(bool)
-        if "ambiguous_key" in pairs.columns
-        else pd.Series([False] * len(pairs), index=pairs.index)
-    )
-    ambiguous_keys = pairs.loc[ambiguous_mask, key_cols].drop_duplicates().copy()
-    if not ambiguous_keys.empty:
-        warnings.warn(
-            f"Retaining {len(ambiguous_keys)} source rows with ambiguous YNAB date+amount matches.",
-            UserWarning,
-        )
-
-    non_ambiguous_pairs = pairs.loc[~ambiguous_mask].copy()
-    if non_ambiguous_pairs.empty:
-        return source_remaining.copy(), pairs
-
-    non_ambiguous_pairs["date"] = pd.to_datetime(
-        non_ambiguous_pairs["date"], errors="coerce"
-    ).dt.date
-    non_ambiguous_pairs["outflow_ils"] = pd.to_numeric(
-        non_ambiguous_pairs["outflow_ils"], errors="coerce"
-    ).fillna(0.0)
-    non_ambiguous_pairs["inflow_ils"] = pd.to_numeric(
-        non_ambiguous_pairs["inflow_ils"], errors="coerce"
-    ).fillna(0.0)
-    non_ambiguous_pairs["ynab_import_id"] = (
-        non_ambiguous_pairs.get(
-            "ynab_import_id",
-            pd.Series([""] * len(non_ambiguous_pairs), index=non_ambiguous_pairs.index),
-        )
-        .astype("string")
-        .fillna("")
-        .str.strip()
-    )
-    non_ambiguous_pairs["ynab_fingerprint"] = (
-        non_ambiguous_pairs.get(
-            "ynab_fingerprint",
-            pd.Series([""] * len(non_ambiguous_pairs), index=non_ambiguous_pairs.index),
-        )
-        .astype("string")
-        .fillna("")
-        .str.strip()
-    )
-    pair_summary = (
-        non_ambiguous_pairs.groupby(key_cols, dropna=False)
-        .agg(
-            ynab_import_ids=(
-                "ynab_import_id",
-                lambda values: sorted({str(v).strip() for v in values if str(v).strip()}),
-            ),
-            ynab_fingerprints=(
-                "ynab_fingerprint",
-                lambda values: sorted({str(v).strip() for v in values if str(v).strip()}),
-            ),
-        )
-        .reset_index()
-    )
-    pair_summary["_pair_key_hit"] = True
-
-    source_compare = source_remaining.copy()
-    source_compare["date"] = pd.to_datetime(source_compare["date"], errors="coerce").dt.date
-    source_compare["outflow_ils"] = pd.to_numeric(
-        source_compare["outflow_ils"], errors="coerce"
-    ).fillna(0.0)
-    source_compare["inflow_ils"] = pd.to_numeric(
-        source_compare["inflow_ils"], errors="coerce"
-    ).fillna(0.0)
-    source_compare["source_lineage_id"] = source_compare.apply(_source_lineage_id, axis=1)
-    merged = source_compare.merge(pair_summary, on=key_cols, how="left")
-    has_key_hit = merged["_pair_key_hit"].eq(True)
-    protected_mask = merged.apply(_protect_from_weak_dedupe, axis=1)
-    is_dup = has_key_hit & ~protected_mask
-    protected_count = int((has_key_hit & protected_mask).sum())
-    if protected_count:
-        warnings.warn(
-            "Retaining "
-            f"{protected_count} source rows with lineage conflict "
-            "against weak YNAB date+amount matches.",
-            UserWarning,
-        )
-    deduped = source_remaining.reset_index(drop=True).loc[~is_dup.to_numpy()].copy()
-    return deduped, pairs
-
 
 def _build_options_from_applied(applied: pd.DataFrame, rules: pd.DataFrame) -> pd.DataFrame:
     if applied.empty:
@@ -473,7 +348,7 @@ def _fast_apply_rules(transactions: pd.DataFrame, rules: pd.DataFrame) -> pd.Dat
     return merged
 
 
-def _make_transaction_id(row: pd.Series) -> str:
+def _make_transaction_id(row: Mapping[str, object]) -> str:
     parts = [
         str(row.get("account_name", "")),
         str(row.get("date", "")),
@@ -534,70 +409,8 @@ def _annotate_bank_debit_card_memo(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _candidate_import_ids(source_df: pd.DataFrame) -> pd.Series:
-    if source_df.empty:
-        return pd.Series(dtype="string")
 
-    work = source_df.reset_index().copy()
-    if "transaction_id" not in work.columns:
-        work["transaction_id"] = work.apply(_make_transaction_id, axis=1)
-    else:
-        blank_transaction_id = work["transaction_id"].astype("string").fillna("").str.strip() == ""
-        if blank_transaction_id.any():
-            work.loc[blank_transaction_id, "transaction_id"] = work.loc[blank_transaction_id].apply(
-                _make_transaction_id, axis=1
-            )
-
-    work["account_key"] = work["account_name"].astype("string").fillna("").str.strip()
-    work["date_key"] = (
-        pd.to_datetime(work["date"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
-    )
-    work["amount_milliunits"] = (
-        (
-            (
-                pd.to_numeric(work.get("inflow_ils", 0.0), errors="coerce").fillna(0.0)
-                - pd.to_numeric(work.get("outflow_ils", 0.0), errors="coerce").fillna(0.0)
-            )
-            * 1000
-        )
-        .round()
-        .astype(int)
-    )
-    work["bank_txn_id"] = (
-        work.get("bank_txn_id", pd.Series([""] * len(work), index=work.index))
-        .astype("string")
-        .fillna("")
-        .str.strip()
-    )
-    work["card_txn_id"] = (
-        work.get("card_txn_id", pd.Series([""] * len(work), index=work.index))
-        .astype("string")
-        .fillna("")
-        .str.strip()
-    )
-
-    ordered = work.sort_values(
-        ["account_key", "date_key", "amount_milliunits", "transaction_id", "index"]
-    ).copy()
-    ordered["import_occurrence"] = (
-        ordered.groupby(["account_key", "date_key", "amount_milliunits"], dropna=False)
-        .cumcount()
-        .add(1)
-    )
-    ordered["candidate_import_id"] = ordered.apply(
-        lambda row: (
-            row["bank_txn_id"]
-            or row["card_txn_id"]
-            or f"YNAB:{int(row['amount_milliunits'])}:{row['date_key']}:{int(row['import_occurrence'])}"
-        ),
-        axis=1,
-    )
-    return (
-        ordered.set_index("index")["candidate_import_id"].reindex(source_df.index).astype("string")
-    )
-
-
-def _source_lineage_id(row: pd.Series) -> str:
+def _source_lineage_id(row: Mapping[str, object]) -> str:
     bank_txn_id = _optional_text(row.get("bank_txn_id", ""))
     if bank_txn_id:
         return bank_txn_id
@@ -610,7 +423,7 @@ def _source_lineage_id(row: pd.Series) -> str:
     return _optional_text(row.get("transaction_id", ""))
 
 
-def _target_lineage_ids(row: pd.Series) -> tuple[str, ...]:
+def _target_lineage_ids(row: Mapping[str, object]) -> tuple[str, ...]:
     values: list[str] = []
     for candidate in [
         _optional_text(row.get("ynab_import_id") or row.get("import_id")),
@@ -623,7 +436,7 @@ def _target_lineage_ids(row: pd.Series) -> tuple[str, ...]:
     return tuple(values)
 
 
-def _target_memo_lineage_ids(row: pd.Series) -> tuple[str, ...]:
+def _target_memo_lineage_ids(row: Mapping[str, object]) -> tuple[str, ...]:
     values: list[str] = []
     for candidate in [
         *bank_identity.extract_bank_txn_ids_from_memo(row.get("target_memo", row.get("memo", ""))),
@@ -645,42 +458,20 @@ def _to_string_set(value: object) -> set[str]:
         out = {_optional_text(item) for item in value}
         out.discard("")
         return out
-    if pd.isna(value):
+    if isinstance(value, float) and math.isnan(value):
         return set()
     text = _optional_text(value)
     return {text} if text else set()
 
 
-def _protect_from_weak_dedupe(row: pd.Series) -> bool:
-    if not bool(row.get("_pair_key_hit", False)):
-        return False
-
-    source_lineage = _optional_text(row.get("source_lineage_id", ""))
-    ynab_import_ids = _to_string_set(row.get("ynab_import_ids", []))
-
-    lineage_conflict = (
-        bool(source_lineage) and bool(ynab_import_ids) and source_lineage not in ynab_import_ids
-    )
-    return lineage_conflict
-
 
 def _optional_text(value: object) -> str:
     if value is None:
         return ""
-    if not isinstance(value, (str, bytes)) and pd.isna(value):
+    if isinstance(value, float) and math.isnan(value):
         return ""
     return str(value).strip()
 
-
-def _account_key_candidates(row: pd.Series, *, id_col: str, name_col: str) -> list[str]:
-    candidates: list[str] = []
-    account_id = str(row.get(id_col, "")).strip()
-    account_name = str(row.get(name_col, "")).strip()
-    if account_id:
-        candidates.append(account_id)
-    if account_name and account_name not in candidates:
-        candidates.append(account_name)
-    return candidates
 
 
 def _build_target_suggestions_pandas(
@@ -761,7 +552,7 @@ def _review_join_options(*values: object) -> str:
     return "; ".join(ordered)
 
 
-def _is_cleared_match(row: pd.Series) -> bool:
+def _is_cleared_match(row: Mapping[str, object]) -> bool:
     cleared = _optional_text(row.get("ynab_cleared")).casefold()
     return cleared in {"cleared", "reconciled"}
 
@@ -773,12 +564,12 @@ def _normalize_selected_category(payee: str, category: str) -> str:
     return normalized
 
 
-def _is_target_only_transfer_counterpart(row: pd.Series) -> bool:
+def _is_target_only_transfer_counterpart(row: Mapping[str, object]) -> bool:
     target_payee = _optional_text(row.get("ynab_payee_raw"))
     return review_model.is_transfer_payee(target_payee)
 
 
-def _is_target_only_manual_entry(row: pd.Series) -> bool:
+def _is_target_only_manual_entry(row: Mapping[str, object]) -> bool:
     approved = _optional_text(row.get("ynab_approved")).casefold() in {"true", "1", "yes", "y"}
     if not approved:
         return False
@@ -810,7 +601,7 @@ def _is_target_only_manual_entry(row: pd.Series) -> bool:
     return True
 
 
-def _is_target_only_settled(row: pd.Series) -> bool:
+def _is_target_only_settled(row: Mapping[str, object]) -> bool:
     return _is_cleared_match(row) or _is_target_only_manual_entry(row)
 
 
@@ -1408,7 +1199,7 @@ def build_review_rows(
     ynab_df: pl.DataFrame,
     *,
     map_path: Path,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+) -> tuple[pl.DataFrame, pl.DataFrame]:
     prepared_source_pl = _prepare_review_source_rows(source_df)
     prepared_target_pl = _prepare_review_target_rows(ynab_df)
     pairs_pl = _institutional_candidate_pairs(prepared_source_pl, prepared_target_pl)
@@ -1421,7 +1212,7 @@ def build_review_rows(
         inflow_ils=inflow,
         fingerprint=fingerprint,
         raw_text=raw_text,
-    ).map_elements(lambda row: _make_transaction_id(pd.Series(row)), return_dtype=pl.String)
+    ).map_elements(lambda row: _make_transaction_id(row), return_dtype=pl.String)
     normalized_category_expr = lambda col: pl.col(col).map_elements(
         review_model.normalize_category_value,
         return_dtype=pl.String,
@@ -1438,11 +1229,11 @@ def build_review_rows(
     settled_target_expr = pl.struct(
         ["ynab_approved", "ynab_payee_raw", "ynab_category_raw", "ynab_import_id", "ynab_matched_transaction_id", "target_memo", "ynab_cleared"]
     ).map_elements(
-        lambda row: _is_target_only_settled(pd.Series(row)),
+        lambda row: _is_target_only_settled(row),
         return_dtype=pl.Boolean,
     )
     transfer_counterpart_expr = pl.struct(["ynab_payee_raw"]).map_elements(
-        lambda row: _is_target_only_transfer_counterpart(pd.Series(row)),
+        lambda row: _is_target_only_transfer_counterpart(row),
         return_dtype=pl.Boolean,
     )
 
@@ -1666,8 +1457,8 @@ def build_review_rows(
     relations = _apply_review_target_suggestions(relations_pl, map_path=map_path)
     relations = review_io.project_review_artifact_to_working_dataframe(
         pl.from_arrow(review_io.coerce_review_artifact_table(relations))
-    ).to_pandas()
-    return relations, pairs_pl.to_pandas()
+    )
+    return relations, pairs_pl
 
 
 def run_build(
@@ -1688,7 +1479,7 @@ def run_build(
 
     out, pairs = build_review_rows(source_df, ynab_df, map_path=map_path)
     if pairs_out:
-        export.write_dataframe(pairs, pairs_out)
+        export.write_dataframe(pairs.to_pandas(), pairs_out)
         print(export.wrote_message(pairs_out, len(pairs)))
 
     if out_path.suffix.lower() == ".parquet":

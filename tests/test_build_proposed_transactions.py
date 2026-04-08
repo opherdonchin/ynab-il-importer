@@ -267,339 +267,6 @@ def test_build_options_from_applied_uses_candidate_rule_ids() -> None:
     assert options.loc[1, "payee_options"] == ""
 
 
-def test_dedupe_sources_handles_non_range_index(monkeypatch: pytest.MonkeyPatch) -> None:
-    source_df = pd.DataFrame(
-        [
-            {
-                "account_name": "Bank Leumi",
-                "date": "2025-12-12",
-                "outflow_ils": 25.0,
-                "inflow_ils": 0.0,
-                "memo": "matched",
-            },
-            {
-                "account_name": "Bank Leumi",
-                "date": "2025-12-13",
-                "outflow_ils": 30.0,
-                "inflow_ils": 0.0,
-                "memo": "keep",
-            },
-        ],
-        index=[0, 2],
-    )
-    ynab_df = pd.DataFrame([{"dummy": 1}])
-    pairs = pd.DataFrame(
-        [
-            {
-                "account_key": "Bank Leumi",
-                "account_name": "Bank Leumi",
-                "date": "2025-12-12",
-                "outflow_ils": 25.0,
-                "inflow_ils": 0.0,
-            }
-        ]
-    )
-
-    monkeypatch.setattr(build_proposed_transactions.pairing, "match_pairs", lambda *_: pairs)
-
-    deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
-
-    assert matched_pairs.equals(pairs)
-    assert deduped["memo"].tolist() == ["keep"]
-
-
-def test_dedupe_sources_retains_ambiguous_pairs(monkeypatch: pytest.MonkeyPatch) -> None:
-    source_df = pd.DataFrame(
-        [
-            {
-                "account_name": "Opher x9922",
-                "date": "2026-02-25",
-                "outflow_ils": 421.43,
-                "inflow_ils": 0.0,
-                "memo": "passport fee",
-            }
-        ]
-    )
-    ynab_df = pd.DataFrame([{"dummy": 1}])
-    pairs = pd.DataFrame(
-        [
-            {
-                "account_key": "Opher x9922",
-                "account_name": "Opher x9922",
-                "date": "2026-02-25",
-                "outflow_ils": 421.43,
-                "inflow_ils": 0.0,
-                "ambiguous_key": True,
-            },
-            {
-                "account_key": "Opher x9922",
-                "account_name": "Opher x9922",
-                "date": "2026-02-25",
-                "outflow_ils": 421.43,
-                "inflow_ils": 0.0,
-                "ambiguous_key": True,
-            },
-        ]
-    )
-
-    monkeypatch.setattr(build_proposed_transactions.pairing, "match_pairs", lambda *_: pairs)
-
-    with pytest.warns(UserWarning, match="Retaining 1 source rows with ambiguous YNAB"):
-        deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
-
-    assert matched_pairs.equals(pairs)
-    assert deduped["memo"].tolist() == ["passport fee"]
-
-
-def test_dedupe_sources_drops_exact_import_id_matches_before_weak_pairing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    source_df = pd.DataFrame(
-        [
-            {
-                "account_name": "Opher x9922",
-                "date": "2026-02-25",
-                "outflow_ils": 421.43,
-                "inflow_ils": 0.0,
-                "fingerprint": "ds passport",
-                "description_raw": "DS-11 PASSPORT FEES",
-                "memo": "passport fee 1",
-            },
-            {
-                "account_name": "Opher x9922",
-                "date": "2026-02-25",
-                "outflow_ils": 421.43,
-                "inflow_ils": 0.0,
-                "fingerprint": "ds passport",
-                "description_raw": "DS-11 PASSPORT FEES",
-                "memo": "passport fee 2",
-            },
-        ]
-    )
-    ynab_df = pd.DataFrame(
-        [
-            {
-                "account_name": "Opher x9922",
-                "import_id": "YNAB:-421430:2026-02-25:1",
-            }
-        ]
-    )
-
-    monkeypatch.setattr(
-        build_proposed_transactions.pairing,
-        "match_pairs",
-        lambda source, *_: pd.DataFrame() if len(source) == 1 else pd.DataFrame([{"bad": 1}]),
-    )
-
-    with pytest.warns(
-        UserWarning, match="Dropping 1 source rows matched to YNAB by exact import_id"
-    ):
-        deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
-
-    assert matched_pairs.empty
-    assert deduped["memo"].tolist() == ["passport fee 2"]
-
-
-def test_dedupe_sources_prefers_account_ids_for_exact_import_matches(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    source_df = pd.DataFrame(
-        [
-            {
-                "account_name": "Bank Leumi Alias",
-                "ynab_account_id": "acc-bank",
-                "date": "2026-02-25",
-                "outflow_ils": 25.0,
-                "inflow_ils": 0.0,
-                "fingerprint": "delek",
-                "description_raw": "DELEK",
-                "memo": "should drop",
-            },
-            {
-                "account_name": "Bank Leumi Alias",
-                "ynab_account_id": "acc-bank",
-                "date": "2026-02-25",
-                "outflow_ils": 25.0,
-                "inflow_ils": 0.0,
-                "fingerprint": "delek",
-                "description_raw": "DELEK",
-                "memo": "should keep",
-            },
-        ]
-    )
-    ynab_df = pd.DataFrame(
-        [
-            {
-                "account_id": "acc-bank",
-                "account_name": "Bank Leumi",
-                "import_id": "YNAB:-25000:2026-02-25:1",
-            }
-        ]
-    )
-
-    monkeypatch.setattr(
-        build_proposed_transactions.pairing,
-        "match_pairs",
-        lambda source, *_: pd.DataFrame() if len(source) == 1 else pd.DataFrame([{"bad": 1}]),
-    )
-
-    with pytest.warns(
-        UserWarning, match="Dropping 1 source rows matched to YNAB by exact import_id"
-    ):
-        deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
-
-    assert matched_pairs.empty
-    assert deduped["memo"].tolist() == ["should keep"]
-
-
-def test_dedupe_sources_drops_exact_card_txn_id_matches_before_weak_pairing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    source_df = pd.DataFrame(
-        [
-            {
-                "account_name": "Opher x9922",
-                "date": "2026-03-09",
-                "outflow_ils": 120.0,
-                "inflow_ils": 0.0,
-                "fingerprint": "merchant a",
-                "description_raw": "MERCHANT A",
-                "card_txn_id": "CARD:V1:1234567890abcdef12345678",
-                "memo": "drop me",
-            },
-            {
-                "account_name": "Opher x9922",
-                "date": "2026-03-09",
-                "outflow_ils": 120.0,
-                "inflow_ils": 0.0,
-                "fingerprint": "merchant b",
-                "description_raw": "MERCHANT B",
-                "card_txn_id": "",
-                "memo": "keep me",
-            },
-        ]
-    )
-    ynab_df = pd.DataFrame(
-        [
-            {
-                "account_name": "Opher x9922",
-                "import_id": "CARD:V1:1234567890abcdef12345678",
-            }
-        ]
-    )
-
-    monkeypatch.setattr(
-        build_proposed_transactions.pairing,
-        "match_pairs",
-        lambda source, *_: pd.DataFrame() if len(source) == 1 else pd.DataFrame([{"bad": 1}]),
-    )
-
-    with pytest.warns(
-        UserWarning, match="Dropping 1 source rows matched to YNAB by exact import_id"
-    ):
-        deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
-
-    assert matched_pairs.empty
-    assert deduped["memo"].tolist() == ["keep me"]
-
-
-def test_dedupe_sources_retains_lineage_conflict_after_exact_import_drop(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    source_df = pd.DataFrame(
-        [
-            {
-                "account_name": "Bank Leumi",
-                "date": "2026-03-12",
-                "outflow_ils": 7.0,
-                "inflow_ils": 0.0,
-                "fingerprint": "dabbah",
-                "bank_txn_id": "BANK:V1:111111111111111111111111",
-                "memo": "drop me",
-            },
-            {
-                "account_name": "Bank Leumi",
-                "date": "2026-03-12",
-                "outflow_ils": 7.0,
-                "inflow_ils": 0.0,
-                "fingerprint": "ikea",
-                "bank_txn_id": "BANK:V1:222222222222222222222222",
-                "memo": "keep me",
-            },
-        ]
-    )
-    ynab_df = pd.DataFrame(
-        [
-            {
-                "account_name": "Bank Leumi",
-                "import_id": "BANK:V1:111111111111111111111111",
-            }
-        ]
-    )
-    pairs = pd.DataFrame(
-        [
-            {
-                "account_name": "Bank Leumi",
-                "date": "2026-03-12",
-                "outflow_ils": 7.0,
-                "inflow_ils": 0.0,
-                "ynab_import_id": "BANK:V1:111111111111111111111111",
-                "ynab_fingerprint": "dabbah",
-                "ambiguous_key": False,
-            }
-        ]
-    )
-
-    monkeypatch.setattr(build_proposed_transactions.pairing, "match_pairs", lambda *_: pairs)
-
-    with pytest.warns(UserWarning) as record:
-        deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
-
-    messages = [str(item.message) for item in record]
-    assert any("exact import_id" in message for message in messages)
-    assert any("lineage conflict" in message for message in messages)
-    assert matched_pairs.equals(pairs)
-    assert deduped["memo"].tolist() == ["keep me"]
-
-
-def test_dedupe_sources_drops_fingerprint_conflict_without_lineage(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    source_df = pd.DataFrame(
-        [
-            {
-                "account_name": "Bank Leumi",
-                "date": "2026-03-12",
-                "outflow_ils": 7.0,
-                "inflow_ils": 0.0,
-                "fingerprint": "ikea",
-                "memo": "keep me",
-            }
-        ]
-    )
-    ynab_df = pd.DataFrame([{"account_name": "Bank Leumi", "import_id": ""}])
-    pairs = pd.DataFrame(
-        [
-            {
-                "account_name": "Bank Leumi",
-                "date": "2026-03-12",
-                "outflow_ils": 7.0,
-                "inflow_ils": 0.0,
-                "ynab_import_id": "",
-                "ynab_fingerprint": "dabbah",
-                "ambiguous_key": False,
-            }
-        ]
-    )
-
-    monkeypatch.setattr(build_proposed_transactions.pairing, "match_pairs", lambda *_: pairs)
-
-    deduped, matched_pairs = build_proposed_transactions._dedupe_sources(source_df, ynab_df)
-
-    assert matched_pairs.equals(pairs)
-    assert deduped.empty
-
-
 def test_dedupe_source_overlaps_matches_immediate_debit_on_secondary_date() -> None:
     source_df = pl.DataFrame(
         [
@@ -767,24 +434,24 @@ def test_build_review_rows_emits_institutional_statuses(tmp_path: Path) -> None:
     )
 
     assert len(pairs) == 1
-    assert set(review_rows["match_status"].tolist()) == {
+    assert set(review_rows["match_status"].to_list()) == {
         "matched_auto",
         "source_only",
         "target_only",
     }
 
-    source_only = review_rows.loc[review_rows["match_status"] == "source_only"].iloc[0]
+    source_only = review_rows.filter(pl.col("match_status") == "source_only").row(0, named=True)
     assert source_only["target_payee_selected"] == "Coffee Shop"
     assert source_only["target_category_selected"] == "Eating Out"
     assert source_only["decision_action"] == "create_target"
     assert source_only["workflow_type"] == "institutional"
 
-    matched = review_rows.loc[review_rows["match_status"] == "matched_auto"].iloc[0]
+    matched = review_rows.filter(pl.col("match_status") == "matched_auto").row(0, named=True)
     assert bool(matched["reviewed"]) is False
     assert matched["target_payee_current"] == "Groceries"
     assert matched["decision_action"] == "keep_match"
 
-    target_only = review_rows.loc[review_rows["match_status"] == "target_only"].iloc[0]
+    target_only = review_rows.filter(pl.col("match_status") == "target_only").row(0, named=True)
     assert target_only["target_payee_current"] == "Manual Cash"
     assert target_only["source"] == "ynab"
     assert target_only["decision_action"] == "No decision"
@@ -835,7 +502,7 @@ def test_build_review_rows_marks_cleared_exact_matches_as_settled(tmp_path: Path
         map_path=map_path,
     )
 
-    matched = review_rows.iloc[0]
+    matched = review_rows.row(0, named=True)
     assert matched["match_status"] == "matched_cleared"
     assert matched["relation_kind"] == "matched_cleared_pair"
     assert bool(matched["reviewed"]) is True
@@ -891,7 +558,7 @@ def test_build_review_rows_normalizes_transfer_uncategorized_to_explicit_none(
         map_path=map_path,
     )
 
-    matched = review_rows.iloc[0]
+    matched = review_rows.row(0, named=True)
     assert matched["target_category_current"] == "Uncategorized"
     assert matched["target_category_selected"] == review_model.NO_CATEGORY_REQUIRED
     assert matched["category_options"] == review_model.NO_CATEGORY_REQUIRED
@@ -957,9 +624,9 @@ def test_build_review_rows_auto_settles_target_only_transfer_counterparts(tmp_pa
         map_path=map_path,
     )
 
-    target_only = review_rows.loc[
-        review_rows["target_payee_selected"] == "Transfer : Checking"
-    ].iloc[0]
+    target_only = review_rows.filter(
+        pl.col("target_payee_selected") == "Transfer : Checking"
+    ).row(0, named=True)
     assert target_only["match_status"] == "target_only"
     assert target_only["decision_action"] == "ignore_row"
     assert bool(target_only["reviewed"]) is True
@@ -1027,7 +694,7 @@ def test_build_review_rows_auto_settles_reconciled_target_only_rows(tmp_path: Pa
         map_path=map_path,
     )
 
-    target_only = review_rows.loc[review_rows["target_payee_selected"] == "Manual Cash"].iloc[0]
+    target_only = review_rows.filter(pl.col("target_payee_selected") == "Manual Cash").row(0, named=True)
     assert target_only["match_status"] == "target_only"
     assert target_only["decision_action"] == "ignore_row"
     assert bool(target_only["reviewed"]) is True
@@ -1094,7 +761,7 @@ def test_build_review_rows_auto_settles_manual_target_only_rows(tmp_path: Path) 
         map_path=map_path,
     )
 
-    target_only = review_rows.loc[review_rows["target_payee_selected"] == "Manual Cash"].iloc[0]
+    target_only = review_rows.filter(pl.col("target_payee_selected") == "Manual Cash").row(0, named=True)
     assert target_only["match_status"] == "target_only"
     assert target_only["decision_action"] == "ignore_row"
     assert bool(target_only["reviewed"]) is True
@@ -1162,11 +829,11 @@ def test_build_review_rows_emits_institutional_ambiguous_candidates(tmp_path: Pa
     )
 
     assert len(pairs) == 2
-    ambiguous = review_rows.loc[review_rows["match_status"] == "ambiguous"].copy()
+    ambiguous = review_rows.filter(pl.col("match_status") == "ambiguous")
     assert len(ambiguous) == 2
-    assert set(ambiguous["relation_kind"].tolist()) == {"ambiguous_candidate"}
-    assert len(set(ambiguous["source_row_id"].tolist())) == 1
-    assert set(ambiguous["target_payee_current"].tolist()) == {"Cafe A", "Cafe B"}
+    assert set(ambiguous["relation_kind"].to_list()) == {"ambiguous_candidate"}
+    assert len(set(ambiguous["source_row_id"].to_list())) == 1
+    assert set(ambiguous["target_payee_current"].to_list()) == {"Cafe A", "Cafe B"}
 
 
 def test_institutional_candidate_pairs_prefer_exact_lineage_and_clear_false_ambiguity() -> None:
