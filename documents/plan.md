@@ -122,7 +122,13 @@ Done:
   - `build_review_rows` now returns `tuple[pl.DataFrame, pl.DataFrame]` instead of converting to pandas; caller `run_build` converts to pandas only at the CSV write boundary
   - `import ynab_il_importer.pairing as pairing` removed (was only used by dead `_dedupe_sources`)
   - 6 dead `_dedupe_sources` tests removed from [tests/test_build_proposed_transactions.py](tests/test_build_proposed_transactions.py)
-- upload/reconcile cutover planning is now documented in:
+- a further focused pandas cleanup pass is now committed (`ba4b822`):
+  - `pairs_out` in [build_proposed_transactions.py](scripts/build_proposed_transactions.py) now writes a native Polars Parquet file instead of converting to pandas and writing CSV; `.to_pandas()` call at the pairs boundary removed
+  - CSV fallback in `run_build` removed — artifact output is always `save_review_artifact` (Parquet)
+  - `matched_pairs` filename template in [contexts/defaults.toml](contexts/defaults.toml) and the `DefaultsConfig` default in [context_config.py](src/ynab_il_importer/context_config.py) updated to `.parquet`
+  - `cli.py` now loads matched-pairs files via a dedicated `_load_pairs_paths` that reads `.parquet` with `pd.read_parquet` and falls back to CSV — no longer routes through transaction-schema normalization
+  - `pd.NA` scalar guards removed from all five scalar normalization helpers in [review_app/io.py](src/ynab_il_importer/review_app/io.py) (`_normalize_text`, `_normalize_float`, `_normalize_split_records`, `_normalize_transaction_record`, `_preferred_summary_number`); replaced with `value is None` or `isinstance(value, float) and math.isnan(value)` where float-NaN coverage is needed
+
   - [upload_reconcile_cutover_spec.md](documents/upload_reconcile_cutover_spec.md)
   - [upload_reconcile_cutover_plan.md](documents/upload_reconcile_cutover_plan.md)
 - Slice 1 of the upload/reconcile cutover is now in place:
@@ -253,7 +259,7 @@ The important recovery problems are now addressed:
    - either convert or isolate the remaining real pandas islands in:
      - [upload_prep.py](src/ynab_il_importer/upload_prep.py)
      - ~~[build_proposed_transactions.py](scripts/build_proposed_transactions.py) row-level rule application and legacy `_dedupe_sources(...)`~~ — done: dead code removed; remaining pandas is the intentional `_build_target_suggestions_pandas` adapter
-     - [transaction_io.py](src/ynab_il_importer/artifacts/transaction_io.py) legacy flat projection loaders
+     - ~~[transaction_io.py](src/ynab_il_importer/artifacts/transaction_io.py) legacy flat projection loaders~~ — kept: serves real input-layer callers (parsers, `save_review_artifact`); explicit multi-type boundary, not defensive code
 
 ## Validation / Test Baseline
 
