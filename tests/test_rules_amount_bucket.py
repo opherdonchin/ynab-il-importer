@@ -1,10 +1,10 @@
-import pandas as pd
+import polars as pl
 
 import ynab_il_importer.rules as rules_mod
 
 
 def test_amount_bucket_rules() -> None:
-    rules = pd.DataFrame(
+    rules = pl.DataFrame(
         [
             {
                 "rule_id": "gas_hi",
@@ -28,7 +28,7 @@ def test_amount_bucket_rules() -> None:
     )
     rules = rules_mod.normalize_payee_map_rules(rules)
 
-    tx = pd.DataFrame(
+    tx = pl.DataFrame(
         [
             {
                 "fingerprint": "yellow",
@@ -45,5 +45,5 @@ def test_amount_bucket_rules() -> None:
         ]
     )
     out = rules_mod.apply_payee_map_rules(tx, rules)
-    assert out.loc[0, "payee_canonical_suggested"] == "Yellow"
-    assert out.loc[1, "payee_canonical_suggested"] == "Gas Food"
+    assert out[0, "payee_canonical_suggested"] == "Yellow"
+    assert out[1, "payee_canonical_suggested"] == "Gas Food"

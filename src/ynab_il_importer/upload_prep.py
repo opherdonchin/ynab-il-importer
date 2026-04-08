@@ -6,7 +6,6 @@ from pathlib import Path
 import re
 from typing import Any, Mapping
 
-import pandas as pd
 import polars as pl
 
 import ynab_il_importer.bank_identity as bank_identity
@@ -14,7 +13,6 @@ import ynab_il_importer.card_identity as card_identity
 import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.review_app.working_schema as working_schema
-from ynab_il_importer.safe_types import normalize_flag_series
 
 
 REQUIRED_REVIEW_COLUMNS = [
@@ -56,10 +54,6 @@ TRANSACTION_UNIT_COLUMNS = [
 
 def _normalize_text(value: Any) -> str:
     return str(value or "").strip()
-
-
-def _normalize_text_series(series: pd.Series) -> pd.Series:
-    return series.astype("string").fillna("").str.strip()
 
 
 def _text_expr(name: str) -> pl.Expr:
@@ -332,6 +326,26 @@ def _validate_columns(df: pl.DataFrame, required: list[str]) -> None:
         raise ValueError(f"Missing required columns: {missing}")
 
 
+def _category_frame(categories_df: Any) -> pl.DataFrame:
+    if isinstance(categories_df, pl.DataFrame):
+        return categories_df
+    if type(categories_df).__module__.startswith("pandas"):
+        return pl.from_pandas(categories_df)
+    raise TypeError("categories_df must be a polars DataFrame or pandas DataFrame")
+
+
+def _visible_categories(categories_df: pl.DataFrame) -> pl.DataFrame:
+    if "hidden" not in categories_df.columns:
+        return categories_df
+    hidden_mask = [
+        bool(value)
+        if isinstance(value, bool)
+        else str(value or "").strip().casefold() in _TRUE_VALUES
+        for value in categories_df["hidden"].to_list()
+    ]
+    return categories_df.filter(~pl.Series(hidden_mask, dtype=pl.Boolean))
+
+
 def _account_lookup(
     accounts: list[dict[str, Any]],
 ) -> tuple[dict[str, str], dict[str, str]]:
@@ -370,25 +384,23 @@ def uploadable_account_mask(
     return (~upload_mask) | account_ok
 
 
-def _category_lookup(categories_df: pd.DataFrame) -> dict[str, str]:
-    active = categories_df.copy()
-    if "hidden" in active.columns:
-        active = active[~normalize_flag_series(active["hidden"])]
+def _category_lookup(categories_df: pl.DataFrame) -> dict[str, str]:
+    active = _visible_categories(_category_frame(categories_df))
 
-    names = _normalize_text_series(active["category_name"])
-    name_counts = Counter(names.tolist())
-    duplicates = sorted(
-        name for name, count in name_counts.items() if name and count > 1
+    names = active["category_name"].cast(pl.Utf8, strict=False).fill_null("").map_elements(
+        _normalize_text,
+        return_dtype=pl.Utf8,
     )
+    name_list = names.to_list()
+    name_counts = Counter(name_list)
+    duplicates = sorted(name for name, count in name_counts.items() if name and count > 1)
     if duplicates:
         raise ValueError(f"Duplicate YNAB category names: {duplicates}")
 
     return {
-        _normalize_text(row.get("category_name", "")): _normalize_text(
-            row.get("category_id", "")
-        )
-        for _, row in active.iterrows()
-        if _normalize_text(row.get("category_name", ""))
+        _normalize_text(row["category_name"]): _normalize_text(row["category_id"])
+        for row in active.iter_rows(named=True)
+        if _normalize_text(row["category_name"])
     }
 
 
@@ -401,14 +413,12 @@ def _category_alias(name: str) -> str:
     return text.casefold()
 
 
-def _category_alias_lookup(categories_df: pd.DataFrame) -> dict[str, str]:
-    active = categories_df.copy()
-    if "hidden" in active.columns:
-        active = active[~normalize_flag_series(active["hidden"])]
+def _category_alias_lookup(categories_df: pl.DataFrame) -> dict[str, str]:
+    active = _visible_categories(_category_frame(categories_df))
 
     alias_to_id: dict[str, str] = {}
     duplicate_aliases: list[str] = []
-    for _, row in active.iterrows():
+    for row in active.iter_rows(named=True):
         name = _normalize_text(row.get("category_name", ""))
         category_id = _normalize_text(row.get("category_id", ""))
         alias = _category_alias(name)
@@ -422,11 +432,11 @@ def _category_alias_lookup(categories_df: pd.DataFrame) -> dict[str, str]:
     if duplicate_aliases:
         raise ValueError(
             f"Ambiguous simplified YNAB category aliases: {sorted(set(duplicate_aliases))}"
-        )
+    )
     return alias_to_id
 
 
-def _uncategorized_category_id(categories_df: pd.DataFrame) -> str:
+def _uncategorized_category_id(categories_df: pl.DataFrame) -> str:
     category_ids = _category_lookup(categories_df)
     if "Uncategorized" in category_ids:
         return category_ids["Uncategorized"]
@@ -527,7 +537,7 @@ def prepare_upload_transactions(
     working_df: pl.DataFrame,
     *,
     accounts: list[dict[str, Any]],
-    categories_df: pd.DataFrame,
+    categories_df: pl.DataFrame,
     cleared: str = "cleared",
     approved: bool = False,
 ) -> pl.DataFrame:

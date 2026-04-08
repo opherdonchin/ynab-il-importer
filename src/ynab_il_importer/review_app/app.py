@@ -496,7 +496,7 @@ def _refresh_categories_from_api(*, profile: str, categories_path: Path) -> None
         raise ValueError("No categories returned from YNAB API.")
 
     categories_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(categories_path, index=False, encoding="utf-8-sig")
+    df.write_csv(categories_path)
     st.session_state["category_notice"] = (
         f"Refreshed categories from YNAB API to {categories_path}"
     )

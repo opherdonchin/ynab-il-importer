@@ -154,7 +154,7 @@ def build_map_update_candidates(current_df: pl.DataFrame, base_df: pl.DataFrame 
         return pl.DataFrame({column: [] for column in columns})
 
     candidates = current.filter(candidate_mask)
-    prepared = pl.from_pandas(rules.prepare_transactions_for_rules(candidates.to_pandas()))
+    prepared = rules.prepare_transactions_for_rules(candidates)
     payee_canonical = _selected_series(candidates, side="target", field="payee")
     category_target = _selected_series(candidates, side="target", field="category").to_list()
     category_target = [
@@ -231,5 +231,5 @@ def save_map_update_candidates(
     path: str | Path,
 ) -> pl.DataFrame:
     out = build_map_update_candidates(current_df, base_df)
-    export.write_dataframe(out.to_pandas(), path)
+    export.write_dataframe(out, path)
     return out

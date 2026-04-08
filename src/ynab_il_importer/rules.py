@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any, Callable
 
 import re
 
-import pandas as pd
+import polars as pl
 
 import ynab_il_importer.normalize as normalize
 
@@ -56,10 +57,19 @@ _AMOUNT_RANGE_RE = re.compile(
 )
 _CARD_SUFFIX_DIGITS_RE = re.compile(r"\D+")
 _DECIMAL_ZERO_RE = re.compile(r"^\d+\.0+$")
+APPLY_RESULT_SCHEMA = {
+    "payee_canonical_suggested": pl.Utf8,
+    "category_target_suggested": pl.Utf8,
+    "match_rule_id": pl.Utf8,
+    "match_specificity_score": pl.Int64,
+    "match_status": pl.Utf8,
+    "match_candidate_rule_ids": pl.Utf8,
+    "match_rule_count": pl.Int64,
+}
 
 
 def _blank_to_none(value: Any) -> str | None:
-    if value is None or pd.isna(value):
+    if value is None or (isinstance(value, float) and math.isnan(value)):
         return None
     text = str(value).strip()
     return text if text else None
@@ -107,44 +117,55 @@ def _normalize_priority(value: Any) -> int:
     return int(text)
 
 
-def normalize_payee_map_rules(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    for col in PAYEE_MAP_COLUMNS:
-        if col not in out.columns:
-            out[col] = ""
-    out = out[PAYEE_MAP_COLUMNS].copy()
+def normalize_payee_map_rules(df: pl.DataFrame) -> pl.DataFrame:
+    missing_columns = [col for col in PAYEE_MAP_COLUMNS if col not in df.columns]
+    if missing_columns:
+        df = df.with_columns([pl.lit("").alias(col) for col in missing_columns])
+    df = df.select(PAYEE_MAP_COLUMNS)
 
-    out["rule_id"] = out["rule_id"].astype("string").fillna("").str.strip()
-    if (out["rule_id"] == "").any():
+    df = df.with_columns(
+        pl.col("rule_id").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars(),
+        pl.col("is_active").map_elements(_normalize_is_active, return_dtype=pl.Boolean),
+        pl.col("priority").map_elements(_normalize_priority, return_dtype=pl.Int64),
+        *[
+            pl.col(col).map_elements(
+                lambda value, *, _col=col: _normalize_key_value(_col, value),
+                return_dtype=pl.Utf8,
+            )
+            for col in RULE_KEY_COLUMNS
+        ],
+        pl.col("payee_canonical").map_elements(_blank_to_none, return_dtype=pl.Utf8),
+        pl.col("category_target").map_elements(_blank_to_none, return_dtype=pl.Utf8),
+        pl.col("notes").map_elements(_blank_to_none, return_dtype=pl.Utf8),
+    )
+    if bool(df["rule_id"].eq("").any()):
         raise ValueError("payee_map.csv contains empty rule_id values")
-    duplicate_ids = out["rule_id"][out["rule_id"].duplicated()].unique().tolist()
+    duplicate_ids = (
+        df.filter(pl.col("rule_id").is_duplicated())["rule_id"].unique().sort().to_list()
+    )
     if duplicate_ids:
         raise ValueError(f"payee_map.csv contains duplicate rule_id values: {duplicate_ids}")
 
-    out["is_active"] = out["is_active"].map(_normalize_is_active)
-    out["priority"] = out["priority"].map(_normalize_priority)
-
-    for col in RULE_KEY_COLUMNS:
-        out[col] = out[col].map(lambda v, c=col: _normalize_key_value(c, v))
-
-    out["payee_canonical"] = out["payee_canonical"].map(_blank_to_none)
-    out["category_target"] = out["category_target"].map(_blank_to_none)
-    out["notes"] = out["notes"].map(_blank_to_none)
-
-    out["_specificity"] = out.apply(_compute_specificity, axis=1)
-    return out
+    return df.with_columns(
+        pl.struct(RULE_KEY_COLUMNS)
+        .map_elements(_compute_specificity, return_dtype=pl.Int64)
+        .alias("_specificity")
+    )
 
 
-def load_payee_map(path: str | Path) -> pd.DataFrame:
+def load_payee_map(path: str | Path) -> pl.DataFrame:
     map_path = Path(path)
     if not map_path.exists():
         raise FileNotFoundError(f"Missing payee map file: {map_path}")
-    raw = pd.read_csv(map_path, dtype="string").fillna("")
+    raw = pl.read_csv(map_path, infer_schema_length=0).fill_null("")
     return normalize_payee_map_rules(raw)
 
 
 def _compute_direction(amount_ils: Any) -> str:
-    amount = pd.to_numeric(pd.Series([amount_ils]), errors="coerce").fillna(0.0).iloc[0]
+    try:
+        amount = float(amount_ils or 0.0)
+    except (TypeError, ValueError):
+        amount = 0.0
     if amount > 0:
         return "inflow"
     if amount < 0:
@@ -153,8 +174,14 @@ def _compute_direction(amount_ils: Any) -> str:
 
 
 def _compute_direction_from_flows(inflow_ils: Any, outflow_ils: Any) -> str:
-    inflow = pd.to_numeric(pd.Series([inflow_ils]), errors="coerce").fillna(0.0).iloc[0]
-    outflow = pd.to_numeric(pd.Series([outflow_ils]), errors="coerce").fillna(0.0).iloc[0]
+    try:
+        inflow = float(inflow_ils or 0.0)
+    except (TypeError, ValueError):
+        inflow = 0.0
+    try:
+        outflow = float(outflow_ils or 0.0)
+    except (TypeError, ValueError):
+        outflow = 0.0
     if inflow > 0:
         return "inflow"
     if outflow > 0:
@@ -162,60 +189,117 @@ def _compute_direction_from_flows(inflow_ils: Any, outflow_ils: Any) -> str:
     return "zero"
 
 
-def _pick_series(df: pd.DataFrame, columns: list[str], default: str = "") -> pd.Series:
+def _pick_col(df: pl.DataFrame, columns: list[str], default: str = "") -> pl.Series:
     for col in columns:
         if col in df.columns:
-            series = df[col].astype("string").fillna("").str.strip()
-            if (series != "").any():
+            series = df[col].cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
+            if bool(series.ne("").any()):
                 return series
-    return pd.Series([default] * len(df), index=df.index, dtype="string")
+    return pl.Series("picked", [default] * len(df), dtype=pl.Utf8)
 
 
-def prepare_transactions_for_rules(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    out["txn_kind"] = _pick_series(out, ["txn_kind"]).str.lower()
-    out["source"] = _pick_series(out, ["source"]).str.lower()
-    out["account_name"] = _pick_series(out, ["account_name"])
-    out["currency"] = _pick_series(out, ["currency"], default="ILS")
-    out["currency"] = out["currency"].replace("", "ILS").str.upper()
-    out["amount_bucket"] = _pick_series(out, ["amount_bucket"])
-    out["card_suffix"] = _pick_series(out, ["card_suffix"])
+def prepare_transactions_for_rules(df: pl.DataFrame) -> pl.DataFrame:
+    txn_kind = _pick_col(df, ["txn_kind"]).str.to_lowercase()
+    source = _pick_col(df, ["source"]).str.to_lowercase()
+    account_name = _pick_col(df, ["account_name"])
+    amount_bucket = _pick_col(df, ["amount_bucket"])
+    card_suffix = _pick_col(df, ["card_suffix"])
 
-    if "direction" in out.columns:
-        out["direction"] = out["direction"].astype("string").fillna("").str.strip().str.lower()
+    currency_series = _pick_col(df, ["currency"], default="ILS").to_list()
+    currency = pl.Series(
+        "currency",
+        [("ILS" if value == "" else value).upper() for value in currency_series],
+        dtype=pl.Utf8,
+    )
+
+    prepared = df.with_columns(
+        pl.Series("txn_kind", txn_kind.to_list(), dtype=pl.Utf8),
+        pl.Series("source", source.to_list(), dtype=pl.Utf8),
+        pl.Series("account_name", account_name.to_list(), dtype=pl.Utf8),
+        currency,
+        pl.Series("amount_bucket", amount_bucket.to_list(), dtype=pl.Utf8),
+        pl.Series("card_suffix", card_suffix.to_list(), dtype=pl.Utf8),
+    )
+
+    if "direction" in prepared.columns:
+        direction_values = (
+            prepared["direction"]
+            .cast(pl.Utf8, strict=False)
+            .fill_null("")
+            .str.strip_chars()
+            .str.to_lowercase()
+            .to_list()
+        )
     else:
-        out["direction"] = ""
+        direction_values = [""] * len(prepared)
 
-    if "inflow_ils" in out.columns or "outflow_ils" in out.columns:
-        inflow = pd.to_numeric(
-            out["inflow_ils"] if "inflow_ils" in out.columns else 0.0, errors="coerce"
-        ).fillna(0.0)
-        outflow = pd.to_numeric(
-            out["outflow_ils"] if "outflow_ils" in out.columns else 0.0, errors="coerce"
-        ).fillna(0.0)
-        flow_direction = pd.Series(
-            [_compute_direction_from_flows(i, o) for i, o in zip(inflow, outflow)],
-            index=out.index,
+    inflow = pl.Series("inflow", [0.0] * len(prepared), dtype=pl.Float64)
+    outflow = pl.Series("outflow", [0.0] * len(prepared), dtype=pl.Float64)
+    if "inflow_ils" in prepared.columns or "outflow_ils" in prepared.columns:
+        inflow = (
+            prepared["inflow_ils"].cast(pl.Float64, strict=False).fill_null(0.0)
+            if "inflow_ils" in prepared.columns
+            else inflow
         )
-        out["direction"] = out["direction"].where(out["direction"] != "", flow_direction)
-    elif "amount_ils" in out.columns:
-        out["direction"] = out["direction"].where(
-            out["direction"] != "", out["amount_ils"].map(_compute_direction)
+        outflow = (
+            prepared["outflow_ils"].cast(pl.Float64, strict=False).fill_null(0.0)
+            if "outflow_ils" in prepared.columns
+            else outflow
         )
-        inflow = pd.Series([0.0] * len(out), index=out.index)
-        outflow = pd.Series([0.0] * len(out), index=out.index)
-        amount_vals = pd.to_numeric(out["amount_ils"], errors="coerce").fillna(0.0)
-        inflow = inflow.where(amount_vals <= 0, amount_vals)
-        outflow = outflow.where(amount_vals >= 0, amount_vals.abs())
-    out["direction"] = out["direction"].replace("", "zero")
-    out["amount_value"] = 0.0
-    if "inflow_ils" in out.columns or "outflow_ils" in out.columns:
-        out["amount_value"] = inflow.where(out["direction"] == "inflow", outflow)
-    elif "amount_ils" in out.columns:
-        out["amount_value"] = inflow.where(out["direction"] == "inflow", outflow)
+        flow_direction = [
+            _compute_direction_from_flows(i, o)
+            for i, o in zip(inflow.to_list(), outflow.to_list(), strict=False)
+        ]
+        direction_values = [
+            current if current else fallback
+            for current, fallback in zip(direction_values, flow_direction, strict=False)
+        ]
+    elif "amount_ils" in prepared.columns:
+        amount_vals = prepared["amount_ils"].cast(pl.Float64, strict=False).fill_null(0.0)
+        direction_values = [
+            current if current else fallback
+            for current, fallback in zip(
+                direction_values,
+                [_compute_direction(value) for value in amount_vals.to_list()],
+                strict=False,
+            )
+        ]
+        inflow = pl.Series(
+            "inflow",
+            [value if value > 0 else 0.0 for value in amount_vals.to_list()],
+            dtype=pl.Float64,
+        )
+        outflow = pl.Series(
+            "outflow",
+            [abs(value) if value < 0 else 0.0 for value in amount_vals.to_list()],
+            dtype=pl.Float64,
+        )
 
-    raw_for_norm = _pick_series(
-        out,
+    direction_values = [value if value else "zero" for value in direction_values]
+    prepared = prepared.with_columns(
+        pl.Series("direction", direction_values, dtype=pl.Utf8)
+    )
+
+    if "inflow_ils" in prepared.columns or "outflow_ils" in prepared.columns or "amount_ils" in prepared.columns:
+        amount_value = pl.Series(
+            "amount_value",
+            [
+                i if direction == "inflow" else o
+                for direction, i, o in zip(
+                    direction_values,
+                    inflow.to_list(),
+                    outflow.to_list(),
+                    strict=False,
+                )
+            ],
+            dtype=pl.Float64,
+        )
+    else:
+        amount_value = pl.Series("amount_value", [0.0] * len(prepared), dtype=pl.Float64)
+    prepared = prepared.with_columns(amount_value)
+
+    raw_for_norm = _pick_col(
+        prepared,
         [
             "description_clean_norm",
             "description_clean",
@@ -225,22 +309,45 @@ def prepare_transactions_for_rules(df: pd.DataFrame) -> pd.DataFrame:
             "raw_text",
         ],
     )
-    out["description_clean_norm"] = raw_for_norm.map(normalize.normalize_text)
-
-    if "fingerprint" not in out.columns:
-        raise ValueError("Transactions are missing required fingerprint column")
-    out["fingerprint"] = out["fingerprint"].astype("string").fillna("").str.strip()
-    if (out["fingerprint"] == "").any():
-        raise ValueError("Transactions contain empty fingerprint values")
-
-    out["example_text"] = _pick_series(
-        out,
-        ["description_raw", "raw_text", "description_clean", "merchant_raw", "description_clean_norm"],
+    prepared = prepared.with_columns(
+        pl.Series(
+            "description_clean_norm",
+            [normalize.normalize_text(value) for value in raw_for_norm.to_list()],
+            dtype=pl.Utf8,
+        )
     )
-    return out
+
+    if "fingerprint" not in prepared.columns:
+        raise ValueError("Transactions are missing required fingerprint column")
+    fingerprint = (
+        prepared["fingerprint"].cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
+    )
+    if bool(fingerprint.eq("").any()):
+        raise ValueError("Transactions contain empty fingerprint values")
+    prepared = prepared.with_columns(
+        pl.Series("fingerprint", fingerprint.to_list(), dtype=pl.Utf8)
+    )
+
+    prepared = prepared.with_columns(
+        pl.Series(
+            "example_text",
+            _pick_col(
+                prepared,
+                [
+                    "description_raw",
+                    "raw_text",
+                    "description_clean",
+                    "merchant_raw",
+                    "description_clean_norm",
+                ],
+            ).to_list(),
+            dtype=pl.Utf8,
+        )
+    )
+    return prepared
 
 
-def _rule_matches(rule: pd.Series, txn: pd.Series) -> bool:
+def _rule_matches(rule: dict[str, Any], txn: dict[str, Any]) -> bool:
     has_fingerprint = _blank_to_none(rule["fingerprint"]) is not None
     for col in RULE_KEY_COLUMNS:
         if col == "description_clean_norm" and has_fingerprint:
@@ -264,12 +371,12 @@ def _rule_matches(rule: pd.Series, txn: pd.Series) -> bool:
 
 
 def _compile_active_rules(
-    rules: pd.DataFrame,
-) -> tuple[dict[str, list[pd.Series]], list[pd.Series]]:
-    active_rules = rules[rules["is_active"]].copy()
-    by_fingerprint: dict[str, list[pd.Series]] = {}
-    wildcard_rules: list[pd.Series] = []
-    for _, rule in active_rules.iterrows():
+    rules: pl.DataFrame,
+) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
+    active_rules = rules.filter(pl.col("is_active"))
+    by_fingerprint: dict[str, list[dict[str, Any]]] = {}
+    wildcard_rules: list[dict[str, Any]] = []
+    for rule in active_rules.iter_rows(named=True):
         fingerprint = _blank_to_none(rule.get("fingerprint"))
         if fingerprint is None:
             wildcard_rules.append(rule)
@@ -279,9 +386,9 @@ def _compile_active_rules(
 
 
 def _candidate_rules_for_txn(
-    compiled_rules: tuple[dict[str, list[pd.Series]], list[pd.Series]],
-    txn: pd.Series,
-) -> list[pd.Series]:
+    compiled_rules: tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]],
+    txn: dict[str, Any],
+) -> list[dict[str, Any]]:
     by_fingerprint, wildcard_rules = compiled_rules
     fingerprint = _blank_to_none(txn.get("fingerprint"))
     candidates = list(wildcard_rules)
@@ -318,16 +425,19 @@ def _parse_amount_bucket(rule_value: str) -> tuple[Callable[[float], bool], str]
     return None
 
 
-def _match_amount_bucket(rule_value: str, txn: pd.Series) -> bool | None:
+def _match_amount_bucket(rule_value: str, txn: dict[str, Any]) -> bool | None:
     parsed = _parse_amount_bucket(rule_value)
     if parsed is None:
         return None
     predicate, _ = parsed
-    amount = pd.to_numeric(pd.Series([txn.get("amount_value")]), errors="coerce").fillna(0.0).iloc[0]
+    try:
+        amount = float(txn.get("amount_value") or 0.0)
+    except (TypeError, ValueError):
+        amount = 0.0
     return bool(predicate(float(amount)))
 
 
-def _compute_specificity(rule: pd.Series) -> int:
+def _compute_specificity(rule: dict[str, Any]) -> int:
     score = 0
     has_fingerprint = _blank_to_none(rule["fingerprint"]) is not None
     for col in RULE_KEY_COLUMNS:
@@ -338,12 +448,12 @@ def _compute_specificity(rule: pd.Series) -> int:
     return score
 
 
-def apply_payee_map_rules(transactions: pd.DataFrame, rules: pd.DataFrame) -> pd.DataFrame:
+def apply_payee_map_rules(transactions: pl.DataFrame, rules: pl.DataFrame) -> pl.DataFrame:
     tx = prepare_transactions_for_rules(transactions)
     compiled_rules = _compile_active_rules(rules)
 
     results: list[dict[str, Any]] = []
-    for _, txn in tx.iterrows():
+    for txn in tx.iter_rows(named=True):
         matched_rules = [
             rule
             for rule in _candidate_rules_for_txn(compiled_rules, txn)
@@ -365,7 +475,11 @@ def apply_payee_map_rules(transactions: pd.DataFrame, rules: pd.DataFrame) -> pd
 
         ranked = sorted(
             matched_rules,
-            key=lambda r: (-int(r["priority"]), -int(r["_specificity"]), str(r["rule_id"])),
+            key=lambda rule: (
+                -int(rule["priority"]),
+                -int(rule["_specificity"]),
+                str(rule["rule_id"]),
+            ),
         )
         top = ranked[0]
         tie_pool = [
@@ -403,4 +517,6 @@ def apply_payee_map_rules(transactions: pd.DataFrame, rules: pd.DataFrame) -> pd
             }
         )
 
-    return pd.DataFrame(results, index=tx.index)
+    if not results:
+        return pl.DataFrame(schema=APPLY_RESULT_SCHEMA)
+    return pl.from_dicts(results, schema=APPLY_RESULT_SCHEMA)

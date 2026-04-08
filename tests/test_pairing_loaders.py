@@ -4,7 +4,6 @@ import importlib.util
 import sys
 from pathlib import Path
 
-import pandas as pd
 import polars as pl
 
 from ynab_il_importer.artifacts.transaction_io import write_flat_transaction_artifacts
@@ -83,11 +82,11 @@ def test_bootstrap_pairs_prefers_sidecar_parquet(monkeypatch, tmp_path: Path) ->
         lambda source_df, ynab_df: (
             captured.update(
                 {
-                    "source_fingerprint": source_df.loc[0, "fingerprint"],
-                    "ynab_fingerprint": ynab_df.loc[0, "fingerprint"],
+                    "source_fingerprint": source_df[0, "fingerprint"],
+                    "ynab_fingerprint": ynab_df[0, "fingerprint"],
                 }
             )
-            or pd.DataFrame()
+            or pl.DataFrame()
         ),
     )
     monkeypatch.setattr(

@@ -218,5 +218,5 @@ def test_load_flat_transaction_projection_prefers_sidecar_parquet(tmp_path) -> N
 
     loaded = load_flat_transaction_projection(out_path, prefer_sidecar_parquet=True)
 
-    assert loaded.loc[0, "fingerprint"] == "spotify-parquet"
-    assert loaded.loc[0, "source"] == "card"
+    assert loaded[0, "fingerprint"] == "spotify-parquet"
+    assert loaded[0, "source"] == "card"

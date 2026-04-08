@@ -2,8 +2,6 @@ import argparse
 import sys
 from pathlib import Path
 
-import pandas as pd
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
@@ -35,7 +33,7 @@ def main() -> None:
 
     groups = ynab_api.fetch_categories(plan_id=plan_id or None)
     df = ynab_api.categories_to_dataframe(groups)
-    if df.empty:
+    if df.is_empty():
         raise ValueError("No categories returned from YNAB API.")
 
     export.write_dataframe(df, out_path)

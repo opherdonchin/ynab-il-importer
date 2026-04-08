@@ -2,7 +2,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -15,9 +14,9 @@ def _to_arrow_table(data: Any) -> pa.Table:
         return data
     if isinstance(data, pl.DataFrame):
         return data.to_arrow()
-    if isinstance(data, pd.DataFrame):
+    if type(data).__module__.startswith("pandas"):
         return pa.Table.from_pandas(data, preserve_index=False)
-    raise TypeError("transactions must be a pandas DataFrame, polars DataFrame, or pyarrow Table")
+    raise TypeError("transactions must be a polars DataFrame or pyarrow Table")
 
 
 def normalize_transaction_table(
@@ -147,7 +146,7 @@ def flat_projection_to_canonical_table(
 
 
 def write_flat_transaction_artifacts(
-    data: Any,
+    data: pl.DataFrame,
     csv_path: str | Path,
     *,
     artifact_kind: str,
@@ -155,24 +154,14 @@ def write_flat_transaction_artifacts(
 ) -> tuple[Path, Path]:
     output_path = Path(csv_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    if isinstance(data, pd.DataFrame):
-        flat_df = pl.from_pandas(data)
-    elif isinstance(data, pl.DataFrame):
-        flat_df = data
-    elif isinstance(data, pa.Table):
-        flat_df = pl.from_arrow(data)
-    else:
-        raise TypeError(
-            "flat transaction artifacts must be written from a pandas DataFrame, polars DataFrame, or pyarrow Table"
-        )
     canonical = flat_projection_to_canonical_table(
-        flat_df,
+        data,
         artifact_kind=artifact_kind,
         source_system=source_system,
     )
     parquet_path = output_path.with_suffix(".parquet")
     write_transactions_parquet(canonical, parquet_path)
-    flat_df.write_csv(output_path, include_bom=True)
+    data.write_csv(output_path, include_bom=True)
     return output_path, parquet_path
 
 
@@ -204,15 +193,13 @@ def write_canonical_transaction_artifacts(
         )
 
         flat_df = project_top_level_transactions(table)
-    elif isinstance(csv_projection, pd.DataFrame):
-        flat_df = pl.from_pandas(csv_projection)
     elif isinstance(csv_projection, pl.DataFrame):
         flat_df = csv_projection
     elif isinstance(csv_projection, pa.Table):
         flat_df = pl.from_arrow(csv_projection)
     else:
         raise TypeError(
-            "csv_projection must be a pandas DataFrame, polars DataFrame, pyarrow Table, or None"
+            "csv_projection must be a polars DataFrame, pyarrow Table, or None"
         )
     flat_df.write_csv(output_path, include_bom=True)
     return output_path, parquet_path
@@ -222,7 +209,7 @@ def load_flat_transaction_projection(
     path: str | Path,
     *,
     prefer_sidecar_parquet: bool = True,
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     source_path = Path(path)
     resolved_path = source_path
     if source_path.suffix.lower() == ".csv" and prefer_sidecar_parquet:
@@ -235,12 +222,12 @@ def load_flat_transaction_projection(
             project_top_level_transactions,
         )
 
-        projected = project_top_level_transactions(read_transactions_arrow(resolved_path)).to_pandas()
+        projected = project_top_level_transactions(read_transactions_arrow(resolved_path))
         if "source" not in projected.columns and "source_system" in projected.columns:
-            projected["source"] = projected["source_system"]
+            projected = projected.with_columns(pl.col("source_system").alias("source"))
         return projected
 
-    return pd.read_csv(source_path, dtype="string").fillna("")
+    return pl.read_csv(source_path)
 
 
 def write_transactions_parquet(

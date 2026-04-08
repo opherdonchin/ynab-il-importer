@@ -176,11 +176,11 @@ def main() -> None:
     existing_transactions = ynab_api.fetch_transactions(plan_id=plan_id or None)
     category_groups = ynab_api.fetch_categories(plan_id=plan_id or None)
     categories = ynab_api.categories_to_dataframe(category_groups)
-    if categories.empty:
+    if categories.is_empty():
         categories = ynab_api.categories_from_transactions_to_dataframe(
             existing_transactions
         )
-        if not categories.empty:
+        if not categories.is_empty():
             print(
                 "YNAB categories API returned no rows; using category ids inferred from existing transactions."
             )

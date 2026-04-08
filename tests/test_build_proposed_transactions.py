@@ -219,7 +219,7 @@ def test_load_source_inputs_requires_parquet_inputs(tmp_path: Path) -> None:
 
 def test_build_options_from_applied_uses_candidate_rule_ids() -> None:
     rules = build_proposed_transactions.rules_mod.normalize_payee_map_rules(
-        pd.DataFrame(
+        pl.DataFrame(
             [
                 {
                     "rule_id": "r1",
@@ -257,7 +257,7 @@ def test_build_options_from_applied_uses_candidate_rule_ids() -> None:
                 },
             ]
         )
-    )
+    ).to_pandas()
     applied = pd.DataFrame(
         [{"match_candidate_rule_ids": "r2;r1"}, {"match_candidate_rule_ids": ""}]
     )

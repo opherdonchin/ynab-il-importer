@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import polars as pl
 
 import ynab_il_importer.rules as rules
 
@@ -96,10 +97,13 @@ def test_build_bootstrap_rules_uses_amount_bucket_for_multi_outcome_fingerprint(
         ]
     )
 
-    applied = rules.apply_payee_map_rules(tx, rules.normalize_payee_map_rules(actual))
+    applied = rules.apply_payee_map_rules(
+        pl.from_pandas(tx),
+        rules.normalize_payee_map_rules(pl.from_pandas(actual)),
+    )
 
-    assert applied["match_status"].tolist() == ["unique", "unique", "unique"]
-    assert applied["payee_canonical_suggested"].tolist() == [
+    assert applied["match_status"].to_list() == ["unique", "unique", "unique"]
+    assert applied["payee_canonical_suggested"].to_list() == [
         "Introductory class",
         "Member Fees",
         "Facebook",

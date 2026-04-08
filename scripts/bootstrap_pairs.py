@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -28,13 +28,13 @@ def main() -> None:
             "Provide at least one --source and --ynab input (repeat flags for multiples)."
         )
 
-    def _load_with_file(paths: list[Path], column_name: str) -> pd.DataFrame:
-        frames = []
+    def _load_with_file(paths: list[Path], column_name: str) -> pl.DataFrame:
+        frames: list[pl.DataFrame] = []
         for path in paths:
             df = load_flat_transaction_projection(path, prefer_sidecar_parquet=True)
-            df[column_name] = path.name
+            df = df.with_columns(pl.lit(path.name).alias(column_name))
             frames.append(df)
-        return pd.concat(frames, ignore_index=True)
+        return pl.concat(frames)
 
     source_df = _load_with_file(args.source, "source_file")
     if "source" not in source_df.columns:

@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
+import polars as pl
 import pyarrow as pa
 from ynab_il_importer.artifacts.transaction_io import (
     write_canonical_transaction_artifacts,
@@ -39,7 +40,7 @@ def _write_normalized_with_parquet(
         str(source_series.iloc[0] if not source_series.empty else "").strip() or fmt
     )
     _, parquet_path = write_flat_transaction_artifacts(
-        df,
+        pl.from_pandas(df),
         out_path,
         artifact_kind="normalized_source_transaction",
         source_system=source_system,
@@ -57,7 +58,7 @@ def _write_normalized_from_module(
         _, parquet_path = write_canonical_transaction_artifacts(
             canonical,
             out_path,
-            csv_projection=df,
+            csv_projection=pl.from_pandas(df),
         )
         print(f"Wrote canonical parquet to {parquet_path}")
         _print_wrote(out_path, len(df))
@@ -123,7 +124,7 @@ if typer is not None:
             _, parquet_path = write_canonical_transaction_artifacts(
                 canonical,
                 out_path,
-                csv_projection=df,
+                csv_projection=pl.from_pandas(df),
             )
             print(f"Wrote canonical parquet to {parquet_path}")
             _print_wrote(out_path, len(df))
@@ -194,7 +195,7 @@ def _fallback_main() -> None:
             _, parquet_path = write_canonical_transaction_artifacts(
                 canonical,
                 out_path,
-                csv_projection=df,
+                csv_projection=pl.from_pandas(df),
             )
             print(f"Wrote canonical parquet to {parquet_path}")
             _print_wrote(out_path, len(df))

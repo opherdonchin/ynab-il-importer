@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -12,8 +12,8 @@ import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.rules as rules_mod
 
 
-def _rules(rows: list[dict[str, object]]) -> pd.DataFrame:
-    return rules_mod.normalize_payee_map_rules(pd.DataFrame(rows))
+def _rules(rows: list[dict[str, object]]) -> pl.DataFrame:
+    return rules_mod.normalize_payee_map_rules(pl.DataFrame(rows))
 
 
 def test_wildcard_blank_fields_match_any_context() -> None:
@@ -26,15 +26,15 @@ def test_wildcard_blank_fields_match_any_context() -> None:
             }
         ]
     )
-    tx = pd.DataFrame(
+    tx = pl.DataFrame(
         [
             {"fingerprint": "supermarket", "source": "bank", "account_name": "A", "outflow_ils": 20, "inflow_ils": 0},
             {"fingerprint": "supermarket", "source": "card", "account_name": "B", "outflow_ils": 30, "inflow_ils": 0},
         ]
     )
     out = rules_mod.apply_payee_map_rules(tx, rules)
-    assert out["match_status"].tolist() == ["unique", "unique"]
-    assert out["match_rule_id"].tolist() == ["r1", "r1"]
+    assert out["match_status"].to_list() == ["unique", "unique"]
+    assert out["match_rule_id"].to_list() == ["r1", "r1"]
 
 
 def test_specificity_wins_when_priority_equal() -> None:
@@ -50,11 +50,11 @@ def test_specificity_wins_when_priority_equal() -> None:
             },
         ]
     )
-    tx = pd.DataFrame([{"fingerprint": "bit", "source": "bank", "outflow_ils": 50, "inflow_ils": 0}])
+    tx = pl.DataFrame([{"fingerprint": "bit", "source": "bank", "outflow_ils": 50, "inflow_ils": 0}])
     out = rules_mod.apply_payee_map_rules(tx, rules)
-    assert out.loc[0, "match_status"] == "unique"
-    assert out.loc[0, "match_rule_id"] == "r2"
-    assert out.loc[0, "payee_canonical_suggested"] == "BIT Bank"
+    assert out[0, "match_status"] == "unique"
+    assert out[0, "match_rule_id"] == "r2"
+    assert out[0, "payee_canonical_suggested"] == "BIT Bank"
 
 
 def test_priority_wins_over_specificity() -> None:
@@ -75,11 +75,11 @@ def test_priority_wins_over_specificity() -> None:
             },
         ]
     )
-    tx = pd.DataFrame([{"fingerprint": "rent", "source": "bank", "outflow_ils": 1000, "inflow_ils": 0}])
+    tx = pl.DataFrame([{"fingerprint": "rent", "source": "bank", "outflow_ils": 1000, "inflow_ils": 0}])
     out = rules_mod.apply_payee_map_rules(tx, rules)
-    assert out.loc[0, "match_status"] == "unique"
-    assert out.loc[0, "match_rule_id"] == "r2"
-    assert out.loc[0, "payee_canonical_suggested"] == "Landlord B"
+    assert out[0, "match_status"] == "unique"
+    assert out[0, "match_rule_id"] == "r2"
+    assert out[0, "payee_canonical_suggested"] == "Landlord B"
 
 
 def test_ambiguous_when_top_priority_and_specificity_tie() -> None:
@@ -101,11 +101,11 @@ def test_ambiguous_when_top_priority_and_specificity_tie() -> None:
             },
         ]
     )
-    tx = pd.DataFrame([{"fingerprint": "same", "source": "bank", "outflow_ils": 5, "inflow_ils": 0}])
+    tx = pl.DataFrame([{"fingerprint": "same", "source": "bank", "outflow_ils": 5, "inflow_ils": 0}])
     out = rules_mod.apply_payee_map_rules(tx, rules)
-    assert out.loc[0, "match_status"] == "ambiguous"
-    assert out.loc[0, "match_rule_id"] == "a_rule;b_rule"
-    assert out.loc[0, "payee_canonical_suggested"] == ""
+    assert out[0, "match_status"] == "ambiguous"
+    assert out[0, "match_rule_id"] == "a_rule;b_rule"
+    assert out[0, "payee_canonical_suggested"] == ""
 
 
 def test_blank_category_target_stays_unassigned() -> None:
@@ -119,11 +119,11 @@ def test_blank_category_target_stays_unassigned() -> None:
             }
         ]
     )
-    tx = pd.DataFrame([{"fingerprint": "coffee", "outflow_ils": 15, "inflow_ils": 0}])
+    tx = pl.DataFrame([{"fingerprint": "coffee", "outflow_ils": 15, "inflow_ils": 0}])
     out = rules_mod.apply_payee_map_rules(tx, rules)
-    assert out.loc[0, "match_status"] == "unique"
-    assert out.loc[0, "payee_canonical_suggested"] == "Cafe"
-    assert out.loc[0, "category_target_suggested"] == ""
+    assert out[0, "match_status"] == "unique"
+    assert out[0, "payee_canonical_suggested"] == "Cafe"
+    assert out[0, "category_target_suggested"] == ""
 
 
 def test_none_category_target_is_preserved_as_explicit_no_category() -> None:
@@ -137,13 +137,13 @@ def test_none_category_target_is_preserved_as_explicit_no_category() -> None:
             }
         ]
     )
-    tx = pd.DataFrame([{"fingerprint": "transfer", "outflow_ils": 15, "inflow_ils": 0}])
+    tx = pl.DataFrame([{"fingerprint": "transfer", "outflow_ils": 15, "inflow_ils": 0}])
 
     out = rules_mod.apply_payee_map_rules(tx, rules)
 
-    assert out.loc[0, "match_status"] == "unique"
-    assert out.loc[0, "payee_canonical_suggested"] == "Transfer : Cash"
-    assert out.loc[0, "category_target_suggested"] == review_model.NO_CATEGORY_REQUIRED
+    assert out[0, "match_status"] == "unique"
+    assert out[0, "payee_canonical_suggested"] == "Transfer : Cash"
+    assert out[0, "category_target_suggested"] == review_model.NO_CATEGORY_REQUIRED
 
 
 def test_exact_amount_bucket_matches_only_exact_value() -> None:
@@ -157,7 +157,7 @@ def test_exact_amount_bucket_matches_only_exact_value() -> None:
             }
         ]
     )
-    tx = pd.DataFrame(
+    tx = pl.DataFrame(
         [
             {"fingerprint": "transfer", "outflow_ils": 6300, "inflow_ils": 0},
             {"fingerprint": "transfer", "outflow_ils": 6299.99, "inflow_ils": 0},
@@ -166,9 +166,9 @@ def test_exact_amount_bucket_matches_only_exact_value() -> None:
 
     out = rules_mod.apply_payee_map_rules(tx, rules)
 
-    assert out.loc[0, "match_status"] == "unique"
-    assert out.loc[0, "payee_canonical_suggested"] == "Transfer : Planned Liya"
-    assert out.loc[1, "match_status"] == "none"
+    assert out[0, "match_status"] == "unique"
+    assert out[0, "payee_canonical_suggested"] == "Transfer : Planned Liya"
+    assert out[1, "match_status"] == "none"
 
 
 def test_card_suffix_disambiguates_transfer_rules() -> None:
@@ -189,12 +189,12 @@ def test_card_suffix_disambiguates_transfer_rules() -> None:
             },
         ]
     )
-    tx = pd.DataFrame(
+    tx = pl.DataFrame(
         [{"fingerprint": "לאומי ויזה", "source": "bank", "card_suffix": "7195", "outflow_ils": 10, "inflow_ils": 0}]
     )
 
     out = rules_mod.apply_payee_map_rules(tx, rules)
 
-    assert out.loc[0, "match_status"] == "unique"
-    assert out.loc[0, "match_rule_id"] == "specific"
-    assert out.loc[0, "payee_canonical_suggested"] == "Transfer : Liya X7195"
+    assert out[0, "match_status"] == "unique"
+    assert out[0, "match_rule_id"] == "specific"
+    assert out[0, "payee_canonical_suggested"] == "Transfer : Liya X7195"

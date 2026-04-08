@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import polars as pl
 import pyarrow as pa
 import requests
 
@@ -580,7 +581,7 @@ def project_category_transactions_to_source_rows(
 
 def categories_to_dataframe(
     category_groups: list[dict[str, Any]],
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     rows: list[dict[str, Any]] = []
     for group in category_groups or []:
         group_name = group.get("name", "") or ""
@@ -597,13 +598,22 @@ def categories_to_dataframe(
                     "hidden": bool(category.get("hidden", False)),
                 }
             )
-    df = pd.DataFrame(rows)
-    return df
+    if not rows:
+        return pl.DataFrame(
+            {
+                "category_group": pl.Series([], dtype=pl.Utf8),
+                "category_group_id": pl.Series([], dtype=pl.Utf8),
+                "category_name": pl.Series([], dtype=pl.Utf8),
+                "category_id": pl.Series([], dtype=pl.Utf8),
+                "hidden": pl.Series([], dtype=pl.Boolean),
+            }
+        )
+    return pl.from_dicts(rows)
 
 
 def categories_from_transactions_to_dataframe(
     transactions: list[dict[str, Any]],
-) -> pd.DataFrame:
+) -> pl.DataFrame:
     rows: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
 
@@ -640,4 +650,14 @@ def categories_from_transactions_to_dataframe(
             continue
         _add(txn.get("category_name", ""), txn.get("category_id", ""))
 
-    return pd.DataFrame(rows)
+    if not rows:
+        return pl.DataFrame(
+            {
+                "category_group": pl.Series([], dtype=pl.Utf8),
+                "category_group_id": pl.Series([], dtype=pl.Utf8),
+                "category_name": pl.Series([], dtype=pl.Utf8),
+                "category_id": pl.Series([], dtype=pl.Utf8),
+                "hidden": pl.Series([], dtype=pl.Boolean),
+            }
+        )
+    return pl.from_dicts(rows)
