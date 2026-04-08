@@ -73,8 +73,6 @@ def _normalize_text(value: Any) -> str:
         return ""
     if isinstance(value, float) and math.isnan(value):
         return ""
-    if value is pd.NA:
-        return ""
     return str(value).strip()
 
 
@@ -91,7 +89,7 @@ def _required_mapping_value(row: dict[str, Any], key: str) -> Any:
 
 
 def _normalize_float(value: Any) -> float:
-    if value is None or value is pd.NA:
+    if value is None:
         return 0.0
     if isinstance(value, float):
         return 0.0 if math.isnan(value) else float(value)
@@ -112,7 +110,7 @@ def _json_dump(value: Any) -> str:
 
 
 def _normalize_split_records(value: Any) -> list[dict[str, Any]] | None:
-    if value is None or value is pd.NA:
+    if value is None:
         return None
     if isinstance(value, str):
         text = value.strip()
@@ -164,7 +162,7 @@ def _empty_transaction_record() -> dict[str, Any]:
 
 
 def _normalize_transaction_record(value: Any) -> dict[str, Any] | None:
-    if value is None or value is pd.NA:
+    if value is None:
         return None
     if isinstance(value, str):
         text = value.strip()
@@ -181,7 +179,7 @@ def _normalize_transaction_record(value: Any) -> dict[str, Any] | None:
     record = _empty_transaction_record()
     for field in TRANSACTION_SCHEMA:
         raw = value.get(field.name)
-        if raw is None or raw is pd.NA:
+        if raw is None:
             continue
         if pa.types.is_boolean(field.type):
             record[field.name] = _normalize_bool(raw)
@@ -690,11 +688,8 @@ def _preferred_summary_value(*values: Any) -> str:
 
 def _preferred_summary_number(*values: Any) -> float:
     for value in values:
-        try:
-            if value is None or pd.isna(value):
-                continue
-        except TypeError:
-            pass
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            continue
         return _normalize_float(value)
     return 0.0
 

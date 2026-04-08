@@ -25,7 +25,7 @@ class DefaultsFilesConfig(BaseModel):
     categories: str = "ynab_categories.csv"
     proposed_review: str = "{context}_proposed_transactions.parquet"
     reviewed_review: str = "{context}_proposed_transactions_reviewed.parquet"
-    matched_pairs: str = "{context}_matched_pairs.csv"
+    matched_pairs: str = "{context}_matched_pairs.parquet"
     upload_csv: str = "{context}_upload.csv"
     upload_json: str = "{context}_upload.json"
     bank_sync_report: str = "{context}_{source_id}_bank_sync_report.csv"

@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import polars as pl
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -54,20 +55,18 @@ def test_build_payee_map_outputs_have_bounded_examples_and_no_nan_hints(tmp_path
     parsed_path = tmp_path / "parsed.csv"
     parsed.to_csv(parsed_path, index=False)
 
-    matched_pairs_path = tmp_path / "matched_pairs.csv"
-    pd.DataFrame(
-        columns=[
-            "account_name",
-            "date",
-            "outflow_ils",
-            "inflow_ils",
-            "raw_text",
-            "raw_norm",
-            "fingerprint",
-            "ynab_payee_raw",
-            "ynab_category_raw",
-        ]
-    ).to_csv(matched_pairs_path, index=False)
+    matched_pairs_path = tmp_path / "matched_pairs.parquet"
+    pl.DataFrame(
+        schema={
+            "account_name": pl.Utf8,
+            "date": pl.Utf8,
+            "outflow_ils": pl.Float64,
+            "inflow_ils": pl.Float64,
+            "fingerprint": pl.Utf8,
+            "ynab_payee_raw": pl.Utf8,
+            "ynab_category_raw": pl.Utf8,
+        }
+    ).write_parquet(matched_pairs_path)
 
     map_path = tmp_path / "payee_map.csv"
     pd.DataFrame(columns=rules.PAYEE_MAP_COLUMNS).to_csv(map_path, index=False)

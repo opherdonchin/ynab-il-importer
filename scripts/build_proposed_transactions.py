@@ -1479,13 +1479,12 @@ def run_build(
 
     out, pairs = build_review_rows(source_df, ynab_df, map_path=map_path)
     if pairs_out:
-        export.write_dataframe(pairs.to_pandas(), pairs_out)
+        pairs_out_path = Path(pairs_out)
+        pairs_out_path.parent.mkdir(parents=True, exist_ok=True)
+        pairs.write_parquet(pairs_out_path)
         print(export.wrote_message(pairs_out, len(pairs)))
 
-    if out_path.suffix.lower() == ".parquet":
-        review_io.save_review_artifact(out, out_path)
-    else:
-        review_io.save_reviewed_transactions(out, out_path)
+    review_io.save_review_artifact(out, out_path)
     print(export.wrote_message(out_path, len(out)))
 
 

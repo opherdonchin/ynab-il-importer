@@ -72,7 +72,7 @@ def test_resolve_run_paths_and_context_artifacts(tmp_path: Path) -> None:
     ]
     assert ynab_path.name == "family_ynab_api_norm.parquet"
     assert run_paths.proposal_review_path(defaults, "family").name == "family_proposed_transactions.parquet"
-    assert run_paths.matched_pairs_path(defaults, "family").name == "family_matched_pairs.csv"
+    assert run_paths.matched_pairs_path(defaults, "family").name == "family_matched_pairs.parquet"
 
 
 def test_resolve_context_ynab_path_requires_file(tmp_path: Path) -> None:

@@ -154,6 +154,20 @@ def _load_csv_paths(paths: list[Path], label: str) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
+def _load_pairs_paths(paths: list[Path], label: str) -> pd.DataFrame:
+    if not paths:
+        return pd.DataFrame()
+    frames: list[pd.DataFrame] = []
+    for path in paths:
+        if not path.exists():
+            raise FileNotFoundError(f"{label} file does not exist: {path}")
+        if path.suffix.lower() == ".parquet":
+            frames.append(pd.read_parquet(path))
+        else:
+            frames.append(pd.read_csv(path, dtype="string").fillna(""))
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
 def _top_examples(series: pd.Series, limit: int = 2) -> str:
     clean = series.astype("string").fillna("").str.strip()
     examples: list[str] = []
@@ -245,7 +259,7 @@ def _run_build_payee_map(
     applied = rules.apply_payee_map_rules(parsed_prepared, rules_df)
     preview = parsed_prepared.join(applied)
 
-    matched_pairs = _load_csv_paths(matched_pairs_paths, "matched-pairs")
+    matched_pairs = _load_pairs_paths(matched_pairs_paths, "matched-pairs")
     hints = _build_hint_distributions(matched_pairs)
 
     candidate_group_keys = ["txn_kind", "fingerprint", "description_clean_norm"]
