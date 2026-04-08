@@ -115,6 +115,13 @@ Done:
   - [transaction_io.py](src/ynab_il_importer/artifacts/transaction_io.py) now canonicalizes flat transaction projections in Polars and writes flat CSV exports from Polars instead of converting whole frames to pandas first
   - [upload_prep.py](src/ynab_il_importer/upload_prep.py) no longer uses pandas series coercion for single-value amount parsing
 - the focused builder/review/app/upload test slice is green after the refactor
+- a further pandas cleanup pass is now committed (`b1fa757`):
+  - dead `_dedupe_sources` function and its helpers (`_candidate_import_ids`, `_protect_from_weak_dedupe`, `_account_key_candidates`) removed from [build_proposed_transactions.py](scripts/build_proposed_transactions.py)
+  - `pd.Series(row)` wrappers removed from 3 `map_elements` lambdas in `build_review_rows` (helper functions already accept `Mapping`)
+  - `pd.isna` replaced with `isinstance(value, float) and math.isnan(value)` in `_optional_text` and `_to_string_set`
+  - `build_review_rows` now returns `tuple[pl.DataFrame, pl.DataFrame]` instead of converting to pandas; caller `run_build` converts to pandas only at the CSV write boundary
+  - `import ynab_il_importer.pairing as pairing` removed (was only used by dead `_dedupe_sources`)
+  - 6 dead `_dedupe_sources` tests removed from [tests/test_build_proposed_transactions.py](tests/test_build_proposed_transactions.py)
 - upload/reconcile cutover planning is now documented in:
   - [upload_reconcile_cutover_spec.md](documents/upload_reconcile_cutover_spec.md)
   - [upload_reconcile_cutover_plan.md](documents/upload_reconcile_cutover_plan.md)
@@ -245,7 +252,7 @@ The important recovery problems are now addressed:
    - decide whether [download_ynab_api.py](scripts/download_ynab_api.py) should become [download_context_ynab.py](scripts/download_context_ynab.py) for naming consistency
    - either convert or isolate the remaining real pandas islands in:
      - [upload_prep.py](src/ynab_il_importer/upload_prep.py)
-     - [build_proposed_transactions.py](scripts/build_proposed_transactions.py) row-level rule application and legacy `_dedupe_sources(...)`
+     - ~~[build_proposed_transactions.py](scripts/build_proposed_transactions.py) row-level rule application and legacy `_dedupe_sources(...)`~~ — done: dead code removed; remaining pandas is the intentional `_build_target_suggestions_pandas` adapter
      - [transaction_io.py](src/ynab_il_importer/artifacts/transaction_io.py) legacy flat projection loaders
 
 ## Validation / Test Baseline

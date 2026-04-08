@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import datetime
 import hashlib
+import math
 import re
 from typing import Any
-
-import pandas as pd
 
 import ynab_il_importer.normalize as normalize
 
@@ -24,17 +24,30 @@ def _normalize_text(value: Any) -> str:
 
 
 def _normalize_date(value: Any) -> str:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
+    if value is None or (isinstance(value, float) and math.isnan(value)):
         return ""
-    parsed = pd.to_datetime(value, errors="coerce")
-    if pd.isna(parsed):
-        return _normalize_text(value)
-    return parsed.date().isoformat()
+    if isinstance(value, datetime.datetime):
+        return value.date().isoformat()
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    text = _normalize_text(value)
+    if not text:
+        return ""
+    try:
+        return datetime.date.fromisoformat(text).isoformat()
+    except ValueError:
+        return text
 
 
 def signed_amount_milliunits(outflow_ils: Any, inflow_ils: Any) -> int:
-    outflow = float(pd.to_numeric(outflow_ils, errors="coerce") or 0.0)
-    inflow = float(pd.to_numeric(inflow_ils, errors="coerce") or 0.0)
+    try:
+        outflow = float(outflow_ils or 0)
+    except (TypeError, ValueError):
+        outflow = 0.0
+    try:
+        inflow = float(inflow_ils or 0)
+    except (TypeError, ValueError):
+        inflow = 0.0
     return int(round((inflow - outflow) * 1000))
 
 

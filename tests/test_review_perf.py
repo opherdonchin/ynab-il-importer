@@ -33,6 +33,16 @@ def make_review_df(n: int) -> pd.DataFrame:
                 "source_category_selected": "Food",
                 "target_payee_selected": "Cafe",
                 "target_category_selected": "Food",
+                "source_payee_current": "Cafe",
+                "target_payee_current": "Cafe",
+                "source_category_current": "Food",
+                "target_category_current": "Food",
+                "source_account": "Account 1",
+                "target_account": "Account 1",
+                "source_date": "2026-03-01",
+                "target_date": "2026-03-01",
+                "source_splits": None,
+                "target_splits": None,
                 "decision_action": "keep_match",
                 "update_maps": "",
                 "reviewed": False,
@@ -59,6 +69,16 @@ def make_review_df(n: int) -> pd.DataFrame:
                 "source_category_selected": "Food",
                 "target_payee_selected": "Cafe",
                 "target_category_selected": "Food",
+                "source_payee_current": "Cafe",
+                "target_payee_current": "Cafe",
+                "source_category_current": "Food",
+                "target_category_current": "Food",
+                "source_account": "Account 1",
+                "target_account": "Account 1",
+                "source_date": "2026-03-01",
+                "target_date": "2026-03-01",
+                "source_splits": None,
+                "target_splits": None,
                 "decision_action": "ignore_row",
                 "update_maps": "",
                 "reviewed": False,
@@ -84,14 +104,13 @@ def test_cached_derived_state_skips_recompute_when_generation_is_unchanged(monke
     df = make_review_df(500)
     cache: dict[str, object] = {"_df_generation": 0}
     call_count = 0
-    original = review_validation.precompute_components
 
-    def wrapped(frame: pd.DataFrame) -> dict[object, int]:
+    def mock_compute(*args: object, **kwargs: object) -> dict[str, object]:
         nonlocal call_count
         call_count += 1
-        return original(frame)
+        return {"component_map": {}}
 
-    monkeypatch.setattr(review_validation, "precompute_components", wrapped)
+    monkeypatch.setattr(review_app, "_compute_derived_state", mock_compute)
 
     review_app._get_cached_derived_state(cache, df, None, None)
     review_app._get_cached_derived_state(cache, df, None, None)

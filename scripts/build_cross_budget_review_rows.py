@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import polars as pl
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -17,6 +18,7 @@ import ynab_il_importer.cross_budget_pairing as cross_budget_pairing
 import ynab_il_importer.export as export
 import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.workflow_profiles as workflow_profiles
+from ynab_il_importer.artifacts.transaction_io import load_flat_transaction_projection
 
 REVIEW_BUILDER_SPEC = importlib.util.spec_from_file_location(
     "build_proposed_transactions_script",
@@ -32,7 +34,7 @@ BASE_COLUMNS = review_builder.REVIEW_ROW_COLUMNS
 
 def _read_csv_or_empty(path: Path, *, prefer_sidecar_parquet: bool = False) -> pd.DataFrame:
     try:
-        return review_builder._load_transaction_input(
+        return load_flat_transaction_projection(
             path,
             prefer_sidecar_parquet=prefer_sidecar_parquet,
         ).fillna("")
@@ -134,11 +136,12 @@ def _canonical_snapshot(
 ) -> dict[str, object] | None:
     if not snapshot:
         return None
-    return review_builder._canonical_transaction_dict(
-        pd.Series(snapshot),
-        artifact_kind=artifact_kind,
-        source_system_fallback=source_system_fallback,
-    )
+    snapshot_with_defaults: dict[str, object] = {**snapshot}
+    if not snapshot_with_defaults.get("artifact_kind"):
+        snapshot_with_defaults["artifact_kind"] = artifact_kind
+    if not snapshot_with_defaults.get("source_system"):
+        snapshot_with_defaults["source_system"] = source_system_fallback
+    return review_io._normalize_transaction_record(snapshot_with_defaults)
 
 
 def _source_context_from_snapshot(
@@ -588,7 +591,7 @@ def _apply_target_suggestions(relations: pd.DataFrame, *, map_path: Path) -> pd.
             ]
         )
     else:
-        suggested = review_builder.build_target_suggestions(candidates, map_path=map_path)
+        suggested = review_builder.build_target_suggestions(pl.from_pandas(candidates), map_path=map_path).to_pandas()
     suggested = suggested.rename(
         columns={
             "payee_options": "suggested_payee_options",
