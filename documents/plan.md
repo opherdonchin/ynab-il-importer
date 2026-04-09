@@ -162,7 +162,18 @@ Done:
   - `build_review_rows` now returns `tuple[pl.DataFrame, pl.DataFrame]` instead of converting to pandas; caller `run_build` converts to pandas only at the CSV write boundary
   - `import ynab_il_importer.pairing as pairing` removed (was only used by dead `_dedupe_sources`)
   - 6 dead `_dedupe_sources` tests removed from [tests/test_build_proposed_transactions.py](tests/test_build_proposed_transactions.py)
-- a further focused pandas cleanup pass is now committed (`ba4b822`):
+- a further focused pandas cleanup pass is now committed (`121c5d2`):
+  - `card_reconciliation.py`, `fingerprint.py`, `account_map.py`, `cli.py` migrated away from pandas
+  - `test_card_reconciliation.py` updated to Polars row access patterns
+  - all 300 tests pass
+- **Family `2026_04_01` reconciliation is now complete:**
+  - `51` new transactions uploaded to YNAB (`53` prepared, `2` duplicate-rejected gracefully)
+  - Bank Leumi: `30` newly uploaded bank transactions reconciled (`132/132` total reconciled)
+  - Opher x9922: `58/58` previous rows + `30/30` current rows matched; previous cycle fully reconciled; payment transfer `14,563.73 ILS` verified
+  - Opher X5898: `8/8` previous rows + `10/10` current rows matched; previous cycle fully reconciled; payment transfer `1,252.01 ILS` verified
+  - Liya X7195: `38/38` previous rows + `19/19` current rows matched; previous cycle fully reconciled; payment transfer `18,582.46 ILS` verified
+  - bank reconcile cascade (from bank transfer reconcile) caused card source rows to appear reconciled; handled with `--allow-reconciled-source` on card reconcile
+
   - `pairs_out` in [build_proposed_transactions.py](scripts/build_proposed_transactions.py) now writes a native Polars Parquet file instead of converting to pandas and writing CSV; `.to_pandas()` call at the pairs boundary removed
   - CSV fallback in `run_build` removed — artifact output is always `save_review_artifact` (Parquet)
   - `matched_pairs` filename template in [contexts/defaults.toml](contexts/defaults.toml) and the `DefaultsConfig` default in [context_config.py](src/ynab_il_importer/context_config.py) updated to `.parquet`
@@ -297,20 +308,22 @@ The important recovery problems are now addressed:
 
 ## Next Steps
 
-1. Commit the upload/reconcile cutover slice now that lineage survives rebuild -> rebase -> upload-prep again.
-2. Re-run `pixi run sync-bank-matches -- family 2026_04_01 --execute` and verify the two previously uploaded fallback-import bank rows are recovered and stamped.
-3. Re-run `pixi run reconcile-bank-statement -- family 2026_04_01` and confirm only true recent/unmatched bank rows remain.
-4. Repair the one x9922 `source_only + keep_match` row using the explicit `Facebook / Aikido` mapping (or reopen it honestly if that repair cannot be made deterministically).
-5. Re-run x9922 card upload/sync/reconcile, then confirm x5898 and x7195 remain clean on the new path.
-6. Decide whether [reconcile_card_payment_transfers.py](scripts/reconcile_card_payment_transfers.py) should be converted to the new context/canonical path or removed in favor of the main card-cycle reconciliation flow.
-7. Once Family closeout is stable end to end, move on to Pilates and then Aikido.
-8. Finish the remaining active-path cleanup before Pilates normalization:
+1. Move on to Pilates workflow for `2026_04_01`:
+   - `pixi run normalize-context -- pilates 2026_04_01`
+   - `pixi run download-context-ynab -- pilates 2026_04_01`
+   - `pixi run build-context-review -- pilates 2026_04_01`
+   - Review and upload Pilates transactions
+   - `pixi run sync-bank-matches -- pilates 2026_04_01`
+   - `pixi run reconcile-bank-statement -- pilates 2026_04_01`
+   - `pixi run reconcile-card-cycle -- pilates 2026_04_01 --account "Pilates Leumi Card" --previous ...`
+2. Then move on to the Aikido workflow.
+3. Finish the remaining active-path cleanup:
    - remove or quarantine the remaining legacy CSV translation helpers in [review_app/io.py](src/ynab_il_importer/review_app/io.py)
    - decide whether [download_ynab_api.py](scripts/download_ynab_api.py) should become [download_context_ynab.py](scripts/download_context_ynab.py) for naming consistency
    - either convert or isolate the remaining real pandas islands in:
-     - ~~[upload_prep.py](src/ynab_il_importer/upload_prep.py)~~ — done: active upload-prep path is now Polars-first; `categories_df` remains the intentional pandas boundary from `ynab_api`
-     - ~~[build_proposed_transactions.py](scripts/build_proposed_transactions.py) row-level rule application and legacy `_dedupe_sources(...)`~~ — done: dead code removed; remaining pandas is the intentional `_build_target_suggestions_pandas` adapter
-     - ~~[transaction_io.py](src/ynab_il_importer/artifacts/transaction_io.py) legacy flat projection loaders~~ — kept: serves real input-layer callers (parsers, `save_review_artifact`); explicit multi-type boundary, not defensive code
+     - ~~[upload_prep.py](src/ynab_il_importer/upload_prep.py)~~ — done
+     - ~~[build_proposed_transactions.py](scripts/build_proposed_transactions.py) row-level rule application and legacy `_dedupe_sources(...)`~~ — done
+     - ~~[transaction_io.py](src/ynab_il_importer/artifacts/transaction_io.py) legacy flat projection loaders~~ — kept: serves real input-layer callers
 
 ## Validation / Test Baseline
 
