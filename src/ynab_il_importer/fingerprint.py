@@ -264,7 +264,7 @@ def load_fingerprint_map(path: str | Path) -> list[dict[str, Any]]:
     if not map_path.exists():
         raise FileNotFoundError(f"Missing fingerprint map file: {map_path}")
 
-    with open(map_path, newline="", encoding="utf-8") as fh:
+    with open(map_path, newline="", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)
         raw_rows = [row for row in reader]
 
