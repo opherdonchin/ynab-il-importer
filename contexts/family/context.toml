@@ -20,3 +20,4 @@ id = "family_card"
 kind = "max"
 raw_match = "^transaction-details_export_\\d+\\.xlsx$"
 normalized_name = "family_max_norm.parquet"
+allow_reconciled_source = true

@@ -69,6 +69,7 @@ class ContextSourceConfig(BaseModel):
     raw_file: str | None = None
     raw_match: str | None = None
     normalized_name: str = ""
+    allow_reconciled_source: bool = False
 
     @model_validator(mode="after")
     def _validate_source_selector(self) -> "ContextSourceConfig":

@@ -20,3 +20,4 @@ id = "pilates_card"
 kind = "leumi_card_html"
 raw_file = "BankLeumi 1_4_2026.html"
 normalized_name = "pilates_leumi_card_html_norm.parquet"
+allow_reconciled_source = true

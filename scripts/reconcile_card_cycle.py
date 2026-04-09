@@ -188,7 +188,7 @@ def main() -> None:
         previous_df=previous_df,
         accounts=accounts,
         transactions=transactions,
-        allow_reconciled_source=args.allow_reconciled_source,
+        allow_reconciled_source=args.allow_reconciled_source or source.allow_reconciled_source,
         source_date_from=args.source_date_from or None,
         source_date_to=args.source_date_to or None,
         previous_date_from=args.previous_date_from or None,
