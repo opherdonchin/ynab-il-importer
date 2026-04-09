@@ -97,7 +97,7 @@ def test_read_raw_parses_pending_and_billed_rows(monkeypatch: pytest.MonkeyPatch
 
     def _fake_apply_fingerprints(
         df: pd.DataFrame,
-        map_rules: pd.DataFrame | None = None,
+        map_rules: list | None = None,
         log_path: str | Path = Path("outputs/fingerprint_log.csv"),
         use_fingerprint_map: bool = True,
         fingerprint_map_path: str | Path = Path("mappings/fingerprint_map.csv"),

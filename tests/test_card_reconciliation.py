@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import polars as pl
 
 from ynab_il_importer.artifacts.transaction_io import write_transactions_parquet
 import ynab_il_importer.card_reconciliation as card_reconciliation
@@ -141,7 +142,7 @@ def _pending_row(*, date: str, merchant: str, amount: str) -> dict[str, str]:
     }
 
 
-def _txn_from_source(row: pd.Series, *, txn_id: str, cleared: str) -> dict[str, object]:
+def _txn_from_source(row: dict, *, txn_id: str, cleared: str) -> dict[str, object]:
     signed = float(row["signed_ils"])
     return {
         "id": txn_id,
@@ -252,7 +253,7 @@ def test_source_only_blocks_when_older_cleared_rows_exist(tmp_path: Path) -> Non
         ],
     )
     source_df = card_reconciliation.load_card_source(source_path)
-    source_rows = card_reconciliation._target_source_rows(source_df, "Opher x9922")
+    source_rows = card_reconciliation._build_card_source_frame(source_df, "Opher x9922")
 
     transactions = [
         {
@@ -265,7 +266,7 @@ def test_source_only_blocks_when_older_cleared_rows_exist(tmp_path: Path) -> Non
             "cleared": "cleared",
             "approved": True,
         },
-        _txn_from_source(source_rows.iloc[0], txn_id="txn-current", cleared="cleared"),
+        _txn_from_source(source_rows.row(0, named=True), txn_id="txn-current", cleared="cleared"),
     ]
 
     result = card_reconciliation.plan_card_cycle_reconciliation(
@@ -300,11 +301,11 @@ def test_source_only_clears_uncleared_current_rows(tmp_path: Path) -> None:
         ],
     )
     source_df = card_reconciliation.load_card_source(source_path)
-    source_rows = card_reconciliation._target_source_rows(source_df, "Opher x9922")
+    source_rows = card_reconciliation._build_card_source_frame(source_df, "Opher x9922")
 
     transactions = [
-        _txn_from_source(source_rows.iloc[0], txn_id="txn-1", cleared="uncleared"),
-        _txn_from_source(source_rows.iloc[1], txn_id="txn-2", cleared="cleared"),
+        _txn_from_source(source_rows.row(0, named=True), txn_id="txn-1", cleared="uncleared"),
+        _txn_from_source(source_rows.row(1, named=True), txn_id="txn-2", cleared="cleared"),
     ]
 
     result = card_reconciliation.plan_card_cycle_reconciliation(
@@ -371,15 +372,15 @@ def test_transition_reconciles_previous_and_keeps_current_open(tmp_path: Path) -
 
     previous_df = card_reconciliation.load_card_source(previous_path)
     current_df = card_reconciliation.load_card_source(current_path)
-    previous_rows = card_reconciliation._target_source_rows(previous_df, "Opher x9922")
-    current_rows = card_reconciliation._target_source_rows(current_df, "Opher x9922")
+    previous_rows = card_reconciliation._build_card_source_frame(previous_df, "Opher x9922")
+    current_rows = card_reconciliation._build_card_source_frame(current_df, "Opher x9922")
 
     transactions = [
-        _txn_from_source(previous_rows.iloc[0], txn_id="prev-1", cleared="cleared"),
-        _txn_from_source(previous_rows.iloc[1], txn_id="prev-2", cleared="uncleared"),
-        _txn_from_source(previous_rows.iloc[2], txn_id="prev-3", cleared="cleared"),
-        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="uncleared"),
-        _txn_from_source(current_rows.iloc[1], txn_id="curr-2", cleared="cleared"),
+        _txn_from_source(previous_rows.row(0, named=True), txn_id="prev-1", cleared="cleared"),
+        _txn_from_source(previous_rows.row(1, named=True), txn_id="prev-2", cleared="uncleared"),
+        _txn_from_source(previous_rows.row(2, named=True), txn_id="prev-3", cleared="cleared"),
+        _txn_from_source(current_rows.row(0, named=True), txn_id="curr-1", cleared="uncleared"),
+        _txn_from_source(current_rows.row(1, named=True), txn_id="curr-2", cleared="cleared"),
     ] + _transfer_pair(transfer_id="payment-mar", date="2026-03-10", amount_ils=240.0)
 
     result = card_reconciliation.plan_card_cycle_reconciliation(
@@ -448,12 +449,12 @@ def test_transition_warns_when_previous_is_already_reconciled(tmp_path: Path) ->
 
     previous_df = card_reconciliation.load_card_source(previous_path)
     current_df = card_reconciliation.load_card_source(current_path)
-    previous_rows = card_reconciliation._target_source_rows(previous_df, "Opher x9922")
-    current_rows = card_reconciliation._target_source_rows(current_df, "Opher x9922")
+    previous_rows = card_reconciliation._build_card_source_frame(previous_df, "Opher x9922")
+    current_rows = card_reconciliation._build_card_source_frame(current_df, "Opher x9922")
 
     transactions = [
-        _txn_from_source(previous_rows.iloc[0], txn_id="prev-1", cleared="reconciled"),
-        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="uncleared"),
+        _txn_from_source(previous_rows.row(0, named=True), txn_id="prev-1", cleared="reconciled"),
+        _txn_from_source(current_rows.row(0, named=True), txn_id="curr-1", cleared="uncleared"),
     ] + _transfer_pair(transfer_id="payment-mar", date="2026-03-10", amount_ils=100.0)
 
     result = card_reconciliation.plan_card_cycle_reconciliation(
@@ -511,12 +512,12 @@ def test_transition_blocks_when_source_rows_are_already_reconciled(
 
     previous_df = card_reconciliation.load_card_source(previous_path)
     current_df = card_reconciliation.load_card_source(current_path)
-    previous_rows = card_reconciliation._target_source_rows(previous_df, "Opher x9922")
-    current_rows = card_reconciliation._target_source_rows(current_df, "Opher x9922")
+    previous_rows = card_reconciliation._build_card_source_frame(previous_df, "Opher x9922")
+    current_rows = card_reconciliation._build_card_source_frame(current_df, "Opher x9922")
 
     transactions = [
-        _txn_from_source(previous_rows.iloc[0], txn_id="prev-1", cleared="cleared"),
-        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="reconciled"),
+        _txn_from_source(previous_rows.row(0, named=True), txn_id="prev-1", cleared="cleared"),
+        _txn_from_source(current_rows.row(0, named=True), txn_id="curr-1", cleared="reconciled"),
     ]
 
     result = card_reconciliation.plan_card_cycle_reconciliation(
@@ -561,12 +562,12 @@ def test_transition_blocks_when_payment_transfer_is_missing(tmp_path: Path) -> N
 
     previous_df = card_reconciliation.load_card_source(previous_path)
     current_df = card_reconciliation.load_card_source(current_path)
-    previous_rows = card_reconciliation._target_source_rows(previous_df, "Opher x9922")
-    current_rows = card_reconciliation._target_source_rows(current_df, "Opher x9922")
+    previous_rows = card_reconciliation._build_card_source_frame(previous_df, "Opher x9922")
+    current_rows = card_reconciliation._build_card_source_frame(current_df, "Opher x9922")
 
     transactions = [
-        _txn_from_source(previous_rows.iloc[0], txn_id="prev-1", cleared="cleared"),
-        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="cleared"),
+        _txn_from_source(previous_rows.row(0, named=True), txn_id="prev-1", cleared="cleared"),
+        _txn_from_source(current_rows.row(0, named=True), txn_id="curr-1", cleared="cleared"),
     ]
 
     result = card_reconciliation.plan_card_cycle_reconciliation(
@@ -612,13 +613,13 @@ def test_transition_blocks_when_transfer_amount_does_not_match(tmp_path: Path) -
 
     previous_df = card_reconciliation.load_card_source(previous_path)
     current_df = card_reconciliation.load_card_source(current_path)
-    previous_rows = card_reconciliation._target_source_rows(previous_df, "Opher x9922")
-    current_rows = card_reconciliation._target_source_rows(current_df, "Opher x9922")
+    previous_rows = card_reconciliation._build_card_source_frame(previous_df, "Opher x9922")
+    current_rows = card_reconciliation._build_card_source_frame(current_df, "Opher x9922")
 
     # Transfer for 200 ILS, but previous total is only 100 ILS → no match
     transactions = [
-        _txn_from_source(previous_rows.iloc[0], txn_id="prev-1", cleared="cleared"),
-        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="cleared"),
+        _txn_from_source(previous_rows.row(0, named=True), txn_id="prev-1", cleared="cleared"),
+        _txn_from_source(current_rows.row(0, named=True), txn_id="curr-1", cleared="cleared"),
     ] + _transfer_pair(transfer_id="payment-mar", date="2026-03-10", amount_ils=200.0)
 
     result = card_reconciliation.plan_card_cycle_reconciliation(
@@ -669,8 +670,8 @@ def test_transition_blocks_when_transfer_has_no_linked_bank_transaction(
 
     previous_df = card_reconciliation.load_card_source(previous_path)
     current_df = card_reconciliation.load_card_source(current_path)
-    previous_rows = card_reconciliation._target_source_rows(previous_df, "Opher x9922")
-    current_rows = card_reconciliation._target_source_rows(current_df, "Opher x9922")
+    previous_rows = card_reconciliation._build_card_source_frame(previous_df, "Opher x9922")
+    current_rows = card_reconciliation._build_card_source_frame(current_df, "Opher x9922")
 
     # Card-side transfer has the right amount but no transfer_transaction_id linking to bank
     unlinked_transfer = {
@@ -687,8 +688,8 @@ def test_transition_blocks_when_transfer_has_no_linked_bank_transaction(
         "payee_name": "Transfer : Bank Leumi",
     }
     transactions = [
-        _txn_from_source(previous_rows.iloc[0], txn_id="prev-1", cleared="cleared"),
-        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="cleared"),
+        _txn_from_source(previous_rows.row(0, named=True), txn_id="prev-1", cleared="cleared"),
+        _txn_from_source(current_rows.row(0, named=True), txn_id="curr-1", cleared="cleared"),
         unlinked_transfer,
     ]
 
@@ -737,8 +738,8 @@ def test_transition_blocks_when_linked_bank_transaction_is_missing(
 
     previous_df = card_reconciliation.load_card_source(previous_path)
     current_df = card_reconciliation.load_card_source(current_path)
-    previous_rows = card_reconciliation._target_source_rows(previous_df, "Opher x9922")
-    current_rows = card_reconciliation._target_source_rows(current_df, "Opher x9922")
+    previous_rows = card_reconciliation._build_card_source_frame(previous_df, "Opher x9922")
+    current_rows = card_reconciliation._build_card_source_frame(current_df, "Opher x9922")
 
     # Card-side transfer points to a bank transaction ID that doesn't exist in the list
     orphan_card_transfer = {
@@ -755,8 +756,8 @@ def test_transition_blocks_when_linked_bank_transaction_is_missing(
         "payee_name": "Transfer : Bank Leumi",
     }
     transactions = [
-        _txn_from_source(previous_rows.iloc[0], txn_id="prev-1", cleared="cleared"),
-        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="cleared"),
+        _txn_from_source(previous_rows.row(0, named=True), txn_id="prev-1", cleared="cleared"),
+        _txn_from_source(current_rows.row(0, named=True), txn_id="curr-1", cleared="cleared"),
         orphan_card_transfer,
     ]
 
@@ -805,8 +806,8 @@ def test_transition_skips_transfer_update_when_already_reconciled(
 
     previous_df = card_reconciliation.load_card_source(previous_path)
     current_df = card_reconciliation.load_card_source(current_path)
-    previous_rows = card_reconciliation._target_source_rows(previous_df, "Opher x9922")
-    current_rows = card_reconciliation._target_source_rows(current_df, "Opher x9922")
+    previous_rows = card_reconciliation._build_card_source_frame(previous_df, "Opher x9922")
+    current_rows = card_reconciliation._build_card_source_frame(current_df, "Opher x9922")
 
     # Build the transfer pair but override card-side to already be reconciled
     transfer_txns = _transfer_pair(
@@ -815,8 +816,8 @@ def test_transition_skips_transfer_update_when_already_reconciled(
     transfer_txns[0]["cleared"] = "reconciled"
 
     transactions = [
-        _txn_from_source(previous_rows.iloc[0], txn_id="prev-1", cleared="cleared"),
-        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="uncleared"),
+        _txn_from_source(previous_rows.row(0, named=True), txn_id="prev-1", cleared="cleared"),
+        _txn_from_source(current_rows.row(0, named=True), txn_id="curr-1", cleared="uncleared"),
     ] + transfer_txns
 
     result = card_reconciliation.plan_card_cycle_reconciliation(
@@ -854,7 +855,7 @@ def test_plan_card_match_sync_stamps_unique_date_amount_and_clears_uncleared(
         ],
     )
     source_df = card_reconciliation.load_card_source(source_path)
-    source_rows = card_reconciliation._target_source_rows(source_df, "Opher x9922")
+    source_rows = card_reconciliation._build_card_source_frame(source_df, "Opher x9922")
 
     transactions = [
         _txn_manual(
@@ -877,7 +878,7 @@ def test_plan_card_match_sync_stamps_unique_date_amount_and_clears_uncleared(
     assert result["updates"] == [
         {
             "id": "txn-1",
-            "memo": f"[ynab-il card_txn_id={source_rows.iloc[0]['card_txn_id']}]",
+            "memo": f"[ynab-il card_txn_id={source_rows.row(0, named=True)['card_txn_id']}]",
             "cleared": "cleared",
         }
     ]
@@ -903,7 +904,7 @@ def test_plan_card_match_sync_stamps_same_date_memo_exact_candidate(
         ],
     )
     source_df = card_reconciliation.load_card_source(source_path)
-    source_rows = card_reconciliation._target_source_rows(source_df, "Opher x9922")
+    source_rows = card_reconciliation._build_card_source_frame(source_df, "Opher x9922")
 
     transactions = [
         _txn_manual(
@@ -927,7 +928,7 @@ def test_plan_card_match_sync_stamps_same_date_memo_exact_candidate(
     assert result["updates"] == [
         {
             "id": "txn-1",
-            "memo": f"MERCHANT A\n[ynab-il card_txn_id={source_rows.iloc[0]['card_txn_id']}]",
+            "memo": f"MERCHANT A\n[ynab-il card_txn_id={source_rows.row(0, named=True)['card_txn_id']}]",
             "cleared": "cleared",
         }
     ]
@@ -953,7 +954,7 @@ def test_plan_card_match_sync_stamps_secondary_date_amount_match_and_clears_uncl
         ],
     )
     source_df = card_reconciliation.load_card_source(source_path)
-    source_rows = card_reconciliation._target_source_rows(source_df, "Opher x9922")
+    source_rows = card_reconciliation._build_card_source_frame(source_df, "Opher x9922")
 
     transactions = [
         _txn_manual(
@@ -976,7 +977,7 @@ def test_plan_card_match_sync_stamps_secondary_date_amount_match_and_clears_uncl
     assert result["updates"] == [
         {
             "id": "txn-1",
-            "memo": f"[ynab-il card_txn_id={source_rows.iloc[0]['card_txn_id']}]",
+            "memo": f"[ynab-il card_txn_id={source_rows.row(0, named=True)['card_txn_id']}]",
             "cleared": "cleared",
         }
     ]
@@ -1000,8 +1001,8 @@ def test_plan_card_match_sync_stamps_legacy_import_id_match(tmp_path: Path) -> N
         ],
     )
     source_df = card_reconciliation.load_card_source(source_path)
-    source_rows = card_reconciliation._target_source_rows(source_df, "Opher x9922")
-    legacy_import_id = source_rows.iloc[0]["legacy_import_id"]
+    source_rows = card_reconciliation._build_card_source_frame(source_df, "Opher x9922")
+    legacy_import_id = source_rows.row(0, named=True)["legacy_import_id"]
 
     transactions = [
         _txn_manual(
@@ -1025,7 +1026,7 @@ def test_plan_card_match_sync_stamps_legacy_import_id_match(tmp_path: Path) -> N
     assert result["updates"] == [
         {
             "id": "txn-1",
-            "memo": f"[ynab-il card_txn_id={source_rows.iloc[0]['card_txn_id']}]",
+            "memo": f"[ynab-il card_txn_id={source_rows.row(0, named=True)['card_txn_id']}]",
             "cleared": "cleared",
         }
     ]
@@ -1049,7 +1050,7 @@ def test_plan_card_match_sync_noops_on_exact_lineage(tmp_path: Path) -> None:
         ],
     )
     source_df = card_reconciliation.load_card_source(source_path)
-    source_rows = card_reconciliation._target_source_rows(source_df, "Opher x9922")
+    source_rows = card_reconciliation._build_card_source_frame(source_df, "Opher x9922")
 
     transactions = [
         _txn_manual(
@@ -1058,7 +1059,7 @@ def test_plan_card_match_sync_noops_on_exact_lineage(tmp_path: Path) -> None:
             amount_ils=100.0,
             payee_name="Canonical Payee",
             cleared="cleared",
-            import_id=source_rows.iloc[0]["card_txn_id"],
+            import_id=source_rows.row(0, named=True)["card_txn_id"],
         )
     ]
 
@@ -1097,8 +1098,8 @@ def test_plan_card_match_sync_filters_source_rows_by_date(tmp_path: Path) -> Non
         ],
     )
     source_df = card_reconciliation.load_card_source(source_path)
-    source_rows = card_reconciliation._target_source_rows(source_df, "Opher x9922")
-    current_row = source_rows[source_rows["description_raw"] == "MERCHANT A"].iloc[0]
+    source_rows = card_reconciliation._build_card_source_frame(source_df, "Opher x9922")
+    current_row = source_rows.filter(pl.col("description_raw") == "MERCHANT A").row(0, named=True)
 
     transactions = [
         _txn_manual(
@@ -1163,15 +1164,13 @@ def test_transition_filters_previous_rows_by_date(tmp_path: Path) -> None:
 
     previous_df = card_reconciliation.load_card_source(previous_path)
     current_df = card_reconciliation.load_card_source(current_path)
-    previous_rows = card_reconciliation._target_source_rows(previous_df, "Opher x9922")
-    current_rows = card_reconciliation._target_source_rows(current_df, "Opher x9922")
-    keep_previous = previous_rows[previous_rows["description_raw"] == "MERCHANT B"].iloc[
-        0
-    ]
+    previous_rows = card_reconciliation._build_card_source_frame(previous_df, "Opher x9922")
+    current_rows = card_reconciliation._build_card_source_frame(current_df, "Opher x9922")
+    keep_previous = previous_rows.filter(pl.col("description_raw") == "MERCHANT B").row(0, named=True)
 
     transactions = [
         _txn_from_source(keep_previous, txn_id="prev-keep", cleared="cleared"),
-        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="uncleared"),
+        _txn_from_source(current_rows.row(0, named=True), txn_id="curr-1", cleared="uncleared"),
     ] + _transfer_pair(transfer_id="payment-mar", date="2026-03-10", amount_ils=80.0)
 
     result = card_reconciliation.plan_card_cycle_reconciliation(
@@ -1331,8 +1330,8 @@ def test_transition_reconciles_separately_settled_rows(tmp_path: Path) -> None:
 
     previous_df = card_reconciliation.load_card_source(previous_path)
     current_df = card_reconciliation.load_card_source(current_path)
-    previous_rows = card_reconciliation._target_source_rows(previous_df, "Opher x9922")
-    current_rows = card_reconciliation._target_source_rows(current_df, "Opher x9922")
+    previous_rows = card_reconciliation._build_card_source_frame(previous_df, "Opher x9922")
+    current_rows = card_reconciliation._build_card_source_frame(current_df, "Opher x9922")
 
     # 4 previous rows: 2 main (2026-03-10), 2 separately settled (2026-02-08, 2026-02-03)
     assert len(previous_rows) == 4
@@ -1340,18 +1339,18 @@ def test_transition_reconciles_separately_settled_rows(tmp_path: Path) -> None:
     # Payment transfer for the MAIN billing total only (100+80=180), NOT including sep rows
     transactions = [
         _txn_from_source(
-            previous_rows.iloc[0], txn_id="prev-main-a", cleared="cleared"
+            previous_rows.row(0, named=True), txn_id="prev-main-a", cleared="cleared"
         ),
         _txn_from_source(
-            previous_rows.iloc[1], txn_id="prev-main-b", cleared="cleared"
+            previous_rows.row(1, named=True), txn_id="prev-main-b", cleared="cleared"
         ),
         _txn_from_source(
-            previous_rows.iloc[2], txn_id="prev-netflix", cleared="cleared"
+            previous_rows.row(2, named=True), txn_id="prev-netflix", cleared="cleared"
         ),
         _txn_from_source(
-            previous_rows.iloc[3], txn_id="prev-chatgpt", cleared="cleared"
+            previous_rows.row(3, named=True), txn_id="prev-chatgpt", cleared="cleared"
         ),
-        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="cleared"),
+        _txn_from_source(current_rows.row(0, named=True), txn_id="curr-1", cleared="cleared"),
     ] + _transfer_pair(transfer_id="payment-mar", date="2026-03-10", amount_ils=180.0)
 
     result = card_reconciliation.plan_card_cycle_reconciliation(
@@ -1433,16 +1432,16 @@ def test_transition_blocks_when_only_full_total_transfer_exists_for_sep_settled(
 
     previous_df = card_reconciliation.load_card_source(previous_path)
     current_df = card_reconciliation.load_card_source(current_path)
-    previous_rows = card_reconciliation._target_source_rows(previous_df, "Opher x9922")
-    current_rows = card_reconciliation._target_source_rows(current_df, "Opher x9922")
+    previous_rows = card_reconciliation._build_card_source_frame(previous_df, "Opher x9922")
+    current_rows = card_reconciliation._build_card_source_frame(current_df, "Opher x9922")
 
     # Transfer is for the FULL total (100+69.90=169.90) not the main-only total (100)
     transactions = [
-        _txn_from_source(previous_rows.iloc[0], txn_id="prev-main", cleared="cleared"),
+        _txn_from_source(previous_rows.row(0, named=True), txn_id="prev-main", cleared="cleared"),
         _txn_from_source(
-            previous_rows.iloc[1], txn_id="prev-netflix", cleared="cleared"
+            previous_rows.row(1, named=True), txn_id="prev-netflix", cleared="cleared"
         ),
-        _txn_from_source(current_rows.iloc[0], txn_id="curr-1", cleared="cleared"),
+        _txn_from_source(current_rows.row(0, named=True), txn_id="curr-1", cleared="cleared"),
     ] + _transfer_pair(transfer_id="payment-mar", date="2026-03-10", amount_ils=169.90)
 
     result = card_reconciliation.plan_card_cycle_reconciliation(
@@ -1458,3 +1457,4 @@ def test_transition_blocks_when_only_full_total_transfer_exists_for_sep_settled(
         "No card payment transfer found for previous total 100.00 ILS"
         in result["reason"]
     )
+

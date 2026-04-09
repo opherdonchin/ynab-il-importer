@@ -25,8 +25,8 @@ def test_load_fingerprint_map_expands_and_sorts(tmp_path: Path) -> None:
     )
 
     rules = fingerprint.load_fingerprint_map(map_path)
-    assert rules.iloc[0]["rule_id"] == "r2"
-    assert set(rules["pattern"].tolist()) == {"foo", "bar", "baz"}
+    assert rules[0]["rule_id"] == "r2"
+    assert set(r["pattern"] for r in rules) == {"foo", "bar", "baz"}
 
 
 def test_apply_fingerprints_uses_map_and_logs(tmp_path: Path) -> None:

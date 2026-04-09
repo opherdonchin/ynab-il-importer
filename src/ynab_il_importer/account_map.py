@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 from typing import Iterable
 import warnings
@@ -56,9 +57,12 @@ def apply_account_name_map(
         )
         return out
 
-    raw = pd.read_csv(map_path, dtype="string").fillna("")
+    with open(map_path, newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        raw_rows = list(reader)
+    raw_columns = set(reader.fieldnames or [])
     required_cols = {"source_account", "ynab_account_name"}
-    if not required_cols.issubset(raw.columns):
+    if not required_cols.issubset(raw_columns):
         _warn_unmatched(
             source=source,
             message=(
@@ -69,28 +73,30 @@ def apply_account_name_map(
         )
         return out
 
-    raw["source_account"] = _normalize_text_series(raw["source_account"])
-    raw["ynab_account_name"] = _normalize_text_series(raw["ynab_account_name"])
-    if "ynab_account_id" in raw.columns:
-        raw["ynab_account_id"] = _normalize_text_series(raw["ynab_account_id"])
-    raw = raw[(raw["source_account"] != "") & (raw["ynab_account_name"] != "")]
+    source_key = str(source).strip().lower()
+    filtered_rows = []
+    for row in raw_rows:
+        src_acc = row.get("source_account", "").strip()
+        ynab_acc = row.get("ynab_account_name", "").strip()
+        if not src_acc or not ynab_acc:
+            continue
+        row_source = row.get("source", "").strip().lower()
+        if row_source and row_source != source_key:
+            continue
+        filtered_rows.append(
+            {
+                "source_account": src_acc,
+                "ynab_account_name": ynab_acc,
+                "ynab_account_id": row.get("ynab_account_id", "").strip(),
+            }
+        )
 
-    if "source" in raw.columns:
-        source_series = _normalize_text_series(raw["source"]).str.lower()
-        source_key = str(source).strip().lower()
-        raw = raw[(source_series == "") | (source_series == source_key)]
-
-    mapping = {
-        row["source_account"]: row["ynab_account_name"]
-        for _, row in raw.iterrows()
+    mapping = {r["source_account"]: r["ynab_account_name"] for r in filtered_rows}
+    id_mapping = {
+        r["source_account"]: r["ynab_account_id"]
+        for r in filtered_rows
+        if r["ynab_account_id"]
     }
-    id_mapping = {}
-    if "ynab_account_id" in raw.columns:
-        id_mapping = {
-            row["source_account"]: row["ynab_account_id"]
-            for _, row in raw.iterrows()
-            if str(row.get("ynab_account_id", "")).strip() != ""
-        }
     if not mapping:
         _warn_unmatched(
             source=source,

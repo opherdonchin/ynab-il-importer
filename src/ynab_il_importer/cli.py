@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pandas as pd
 import polars as pl
-import pyarrow as pa
 from ynab_il_importer.artifacts.transaction_io import (
     write_canonical_transaction_artifacts,
     write_flat_transaction_artifacts,
@@ -31,14 +30,11 @@ def _print_wrote(path: Path, row_count: int) -> None:
 def _write_normalized_with_parquet(
     df: pd.DataFrame, out_path: Path, *, fmt: str
 ) -> None:
-    source_series = (
-        df["source"].astype("string").fillna("").str.strip()
-        if "source" in df.columns
-        else pd.Series([""] * len(df), index=df.index, dtype="string")
-    )
-    source_system = (
-        str(source_series.iloc[0] if not source_series.empty else "").strip() or fmt
-    )
+    if "source" in df.columns and len(df) > 0:
+        v = df["source"].iloc[0]
+        source_system = str(v).strip() if v is not None and str(v).strip() else fmt
+    else:
+        source_system = fmt
     _, parquet_path = write_flat_transaction_artifacts(
         pl.from_pandas(df),
         out_path,
@@ -112,15 +108,20 @@ if typer is not None:
         _ensure_parent(out_path)
         if hasattr(ynab, "read_canonical"):
             canonical = ynab.read_canonical(in_path)
-            canonical_df = canonical.to_pandas()
-            canonical_df["account_name"] = (
-                canonical_df["account_name"].astype("string").fillna("").str.strip()
+            canonical_pl = pl.from_arrow(canonical)
+            if "account_name" not in canonical_pl.columns:
+                canonical_pl = canonical_pl.with_columns(pl.lit("").alias("account_name"))
+            canonical_pl = canonical_pl.with_columns(
+                pl.col("account_name").cast(pl.Utf8).fill_null("").str.strip_chars()
             )
             if account_name:
-                canonical_df.loc[canonical_df["account_name"] == "", "account_name"] = (
-                    account_name
+                canonical_pl = canonical_pl.with_columns(
+                    pl.when(pl.col("account_name") == "")
+                    .then(pl.lit(account_name))
+                    .otherwise(pl.col("account_name"))
+                    .alias("account_name")
                 )
-            canonical = pa.Table.from_pandas(canonical_df, preserve_index=False)
+            canonical = canonical_pl.to_arrow()
             _, parquet_path = write_canonical_transaction_artifacts(
                 canonical,
                 out_path,
@@ -183,15 +184,20 @@ def _fallback_main() -> None:
         _ensure_parent(out_path)
         if hasattr(ynab, "read_canonical"):
             canonical = ynab.read_canonical(args.in_path)
-            canonical_df = canonical.to_pandas()
-            canonical_df["account_name"] = (
-                canonical_df["account_name"].astype("string").fillna("").str.strip()
+            canonical_pl = pl.from_arrow(canonical)
+            if "account_name" not in canonical_pl.columns:
+                canonical_pl = canonical_pl.with_columns(pl.lit("").alias("account_name"))
+            canonical_pl = canonical_pl.with_columns(
+                pl.col("account_name").cast(pl.Utf8).fill_null("").str.strip_chars()
             )
             if args.account_name:
-                canonical_df.loc[canonical_df["account_name"] == "", "account_name"] = (
-                    args.account_name
+                canonical_pl = canonical_pl.with_columns(
+                    pl.when(pl.col("account_name") == "")
+                    .then(pl.lit(args.account_name))
+                    .otherwise(pl.col("account_name"))
+                    .alias("account_name")
                 )
-            canonical = pa.Table.from_pandas(canonical_df, preserve_index=False)
+            canonical = canonical_pl.to_arrow()
             _, parquet_path = write_canonical_transaction_artifacts(
                 canonical,
                 out_path,

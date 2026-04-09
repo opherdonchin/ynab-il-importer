@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 from datetime import datetime
+import math
 from pathlib import Path
 import re
 from typing import Any
@@ -232,7 +234,7 @@ def fingerprint_v0(value: Any, token_limit: int = DEFAULT_TOKEN_LIMIT) -> str:
 
 
 def _blank_to_none(value: Any) -> str | None:
-    if value is None or pd.isna(value):
+    if value is None or (isinstance(value, float) and math.isnan(value)):
         return None
     text = str(value).strip()
     return text if text else None
@@ -257,60 +259,62 @@ def _normalize_priority(value: Any) -> int:
     return int(text)
 
 
-def load_fingerprint_map(path: str | Path) -> pd.DataFrame:
+def load_fingerprint_map(path: str | Path) -> list[dict[str, Any]]:
     map_path = Path(path)
     if not map_path.exists():
         raise FileNotFoundError(f"Missing fingerprint map file: {map_path}")
-    raw = pd.read_csv(map_path, dtype="string").fillna("")
+
+    with open(map_path, newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        raw_rows = [row for row in reader]
+
     for col in FINGERPRINT_MAP_COLUMNS:
-        if col not in raw.columns:
-            raw[col] = ""
-    raw = raw[FINGERPRINT_MAP_COLUMNS].copy()
+        for row in raw_rows:
+            if col not in row:
+                row[col] = ""
 
-    raw["rule_id"] = raw["rule_id"].astype("string").fillna("").str.strip()
-    if (raw["rule_id"] == "").any():
+    rule_ids = [row["rule_id"].strip() for row in raw_rows]
+    if any(r == "" for r in rule_ids):
         raise ValueError("fingerprint_map.csv contains empty rule_id values")
-    duplicate_ids = raw["rule_id"][raw["rule_id"].duplicated()].unique().tolist()
-    if duplicate_ids:
-        raise ValueError(f"fingerprint_map.csv contains duplicate rule_id values: {duplicate_ids}")
-
-    raw["is_active"] = raw["is_active"].map(_normalize_is_active)
-    raw["priority"] = raw["priority"].map(_normalize_priority)
-    raw["pattern"] = raw["pattern"].astype("string").fillna("").str.strip()
-    raw["canonical_text"] = raw["canonical_text"].astype("string").fillna("").str.strip()
-    raw["notes"] = raw["notes"].astype("string").fillna("").str.strip()
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for r in rule_ids:
+        if r in seen:
+            duplicates.append(r)
+        seen.add(r)
+    if duplicates:
+        raise ValueError(f"fingerprint_map.csv contains duplicate rule_id values: {list(dict.fromkeys(duplicates))}")
 
     expanded: list[dict[str, Any]] = []
-    for _, row in raw.iterrows():
-        if not row["is_active"]:
+    for row in raw_rows:
+        rule_id = row["rule_id"].strip()
+        is_active = _normalize_is_active(row.get("is_active", ""))
+        if not is_active:
             continue
-        if row["pattern"] == "":
+        pattern_raw = row.get("pattern", "").strip()
+        if not pattern_raw:
             continue
-        if row["canonical_text"] == "":
-            raise ValueError(f"fingerprint_map.csv has empty canonical_text for rule_id={row['rule_id']}")
-        patterns = [p.strip() for p in str(row["pattern"]).split("|") if p.strip()]
+        canonical_raw = row.get("canonical_text", "").strip()
+        if not canonical_raw:
+            raise ValueError(f"fingerprint_map.csv has empty canonical_text for rule_id={rule_id}")
+        priority = _normalize_priority(row.get("priority", ""))
+        notes = row.get("notes", "").strip()
+        patterns = [p.strip() for p in pattern_raw.split("|") if p.strip()]
         for pattern in patterns:
             expanded.append(
                 {
-                    "rule_id": row["rule_id"],
-                    "priority": int(row["priority"]),
+                    "rule_id": rule_id,
+                    "priority": priority,
                     "pattern": normalize.normalize_text(pattern),
-                    "canonical_text": normalize.normalize_text(row["canonical_text"]),
-                    "notes": row["notes"],
+                    "canonical_text": normalize.normalize_text(canonical_raw),
+                    "notes": notes,
                 }
             )
 
-    if not expanded:
-        return pd.DataFrame(columns=["rule_id", "priority", "pattern", "canonical_text", "notes"])
-
-    rules = pd.DataFrame(expanded)
-    rules["pattern_length"] = rules["pattern"].astype("string").fillna("").str.len()
-    rules = rules.sort_values(
-        ["priority", "pattern_length", "rule_id"],
-        ascending=[False, False, True],
-        kind="mergesort",
-    ).reset_index(drop=True)
-    return rules
+    return sorted(
+        expanded,
+        key=lambda r: (-r["priority"], -len(r["pattern"]), r["rule_id"]),
+    )
 
 
 def _pick_text_source(df: pd.DataFrame, candidates: list[str]) -> tuple[pd.Series, pd.Series]:
@@ -328,7 +332,7 @@ def _pick_text_source(df: pd.DataFrame, candidates: list[str]) -> tuple[pd.Serie
 
 def apply_fingerprints(
     df: pd.DataFrame,
-    map_rules: pd.DataFrame | None = None,
+    map_rules: list[dict[str, Any]] | None = None,
     log_path: str | Path = DEFAULT_FINGERPRINT_LOG_PATH,
     use_fingerprint_map: bool = True,
     fingerprint_map_path: str | Path = DEFAULT_FINGERPRINT_MAP_PATH,
@@ -342,19 +346,21 @@ def apply_fingerprints(
     )
     text_normalized = text_raw.map(normalize.normalize_text)
 
-    rules = map_rules
+    rules: list[dict[str, Any]]
     if not use_fingerprint_map:
-        rules = pd.DataFrame(columns=["rule_id", "priority", "pattern", "canonical_text", "notes"])
-    elif rules is None:
+        rules = []
+    elif map_rules is not None:
+        rules = map_rules
+    else:
         rules = load_fingerprint_map(fingerprint_map_path)
 
     matched_rule_id = pd.Series([""] * len(out), index=out.index, dtype="string")
     matched_pattern = pd.Series([""] * len(out), index=out.index, dtype="string")
     canonical_text = text_normalized.copy()
 
-    if not rules.empty:
+    if rules:
         unmatched = matched_rule_id == ""
-        for _, rule in rules.iterrows():
+        for rule in rules:
             pattern = str(rule["pattern"]).strip()
             if not pattern:
                 continue
