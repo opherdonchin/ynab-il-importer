@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections import Counter
 import json
+from collections import Counter, defaultdict
+from datetime import date, datetime
 from typing import Any
 
-import pandas as pd
 import polars as pl
 
 
@@ -35,62 +35,27 @@ FALLBACK_KEY_COLUMNS = [
 ]
 
 
-def _normalize_bool_series(series: pd.Series) -> pd.Series:
-    return (
-        series.astype("string")
-        .fillna("")
-        .str.strip()
-        .str.upper()
-        .isin(["1", "TRUE", "YES", "Y"])
-    )
+def _normalize_date_value(v: Any) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, datetime):
+        return v.strftime("%Y-%m-%d")
+    if isinstance(v, date):
+        return v.strftime("%Y-%m-%d")
+    s = str(v).strip()
+    if not s:
+        return ""
+    try:
+        return str(datetime.strptime(s[:10], "%Y-%m-%d").date())
+    except (ValueError, TypeError):
+        return ""
 
 
-def _decision_value_counts(row: pd.Series) -> int:
-    source_payee = str(row.get("source_payee_selected", "") or "").strip()
-    source_category = str(row.get("source_category_selected", "") or "").strip()
-    target_payee = str(row.get("target_payee_selected", "") or "").strip()
-    target_category = str(row.get("target_category_selected", "") or "").strip()
-    decision_action = str(row.get("decision_action", "") or "").strip()
-    update_maps = str(row.get("update_maps", "") or "").strip()
-    reviewed = bool(row.get("reviewed", False))
-    changed = bool(row.get("changed", False))
-    memo_append = str(row.get("memo_append", "") or "").strip()
-    return int(
-        bool(
-            source_payee
-            or source_category
-            or target_payee
-            or target_category
-            or decision_action
-            or update_maps
-            or reviewed
-            or changed
-            or memo_append
-        )
-    )
+def _prepare_polars(df: pl.DataFrame) -> pl.DataFrame:
+    """Normalize to canonical column types for reconciliation comparison."""
+    exprs: list[pl.Expr] = []
 
-
-def _preserved_payload(row: pd.Series) -> dict[str, Any]:
-    payload = {column: row.get(column) for column in PRESERVED_REVIEW_COLUMNS}
-    if bool(row.get("changed", False)):
-        payload.update({column: row.get(column) for column in PRESERVED_EDIT_COLUMNS})
-    return payload
-
-
-def _serialized_payload(payload: dict[str, Any]) -> tuple[Any, ...]:
-    serialized: list[Any] = []
-    for column in [*PRESERVED_REVIEW_COLUMNS, *PRESERVED_EDIT_COLUMNS]:
-        value = payload.get(column)
-        if isinstance(value, (dict, list)):
-            serialized.append(json.dumps(value, sort_keys=True, ensure_ascii=False))
-        else:
-            serialized.append(value)
-    return tuple(serialized)
-
-
-def _prepare(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    for col in [
+    str_cols = [
         "transaction_id",
         "source_payee_selected",
         "source_category_selected",
@@ -100,156 +65,287 @@ def _prepare(df: pd.DataFrame) -> pd.DataFrame:
         "update_maps",
         "fingerprint",
         "memo_append",
-    ]:
-        if col not in out.columns:
-            out[col] = ""
-        out[col] = out[col].astype("string").fillna("").str.strip()
+    ]
+    for col in str_cols:
+        if col in df.columns:
+            exprs.append(pl.col(col).cast(pl.Utf8).fill_null("").str.strip_chars())
+        else:
+            exprs.append(pl.lit("").cast(pl.Utf8).alias(col))
 
     for col in ["outflow_ils", "inflow_ils"]:
-        if col not in out.columns:
-            out[col] = 0.0
-        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0).round(2)
+        if col in df.columns:
+            exprs.append(
+                pl.col(col).cast(pl.Float64).fill_nan(0.0).fill_null(0.0).round(2)
+            )
+        else:
+            exprs.append(pl.lit(0.0).cast(pl.Float64).alias(col))
 
-    if "date" not in out.columns:
-        out["date"] = ""
-    out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
-
-    if "reviewed" not in out.columns:
-        out["reviewed"] = False
+    if "date" in df.columns:
+        exprs.append(
+            pl.col("date")
+            .map_elements(_normalize_date_value, return_dtype=pl.Utf8)
+            .fill_null("")
+            .alias("date")
+        )
     else:
-        out["reviewed"] = _normalize_bool_series(out["reviewed"])
-    if "changed" not in out.columns:
-        out["changed"] = False
-    else:
-        out["changed"] = _normalize_bool_series(out["changed"])
-    for col in [
-        "source_splits",
-        "target_splits",
-        "source_current_transaction",
-        "target_current_transaction",
-        "source_original_transaction",
-        "target_original_transaction",
-    ]:
-        if col not in out.columns:
-            out[col] = None
-    return out
+        exprs.append(pl.lit("").cast(pl.Utf8).alias("date"))
+
+    for col in ["reviewed", "changed"]:
+        if col in df.columns:
+            exprs.append(
+                pl.col(col)
+                .cast(pl.Utf8)
+                .fill_null("")
+                .str.strip_chars()
+                .str.to_uppercase()
+                .is_in(["1", "TRUE", "YES", "Y"])
+                .alias(col)
+            )
+        else:
+            exprs.append(pl.lit(False).alias(col))
+
+    # Add any missing edit columns as null (preserves existing ones as-is)
+    for col in PRESERVED_EDIT_COLUMNS:
+        if col not in df.columns:
+            exprs.append(pl.lit(None).alias(col))
+
+    return df.with_columns(exprs)
 
 
-def _used_old_mask(old: pd.DataFrame, new: pd.DataFrame) -> pd.Series:
-    old_keys = _occurrence_key_series(old)
-    new_keys = set(_occurrence_key_series(new).tolist())
-    return old_keys.isin(new_keys)
+def _add_occurrence_key(df: pl.DataFrame) -> pl.DataFrame:
+    """Add _occurrence_key = 'transaction_id|<0-indexed occurrence within group>'.
+
+    Replicates pandas groupby.cumcount() semantics: within each transaction_id
+    group (in original row order), assigns occurrence indices 0, 1, 2, ...
+    """
+    return df.with_columns(
+        (
+            pl.col("transaction_id")
+            + "|"
+            + (pl.col("transaction_id").cum_count().over("transaction_id") - 1).cast(
+                pl.Utf8
+            )
+        ).alias("_occurrence_key")
+    )
 
 
-def _occurrence_key_series(df: pd.DataFrame) -> pd.Series:
-    transaction_id = df["transaction_id"].astype("string").fillna("")
-    occurrence = transaction_id.groupby(transaction_id, dropna=False).cumcount().astype("string")
-    return transaction_id + "|" + occurrence
+def _extract_payload_dict(row: dict[str, Any]) -> dict[str, Any]:
+    payload = {col: row.get(col) for col in PRESERVED_REVIEW_COLUMNS}
+    if bool(row.get("changed", False)):
+        payload.update({col: row.get(col) for col in PRESERVED_EDIT_COLUMNS})
+    return payload
 
 
-def _should_preserve_new_row(old_row: pd.Series, new_row: pd.Series) -> bool:
-    old_reviewed = bool(old_row.get("reviewed", False))
-    new_reviewed = bool(new_row.get("reviewed", False))
-    return new_reviewed and not old_reviewed
+def _serialize_payload(payload: dict[str, Any]) -> tuple:
+    out: list[Any] = []
+    for col in [*PRESERVED_REVIEW_COLUMNS, *PRESERVED_EDIT_COLUMNS]:
+        v = payload.get(col)
+        if isinstance(v, (dict, list)):
+            out.append(json.dumps(v, sort_keys=True, ensure_ascii=False))
+        else:
+            out.append(v)
+    return tuple(out)
+
+
+def _has_any_review_value(row: dict[str, Any]) -> bool:
+    return bool(
+        row.get("source_payee_selected")
+        or row.get("source_category_selected")
+        or row.get("target_payee_selected")
+        or row.get("target_category_selected")
+        or row.get("decision_action")
+        or row.get("update_maps")
+        or row.get("reviewed")
+        or row.get("changed")
+        or row.get("memo_append")
+    )
 
 
 def reconcile_reviewed_transactions(
     old_reviewed: pl.DataFrame,
     new_proposed: pl.DataFrame,
 ) -> tuple[pl.DataFrame, dict[str, Any]]:
-    merged, stats = _reconcile_reviewed_transactions_pandas(
-        old_reviewed.to_pandas(),
-        new_proposed.to_pandas(),
+    old_prep = _prepare_polars(old_reviewed)
+    new_prep = _prepare_polars(new_proposed)
+
+    old_with_key = _add_occurrence_key(old_prep)
+    new_with_key = _add_occurrence_key(new_prep)
+
+    # --- Pass 1: direct match by occurrence key ---
+
+    # Build old join side: preserved columns + match flag
+    old_join_frame = old_with_key.select(
+        ["_occurrence_key"] + PRESERVED_REVIEW_COLUMNS + PRESERVED_EDIT_COLUMNS
+    ).with_columns(pl.lit(True).alias("_has_old_match"))
+
+    # Left-join new (left) onto old (right); old columns get "_old" suffix on collision.
+    joined = new_with_key.join(
+        old_join_frame, on="_occurrence_key", how="left", suffix="_old"
     )
-    return pl.from_pandas(merged), stats
+    joined = joined.with_columns(pl.col("_has_old_match").fill_null(False))
 
+    # should_use_old: direct match exists AND NOT (new.reviewed=True AND old.reviewed=False)
+    should_use_old_expr = pl.col("_has_old_match") & ~(
+        pl.col("reviewed") & ~pl.col("reviewed_old").fill_null(False)
+    )
+    joined = joined.with_columns(should_use_old_expr.alias("_should_use_old"))
 
-def _reconcile_reviewed_transactions_pandas(
-    old_reviewed: pd.DataFrame,
-    new_proposed: pd.DataFrame,
-) -> tuple[pd.DataFrame, dict[str, Any]]:
-    old = _prepare(old_reviewed)
-    new = _prepare(new_proposed)
-    result = new.copy()
-    old["_occurrence_key"] = _occurrence_key_series(old)
-    result["_occurrence_key"] = _occurrence_key_series(result)
+    # Coalesce preserved review columns from old when should_use_old.
+    # These are simple types (String, Boolean) and work cleanly with when/then/otherwise.
+    joined = joined.with_columns(
+        [
+            pl.when(pl.col("_should_use_old"))
+            .then(pl.col(f"{col}_old"))
+            .otherwise(pl.col(col))
+            .alias(col)
+            for col in PRESERVED_REVIEW_COLUMNS
+        ]
+    )
 
-    if "reviewed" not in result.columns:
-        result["reviewed"] = False
-    if "decision_action" not in result.columns:
-        result["decision_action"] = ""
-
-    direct_matches = 0
-    fallback_matches = 0
-    untouched = 0
-
-    old_by_id = old.set_index("_occurrence_key")
-    direct_candidates = result["_occurrence_key"].isin(old_by_id.index)
-    if direct_candidates.any():
-        matched = old_by_id.reindex(result.loc[direct_candidates, "_occurrence_key"])
-        matched.index = result.loc[direct_candidates].index
-        preserve_direct = pd.Series(
-            [
-                _should_preserve_new_row(old_row, new_row)
-                for (_, old_row), (_, new_row) in zip(
-                    matched.iterrows(),
-                    result.loc[direct_candidates].iterrows(),
-                    strict=False,
-                )
-            ],
-            index=result.loc[direct_candidates].index,
+    # Coalesce edit columns (may be struct/object types) via Python list operations to
+    # avoid Polars type-unification errors when new is Null and old is Struct.
+    should_use_old_list = joined["_should_use_old"].to_list()
+    changed_old_list = joined["changed_old"].fill_null(False).to_list()
+    for col in PRESERVED_EDIT_COLUMNS:
+        old_col_name = f"{col}_old"
+        new_values = joined[col].to_list()
+        old_values = (
+            joined[old_col_name].to_list()
+            if old_col_name in joined.columns
+            else [None] * len(joined)
         )
-        direct_mask = direct_candidates.copy()
-        direct_mask.loc[direct_candidates] = ~preserve_direct
-        matched_to_preserve = matched.loc[~preserve_direct]
-        if not matched_to_preserve.empty:
-            for idx, old_row in matched_to_preserve.iterrows():
-                preserve_columns = list(PRESERVED_REVIEW_COLUMNS)
-                if bool(old_row.get("changed", False)):
-                    preserve_columns.extend(PRESERVED_EDIT_COLUMNS)
-                for col in preserve_columns:
-                    result.at[idx, col] = old_row.get(col)
-        direct_matches = int(direct_mask.sum())
-    else:
-        direct_mask = direct_candidates
+        merged_values = [
+            old_v if (su and bool(co)) else new_v
+            for new_v, old_v, su, co in zip(
+                new_values, old_values, should_use_old_list, changed_old_list
+            )
+        ]
+        # Use pl.Object for edit columns when any non-None value exists.
+        # pl.from_pandas may produce Struct, String, or Null dtypes for complex nested
+        # columns depending on the input; pl.Object is the safe common ground.
+        dtype = (
+            pl.Object if any(v is not None for v in merged_values) else pl.Null
+        )
+        drop_these = [col, old_col_name] if old_col_name in joined.columns else [col]
+        joined = joined.drop(drop_these).with_columns(
+            pl.Series(col, merged_values, dtype=dtype)
+        )
 
-    used_old = _used_old_mask(old, result)
-    remaining_old = old.loc[~used_old].copy()
-    remaining_new_mask = ~direct_mask
-    remaining_new = result.loc[remaining_new_mask].copy()
+    direct_matches = int(joined["_should_use_old"].sum())
 
-    if not remaining_old.empty and not remaining_new.empty:
-        decision_sets: dict[tuple[Any, ...], dict[str, Any]] = {}
-        old_counts = Counter()
-        for key, group in remaining_old.groupby(FALLBACK_KEY_COLUMNS, dropna=False):
-            payloads = [_preserved_payload(row) for _, row in group.iterrows() if _decision_value_counts(row)]
-            serialized_payloads = {_serialized_payload(payload) for payload in payloads}
-            if len(serialized_payloads) == 1 and payloads:
+    # Drop all "_old"-suffixed and join-helper columns.
+    # Keep _should_use_old (needed for pass 2) and _occurrence_key (dropped at the very end).
+    drop_cols = [
+        c
+        for c in joined.columns
+        if (c.endswith("_old") and c != "_should_use_old") or c == "_has_old_match"
+    ]
+    result = joined.drop(drop_cols)
+
+    # --- Pass 2: fallback match by (date, outflow_ils, inflow_ils, fingerprint) ---
+
+    # remaining_old = old rows whose occurrence key does not appear in any new occurrence key
+    new_occ_keys: set[str] = set(new_with_key["_occurrence_key"].to_list())
+    remaining_old_rows = [
+        row
+        for row in old_with_key.iter_rows(named=True)
+        if row["_occurrence_key"] not in new_occ_keys
+    ]
+
+    fallback_matches = 0
+
+    if remaining_old_rows:
+        # Group remaining_old rows by fallback key; collect unanimous payload decisions
+        old_groups: dict[tuple, list[dict]] = defaultdict(list)
+        for row in remaining_old_rows:
+            key = (
+                str(row["date"]),
+                round(float(row["outflow_ils"]), 2),
+                round(float(row["inflow_ils"]), 2),
+                str(row["fingerprint"]),
+            )
+            old_groups[key].append(row)
+
+        old_group_counts: Counter[tuple] = Counter(
+            {k: len(v) for k, v in old_groups.items()}
+        )
+        decision_sets: dict[tuple, dict] = {}
+        for key, rows in old_groups.items():
+            payloads = [
+                _extract_payload_dict(r)
+                for r in rows
+                if _has_any_review_value(r)
+            ]
+            if not payloads:
+                continue
+            if len({_serialize_payload(p) for p in payloads}) == 1:
                 decision_sets[key] = payloads[0]
-                old_counts[key] = len(group)
 
-        new_group_counts = Counter()
-        for key, group in remaining_new.groupby(FALLBACK_KEY_COLUMNS, dropna=False):
-            new_group_counts[key] = len(group)
+        if decision_sets:
+            # Count remaining_new rows per fallback key (rows not covered by direct match)
+            new_group_counts: Counter[tuple] = Counter()
+            for row in result.iter_rows(named=True):
+                if row["_should_use_old"]:
+                    continue
+                key = (
+                    str(row["date"]),
+                    round(float(row["outflow_ils"]), 2),
+                    round(float(row["inflow_ils"]), 2),
+                    str(row["fingerprint"]),
+                )
+                new_group_counts[key] += 1
 
-        for idx, row in remaining_new.iterrows():
-            key = tuple(row[col] for col in FALLBACK_KEY_COLUMNS)
-            if key not in decision_sets:
-                continue
-            if new_group_counts[key] != 1:
-                continue
-            if old_counts[key] < 1:
-                continue
-            if _should_preserve_new_row(
-                pd.Series({"reviewed": bool(decision_sets[key].get("reviewed", False))}),
-                row,
-            ):
-                continue
-            for column, value in decision_sets[key].items():
-                result.at[idx, column] = value
-            fallback_matches += 1
+            # Identify fallback hits: {result_row_index: decision_payload}
+            fallback_updates: dict[int, dict] = {}
+            for i, row in enumerate(result.iter_rows(named=True)):
+                if row["_should_use_old"]:
+                    continue
+                key = (
+                    str(row["date"]),
+                    round(float(row["outflow_ils"]), 2),
+                    round(float(row["inflow_ils"]), 2),
+                    str(row["fingerprint"]),
+                )
+                if key not in decision_sets:
+                    continue
+                if new_group_counts[key] != 1:
+                    continue
+                if old_group_counts[key] < 1:
+                    continue
+                decision = decision_sets[key]
+                # Don't override a new "auto-reviewed" row with an old un-reviewed decision
+                if bool(row.get("reviewed", False)) and not bool(
+                    decision.get("reviewed", False)
+                ):
+                    continue
+                fallback_updates[i] = decision
+                fallback_matches += 1
 
-    result = result.drop(columns=["_occurrence_key"], errors="ignore")
+            if fallback_updates:
+                # Apply updates column by column, preserving each column's existing dtype
+                # (critical for pl.Object columns holding Python dicts/lists).
+                for col in list(PRESERVED_REVIEW_COLUMNS) + list(PRESERVED_EDIT_COLUMNS):
+                    is_edit_col = col in PRESERVED_EDIT_COLUMNS
+                    values = result[col].to_list()
+                    changed = False
+                    for row_idx, payload in fallback_updates.items():
+                        if is_edit_col and not bool(payload.get("changed", False)):
+                            continue
+                        values[row_idx] = payload.get(col, values[row_idx])
+                        changed = True
+                    if not changed:
+                        continue
+                    dtype = (
+                        pl.Object if any(v is not None for v in values) else pl.Null
+                    )
+                    result = result.drop(col).with_columns(
+                        pl.Series(col, values, dtype=dtype)
+                    )
+
+    # Drop all internal helper columns
+    drop_final = [c for c in result.columns if c.startswith("_")]
+    result = result.drop(drop_final)
+
     untouched = len(result) - direct_matches - fallback_matches
     return result, {
         "direct_matches": direct_matches,
