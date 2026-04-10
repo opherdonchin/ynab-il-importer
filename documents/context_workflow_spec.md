@@ -129,6 +129,26 @@ Resolves:
 - the standard reviewed artifact path
 - the profile name passed to the review app wrapper
 
+Behavior:
+
+- the proposal review artifact is always passed as the base input
+- if the standard reviewed artifact already exists, the launcher automatically passes it as `--resume`
+- if no reviewed artifact exists yet, the app starts from the proposal artifact only
+
+Supported options on the launcher:
+
+```bash
+pixi run review-context -- <context> <run_tag> --resume
+pixi run review-context -- <context> <run_tag> --resume path\to\reviewed.parquet
+pixi run review-context -- <context> <run_tag> --foreground
+pixi run review-context -- <context> <run_tag> --port 8502
+```
+
+- `--resume` with no path means “resume from the standard reviewed artifact path”
+- `--resume <path>` overrides the default and resumes from that explicit reviewed artifact
+- `--foreground` keeps the wrapper process attached instead of returning immediately
+- `--port <n>` forwards a preferred Streamlit port
+
 One current caveat remains: the review app still resolves its default category-cache path through [src/ynab_il_importer/workflow_profiles.py](../src/ynab_il_importer/workflow_profiles.py), not through `contexts/defaults.toml`.
 
 ## Responsibilities

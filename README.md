@@ -77,7 +77,23 @@ This writes the canonical `review_v4` artifact to `data/paired/<run_tag>/`.
 pixi run review-context -- <context> <run_tag>
 ```
 
-The app loads the built proposal and resumes from the standard reviewed artifact if one already exists. It also expects a YNAB category cache; if that cache is missing or stale, use the app's `Refresh categories from YNAB` button after launch.
+The launcher always opens the built proposal review artifact for that context/run-tag pair. If the standard reviewed artifact already exists in `data/paired/<run_tag>/`, it automatically passes that file as `--resume` and reopens the saved review state instead of starting from a blank session.
+
+Useful options:
+
+```bash
+pixi run review-context -- <context> <run_tag> --resume
+pixi run review-context -- <context> <run_tag> --resume path\\to\\other_reviewed.parquet
+pixi run review-context -- <context> <run_tag> --foreground
+pixi run review-context -- <context> <run_tag> --port 8502
+```
+
+- `--resume` with no path resumes from the standard reviewed artifact path
+- `--resume <path>` resumes from an explicit reviewed artifact
+- `--foreground` keeps the wrapper attached instead of returning immediately
+- `--port <n>` asks Streamlit to use a specific port
+
+The app also expects a YNAB category cache; if that cache is missing or stale, use the app's `Refresh categories from YNAB` button after launch.
 
 ### 7. Prepare upload artifacts
 
