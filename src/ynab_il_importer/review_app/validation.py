@@ -215,8 +215,7 @@ def _component_members(component_map: dict[Any, int]) -> dict[int, list[Any]]:
     return members
 
 
-def _row_items(df: pl.DataFrame, indices: list[Any]) -> list[tuple[Any, Any]]:
-    rows = df.to_dicts()
+def _row_items(rows: list[dict[str, Any]], indices: list[Any]) -> list[tuple[Any, Any]]:
     items: list[tuple[Any, Any]] = []
     for idx in indices:
         if not isinstance(idx, int) or idx < 0 or idx >= len(rows):
@@ -256,11 +255,13 @@ def compute_component_errors(
     component_map: dict[Any, int],
     *,
     row_errors_by_index: dict[Any, list[str]] | None = None,
+    rows: list[dict[str, Any]] | None = None,
 ) -> dict[int, list[str]]:
     component_errors: dict[int, list[str]] = {}
     if not component_map:
         return component_errors
 
+    row_cache = rows if rows is not None else df.to_dicts()
     component_members = _component_members(component_map)
     for label, indices in component_members.items():
         start_idx = indices[0]
@@ -269,6 +270,7 @@ def compute_component_errors(
             start_idx,
             component_indices=indices,
             row_errors_by_index=row_errors_by_index,
+            rows=row_cache,
         )
 
     return component_errors
@@ -289,9 +291,10 @@ def blocker_series_from_state(
     component_map: dict[Any, int],
     row_errors_by_index: dict[Any, list[str]],
     component_errors: dict[int, list[str]],
+    rows: list[dict[str, Any]] | None = None,
 ) -> pl.Series:
     uncategorized = review_state.uncategorized_mask(df)
-    rows = df.to_dicts()
+    row_cache = rows if rows is not None else df.to_dicts()
     values = [
         blocker_label(
             row,
@@ -299,7 +302,7 @@ def blocker_series_from_state(
             uncategorized=bool(uncategorized[idx]),
             row_errors=row_errors_by_index.get(idx, []),
         )
-        for idx, row in enumerate(rows)
+        for idx, row in enumerate(row_cache)
     ]
     return pl.Series(values, dtype=pl.Utf8)
 
@@ -311,17 +314,23 @@ def build_validation_state(
 ) -> dict[str, Any]:
     if component_map is None:
         component_map = compute_components(df)
-    row_errors_by_index = compute_row_errors(df)
+    rows = df.to_dicts()
+    row_errors_by_index = {
+        idx: validate_row(row)[0]
+        for idx, row in enumerate(rows)
+    }
     component_errors = compute_component_errors(
         df,
         component_map,
         row_errors_by_index=row_errors_by_index,
+        rows=rows,
     )
     blocker_series = blocker_series_from_state(
         df,
         component_map=component_map,
         row_errors_by_index=row_errors_by_index,
         component_errors=component_errors,
+        rows=rows,
     )
     return {
         "index": list(range(len(df))),
@@ -499,6 +508,7 @@ def review_component_errors(
     component_mask: pl.Series | None = None,
     component_indices: list[Any] | None = None,
     row_errors_by_index: dict[Any, list[str]] | None = None,
+    rows: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     if component_indices is None:
         if component_mask is not None:
@@ -512,7 +522,8 @@ def review_component_errors(
                 return []
             component_indices = _component_members(component_map).get(component_label, [])
 
-    component_rows = _row_items(df, component_indices)
+    row_cache = rows if rows is not None else df.to_dicts()
+    component_rows = _row_items(row_cache, component_indices)
     if not component_rows:
         return []
 

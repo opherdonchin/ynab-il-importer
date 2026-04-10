@@ -247,6 +247,20 @@ def test_grouped_row_indices_accepts_polars_frame() -> None:
     assert group_indices == {"fp-a": [0, 2], "fp-b": [1]}
 
 
+def test_grouped_row_indices_preserves_original_row_positions() -> None:
+    df = pl.DataFrame(
+        {
+            "_row_pos": [10, 14, 19, 22],
+            "fingerprint": ["fp-a", "fp-b", "fp-a", ""],
+        }
+    )
+
+    fingerprints, group_indices = review_state.grouped_row_indices(df)
+
+    assert fingerprints == ["fp-a", "fp-b"]
+    assert group_indices == {"fp-a": [10, 19], "fp-b": [14]}
+
+
 def test_load_save_roundtrip_uses_side_specific_selected_fields(tmp_path) -> None:
     src = tmp_path / "review.parquet"
     review_io.save_review_artifact(

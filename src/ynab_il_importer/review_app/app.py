@@ -2621,7 +2621,15 @@ def main() -> None:
         map_update_filter=selected_map_updates,
         search_query=str(search_query or "").strip().casefold(),
     )
-    filtered = pl.from_dicts([df.row(idx, named=True) for idx in filtered_indices], infer_schema_length=None)
+    filtered = pl.DataFrame(
+        {
+            "_row_pos": filtered_indices,
+            "fingerprint": [
+                str(df.row(idx, named=True).get("fingerprint", "") or "")
+                for idx in filtered_indices
+            ],
+        }
+    )
 
     working_defaults_view = df.select(["fingerprint", "payee_selected", "category_selected"])
     payee_defaults = review_state.most_common_by_fingerprint(working_defaults_view, "payee_selected")

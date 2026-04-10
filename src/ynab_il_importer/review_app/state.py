@@ -744,7 +744,10 @@ def most_common_by_fingerprint(df: pl.DataFrame, column: str) -> dict[str, str]:
 
 
 def grouped_row_indices(filtered: pl.DataFrame) -> tuple[list[str], dict[str, list[Any]]]:
-    indices = list(range(filtered.height))
+    if "_row_pos" in filtered.columns:
+        indices = filtered.get_column("_row_pos").to_list()
+    else:
+        indices = list(range(filtered.height))
     fingerprints = _clean_text_list(filtered.get_column("fingerprint")) if "fingerprint" in filtered.columns else [""] * filtered.height
     group_indices: dict[str, list[Any]] = {}
     counts: Counter[str] = Counter()
