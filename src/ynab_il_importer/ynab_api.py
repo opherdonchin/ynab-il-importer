@@ -272,6 +272,32 @@ def _canonical_split_rows(
     return rows
 
 
+def _nonempty_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _first_nonempty(*values: Any) -> str:
+    for value in values:
+        text = _nonempty_text(value)
+        if text:
+            return text
+    return ""
+
+
+def _split_identity_text(splits: list[dict[str, Any]]) -> str:
+    parts: list[str] = []
+    seen: set[str] = set()
+    for split in splits:
+        if not isinstance(split, dict):
+            continue
+        for value in (split.get("payee_raw"), split.get("memo")):
+            text = _nonempty_text(value)
+            if text and text not in seen:
+                seen.add(text)
+                parts.append(text)
+    return " ".join(parts)
+
+
 def _canonical_transaction_row(
     txn: dict[str, Any],
     *,
@@ -283,6 +309,20 @@ def _canonical_transaction_row(
     account_id = txn.get("account_id", "") or ""
     payee_name = txn.get("payee_name", "") or ""
     memo = txn.get("memo", "") or ""
+    splits = _canonical_split_rows(
+        txn,
+        parent_ynab_id=txn_id,
+        payee_name=payee_name,
+        memo=memo,
+    )
+    identity_text = _first_nonempty(payee_name, memo, _split_identity_text(splits))
+    description_raw = _first_nonempty(memo, payee_name, identity_text)
+    description_clean = _first_nonempty(payee_name, identity_text)
+    merchant_raw = _first_nonempty(
+        payee_name,
+        *(split.get("payee_raw", "") for split in splits),
+        identity_text,
+    )
     return {
         "artifact_kind": "ynab_transaction",
         "artifact_version": TRANSACTION_ARTIFACT_VERSION,
@@ -304,22 +344,17 @@ def _canonical_transaction_row(
         "category_raw": txn.get("category_name", "") or "",
         "memo": memo,
         "txn_kind": "",
-        "fingerprint": normalize.normalize_text(payee_name),
-        "description_raw": memo or payee_name,
-        "description_clean": payee_name,
-        "description_clean_norm": normalize.normalize_text(payee_name),
-        "merchant_raw": payee_name,
+        "fingerprint": normalize.normalize_text(identity_text),
+        "description_raw": description_raw,
+        "description_clean": description_clean,
+        "description_clean_norm": normalize.normalize_text(description_clean),
+        "merchant_raw": merchant_raw,
         "ref": "",
         "matched_transaction_id": txn.get("matched_transaction_id", "") or "",
         "cleared": txn.get("cleared", "") or "",
         "approved": bool(txn.get("approved", False)),
         "is_subtransaction": False,
-        "splits": _canonical_split_rows(
-            txn,
-            parent_ynab_id=txn_id,
-            payee_name=payee_name,
-            memo=memo,
-        ),
+        "splits": splits,
     }
 
 
@@ -361,7 +396,13 @@ def project_transactions_to_flat_dataframe(data: Any) -> pd.DataFrame:
                 "payee_raw": txn.get("payee_raw", "") or "",
                 "category_raw": txn.get("category_raw", "") or "",
                 "fingerprint": txn.get("fingerprint", "")
-                or normalize.normalize_text(txn.get("payee_raw", "") or ""),
+                or normalize.normalize_text(
+                    txn.get("description_clean_norm", "")
+                    or txn.get("description_clean", "")
+                    or txn.get("description_raw", "")
+                    or txn.get("payee_raw", "")
+                    or ""
+                ),
                 "outflow_ils": txn.get("outflow_ils", 0.0) or 0.0,
                 "inflow_ils": txn.get("inflow_ils", 0.0) or 0.0,
                 "txn_kind": txn.get("txn_kind", "") or "",

@@ -340,3 +340,78 @@ def test_transactions_to_canonical_table_preserves_nested_split_lines() -> None:
     assert split_lines[0]["category_id"] == "cat-pilates"
     assert split_lines[0]["category_raw"] == "Pilates"
     assert split_lines[1]["memo"] == "child memo"
+
+
+def test_transactions_to_canonical_table_uses_memo_when_payee_blank() -> None:
+    transactions = [
+        {
+            "id": "txn-1",
+            "account_id": "acc-1",
+            "date": "2026-03-01",
+            "payee_name": "",
+            "category_name": "Inflow: Ready to Assign",
+            "category_id": "cat-rta",
+            "amount": 2150000,
+            "memo": "Bit from client",
+            "import_id": "",
+            "matched_transaction_id": "",
+            "cleared": "cleared",
+            "approved": True,
+        }
+    ]
+    accounts = [{"id": "acc-1", "name": "Family Leumi"}]
+
+    table = ynab_api.transactions_to_canonical_table(transactions, accounts)
+
+    assert table["fingerprint"].to_pylist() == ["bit from client"]
+    assert table["description_clean"].to_pylist() == ["Bit from client"]
+    assert table["description_raw"].to_pylist() == ["Bit from client"]
+
+
+def test_transactions_to_canonical_table_uses_split_identity_when_parent_blank() -> None:
+    transactions = [
+        {
+            "id": "parent-1",
+            "account_id": "acc-1",
+            "date": "2026-03-01",
+            "payee_name": "",
+            "category_name": "Split",
+            "category_id": "",
+            "amount": 0,
+            "memo": "",
+            "import_id": "",
+            "matched_transaction_id": "",
+            "cleared": "cleared",
+            "approved": True,
+            "subtransactions": [
+                {
+                    "id": "sub-1",
+                    "amount": -120000,
+                    "memo": "snacks",
+                    "payee_name": "Mega Store",
+                    "category_id": "cat-food",
+                    "category_name": "Food",
+                    "deleted": False,
+                },
+                {
+                    "id": "sub-2",
+                    "amount": 120000,
+                    "memo": "refund",
+                    "payee_name": "Transfer : Family",
+                    "category_id": "",
+                    "category_name": "Uncategorized",
+                    "deleted": False,
+                },
+            ],
+        }
+    ]
+    accounts = [{"id": "acc-1", "name": "Family Leumi"}]
+
+    table = ynab_api.transactions_to_canonical_table(transactions, accounts)
+
+    assert table["fingerprint"].to_pylist() == [
+        "mega store snacks transfer family refund"
+    ]
+    assert table["description_clean"].to_pylist() == [
+        "Mega Store snacks Transfer : Family refund"
+    ]
