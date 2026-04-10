@@ -69,10 +69,6 @@ def _split_amount(line: dict) -> float:
     return inflow - outflow
 
 
-def _split_category_key(line: dict) -> str:
-    return str(line.get("category_id") or line.get("category_raw") or "").strip()
-
-
 def validate_review_record(record: dict) -> list[str]:
     errors: list[str] = []
     changed = bool(record.get("changed", False))
@@ -87,13 +83,6 @@ def validate_review_record(record: dict) -> list[str]:
         signed_amount = _transaction_amount(current_txn)
         splits = current_txn.get("splits") or []
         if splits:
-            category_keys = {
-                _split_category_key(line)
-                for line in splits
-                if isinstance(line, dict) and _split_category_key(line)
-            }
-            if len(splits) > 1 and len(category_keys) <= 1:
-                errors.append(f"{side}_current split must span more than one category")
             split_total = sum(_split_amount(line) for line in splits if isinstance(line, dict))
             if abs(split_total - signed_amount) > 1e-9:
                 errors.append(f"{side}_current split amounts do not sum to transaction amount")
@@ -101,13 +90,6 @@ def validate_review_record(record: dict) -> list[str]:
         if isinstance(original_txn, dict):
             original_splits = original_txn.get("splits") or []
             if original_splits:
-                category_keys = {
-                    _split_category_key(line)
-                    for line in original_splits
-                    if isinstance(line, dict) and _split_category_key(line)
-                }
-                if len(original_splits) > 1 and len(category_keys) <= 1:
-                    errors.append(f"{side}_original split must span more than one category")
                 split_total = sum(
                     _split_amount(line) for line in original_splits if isinstance(line, dict)
                 )

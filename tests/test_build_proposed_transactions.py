@@ -135,6 +135,27 @@ def test_dedupe_source_overlaps_drops_matching_card_rows() -> None:
     assert deduped["memo"].to_list() == ["bank row", "other card row"]
 
 
+def test_pairs_artifact_frame_drops_object_transaction_columns() -> None:
+    pairs = pl.DataFrame(
+        {
+            "fingerprint": ["coffee shop"],
+            "ynab_payee_raw": ["Coffee Shop"],
+            "source_transaction": [{"transaction_id": "src-1"}],
+            "target_transaction": [{"transaction_id": "tgt-1"}],
+        },
+        schema={
+            "fingerprint": pl.String,
+            "ynab_payee_raw": pl.String,
+            "source_transaction": pl.Object,
+            "target_transaction": pl.Object,
+        },
+    )
+
+    artifact = build_proposed_transactions._pairs_artifact_frame(pairs)
+
+    assert artifact.columns == ["fingerprint", "ynab_payee_raw"]
+
+
 def test_dedupe_source_overlaps_preserves_extra_bank_rows() -> None:
     source_df = pl.DataFrame(
         [

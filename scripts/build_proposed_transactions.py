@@ -99,6 +99,15 @@ REVIEW_ROW_COLUMNS = [
 ]
 
 
+def _pairs_artifact_frame(pairs: pl.DataFrame) -> pl.DataFrame:
+    object_columns = [
+        name for name, dtype in pairs.schema.items() if dtype == pl.Object
+    ]
+    if not object_columns:
+        return pairs
+    return pairs.drop(object_columns)
+
+
 def _load_source_inputs(paths: list[Path]) -> pl.DataFrame:
     frames: list[pl.DataFrame] = []
     skipped: list[str] = []
@@ -1709,8 +1718,9 @@ def run_build(
     if pairs_out:
         pairs_out_path = Path(pairs_out)
         pairs_out_path.parent.mkdir(parents=True, exist_ok=True)
-        pairs.write_parquet(pairs_out_path)
-        print(export.wrote_message(pairs_out, len(pairs)))
+        pairs_artifact = _pairs_artifact_frame(pairs)
+        pairs_artifact.write_parquet(pairs_out_path)
+        print(export.wrote_message(pairs_out, len(pairs_artifact)))
 
     review_io.save_review_artifact(out, out_path)
     print(export.wrote_message(out_path, len(out)))

@@ -532,7 +532,7 @@ def test_load_review_artifact_rejects_split_sum_mismatch() -> None:
         review_io.coerce_review_artifact_table(df)
 
 
-def test_load_review_artifact_rejects_split_single_category() -> None:
+def test_load_review_artifact_accepts_split_single_category() -> None:
     split_txn = {
         "artifact_kind": "transaction",
         "artifact_version": "transaction_v1",
@@ -593,5 +593,10 @@ def test_load_review_artifact_rejects_split_single_category() -> None:
         ]
     )
 
-    with pytest.raises(ValueError, match="split must span more than one category"):
-        review_io.coerce_review_artifact_table(df)
+    table = review_io.coerce_review_artifact_table(df)
+
+    record = table.to_pylist()[0]
+    assert len(record["source_current"]["splits"]) == 2
+    assert {
+        line["category_raw"] for line in record["source_current"]["splits"]
+    } == {"Food"}
