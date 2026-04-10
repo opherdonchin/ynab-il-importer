@@ -1,324 +1,215 @@
 # ynab-il-importer
 
-Minimal ETL scaffold for importing Israeli bank/card exports into YNAB by learning payee/category hints from historical YNAB register data.
+Deterministic, human-reviewable workflow for importing Israeli bank and card activity into YNAB.
 
-Directory convention:
-- `documents/project_context.md`: durable project orientation for agents and collaborators.
-- `documents/plan.md`: current execution plan.
-- `documents/drafts/`: active in-progress design notes.
-- `documents/handoffs/`: packaged review packets and handoff notes.
-- `mappings/`: versioned source-of-truth mapping tables.
-- `data/`: local operational inputs, normalized snapshots, paired artifacts, and packets (ignored by git).
-- `outputs/`: generated review/build outputs and session state (ignored by git apart from placeholders).
-- `tmp/` and `tests_runtime/`: scratch/runtime space (ignored by git).
+The active workflow is no longer the old CSV/profile pipeline described in earlier docs. The current day-to-day path is:
 
-`documents/review_app_workflow.md` documents the review app workflow.
-`documents/architecture_overview.md` documents the codebase architecture and stage-to-module map.
+- context-driven
+- run-tag driven
+- canonical Parquet at artifact boundaries
+- Polars-first in active working data
 
-See `REPOSITORY_LAYOUT.md` for the detailed retention policy and layout rules.
-
-## Workflow Overview
+## Read This First
 
 If you are new to the repository, read these in order:
 
 1. `README.md`
 2. `documents/project_context.md`
-3. `documents/architecture_overview.md`
-4. `documents/decisions/unified_review_model_design.md`
-5. `documents/review_app_workflow.md` if you are working in the review flow
+3. `documents/plan.md`
+4. `documents/context_workflow_spec.md`
+5. `documents/upload_reconcile_cutover_spec.md`
+6. `documents/decisions/unified_review_model_design.md`
+7. `documents/architecture_overview.md`
 
-There are two distinct workflows:
+## Where The Current Workflow Lives
 
-- **Bootstrap (one-time):** build initial fingerprint groups and payee map using a large YNAB register export.
-- **Process new sources (ongoing):** normalize new bank/card files and dedupe against YNAB via the API.
+The current workflow is spread across a small set of docs with different jobs:
 
-The bootstrap workflow should only be run when seeding or rebuilding the mapping tables. Day-to-day processing should use the API workflow.
+- `documents/plan.md`: current status, the active next steps, and the latest validated commands
+- `documents/context_workflow_spec.md`: the target context/run-tag workflow model
+- `documents/upload_reconcile_cutover_spec.md`: the current post-review upload/sync/reconcile flow
+- `contexts/defaults.toml`: shared artifact naming and run-directory conventions
+- `contexts/<context>/context.toml`: source files, map files, and YNAB artifact names for each context
 
-## Quickstart — Bootstrap (one-time)
+If the README and `documents/plan.md` ever disagree, treat `documents/plan.md` as the source of truth for the current runbook.
 
-1. Install environment:
+## Repository Layout
+
+- `documents/project_context.md`: durable project orientation
+- `documents/plan.md`: active execution plan
+- `documents/decisions/`: durable architecture and model decisions
+- `documents/archive/`: archived plans and older workflow notes
+- `contexts/`: active workflow configuration by context
+- `mappings/`: versioned mapping tables referenced by context configs
+- `data/raw/`: raw source inputs by run tag
+- `data/derived/`: normalized canonical Parquet artifacts
+- `data/paired/`: built review artifacts, reviewed artifacts, and closeout outputs
+- `outputs/`: generated utility outputs and placeholders
+- `tmp/` and `tests_runtime/`: disposable scratch space
+
+See `REPOSITORY_LAYOUT.md` for retention and layout rules.
+
+## Current Workflow
+
+The current human-facing workflow is one context plus one run tag, for example `family 2026_04_01` or `pilates 2026_04_01`.
+
+### 1. Install the environment
 
 ```bash
 pixi install
 ```
 
-2. Put your source files in `data/raw/`:
+### 2. Put raw files under the run tag directory
 
-- `data/raw/bank.xls`
-- `data/raw/card.xlsx`
-- `data/raw/ynab_register.csv`
+Place source files in:
 
-3. Normalize source inputs (default output naming):
-
-```bash
-pixi run python scripts/normalize_file.py \
-  --leumi data/raw/Bankin.dat
-
-pixi run python scripts/normalize_file.py \
-  --leumi-xls data/raw/bank.xls
-
-pixi run python scripts/normalize_file.py \
-  --max data/raw/card.xlsx
-
-pixi run python scripts/normalize_file.py \
-  --ynab data/raw/ynab_register.csv
+```text
+data/raw/<run_tag>/
 ```
 
-Default output name:
-- `data/derived/{raw_file_stem}_{format}_norm.csv`
+The required filenames and source kinds come from:
 
-Directory mode (autodetects format; skips unknown files with a warning):
+- `contexts/defaults.toml`
+- `contexts/<context>/context.toml`
+
+### 3. Normalize the declared source files
 
 ```bash
-pixi run python scripts/normalize_file.py \
-  --dir data/raw \
-  --out-dir data/derived
+pixi run normalize-context -- <context> <run_tag>
 ```
 
-4. Build matched pairs (bootstrap only):
+This writes canonical normalized Parquet artifacts to:
 
-```bash
-pixi run python scripts/bootstrap_pairs.py \
-  --source data/derived/bank_normalized.csv \
-  --source data/derived/bank_normalized_other.csv \
-  --source data/derived/card_normalized.csv \
-  --source data/derived/card_normalized_other.csv \
-  --ynab data/derived/ynab_normalized.csv \
-  --out outputs/matched_pairs.csv
+```text
+data/derived/<run_tag>/
 ```
 
-5. Build fingerprint groups for human labeling (bootstrap only):
+### 4. Download the YNAB snapshot for that context
 
 ```bash
-pixi run python scripts/build_groups.py \
-  --pairs outputs/matched_pairs.csv \
-  --out outputs/fingerprint_groups.csv
+pixi run download-context-ynab -- <context> <run_tag>
 ```
 
-Expected outputs:
+Budget resolution comes from one of:
 
-- `outputs/matched_pairs.csv`
-- `outputs/fingerprint_groups.csv`
+- `--budget-id`
+- the context's `budget_id_env`
+- `config/ynab.local.toml`
 
-## Process New Sources (ongoing workflow)
+You also need `YNAB_ACCESS_TOKEN` available in the environment or `.env`.
 
-1. Normalize new bank/card source files (same as above).
-
-2. Download YNAB transactions via API for the relevant date range:
+### 5. Build the proposal review artifact
 
 ```bash
-pixi run python scripts/download_ynab_api.py \
-  --since 2025-01-01 \
-  --until 2025-02-01 \
-  --out data/derived/ynab_api_norm.csv
+pixi run build-context-review -- <context> <run_tag>
 ```
 
-Required configuration (any one of the following):
+This builds the canonical review artifact in:
 
-- `YNAB_ACCESS_TOKEN` in environment or `.env`
-- `YNAB_BUDGET_ID` in environment, or `config/ynab.local.toml` with `budget_id`
-
-3. Download YNAB categories for the review UI:
-
-```bash
-pixi run python scripts/download_ynab_categories.py \
-  --out outputs/ynab_categories.csv
+```text
+data/paired/<run_tag>/
 ```
 
-4. Build proposed transactions using the API snapshot:
+### 6. Review in the app
 
 ```bash
-pixi run python scripts/build_proposed_transactions.py \
-  --source data/derived/<date>/bank_leumi_norm.csv \
-  --source data/derived/<date>/card_max_norm.csv \
-  --ynab data/derived/<date>/ynab_api_norm.csv \
-  --map mappings/payee_map.csv \
-  --out data/paired/<date>/proposed_transactions.csv \
-  --pairs-out data/paired/<date>/matched_pairs.csv
+pixi run review-context -- <context> <run_tag>
 ```
 
-Notes:
-- Weak date+amount dedupe is lineage-aware: if a source `bank_txn_id`/`card_txn_id` conflicts with matched YNAB lineage (or fingerprint), the source row is retained for review instead of dropped.
+This launches the Streamlit review app against the built proposal artifact and resumes from the standard reviewed artifact if one already exists.
 
-5. Review in the Streamlit UI (see `documents/review_app_workflow.md`):
-
-```bash
-pixi run python scripts/review_app.py \
-  --in data/paired/<date>/proposed_transactions.csv \
-  --categories outputs/ynab_categories.csv
-```
-
-If you need to reuse an older reviewed CSV from before the unified review-row cutover, translate it first:
+### 7. Prepare upload artifacts from the reviewed Parquet
 
 ```bash
-pixi run python scripts/translate_review_csv.py \
-  --in data/paired/<old-date>/proposed_transactions_reviewed.csv \
-  --out data/paired/<old-date>/proposed_transactions_reviewed_unified_v1.csv
-```
-
-The review loader expects unified review CSVs and will reject legacy institutional review files with a pointer to this translator.
-
-6. Stamp lineage on existing YNAB transactions (dry-run first, then add `--execute`):
-
-```bash
-pixi run python scripts/sync_bank_matches.py \
-  --bank data/derived/<date>/Bankin_leumi_norm.csv \
-  --report-out data/paired/<date>/bank_sync_report.csv
-
-pixi run python scripts/sync_card_matches.py \
-  --account "<Card Account Name>" \
-  --source data/raw/<date>/card.xlsx \
-  --report-out data/paired/<date>/<account>_card_sync_report.csv
-```
-
-7. Prepare and upload reviewed transactions (dry-run first, then add `--execute`):
-
-```bash
-pixi run python scripts/prepare_ynab_upload.py \
-  --in data/paired/<date>/proposed_transactions_reviewed.csv \
-  --out data/paired/<date>/ynab_upload.csv \
+pixi run python scripts/prepare_ynab_upload.py <context> <run_tag> \
   --ready-only \
   --skip-missing-accounts
 ```
 
-Notes:
-- `--ready-only` excludes zero-amount rows (`outflow_ils == 0` and `inflow_ils == 0`) so pending placeholders are not uploaded.
+This writes:
 
-8. Reconcile bank statement rows after upload + lineage sync:
+- `data/paired/<run_tag>/<context>_upload.csv`
+- `data/paired/<run_tag>/<context>_upload.json`
+
+Add `--execute` only when the dry run looks right.
+
+### 8. Sync lineage markers onto existing YNAB transactions
+
+Bank:
 
 ```bash
-pixi run python scripts/reconcile_bank_statement.py \
-  --bank data/derived/<date>/Bankin_leumi_norm.csv \
-  --report-out data/paired/<date>/bank_reconcile_report.csv
+pixi run sync-bank-matches -- <context> <run_tag>
 ```
 
-9. Reconcile card accounts (mid-month: `--source` only; end-of-month: add `--previous`):
+Card:
 
 ```bash
-pixi run python scripts/reconcile_card_cycle.py \
+pixi run sync-card-matches -- <context> <run_tag> --account "<Card Account Name>"
+```
+
+Add `--execute` only after checking the dry-run report.
+
+### 9. Reconcile bank and card accounts
+
+Bank:
+
+```bash
+pixi run reconcile-bank-statement -- <context> <run_tag>
+```
+
+For cards that need a prior statement normalized first:
+
+```bash
+pixi run normalize-previous-max -- <context> <account_suffix> --cycle YYYY_MM
+```
+
+Then run card reconciliation:
+
+```bash
+pixi run reconcile-card-cycle -- <context> <run_tag> \
   --account "<Card Account Name>" \
-  --source data/raw/<date>/card.xlsx \
-  --report-out data/paired/<date>/<account>_card_reconcile_report.csv
+  --previous data/derived/previous_max/<account_suffix>/YYYY_MM_max_norm.parquet
 ```
 
-## Fingerprint Mapping
+## Active Entry Points
 
-Optional fingerprint canonicalization rules live in:
+The current pixi tasks for the context workflow are:
 
-- `mappings/fingerprint_map.csv`
+- `pixi run normalize-context -- <context> <run_tag>`
+- `pixi run download-context-ynab -- <context> <run_tag>`
+- `pixi run build-context-review -- <context> <run_tag>`
+- `pixi run review-context -- <context> <run_tag>`
+- `pixi run sync-bank-matches -- <context> <run_tag>`
+- `pixi run reconcile-bank-statement -- <context> <run_tag>`
+- `pixi run normalize-previous-max -- <context> <account_suffix> --cycle YYYY_MM`
+- `pixi run sync-card-matches -- <context> <run_tag> --account "<Card Account Name>"`
+- `pixi run reconcile-card-cycle -- <context> <run_tag> --account "<Card Account Name>" --previous <normalized_previous.parquet>`
 
-Columns:
+`scripts/prepare_ynab_upload.py` is also part of the active workflow, even though it does not yet have a dedicated pixi alias.
 
-- `rule_id`
-- `is_active`
-- `priority`
-- `pattern` (literal substrings, `|` allowed for OR)
-- `canonical_text`
-- `notes`
+## Mapping Configuration
 
-Fingerprinting appends a log to:
+The active workflow uses context-specific mapping files declared in `contexts/<context>/context.toml`.
 
-- `outputs/fingerprint_log.csv`
+Typical entries look like:
 
-## Account Name Mapping
+- `mappings/<context>/account_name_map.csv`
+- `mappings/<context>/fingerprint_map.csv`
+- `mappings/<context>/payee_map.csv`
 
-Account identity now comes from source files:
+Those files are the active source of truth for:
 
-- Card exports: `4 ספרות אחרונות...` -> normalized as `xNNNN`
-- Bank `.dat` exports: account number from the last field
+- source-account to YNAB-account mapping
+- fingerprint canonicalization
+- deterministic payee/category suggestions
 
-Optional mapping to YNAB account names/IDs is read from:
+## Notes On Older Docs And Scripts
 
-- `mappings/account_name_map.csv`
+Some older scripts and docs still exist in the repo for migration support, diagnostics, or historical reference. They are not the default day-to-day workflow anymore.
 
-CSV schema:
+In particular, treat these as legacy unless `documents/plan.md` explicitly says otherwise:
 
-- `source` (`card` or `bank`; optional blank for global rows)
-- `source_account` (for example `x1234` or bank account id from `.dat`)
-- `source_account_label` (optional, human label)
-- `ynab_account_name` (target YNAB account name)
-- `ynab_account_id` (target YNAB account id; optional but recommended)
-
-Behavior:
-
-- If the mapping file is missing, parsed account names remain as in source files.
-- If a parsed account is not found in the mapping file, it remains as in source files.
-- In both cases, a warning is emitted with unmatched account names.
-
-## Payee Map Rules
-
-`mappings/payee_map.csv` is the source of truth for deterministic payee/category mapping.
-
-Decision:
-- Rules return `(payee_canonical, category_target)` in one row; `category_target` may be blank.
-- Blank key fields are wildcards and do not constrain matching.
-- Rule precedence is `priority DESC`, then specificity DESC, then `rule_id ASC`.
-- If the top rules tie on `(priority, specificity)`, the result is `ambiguous`.
-
-Important behavior:
-- `description_clean_norm` is human-readable.
-- `fingerprint` is the stable key used for matching when present.
-- If a rule has both `fingerprint` and `description_clean_norm`, `fingerprint` wins.
-- `direction` is derived from amount sign (`inflow` / `outflow` / `zero`) when not provided.
-- `currency` defaults to `ILS` when missing in parsed inputs.
-
-Build review outputs:
-
-```bash
-pixi run ynab-il build-payee-map \
-  --parsed data/derived/leumi_fuller_parsed.csv \
-  --matched-pairs outputs/matched_pairs.csv \
-  --out-dir outputs/payee_map
-```
-
-Generated files:
-- `payee_map_candidates.csv`: one row per `(txn_kind, fingerprint, description_clean_norm)`.
-- `payee_map_applied_preview.csv`: parsed transactions + suggested payee/category and match status.
-
-Candidate statuses:
-- `matched_uniquely`: all rows for that key matched uniquely.
-- `unmatched`: no rows for that key matched any active rule.
-- `ambiguous`: mixed/noisy results (ambiguous tie or partial coverage).
-
-Safe editing guidelines for `mappings/payee_map.csv`:
-- Keep `rule_id` stable and unique.
-- Use blanks in optional key columns for wildcard behavior.
-- Increase `priority` to force a rule to win over a more specific lower-priority rule.
-- Leave `category_target` blank when only payee is known.
-
-## Review UI (Streamlit)
-
-The review UI edits a proposed transactions CSV and writes a reviewed copy.
-
-Run:
-
-```bash
-pixi run python scripts/review_app.py \
-  --in data/paired/<date>/proposed_transactions.csv \
-  --categories outputs/ynab_categories.csv
-```
-
-Launcher behavior:
-- The wrapper starts Streamlit in the background and prints the active URL.
-- If `8501` is busy, it auto-selects the next free port unless you pass `--port`.
-
-Resume a prior session:
-
-```bash
-pixi run python scripts/review_app.py --resume
-```
-
-Default behavior:
-- Loads `outputs/proposed_transactions.csv` if `--in` is not given.
-- Saves to `<input>_reviewed.csv` (configurable in the UI or via `--out`).
-- Sidebar filters are split into:
-  - Primary dimensions: `Readiness` (`Not ready`/`Ready`) and `Save state` (`Unsaved`/`Saved`)
-  - Secondary tags: `Inference tag`, `Progress tag`, `Persistence tag`
-- Default filter selection is `Not ready` + `Unsaved` on primary dimensions; secondary tags default to showing all.
-- Row expanders include a primary state marker (`NR/US`, `NR/S`, `R/US`, `R/S`) and color-coded state styling.
-
-See `documents/review_app_workflow.md` for the full review and upload workflow.
-See `documents/architecture_overview.md` for where the review app fits in the larger pipeline.
-
-Hard rule for readiness:
-- Both `payee_selected` and `category_selected` must be filled.
+- the old CSV-centered normalize/build/review instructions
+- `workflow_profiles.py`-style profile wiring
+- bootstrap-era matched-pairs and grouping commands
+- older docs that refer to `documents/review_app_workflow.md`

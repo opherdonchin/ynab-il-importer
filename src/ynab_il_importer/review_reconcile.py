@@ -223,9 +223,7 @@ def reconcile_reviewed_transactions(
         # Use pl.Object for edit columns when any non-None value exists.
         # pl.from_pandas may produce Struct, String, or Null dtypes for complex nested
         # columns depending on the input; pl.Object is the safe common ground.
-        dtype = (
-            pl.Object if any(v is not None for v in merged_values) else pl.Null
-        )
+        dtype = pl.Object if any(v is not None for v in merged_values) else pl.Null
         drop_these = [col, old_col_name] if old_col_name in joined.columns else [col]
         joined = joined.drop(drop_these).with_columns(
             pl.Series(col, merged_values, dtype=dtype)
@@ -272,9 +270,7 @@ def reconcile_reviewed_transactions(
         decision_sets: dict[tuple, dict] = {}
         for key, rows in old_groups.items():
             payloads = [
-                _extract_payload_dict(r)
-                for r in rows
-                if _has_any_review_value(r)
+                _extract_payload_dict(r) for r in rows if _has_any_review_value(r)
             ]
             if not payloads:
                 continue
@@ -324,7 +320,9 @@ def reconcile_reviewed_transactions(
             if fallback_updates:
                 # Apply updates column by column, preserving each column's existing dtype
                 # (critical for pl.Object columns holding Python dicts/lists).
-                for col in list(PRESERVED_REVIEW_COLUMNS) + list(PRESERVED_EDIT_COLUMNS):
+                for col in list(PRESERVED_REVIEW_COLUMNS) + list(
+                    PRESERVED_EDIT_COLUMNS
+                ):
                     is_edit_col = col in PRESERVED_EDIT_COLUMNS
                     values = result[col].to_list()
                     changed = False
@@ -335,9 +333,7 @@ def reconcile_reviewed_transactions(
                         changed = True
                     if not changed:
                         continue
-                    dtype = (
-                        pl.Object if any(v is not None for v in values) else pl.Null
-                    )
+                    dtype = pl.Object if any(v is not None for v in values) else pl.Null
                     result = result.drop(col).with_columns(
                         pl.Series(col, values, dtype=dtype)
                     )
