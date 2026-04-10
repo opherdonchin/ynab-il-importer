@@ -14,8 +14,24 @@ import ynab_il_importer.upload_prep as upload_prep
 
 def _accounts() -> list[dict[str, str]]:
     return [
-        {"id": "acc-bank", "name": "Bank Leumi", "transfer_payee_id": "payee-bank"},
-        {"id": "acc-cash", "name": "Cash", "transfer_payee_id": "payee-cash"},
+        {
+            "id": "acc-bank",
+            "name": "Bank Leumi",
+            "transfer_payee_id": "payee-bank",
+            "on_budget": True,
+        },
+        {
+            "id": "acc-cash",
+            "name": "Cash",
+            "transfer_payee_id": "payee-cash",
+            "on_budget": True,
+        },
+        {
+            "id": "acc-loan",
+            "name": "Loan",
+            "transfer_payee_id": "payee-loan",
+            "on_budget": False,
+        },
     ]
 
 
@@ -23,6 +39,7 @@ def _categories() -> pd.DataFrame:
     return pd.DataFrame(
         [
             {"category_group": "Flexible expenses", "category_name": "Groceries", "category_id": "cat-groceries", "hidden": False},
+            {"category_group": "Fixed expenses", "category_name": "Loan Paydown", "category_id": "cat-loan", "hidden": False},
             {"category_group": "Internal Master Category", "category_name": "Uncategorized", "category_id": "cat-uncat", "hidden": False},
         ]
     )
@@ -637,7 +654,7 @@ def test_ready_mask_treats_transfer_without_category_as_ready() -> None:
         }
     )
 
-    assert upload_prep.ready_mask(reviewed).to_list() == [True, False]
+    assert upload_prep.ready_mask(reviewed, accounts=_accounts()).to_list() == [True, False]
 
 
 def test_ready_mask_treats_explicit_no_category_as_transfer_only() -> None:
@@ -654,7 +671,24 @@ def test_ready_mask_treats_explicit_no_category_as_transfer_only() -> None:
         }
     )
 
-    assert upload_prep.ready_mask(reviewed).to_list() == [True, False]
+    assert upload_prep.ready_mask(reviewed, accounts=_accounts()).to_list() == [True, False]
+
+
+def test_ready_mask_requires_category_for_off_budget_transfer() -> None:
+    reviewed = _reviewed_df(
+        {
+            "transaction_id": ["t1"],
+            "account_name": ["Bank Leumi"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["10.00"],
+            "inflow_ils": ["0"],
+            "memo": ["loan payment"],
+            "payee_selected": ["Transfer : Loan"],
+            "category_selected": [""],
+        }
+    )
+
+    assert upload_prep.ready_mask(reviewed, accounts=_accounts()).to_list() == [False]
 
 
 def test_ready_mask_allows_uncategorized_category() -> None:
@@ -736,6 +770,34 @@ def test_prepare_upload_transactions_maps_explicit_no_category_transfer_to_blank
 
     assert _row(prepared, 0)["category_id"] == ""
     assert _row(prepared, 0)["upload_kind"] == "transfer"
+
+
+def test_prepare_upload_transactions_preserves_category_for_off_budget_transfer() -> None:
+    reviewed = _reviewed_df(
+        {
+            "transaction_id": ["t1"],
+            "account_name": ["Bank Leumi"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["10.50"],
+            "inflow_ils": ["0"],
+            "memo": ["loan payment"],
+            "payee_selected": ["Transfer : Loan"],
+            "category_selected": ["Loan Paydown"],
+        }
+    )
+
+    prepared = upload_prep.prepare_upload_transactions(
+        reviewed,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+    payload = upload_prep.upload_payload_records(prepared)
+
+    assert _row(prepared, 0)["category_id"] == "cat-loan"
+    assert _row(prepared, 0)["transfer_target_account_id"] == "acc-loan"
+    assert _row(prepared, 0)["upload_kind"] == "transfer"
+    assert payload[0]["payee_id"] == "payee-loan"
+    assert payload[0]["category_id"] == "cat-loan"
 
 
 def test_prepare_upload_transactions_falls_back_to_uncategorized_for_missing_category() -> None:

@@ -308,6 +308,27 @@ def test_apply_to_same_fingerprint_accepts_polars_frame() -> None:
     assert updated["target_category_selected"].to_list() == ["Y", "C", "D"]
 
 
+def test_apply_to_same_fingerprint_propagates_memo_append() -> None:
+    df = pl.DataFrame(
+        {
+            "fingerprint": ["fp1", "fp1", "fp2"],
+            "memo_append": ["", "", ""],
+            "target_payee_selected": ["A", "A", "B"],
+            "target_category_selected": ["C", "C", "D"],
+            "update_maps": ["", "", ""],
+            "reviewed": [False, False, False],
+        }
+    )
+
+    updated = review_model.apply_to_same_fingerprint(
+        df,
+        "fp1",
+        memo_append="shared memo",
+    )
+
+    assert updated["memo_append"].to_list() == ["shared memo", "shared memo", ""]
+
+
 def test_default_row_kind_selection_hides_matched_cleared_by_default() -> None:
     assert review_app._default_row_kind_selection(
         ["Matched", "Matched cleared", "Source only"]
@@ -329,6 +350,34 @@ def test_preserve_expansion_context_sets_group_and_row_targets() -> None:
 
     review_app._preserve_expansion_context(idx=3)
     assert review_app.st.session_state["expanded_row_id"] == 3
+
+
+def test_augment_with_account_budget_metadata_derives_transfer_budget_flags() -> None:
+    review_app.st.session_state.clear()
+    review_app.st.session_state["account_budget_lookup"] = {
+        "bank leumi": True,
+        "in family": True,
+        "loan": False,
+    }
+    df = pl.DataFrame(
+        [
+            {
+                "account_name": "Bank Leumi",
+                "target_account": "Bank Leumi",
+                "source_account": "Bank Leumi",
+                "target_payee_selected": "Transfer : Loan",
+                "source_payee_selected": "Transfer : In Family",
+            }
+        ]
+    )
+
+    enriched = review_app._augment_with_account_budget_metadata(df)
+    row = enriched.row(0, named=True)
+
+    assert row["target_account_on_budget"] is True
+    assert row["source_account_on_budget"] is True
+    assert row["target_transfer_account_on_budget"] is False
+    assert row["source_transfer_account_on_budget"] is True
 
 
 def test_clear_split_editor_state_removes_modal_buffer_and_widget_keys() -> None:
@@ -1556,6 +1605,48 @@ def test_transfer_uncategorized_is_not_treated_as_fix() -> None:
 
     assert blocker_series.to_list() == ["None"]
     assert primary_state_series.to_list() == ["Settled"]
+
+
+def test_off_budget_transfer_without_category_is_treated_as_fix() -> None:
+    df = pl.DataFrame(
+        [
+            {
+                "transaction_id": "transfer-row",
+                "date": "2026-03-01",
+                "account_name": "Bank Leumi",
+                "outflow_ils": "10",
+                "inflow_ils": "0",
+                "memo": "loan payment",
+                "fingerprint": "transfer loan",
+                "payee_options": "Transfer : Loan",
+                "category_options": "",
+                "match_status": "source_only",
+                "workflow_type": "institutional",
+                "source_row_id": "s1",
+                "target_row_id": "",
+                "source_present": "TRUE",
+                "target_present": "FALSE",
+                "source_payee_selected": "loan payment",
+                "source_category_selected": "",
+                "target_payee_selected": "Transfer : Loan",
+                "target_category_selected": "None",
+                "target_account_on_budget": True,
+                "target_transfer_account_on_budget": False,
+                "decision_action": "create_target",
+                "update_maps": "",
+                "reviewed": "FALSE",
+            }
+        ]
+    )
+    df = df.with_columns(
+        review_validation.normalize_flag_series(df["reviewed"]).alias("reviewed")
+    )
+
+    blocker_series = review_validation.blocker_series(df)
+    primary_state_series = review_state.primary_state_series(df, blocker_series)
+
+    assert blocker_series.to_list() == ["Missing category"]
+    assert primary_state_series.to_list() == ["Fix"]
 
 
 def test_apply_row_filters_supports_action_blocker_suggestions_map_updates_and_search() -> None:

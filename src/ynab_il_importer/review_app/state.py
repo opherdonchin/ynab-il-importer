@@ -765,32 +765,58 @@ def grouped_row_indices(filtered: pl.DataFrame) -> tuple[list[str], dict[str, li
     return ordered, group_indices
 
 
+def _optional_row_bool(row: dict[str, Any], key: str) -> bool | None:
+    if key not in row:
+        return None
+    value = row.get(key)
+    if value is None or value == "":
+        return None
+    return _normalize_text(value).casefold() in TRUE_VALUES or bool(value) is True
+
+
 def required_category_missing_mask(df: pl.DataFrame) -> pl.Series:
-    payee_values = _clean_text_list(series_or_default(df, "payee_selected"))
-    category_values = [
-        model.normalize_category_value(value)
-        for value in _clean_text_list(series_or_default(df, "category_selected"))
-    ]
+    rows = df.to_dicts()
     return pl.Series(
         [
-            (category == "" or model.is_no_category_required(category))
-            and not model.is_transfer_payee(payee)
-            for payee, category in zip(payee_values, category_values, strict=False)
+            (
+                model.normalize_category_value(row.get("category_selected", "")) == ""
+                or model.is_no_category_required(row.get("category_selected", ""))
+            )
+            and model.category_required_for_payee(
+                row.get("payee_selected", ""),
+                current_account_on_budget=_optional_row_bool(
+                    row, "target_account_on_budget"
+                ),
+                transfer_target_on_budget=_optional_row_bool(
+                    row, "target_transfer_account_on_budget"
+                ),
+            )
+            for row in rows
         ],
         dtype=pl.Boolean,
     )
 
 
 def uncategorized_mask(df: pl.DataFrame) -> pl.Series:
-    payee_values = _clean_text_list(series_or_default(df, "payee_selected"))
-    category_values = [
-        model.normalize_category_value(value).casefold()
-        for value in _clean_text_list(series_or_default(df, "category_selected"))
-    ]
+    rows = df.to_dicts()
     return pl.Series(
         [
-            ("uncategorized" in category) and not model.is_transfer_payee(payee)
-            for payee, category in zip(payee_values, category_values, strict=False)
+            (
+                "uncategorized"
+                in model.normalize_category_value(
+                    row.get("category_selected", "")
+                ).casefold()
+            )
+            and model.category_required_for_payee(
+                row.get("payee_selected", ""),
+                current_account_on_budget=_optional_row_bool(
+                    row, "target_account_on_budget"
+                ),
+                transfer_target_on_budget=_optional_row_bool(
+                    row, "target_transfer_account_on_budget"
+                ),
+            )
+            for row in rows
         ],
         dtype=pl.Boolean,
     )

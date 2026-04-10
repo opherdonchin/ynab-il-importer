@@ -50,6 +50,7 @@ EDITOR_STATE_PREFIXES = (
     "group_payee_select_",
     "group_payee_override_",
     "group_category_",
+    "group_memo_append_",
     "group_decision_",
     "group_show_all_categories_",
     "group_update_maps_",
@@ -277,6 +278,7 @@ def _call_apply_to_same_fingerprint(
     *,
     payee: str | None = None,
     category: str | None = None,
+    memo_append: str | None = None,
     update_maps: str | None = None,
     decision_action: str | None = None,
     reviewed: bool | None = None,
@@ -287,6 +289,7 @@ def _call_apply_to_same_fingerprint(
         fingerprint,
         payee=payee,
         category=category,
+        memo_append=memo_append,
         update_maps=update_maps,
         decision_action=decision_action,
         reviewed=reviewed,
@@ -394,6 +397,7 @@ def _set_review_frames(
 ) -> None:
     changed = False
     if df is not None:
+        df = _augment_with_account_budget_metadata(df)
         canonical = _canonical_review_bundle(df)
         st.session_state["df"] = df
         st.session_state["review_table"] = canonical["table"]
@@ -401,6 +405,7 @@ def _set_review_frames(
         st.session_state["review_helper_lookup"] = canonical["helper_lookup"]
         changed = True
     if original is not None:
+        original = _augment_with_account_budget_metadata(original)
         canonical = _canonical_review_bundle(original)
         st.session_state["df_original"] = original
         st.session_state["review_table_original"] = canonical["table"]
@@ -408,6 +413,7 @@ def _set_review_frames(
         st.session_state["review_helper_lookup_original"] = canonical["helper_lookup"]
         changed = True
     if base is not None:
+        base = _augment_with_account_budget_metadata(base)
         canonical = _canonical_review_bundle(base)
         st.session_state["df_base"] = base
         st.session_state["review_table_base"] = canonical["table"]
@@ -433,6 +439,7 @@ def _load_df(path: Path, *, set_source_path: bool = False) -> None:
     df = review_io.project_review_artifact_to_working_dataframe(
         review_io.load_review_artifact(path)
     )
+    df = _augment_with_account_budget_metadata(df)
     _require_groupable_review_rows(df)
     _set_review_frames(df=df, original=df)
     if set_source_path:
@@ -444,6 +451,7 @@ def _load_base(path: Path) -> None:
     base = review_io.project_review_artifact_to_working_dataframe(
         review_io.load_review_artifact(path)
     )
+    base = _augment_with_account_budget_metadata(base)
     _require_groupable_review_rows(base)
     _set_review_frames(base=base)
 
@@ -480,6 +488,82 @@ def _load_categories(path: Path) -> None:
     st.session_state["category_group_map"] = group_map
     st.session_state["category_path"] = str(path)
     st.session_state["category_error"] = ""
+
+
+def _account_lookup_key(value: Any) -> str:
+    return str(value or "").strip().casefold()
+
+
+def _account_budget_lookup_from_accounts(
+    accounts: list[dict[str, Any]],
+) -> dict[str, bool]:
+    return {
+        _account_lookup_key(account.get("name", "")): bool(account.get("on_budget", False))
+        for account in accounts
+        if not bool(account.get("deleted", False))
+        and _account_lookup_key(account.get("name", ""))
+    }
+
+
+def _lookup_account_on_budget(account_name: Any) -> bool | None:
+    lookup = st.session_state.get("account_budget_lookup")
+    if not isinstance(lookup, dict):
+        return None
+    key = _account_lookup_key(account_name)
+    if not key or key not in lookup:
+        return None
+    return bool(lookup[key])
+
+
+def _augment_with_account_budget_metadata(df: pl.DataFrame) -> pl.DataFrame:
+    if df.is_empty():
+        return df
+
+    rows = df.to_dicts()
+    for row in rows:
+        target_payee = str(
+            row.get("target_payee_selected")
+            or row.get("target_payee_current")
+            or row.get("payee_selected")
+            or ""
+        ).strip()
+        source_payee = str(
+            row.get("source_payee_selected")
+            or row.get("source_payee_current")
+            or ""
+        ).strip()
+        target_account = str(
+            row.get("target_account") or row.get("account_name") or ""
+        ).strip()
+        source_account = str(
+            row.get("source_account") or row.get("account_name") or ""
+        ).strip()
+        row["target_account_on_budget"] = _lookup_account_on_budget(target_account)
+        row["source_account_on_budget"] = _lookup_account_on_budget(source_account)
+        row["target_transfer_account_on_budget"] = _lookup_account_on_budget(
+            review_model.transfer_target_account_name(target_payee)
+        )
+        row["source_transfer_account_on_budget"] = _lookup_account_on_budget(
+            review_model.transfer_target_account_name(source_payee)
+        )
+    return pl.from_dicts(rows, infer_schema_length=None)
+
+
+def _refresh_accounts_from_api(*, profile: str) -> None:
+    if not str(profile or "").strip():
+        raise ValueError("No workflow profile was provided for account refresh.")
+    resolved_profile = workflow_profiles.resolve_profile(profile or None)
+    budget_id = workflow_profiles.resolve_budget_id(profile=resolved_profile.name)
+    if not budget_id:
+        raise ValueError(f"No budget id configured for profile {resolved_profile.name!r}.")
+
+    accounts = ynab_api.fetch_accounts(plan_id=budget_id or None)
+    st.session_state["account_budget_lookup"] = _account_budget_lookup_from_accounts(
+        accounts
+    )
+    st.session_state["account_notice"] = (
+        f"Refreshed account metadata from YNAB for {resolved_profile.name}"
+    )
 
 
 def _refresh_categories_from_api(*, profile: str, categories_path: Path) -> None:
@@ -534,6 +618,19 @@ def _init_from_cli() -> None:
             )
         finally:
             st.session_state[refresh_key] = True
+
+    account_refresh_key = f"accounts_api_refreshed::{profile_name}"
+    if not st.session_state.get(account_refresh_key, False):
+        try:
+            _refresh_accounts_from_api(profile=profile_name)
+        except Exception as exc:
+            st.session_state.setdefault(
+                "account_notice",
+                f"Using local review data only; YNAB account refresh unavailable: {exc}",
+            )
+            st.session_state.setdefault("account_budget_lookup", {})
+        finally:
+            st.session_state[account_refresh_key] = True
 
     if input_path.exists() and "df_base" not in st.session_state:
         _load_base(input_path)
@@ -686,6 +783,20 @@ def _lookup_rows(
         if isinstance(row, dict):
             rows.append(row)
     return rows
+
+
+def _target_category_required(row: dict[str, Any], payee_value: str) -> bool:
+    return review_model.category_required_for_payee(
+        payee_value,
+        current_account_on_budget=(
+            bool(row.get("target_account_on_budget"))
+            if row.get("target_account_on_budget") is not None
+            else None
+        ),
+        transfer_target_on_budget=_lookup_account_on_budget(
+            review_model.transfer_target_account_name(payee_value)
+        ),
+    )
 
 
 def _most_common_lookup_value(
@@ -1949,7 +2060,12 @@ def _render_row_controls(
     )
     no_category_default = (
         review_model.NO_CATEGORY_REQUIRED
-        if review_model.is_transfer_payee(target_payee_selected or target_payee_default)
+        if (
+            review_model.is_transfer_payee(target_payee_selected or target_payee_default)
+            and not _target_category_required(
+                row, target_payee_selected or target_payee_default
+            )
+        )
         else ""
     )
     target_category_default = (
@@ -2220,6 +2336,7 @@ def _render_row_controls(
                 row.get("fingerprint", ""),
                 payee=final_target_payee,
                 category=target_category_value,
+                memo_append=memo_append_value,
                 decision_action=decision_action_value
                 if decision_action_value != review_validation.NO_DECISION
                 else None,
@@ -2823,6 +2940,10 @@ def main() -> None:
                 if (
                     not group_category_default
                     and review_model.is_transfer_payee(group_payee_default)
+                    and not any(
+                        _target_category_required(group_row, group_payee_default)
+                        for group_row in group_rows
+                    )
                 ):
                     group_category_default = review_model.NO_CATEGORY_REQUIRED
                 if not group_category_default and "Uncategorized" in category_list:
@@ -2844,10 +2965,17 @@ def main() -> None:
                 group_payee_key = _editor_key(f"group_payee_select_{fp}")
                 group_payee_override_key = _editor_key(f"group_payee_override_{fp}")
                 group_category_key = _editor_key(f"group_category_{fp}")
+                group_memo_append_key = _editor_key(f"group_memo_append_{fp}")
                 group_decision_key = _editor_key(f"group_decision_{fp}")
                 group_show_all_categories_key = _editor_key(f"group_show_all_categories_{fp}")
                 _ensure_widget_state(group_payee_key, group_payee_default)
                 _ensure_widget_state(group_payee_override_key, "")
+                group_memo_append_default = _most_common_lookup_value(
+                    data_lookup,
+                    group_indices,
+                    "memo_append",
+                )
+                _ensure_widget_state(group_memo_append_key, group_memo_append_default)
                 group_show_all_categories_default = bool(
                     category_list
                     and (
@@ -2923,6 +3051,17 @@ def main() -> None:
                         ),
                         key=group_category_key,
                     )
+                group_memo_append = st.text_area(
+                    "Group memo add",
+                    value=str(
+                        st.session_state.get(
+                            group_memo_append_key, group_memo_append_default
+                        )
+                        or ""
+                    ),
+                    key=group_memo_append_key,
+                    height=68,
+                )
                 group_decision = st.selectbox(
                     "Group decision",
                     options=group_decision_options,
@@ -2950,7 +3089,7 @@ def main() -> None:
                 group_action_cols = st.columns(2)
                 with group_action_cols[0]:
                     apply_group = st.button(
-                        "Apply to all in group and mark reviewed",
+                        "Apply group edits",
                         use_container_width=True,
                         key=_editor_key(f"group_apply_{fp}"),
                     )
@@ -2972,6 +3111,12 @@ def main() -> None:
                     )
                     group_category_select_value = str(
                         st.session_state.get(group_category_key, group_category_select) or ""
+                    )
+                    group_memo_append_value = str(
+                        st.session_state.get(
+                            group_memo_append_key, group_memo_append
+                        )
+                        or ""
                     )
                     group_decision_value = str(
                         st.session_state.get(group_decision_key, group_decision) or ""
@@ -3001,6 +3146,7 @@ def main() -> None:
                         fp,
                         payee=payee_to_apply,
                         category=category_to_apply,
+                        memo_append=group_memo_append_value,
                         decision_action=group_decision_value
                         if group_decision_value != review_validation.NO_DECISION
                         else None,
@@ -3015,18 +3161,26 @@ def main() -> None:
                         working_df, affected_indices
                     )
                     affected_indices.extend(competing_indices)
-                    final_df, review_errors = _call_apply_review_state(
-                        working_df,
-                        affected_indices,
-                        reviewed=True,
-                        component_map=component_map,
-                    )
+                    final_df = working_df
+                    review_errors: list[str] = []
+                    if group_decision_value != review_validation.NO_DECISION:
+                        final_df, review_errors = _call_apply_review_state(
+                            working_df,
+                            affected_indices,
+                            reviewed=True,
+                            component_map=component_map,
+                        )
                     st.session_state["expanded_group_fp"] = fp
                     st.session_state["expanded_group_row_id"] = None
                     _set_review_frames(df=final_df, changed_indices=affected_indices)
                     if review_errors:
                         st.session_state["review_error"] = (
                             "Review blocked: " + "; ".join(review_errors)
+                        )
+                    elif group_decision_value == review_validation.NO_DECISION:
+                        st.session_state["review_notice"] = (
+                            "Applied group edits in memory. Choose a group decision, then "
+                            "accept decided rows to settle them."
                         )
                     else:
                         st.session_state["review_notice"] = (

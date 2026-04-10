@@ -133,6 +133,15 @@ def _selected_value(row: Any, field: str, *, side: str) -> str:
     return value
 
 
+def _optional_bool(row: Any, key: str) -> bool | None:
+    if not _row_has(row, key):
+        return None
+    value = _row_get(row, key, None)
+    if value is None or value == "":
+        return None
+    return _truthy(value)
+
+
 def _id_series(df: pl.DataFrame, column: str) -> pl.Series:
     if column not in df.columns:
         return pl.Series([""] * len(df), dtype=pl.Utf8)
@@ -435,8 +444,20 @@ def validate_row(row: Any) -> tuple[list[str], list[str]]:
     action = normalize_decision_action(_row_get(row, "decision_action", ""))
     reviewed = _truthy(_row_get(row, "reviewed", False))
     workflow_type = _text(_row_get(row, "workflow_type")).casefold()
-    source_category_required = not model.is_transfer_payee(source_payee)
-    category_required = not model.is_transfer_payee(target_payee)
+    source_category_required = model.category_required_for_payee(
+        source_payee,
+        current_account_on_budget=_optional_bool(row, "source_account_on_budget"),
+        transfer_target_on_budget=_optional_bool(
+            row, "source_transfer_account_on_budget"
+        ),
+    )
+    category_required = model.category_required_for_payee(
+        target_payee,
+        current_account_on_budget=_optional_bool(row, "target_account_on_budget"),
+        transfer_target_on_budget=_optional_bool(
+            row, "target_transfer_account_on_budget"
+        ),
+    )
     source_no_category_required = model.is_no_category_required(source_category)
     target_no_category_required = model.is_no_category_required(target_category)
     update_maps = parse_update_maps(_row_get(row, "update_maps", ""))

@@ -372,6 +372,46 @@ def _account_lookup(
     return account_ids, transfer_payees
 
 
+def _account_on_budget_lookup(accounts: list[dict[str, Any]]) -> dict[str, bool]:
+    return {
+        _normalize_text(acc.get("name", "")): bool(acc.get("on_budget", False))
+        for acc in accounts
+        if not bool(acc.get("deleted", False)) and _normalize_text(acc.get("name", ""))
+    }
+
+
+def _lookup_optional_account_budget(
+    account_budget_lookup: dict[str, bool],
+    account_name: Any,
+) -> bool | None:
+    normalized = _normalize_text(account_name)
+    if not normalized or normalized not in account_budget_lookup:
+        return None
+    return bool(account_budget_lookup[normalized])
+
+
+def _category_required_expr(
+    df: pl.DataFrame,
+    *,
+    payee_col: str,
+    account_col: str,
+    account_budget_lookup: dict[str, bool],
+) -> pl.Expr:
+    return pl.struct([payee_col, account_col]).map_elements(
+        lambda row: review_model.category_required_for_payee(
+            row.get(payee_col, ""),
+            current_account_on_budget=_lookup_optional_account_budget(
+                account_budget_lookup, row.get(account_col, "")
+            ),
+            transfer_target_on_budget=_lookup_optional_account_budget(
+                account_budget_lookup,
+                review_model.transfer_target_account_name(row.get(payee_col, "")),
+            ),
+        ),
+        return_dtype=pl.Boolean,
+    )
+
+
 def uploadable_account_mask(
     working_df: pl.DataFrame, accounts: list[dict[str, Any]]
 ) -> pl.Series:
@@ -462,14 +502,21 @@ def _upload_rows_for_validation(working_df: pl.DataFrame) -> pl.DataFrame:
     return _explode_target_splits_for_upload(upload_df)
 
 
-def validate_ready_for_upload(working_df: pl.DataFrame) -> None:
+def validate_ready_for_upload(
+    working_df: pl.DataFrame,
+    *,
+    accounts: list[dict[str, Any]] | None = None,
+) -> None:
     upload_df = _upload_rows_for_validation(working_df)
     if upload_df.is_empty():
         return
 
-    transfer_expr = _target_payee_expr(upload_df).map_elements(
-        review_model.is_transfer_payee,
-        return_dtype=pl.Boolean,
+    account_budget_lookup = _account_on_budget_lookup(accounts or [])
+    category_required_expr = _category_required_expr(
+        upload_df,
+        payee_col="target_payee_selected",
+        account_col="account_name",
+        account_budget_lookup=account_budget_lookup,
     )
     category_selected_expr = _target_category_expr(upload_df).map_elements(
         _is_selected_category,
@@ -481,7 +528,7 @@ def validate_ready_for_upload(working_df: pl.DataFrame) -> None:
 
     missing_payee_count = upload_df.filter(_parent_target_payee_expr(upload_df) == "").height
     missing_category_count = upload_df.filter(
-        (~category_selected_expr) & (~transfer_expr)
+        (~category_selected_expr) & category_required_expr
     ).height
     zero_amount_count = upload_df.filter(~nonzero_amount_expr).height
     if missing_payee_count or missing_category_count or zero_amount_count:
@@ -493,7 +540,11 @@ def validate_ready_for_upload(working_df: pl.DataFrame) -> None:
         )
 
 
-def ready_mask(working_df: pl.DataFrame) -> pl.Series:
+def ready_mask(
+    working_df: pl.DataFrame,
+    *,
+    accounts: list[dict[str, Any]] | None = None,
+) -> pl.Series:
     df = working_schema.build_working_dataframe(working_df)
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
     upload_mask = _decision_action_mask(df)
@@ -504,18 +555,23 @@ def ready_mask(working_df: pl.DataFrame) -> pl.Series:
     if upload_df.is_empty() or "_working_row_position" not in upload_df.columns:
         return pl.Series("ready_mask", [False] * len(df), dtype=pl.Boolean)
 
+    account_budget_lookup = _account_on_budget_lookup(accounts or [])
+    category_ready_expr = _target_category_expr(upload_df).map_elements(
+        _is_selected_category,
+        return_dtype=pl.Boolean,
+    ) | (
+        ~_category_required_expr(
+            upload_df,
+            payee_col="target_payee_selected",
+            account_col="account_name",
+            account_budget_lookup=account_budget_lookup,
+        )
+    )
     upload_row_ready = upload_df.select(
         "_working_row_position",
         (
             (_parent_target_payee_expr(upload_df) != "")
-            & (
-                _target_category_expr(upload_df)
-                .map_elements(_is_selected_category, return_dtype=pl.Boolean)
-                | _target_payee_expr(upload_df).map_elements(
-                    review_model.is_transfer_payee,
-                    return_dtype=pl.Boolean,
-                )
-            )
+            & category_ready_expr
             & (((_float_expr("outflow_ils") != 0.0) | (_float_expr("inflow_ils") != 0.0)))
         ).alias("ready"),
     )
@@ -542,7 +598,7 @@ def prepare_upload_transactions(
     approved: bool = False,
 ) -> pl.DataFrame:
     reviewed_df = working_schema.build_working_dataframe(working_df)
-    validate_ready_for_upload(working_df)
+    validate_ready_for_upload(working_df, accounts=accounts)
 
     df = reviewed_df.filter(_decision_action_mask(reviewed_df))
     if df.is_empty():
@@ -575,6 +631,7 @@ def prepare_upload_transactions(
     df = _explode_target_splits_for_upload(df)
 
     account_ids, transfer_payees = _account_lookup(accounts)
+    account_budget_lookup = _account_on_budget_lookup(accounts)
     category_ids = _category_lookup(categories_df)
     category_alias_ids = _category_alias_lookup(categories_df)
     uncategorized_category_id = _uncategorized_category_id(categories_df)
@@ -591,6 +648,12 @@ def prepare_upload_transactions(
         _text_expr("target_payee_selected")
         .map_elements(review_model.is_transfer_payee, return_dtype=pl.Boolean)
         .alias("_is_transfer"),
+        _category_required_expr(
+            df,
+            payee_col="target_payee_selected",
+            account_col="account_name",
+            account_budget_lookup=account_budget_lookup,
+        ).alias("_category_required"),
         parent_payee_expr.map_elements(_transfer_target, return_dtype=pl.String).alias(
             "parent_transfer_target"
         ),
@@ -598,20 +661,23 @@ def prepare_upload_transactions(
             review_model.is_transfer_payee,
             return_dtype=pl.Boolean,
         ).alias("_parent_is_transfer"),
+        _text_expr_or_default(df, "target_category_id").alias("category_id"),
+        _amount_milliunits_expr(
+            inflow_col="inflow_ils",
+            outflow_col="outflow_ils",
+        ).alias("amount_milliunits"),
+    )
+    df = df.with_columns(
         pl.when(
-            _text_expr("target_category_selected").map_elements(
+            (~pl.col("_category_required"))
+            & _text_expr("target_category_selected").map_elements(
                 review_model.is_no_category_required,
                 return_dtype=pl.Boolean,
             )
         )
         .then(pl.lit(""))
         .otherwise(_text_expr("target_category_selected"))
-        .alias("_upload_category"),
-        _text_expr_or_default(df, "target_category_id").alias("category_id"),
-        _amount_milliunits_expr(
-            inflow_col="inflow_ils",
-            outflow_col="outflow_ils",
-        ).alias("amount_milliunits"),
+        .alias("_upload_category")
     )
 
     missing_accounts = sorted(
@@ -650,7 +716,7 @@ def prepare_upload_transactions(
         )
 
     invalid_selected_ids = df.filter(
-        (~pl.col("_is_transfer"))
+        pl.col("_category_required")
         & (pl.col("_upload_category") != "")
         & (pl.col("category_id") != "")
         & (~pl.col("category_id").is_in(valid_category_ids))
@@ -659,7 +725,7 @@ def prepare_upload_transactions(
         invalid_ids = sorted(set(invalid_selected_ids.get_column("category_id").to_list()))
         raise ValueError(f"Unknown YNAB category ids in reviewed upload rows: {invalid_ids}")
     df = df.with_columns(
-        pl.when((~pl.col("_is_transfer")) & (pl.col("category_id") == ""))
+        pl.when(pl.col("_category_required") & (pl.col("category_id") == ""))
         .then(
             pl.col("_upload_category").map_elements(
                 lambda value: category_ids.get(value, ""),
@@ -670,7 +736,7 @@ def prepare_upload_transactions(
         .alias("category_id")
     )
     df = df.with_columns(
-        pl.when((~pl.col("_is_transfer")) & (pl.col("category_id") == ""))
+        pl.when(pl.col("_category_required") & (pl.col("category_id") == ""))
         .then(
             pl.col("_upload_category").map_elements(
                 lambda value: category_alias_ids.get(_category_alias(value), ""),
@@ -682,14 +748,14 @@ def prepare_upload_transactions(
     )
     if uncategorized_category_id:
         df = df.with_columns(
-            pl.when((~pl.col("_is_transfer")) & (pl.col("category_id") == ""))
+            pl.when(pl.col("_category_required") & (pl.col("category_id") == ""))
             .then(pl.lit(uncategorized_category_id))
             .otherwise(pl.col("category_id"))
             .alias("category_id")
         )
     missing_categories = sorted(
         set(
-            df.filter((~pl.col("_is_transfer")) & (pl.col("category_id") == ""))
+            df.filter(pl.col("_category_required") & (pl.col("category_id") == ""))
             .get_column("_upload_category")
             .to_list()
         )
@@ -708,7 +774,7 @@ def prepare_upload_transactions(
         .then(_text_expr("target_payee_selected"))
         .otherwise(pl.lit(""))
         .alias("payee_name_upload"),
-        pl.when(pl.col("_is_transfer"))
+        pl.when(pl.col("_is_transfer") & (~pl.col("_category_required")))
         .then(pl.lit(""))
         .otherwise(pl.col("category_id"))
         .alias("category_id"),
@@ -1454,11 +1520,7 @@ def verify_upload_response(
             and prepared_category_name == response_category_name
         ):
             category_matches = True
-        if (
-            not is_transfer
-            and prepared_category_id
-            and not category_matches
-        ):
+        if prepared_category_id and not category_matches:
             category_mismatches.append(label)
 
         if str(prepared_row["upload_kind"]) == "split":

@@ -6,6 +6,7 @@ from typing import Any
 import polars as pl
 
 
+TRANSFER_PREFIX = "Transfer :"
 NO_CATEGORY_REQUIRED = "None"
 
 
@@ -37,7 +38,27 @@ def resolve_selected_value(selected_value: Any, override_value: Any) -> str:
 
 def is_transfer_payee(value: Any) -> bool:
     text = "" if value is None else str(value).strip()
-    return text.startswith("Transfer :")
+    return text.startswith(TRANSFER_PREFIX)
+
+
+def transfer_target_account_name(value: Any) -> str:
+    text = "" if value is None else str(value).strip()
+    if not text.startswith(TRANSFER_PREFIX):
+        return ""
+    return text.removeprefix(TRANSFER_PREFIX).strip()
+
+
+def category_required_for_payee(
+    value: Any,
+    *,
+    current_account_on_budget: bool | None = None,
+    transfer_target_on_budget: bool | None = None,
+) -> bool:
+    if not is_transfer_payee(value):
+        return True
+    if current_account_on_budget is None or transfer_target_on_budget is None:
+        return False
+    return not (current_account_on_budget and transfer_target_on_budget)
 
 
 def normalize_category_value(value: Any) -> str:
@@ -86,6 +107,7 @@ def apply_to_same_fingerprint(
     fingerprint: str,
     payee: str | None = None,
     category: str | None = None,
+    memo_append: str | None = None,
     update_maps: str | None = None,
     decision_action: str | None = None,
     reviewed: bool | None = None,
@@ -117,6 +139,8 @@ def apply_to_same_fingerprint(
             row["category_selected"] = normalized_category
             if "target_category_selected" in row:
                 row["target_category_selected"] = normalized_category
+        if memo_append is not None and "memo_append" in row:
+            row["memo_append"] = str(memo_append).strip()
         if update_maps is not None and "update_maps" in row:
             row["update_maps"] = str(update_maps).strip()
         if decision_action is not None and "decision_action" in row:

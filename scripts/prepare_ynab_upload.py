@@ -164,7 +164,7 @@ def main() -> None:
     if args.reviewed_only:
         reviewed = reviewed.filter(_flag_mask(reviewed, "reviewed"))
     if args.ready_only:
-        reviewed = reviewed.filter(upload_prep.ready_mask(reviewed))
+        reviewed = reviewed.filter(upload_prep.ready_mask(reviewed, accounts=accounts))
     if args.skip_missing_accounts:
         account_mask = upload_prep.uploadable_account_mask(reviewed, accounts)
         skipped = int((~account_mask).sum())
