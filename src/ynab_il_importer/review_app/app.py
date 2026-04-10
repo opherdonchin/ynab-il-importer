@@ -1346,7 +1346,7 @@ def _apply_staged_row_widget_values(df: pl.DataFrame, indices: list[Any]) -> pl.
 def _grouped_row_indices(filtered: pl.DataFrame) -> tuple[list[str], dict[str, list[int]]]:
     if filtered.is_empty():
         return [], {}
-    return review_state.grouped_row_indices(filtered.select("fingerprint"))
+    return review_state.grouped_row_indices(filtered)
 
 
 def _render_detail_section(title: str, entries: list[tuple[str, Any]]) -> None:

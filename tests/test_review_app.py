@@ -830,12 +830,17 @@ def test_app_save_split_without_changes_closes_modal_and_keeps_row_stable(
 
 
 def test_grouped_row_indices_only_include_filtered_rows() -> None:
-    filtered = pl.DataFrame({"fingerprint": ["fp-a", "fp-b", "fp-a"]})
+    filtered = pl.DataFrame(
+        {
+            "_row_pos": [10, 14, 19],
+            "fingerprint": ["fp-a", "fp-b", "fp-a"],
+        }
+    )
 
     fingerprints, group_indices = review_app._grouped_row_indices(filtered)
 
     assert fingerprints == ["fp-a", "fp-b"]
-    assert group_indices == {"fp-a": [0, 2], "fp-b": [1]}
+    assert group_indices == {"fp-a": [10, 19], "fp-b": [14]}
 
 
 def test_require_groupable_review_rows_rejects_blank_fingerprint() -> None:
