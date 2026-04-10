@@ -1,42 +1,50 @@
-# ynab-il-importer - Project Context
+# ynab-il-importer Project Context
 
 ## Purpose
 
-Build a deterministic, human-reviewable workflow for getting transactions into YNAB and keeping the result explainable, rerunnable, and safe.
+Build a deterministic, human-reviewable workflow for getting Israeli bank and card activity into YNAB while keeping every step explainable, rerunnable, and safe.
 
-## Core Workflows
+## Active Scope
 
-1. Institutional import
-   - source = normalized bank or card transaction
-   - target = existing YNAB transaction in the same budget/account
-2. Cross-budget review
-   - source = a transaction from one YNAB budget/account
-   - target = the related transaction in another YNAB budget/account
+The active repo scope is institutional import:
 
-Both workflows are converging on one source/target review model.
+- source = normalized bank or card transaction
+- target = an existing or newly created YNAB transaction in the same budget/account
+
+Older cross-budget work is archived and is not part of the current day-to-day workflow.
 
 ## Project Priorities
 
 1. Deterministic outputs over hidden inference
-2. Human correction before mutation
-3. CSV artifacts that can be inspected, edited, rerun, and versioned
-4. Idempotent sync and upload behavior
+2. Human review before mutation
+3. Canonical Parquet artifacts at workflow boundaries
+4. Idempotent upload, sync, and reconciliation behavior
 5. Small explicit rules instead of broad magic
 
-## What Is Stable
+## Stable Principles
 
-- Fingerprints and mapping tables remain important.
-- Review artifacts are the main human control point.
+- Context plus run tag is the human-facing workflow key.
+- Review artifacts are the main control point between inference and mutation.
+- Nested data is kept only where it is semantically real, especially transaction splits.
+- Ordinary app and upload logic should run on one flat working dataframe.
 - Reruns are expected and should be safe.
-- Source and target keep stable meanings within a workflow.
 
-## Current Architectural Direction
+## Current Architecture Direction
 
-The active refactor is a hard cutover from the old proposal CSV to one unified review-row schema. That cutover is intentionally not backward compatible. Builders, the review app, validation, and upload prep should all speak the same source/target review model.
+The repo is now organized around two canonical artifact types:
+
+- `transaction_v1`
+  Canonical normalized transaction artifacts in Parquet.
+- `review_v4`
+  Canonical review artifacts in Parquet, with source/target current and original transaction structs.
+
+The review app and upload prep do not edit those persisted structs directly. They work through one flat working projection built from the canonical review artifact.
 
 ## Reading Order
 
-1. `plan.md`
-2. `decisions/unified_review_model_design.md`
-3. `decisions/unified_review_model_schema.md`
-4. `reference/` when a task needs older operational detail
+1. [plan.md](plan.md)
+2. [architecture_overview.md](architecture_overview.md)
+3. [context_workflow_spec.md](context_workflow_spec.md)
+4. [upload_reconcile_cutover_spec.md](upload_reconcile_cutover_spec.md)
+5. [decisions/unified_review_model_design.md](decisions/unified_review_model_design.md)
+6. [decisions/unified_review_model_schema.md](decisions/unified_review_model_schema.md)

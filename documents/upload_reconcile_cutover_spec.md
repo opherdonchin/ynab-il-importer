@@ -1,201 +1,128 @@
-# Upload And Reconcile Cutover Spec
+# Upload And Reconcile Workflow
 
 ## Purpose
 
-Define the target-state Family/Pilates/Aikido closeout workflow after review is complete:
+Describe the current closeout path after review is complete:
 
 1. prepare upload payloads from the canonical reviewed artifact
-2. upload to YNAB
-3. sync lineage markers onto matched YNAB transactions
+2. optionally upload them to YNAB
+3. sync lineage markers onto matched bank/card transactions already in YNAB
 4. reconcile bank and card accounts against canonical normalized source artifacts
 
-This cutover follows the same architectural rules as the rest of the branch:
-
-- canonical persisted artifacts are Parquet
-- active working dataframes are Polars-first
-- validation happens at clear boundaries
-- scripts resolve context + run-tag paths, but core module logic does not know repo layout
-- no compatibility wrappers for stale CSV/pandas-first paths
-
-## Current Problems
-
-The active upload/reconcile path is still on the old boundary model.
-
-### Upload prep
-
-- [scripts/prepare_ynab_upload.py](scripts/prepare_ynab_upload.py) still loads the reviewed artifact and immediately converts it to pandas.
-- [src/ynab_il_importer/upload_prep.py](src/ynab_il_importer/upload_prep.py) still accepts mixed input shapes:
-  - path
-  - pandas dataframe
-  - generic object
-- `_review_artifact_to_working_frame(...)` conflates:
-  - canonical review artifact
-  - already-flat working dataframe
-- readiness, account filtering, and amount validation are therefore applied against ambiguous input shapes instead of one schema-guaranteed working dataframe.
-
-### Bank and card closeout
-
-- [scripts/sync_bank_matches.py](scripts/sync_bank_matches.py), [scripts/sync_card_matches.py](scripts/sync_card_matches.py), [scripts/reconcile_bank_statement.py](scripts/reconcile_bank_statement.py), and [scripts/reconcile_card_cycle.py](scripts/reconcile_card_cycle.py) still depend on [workflow_profiles.py](src/ynab_il_importer/workflow_profiles.py).
-- [src/ynab_il_importer/bank_reconciliation.py](src/ynab_il_importer/bank_reconciliation.py) is still pandas-first and still treats normalized input as CSV-shaped rather than canonical-schema-shaped.
-- [src/ynab_il_importer/card_reconciliation.py](src/ynab_il_importer/card_reconciliation.py) is also pandas-first and still mixes:
-  - raw source loading
-  - normalization/coercion
-  - reconciliation logic
-  - transition-month statement handling
-
-### Previous statement handling
-
-- `previous_max` statement files are still handled ad hoc inside card reconciliation.
-- That work should move to an explicit normalization boundary so reconciliation consumes canonical normalized artifacts only.
-
-## Target State
-
-## Canonical boundaries
+## Core Boundaries
 
 ### Reviewed artifact input
 
-- upload prep consumes only:
-  - a canonical reviewed artifact parquet file, or
-  - an already-projected Polars working dataframe with the working schema
-- it does not accept pandas dataframes as a public API shape
-- it does not guess whether an input is already flat
+Upload prep starts from:
+
+- a canonical reviewed `review_v4` Parquet file, or
+- a Polars working dataframe already in the working schema
+
+The public loader is [load_upload_working_frame](../src/ynab_il_importer/upload_prep.py), which goes through:
+
+1. [review_app/io.load_review_artifact](../src/ynab_il_importer/review_app/io.py)
+2. [review_app/io.project_review_artifact_to_working_dataframe](../src/ynab_il_importer/review_app/io.py)
+3. [review_app/working_schema.build_working_dataframe](../src/ynab_il_importer/review_app/working_schema.py)
 
 ### Source input
 
-- bank sync/reconcile consumes canonical normalized bank parquet
-- card sync/reconcile consumes canonical normalized card parquet
-- previous card statement files are normalized explicitly before reconciliation and then treated like any other canonical card artifact
+- bank sync and bank reconciliation consume canonical normalized bank Parquet
+- card sync and card reconciliation consume canonical normalized card Parquet
+- previous MAX statements are normalized explicitly before card reconciliation via [scripts/normalize_previous_max.py](../scripts/normalize_previous_max.py)
 
-### YNAB live data
+### Live YNAB data
 
-- live YNAB accounts, transactions, and categories are fetched once at the script boundary
-- core modules receive those as explicit inputs
-- modules do not resolve profile/context/budget information themselves
+Scripts fetch live YNAB accounts, transactions, and categories at the script boundary and pass those into the core modules. Core modules do not resolve context names or repo paths.
 
-## Dataframe model
+## Active Commands
 
-- ordinary filtering, joins, grouping, readiness checks, and report construction should be Polars-first
-- nested split data stays nested only where semantically real:
-  - upload subtransactions
-  - split-bearing reviewed transaction structs
-- Python row loops are allowed only for:
-  - payload serialization
-  - API patch dict construction
-  - narrow identity logic that is not naturally columnar
+### Upload prep
 
-## Script model
-
-Scripts are thin adapters from:
-
-- `contexts/defaults.toml`
-- `contexts/<context>/context.toml`
-- `run_tag`
-
-to explicit module calls.
-
-Active closeout entrypoints should be context-driven and stable:
-
-```text
-scripts/
-  prepare_context_upload.py
-  sync_context_bank.py
-  sync_context_card.py
-  reconcile_context_bank.py
-  reconcile_context_card.py
+```bash
+pixi run python scripts/prepare_ynab_upload.py <context> <run_tag> --ready-only --skip-missing-accounts
 ```
 
-If [scripts/prepare_ynab_upload.py](scripts/prepare_ynab_upload.py) remains, it must be the real strict path, not a legacy wrapper.
+Defaults resolve:
 
-## Upload prep target behavior
+- reviewed artifact path from `data/paired/<run_tag>/`
+- upload CSV and JSON names from [contexts/defaults.toml](../contexts/defaults.toml)
+- budget id from the context config
 
-[src/ynab_il_importer/upload_prep.py](src/ynab_il_importer/upload_prep.py) should provide:
+Outputs:
 
-- one strict artifact-to-working boundary
-- one strict working-to-prepared-upload boundary
-- one strict prepared-upload-to-payload boundary
+- `data/paired/<run_tag>/<context>_upload.csv`
+- `data/paired/<run_tag>/<context>_upload.json`
 
-Conceptually:
+The script can also `--execute`, run upload preflight, summarize upload results, and verify returned split/transfer behavior.
 
-1. canonical reviewed artifact -> working review Polars dataframe
-2. working review Polars dataframe -> prepared upload Polars dataframe
-3. prepared upload Polars dataframe -> transaction payload records
+### Bank closeout
 
-Public helpers should be explicit about which stage they accept.
+```bash
+pixi run sync-bank-matches -- <context> <run_tag>
+pixi run reconcile-bank-statement -- <context> <run_tag>
+```
 
-The module should own:
+These scripts:
 
-- decision filtering for `create_target`
+- resolve the one declared bank source for the context
+- load canonical bank Parquet
+- fetch live YNAB accounts and transactions
+- write CSV reports under `data/paired/<run_tag>/`
+- optionally `--execute` YNAB patch calls
+
+### Card closeout
+
+```bash
+pixi run sync-card-matches -- <context> <run_tag> --account "<Card Account Name>"
+pixi run normalize-previous-max -- <context> <account_suffix> --cycle YYYY_MM
+pixi run reconcile-card-cycle -- <context> <run_tag> --account "<Card Account Name>" --previous data/derived/previous_max/<account_suffix>/YYYY_MM_max_norm.parquet
+```
+
+Card reconciliation supports:
+
+- current-source-only reconciliation
+- previous-plus-current transition reconciliation
+- context-declared `allow_reconciled_source` overrides for known sequencing edge cases
+
+## Module Responsibilities
+
+### [src/ynab_il_importer/upload_prep.py](../src/ynab_il_importer/upload_prep.py)
+
+Owns:
+
+- `create_target` filtering
 - readiness validation
 - account/category resolution
 - import-id generation
-- split explosion and grouping
-- upload preflight and verification
+- split explosion and regrouping for upload payloads
+- upload preflight and response verification
 
-It should not own:
+Does not own:
 
 - repo path resolution
 - context lookup
-- ad hoc CSV-vs-parquet guessing
+- legacy CSV/parquet guessing
 
-## Bank sync and reconciliation target behavior
+### [src/ynab_il_importer/bank_reconciliation.py](../src/ynab_il_importer/bank_reconciliation.py)
 
-[src/ynab_il_importer/bank_reconciliation.py](src/ynab_il_importer/bank_reconciliation.py) should consume:
+Owns:
 
-- one canonical normalized bank table
-- live YNAB accounts
-- live YNAB transactions
+- bank-source preparation from canonical columns
+- lineage sync planning
+- uncleared YNAB triage
+- reconciliation planning and patch payload generation
 
-and produce:
+### [src/ynab_il_importer/card_reconciliation.py](../src/ynab_il_importer/card_reconciliation.py)
 
-- a Polars sync report + patch payloads
-- a Polars uncleared-triage report + triage counts
-- a Polars reconciliation report + patch payloads
+Owns:
 
-The core logic should rely on canonical guarantees for:
+- card-source preparation from canonical columns
+- lineage sync planning
+- current-cycle and previous-plus-current reconciliation
+- transfer and statement-window validation
 
-- account name / account id mapping columns
-- `date`
-- `secondary_date`
-- `outflow_ils`
-- `inflow_ils`
-- `balance_ils` when reconciliation requires it
-- `bank_txn_id`
+## Current Caveats
 
-Repeated pandas coercion of those columns should be removed.
-
-## Card sync and reconciliation target behavior
-
-[src/ynab_il_importer/card_reconciliation.py](src/ynab_il_importer/card_reconciliation.py) should consume:
-
-- one canonical normalized current card table
-- optionally one canonical normalized previous statement card table
-- live YNAB accounts
-- live YNAB transactions
-
-and produce:
-
-- a Polars sync report + patch payloads
-- a Polars reconciliation report + patch payloads
-
-The module should no longer read raw `.xlsx` / `.html` / `.csv` files directly as part of reconciliation.
-
-Transition-mode reconciliation remains valid, but `previous_max` input must be normalized before the reconciliation function sees it.
-
-## Validation requirements
-
-The refactored path is considered done only when all of the following are true:
-
-1. Family upload dry run succeeds from the canonical reviewed parquet.
-2. Family upload execute succeeds from the same path.
-3. Bank lineage sync dry run and execute succeed from canonical normalized bank parquet.
-4. Card lineage sync dry run and execute succeed from canonical normalized card parquet.
-5. Bank reconciliation dry run and execute succeed from canonical normalized bank parquet.
-6. Card reconciliation dry run and execute succeed from canonical normalized current + previous canonical card parquet.
-7. All of the above run through context-driven scripts, not `workflow_profiles.py`.
-
-## Explicit non-goals
-
-- preserving old CSV-based active workflows
-- public mixed `pandas | polars | path | object` signatures in upload/reconcile core modules
-- hiding migration failures behind compatibility branches
-- leaving previous statement normalization implicit inside card reconciliation
+- [scripts/prepare_ynab_upload.py](../scripts/prepare_ynab_upload.py) is part of the active workflow but still has no dedicated pixi alias.
+- Previous MAX normalization is explicit, but it still lives outside `contexts/<context>/context.toml`; it resolves from `data/raw/previous_max/<account_suffix>/`.
+- The review app's category-cache path is still profile-based rather than context-config-based. That affects review UX, not upload or reconciliation logic.

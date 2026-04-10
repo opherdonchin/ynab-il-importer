@@ -66,7 +66,7 @@ def main() -> None:
     for source_path in candidates:
         if not source_path.exists():
             raise FileNotFoundError(f"Missing previous_max snapshot: {source_path}")
-        out_path = out_dir / f"{source_path.stem}_max_norm.csv"
+        out_path = out_dir / f"{source_path.stem}_max_norm.parquet"
         normalize_runner.normalize_one(
             source_path,
             "max",

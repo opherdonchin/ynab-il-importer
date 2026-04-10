@@ -2,289 +2,169 @@
 
 ## Purpose
 
-Define one explicit, context-driven workflow model for normalization, review building,
-review recovery, and upload preparation.
+Define the current context/run-tag workflow model for normalization, YNAB snapshot download, review building, and review app launch.
 
-The design goals are:
+The active goals are:
 
-1. one source of truth for every context fact
-2. deterministic file selection and artifact naming
-3. clear separation between:
-   - repo/workflow organization
-   - context definition
-   - business logic modules
-4. no implicit "use everything in this folder" behavior for context-sensitive workflows
+1. one explicit source of truth for context-specific paths and names
+2. deterministic source-file selection
+3. canonical Parquet artifacts at workflow boundaries
+4. repo-path logic in scripts, not in core modules
 
 ## Core Terms
 
 - `context`
-  - a named workflow identity such as `family`, `pilates`, or `aikido`
+  Named workflow identity such as `family`, `pilates`, or `aikido`.
 - `run_tag`
-  - a dated or otherwise stable folder name under raw/derived/paired, such as `2026_04_01`
+  Stable directory name under `data/raw`, `data/derived`, and `data/paired`, such as `2026_04_01`.
+- `defaults`
+  Repo-wide path roots and filename templates from [contexts/defaults.toml](../contexts/defaults.toml).
 - `context config`
-  - the non-tabular facts that define a context
-- `rule tables`
-  - CSV data that is genuinely tabular and should stay tabular
+  Context-specific non-secret configuration from `contexts/<context>/context.toml`.
 
-## Directory Model
-
-Target layout:
+## Current Directory Model
 
 ```text
 contexts/
   defaults.toml
-  family/
-    context.toml
-    fingerprint_map.csv
-    payee_map.csv
-  pilates/
-    context.toml
-    fingerprint_map.csv
-    payee_map.csv
-  aikido/
-    context.toml
-    fingerprint_map.csv
-    payee_map.csv
+  family/context.toml
+  pilates/context.toml
+  aikido/context.toml
 
 data/
   raw/<run_tag>/
   derived/<run_tag>/
   paired/<run_tag>/
+  raw/previous_max/<account_suffix>/
+  derived/previous_max/<account_suffix>/
 ```
 
-Notes:
+The active context configs still reference shared CSV rule tables under [mappings/](../mappings/). That is intentional for now; `contexts/` owns non-tabular config and artifact naming, not every editable table in the repo.
 
-- `contexts/` replaces the current overloaded role of `mappings/`.
-- `data/raw/<run_tag>/`, `data/derived/<run_tag>/`, and `data/paired/<run_tag>/` remain
-  the stable artifact roots.
-- `tmp/` remains disposable and outside the canonical workflow.
+## What Lives In Each Config
 
-## Source Of Truth
+### `contexts/defaults.toml`
 
-Each context fact should live in exactly one place.
+Owns repo-wide path and naming conventions:
 
-### 1. Context Identity
+- artifact roots
+- default review artifact names
+- upload/report filenames
 
-Lives in:
-- `contexts/<context>/context.toml`
+### `contexts/<context>/context.toml`
 
-Includes:
-- context name
-- budget environment variable name
-- exact source declarations
-- account bindings
-- any context-specific non-tabular workflow facts
+Owns context-specific facts:
 
-### 2. Account Bindings
+- `name`
+- `budget_id_env`
+- `[maps]` paths for account, fingerprint, and payee maps
+- `[ynab]` normalized YNAB artifact name
+- `[[sources]]` declarations
 
-End-state source of truth:
-- `contexts/<context>/context.toml`
+Current source declarations support:
 
-Why:
-- account bindings are structural context configuration, not fuzzy rule data
-- they are small
-- they affect source selection and account targeting directly
-
-Example shape:
-
-```toml
-[[accounts]]
-source_system = "bank"
-source_account = "67833011333622"
-ynab_account_name = "Bank Leumi"
-ynab_account_id = "..."
-
-[[accounts]]
-source_system = "card"
-source_account = "x0849"
-ynab_account_name = "Bank Leumi"
-ynab_account_id = "..."
-```
-
-### 3. Fingerprint Rules
-
-Lives in:
-- `contexts/<context>/fingerprint_map.csv`
-
-Why:
-- many rows
-- naturally tabular
-- already fits review/edit workflow
-
-### 4. Payee/Category Rules
-
-Lives in:
-- `contexts/<context>/payee_map.csv`
-
-Why:
-- many rows
-- naturally tabular
-- needs spreadsheet-style editing
-
-### 5. Repo-Wide Path And Naming Conventions
-
-Lives in:
-- `contexts/defaults.toml`
-
-Includes only workflow-wide conventions such as:
-- root directories
-- standard artifact filename templates
-- standard output filenames like fingerprint logs or categories snapshots
-
-This is repo organization, not context identity.
-
-### 6. Budget IDs
-
-Committed source of truth:
-- `contexts/<context>/context.toml` stores the environment variable key to read
-
-Local secret value source of truth:
-- environment variables and/or the existing local uncommitted config
-
-Committed config should not store live budget ids.
-
-## Context Config Model
-
-Each `context.toml` should be intentionally small.
-
-Target shape:
-
-```toml
-name = "family"
-budget_id_env = "YNAB_FAMILY_BUDGET_ID"
-
-[[sources]]
-id = "family_bank"
-kind = "leumi"
-raw_file = "Bankin family.dat"
-normalized_name = "family_leumi_norm.parquet"
-
-[[sources]]
-id = "family_card"
-kind = "max"
-raw_match = "^transaction-details_export_\\d+\\.xlsx$"
-normalized_name = "family_max_norm.parquet"
-
-[[sources]]
-id = "family_ynab"
-kind = "ynab_api"
-normalized_name = "family_ynab_api_norm.parquet"
-
-[[accounts]]
-source_system = "bank"
-source_account = "67833011333622"
-ynab_account_name = "Bank Leumi"
-ynab_account_id = "..."
-```
-
-Important source declaration rules:
-
-- do not use include/exclude globbing as the main model
-- each source must be declared explicitly
-- a source may use either:
+- `id`
+- `kind`
+- exactly one of:
   - `raw_file`
-  - or `raw_match`
-- `raw_match` must resolve to exactly one file inside `data/raw/<run_tag>/`
-- `0` matches or `>1` matches are hard failures
+  - `raw_match`
+- `normalized_name`
+- `allow_reconciled_source` for card reconciliation edge cases
 
-This supports timestamped downloads without requiring manual renaming while remaining strict.
+## Source Resolution Rules
 
-## Defaults Config Model
+Source resolution is intentionally strict:
 
-`contexts/defaults.toml` should stay small and boring.
+- `raw_file` must exist exactly at `data/raw/<run_tag>/<raw_file>`
+- `raw_match` must match exactly one file inside `data/raw/<run_tag>/`
+- zero matches or multiple matches are hard failures
 
-Example:
+This prevents the old "scan the folder and hope the right file wins" behavior.
 
-```toml
-raw_root = "data/raw"
-derived_root = "data/derived"
-paired_root = "data/paired"
-outputs_root = "outputs"
+## Budget Resolution
 
-[files]
-fingerprint_log = "fingerprint_log.csv"
-categories = "ynab_categories.csv"
-proposed_review = "{context}_proposed_transactions.parquet"
-reviewed_review = "{context}_proposed_transactions_reviewed.parquet"
+Budget ids are resolved in this order:
+
+1. explicit `--budget-id`
+2. the context's `budget_id_env`
+3. [config/ynab.local.toml](../config/ynab.local.toml), if present
+
+Committed config stores only the environment-variable name, not the live budget id.
+
+## Active Entry Points
+
+### Normalize raw source files
+
+```bash
+pixi run normalize-context -- <context> <run_tag>
 ```
 
-## Script And Module Responsibilities
+Resolves declared sources from `data/raw/<run_tag>/` and writes canonical transaction Parquet to `data/derived/<run_tag>/`.
 
-### Modules Under `src/`
+### Download YNAB snapshot
 
-Modules should know:
-- how to normalize one file
+```bash
+pixi run download-context-ynab -- <context> <run_tag>
+```
+
+Writes the declared normalized YNAB artifact to `data/derived/<run_tag>/`.
+
+### Build review artifact
+
+```bash
+pixi run build-context-review -- <context> <run_tag>
+```
+
+Loads the declared normalized source artifacts plus the normalized YNAB artifact and writes the canonical review artifact to `data/paired/<run_tag>/`.
+
+### Launch review app
+
+```bash
+pixi run review-context -- <context> <run_tag>
+```
+
+Resolves:
+
+- the proposal review artifact
+- the standard reviewed artifact path
+- the profile name passed to the review app wrapper
+
+One current caveat remains: the review app still resolves its default category-cache path through [src/ynab_il_importer/workflow_profiles.py](../src/ynab_il_importer/workflow_profiles.py), not through `contexts/defaults.toml`.
+
+## Responsibilities
+
+### Code under `src/`
+
+Should know:
+
+- how to normalize one file type
+- how to read and write canonical artifacts
 - how to build review artifacts
-- how to reconcile review artifacts
-- how to project review artifacts into working frames
+- how to project review artifacts into working dataframes
 
-Modules should not know:
-- where the repo stores raw/derived/paired folders
-- how a context chooses its source files
-- how run tags map to directories
+Should not know:
+
+- repo root paths
+- run-tag directory layout
+- context-specific file discovery rules
 
 ### Scripts
 
-Scripts are the bridge between repo organization and module APIs.
+Should know:
 
-Scripts should:
-- read `defaults.toml`
-- read `context.toml`
-- resolve `run_tag` to real directories
-- resolve declared source files under `data/raw/<run_tag>/`
-- pass explicit parameters into module functions
+- how to load defaults and context config
+- how to resolve `run_tag` directories
+- how to map context config onto explicit module calls
 
-Scripts should not:
-- contain business logic that belongs in `src/`
-- guess context membership from "all files in a directory"
+Should not know:
 
-## Human-Facing Workflow
+- business logic that belongs in `src/`
+- ad hoc directory sweeps for context-sensitive workflows
 
-Target usage pattern:
+## Current Non-Goals
 
-```bash
-pixi run context:normalize -- family 2026_04_01
-pixi run context:build-review -- family 2026_04_01
-pixi run context:reconcile-review -- family 2026_04_01
-pixi run context:review-app -- family 2026_04_01
-```
+These are not part of the active context workflow model today:
 
-The human supplies:
-- context
-- run tag
-
-Everything else is resolved through:
-- `contexts/defaults.toml`
-- `contexts/<context>/context.toml`
-
-## Script Organization
-
-Target organization:
-
-```text
-scripts/
-  normalize_context.py
-  build_context_review.py
-  reconcile_context_review.py
-  review_context_app.py
-  prepare_context_upload.py
-  diagnostics/
-  bootstrap/
-  archive/
-```
-
-Top-level scripts are stable workflow entrypoints only.
-
-## Migration Constraints
-
-The migration should be staged.
-
-Near-term coexistence is acceptable for:
-- old `workflow_profiles.py`
-- old `mappings/` paths
-- legacy scripts
-
-But the target state is:
-- `contexts/` is the active configuration root
-- context-driven scripts are the official workflow entrypoints
-- ad hoc folder sweeps are removed from context-sensitive workflows
+- reviving the old profile/path CSV workflow as the default path
+- moving every mapping CSV into `contexts/`
+- documenting legacy diagnostic scripts as first-class workflow entrypoints

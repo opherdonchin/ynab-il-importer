@@ -1,182 +1,148 @@
 # Architecture Overview
 
-This document is the high-level map for the codebase.
-It is meant to answer a newcomer's first question: "Which modules own which stage of the workflow?"
+This is the high-level map of the current codebase.
 
-## Core Idea
+The active workflow is a staged pipeline:
 
-The project builds deterministic CSV artifacts first, asks a human to review them, and only then mutates YNAB.
+1. resolve one `context` and one `run_tag`
+2. normalize raw source files into canonical transaction Parquet
+3. download a canonical YNAB transaction snapshot
+4. build a canonical review artifact
+5. project that artifact into one flat working dataframe for review and upload logic
+6. prepare upload, sync lineage, and reconcile accounts
 
-That means the codebase is best read as a staged pipeline rather than as one large application:
+## Core Boundaries
 
-1. Normalize raw bank/card/YNAB inputs into a common tabular shape.
-2. Build identities, fingerprints, matches, and rule-driven suggestions.
-3. Produce review-row CSVs.
-4. Let the human review and edit those rows in the review app.
-5. Prepare upload/sync/reconcile actions from reviewed artifacts.
-
-## Main Stages
-
-### 1. Input Normalization
+### 1. Context configuration
 
 Purpose:
-- read raw bank/card/YNAB exports
-- normalize them into stable CSV columns
-- derive account identity and other workflow inputs
 
-Key modules:
-- `src/ynab_il_importer/io_leumi.py`
-- `src/ynab_il_importer/io_leumi_xls.py`
-- `src/ynab_il_importer/io_leumi_card_html.py`
-- `src/ynab_il_importer/io_max.py`
-- `src/ynab_il_importer/io_ynab.py`
-- `src/ynab_il_importer/normalize.py`
-- `src/ynab_il_importer/account_map.py`
+- declare exact source files for a context
+- declare artifact names
+- resolve budget ids and map paths
 
-Common entry points:
-- `scripts/normalize_file.py`
-- `scripts/download_ynab_api.py`
-- `scripts/download_ynab_categories.py`
+Key code:
 
-### 2. Matching, Fingerprints, and Rule Application
+- [src/ynab_il_importer/context_config.py](../src/ynab_il_importer/context_config.py)
+- [contexts/defaults.toml](../contexts/defaults.toml)
+- [contexts/family/context.toml](../contexts/family/context.toml)
+
+### 2. Canonical transaction artifacts
 
 Purpose:
-- derive stable text fingerprints
-- pair source rows with YNAB rows
-- apply payee/category rules
-- identify ambiguous or unmatched cases
 
-Key modules:
-- `src/ynab_il_importer/fingerprint.py`
-- `src/ynab_il_importer/pairing.py`
-- `src/ynab_il_importer/rules.py`
-- `src/ynab_il_importer/map_updates.py`
-- `src/ynab_il_importer/workflow_profiles.py`
+- normalize source files and YNAB downloads into one canonical transaction schema
+- preserve real nested split data where it exists
 
-Common entry points:
-- `scripts/build_proposed_transactions.py`
-- `scripts/bootstrap_pairs.py`
-- `scripts/build_groups.py`
-- `scripts/bootstrap_payee_map.py`
+Key code:
 
-### 3. Review Artifact Shape
+- [src/ynab_il_importer/artifacts/transaction_schema.py](../src/ynab_il_importer/artifacts/transaction_schema.py)
+- [src/ynab_il_importer/artifacts/transaction_io.py](../src/ynab_il_importer/artifacts/transaction_io.py)
+- [src/ynab_il_importer/normalize_runner.py](../src/ynab_il_importer/normalize_runner.py)
+- importer modules such as:
+  - [src/ynab_il_importer/io_leumi.py](../src/ynab_il_importer/io_leumi.py)
+  - [src/ynab_il_importer/io_max.py](../src/ynab_il_importer/io_max.py)
+  - [src/ynab_il_importer/ynab_api.py](../src/ynab_il_importer/ynab_api.py)
 
-Purpose:
-- keep one human-editable review-row schema as the control point between inference and mutation
-- preserve explicit source/target semantics
+Active entrypoints:
 
-Primary design docs:
-- `documents/decisions/unified_review_model_design.md`
-- `documents/decisions/unified_review_model_schema.md`
+- [scripts/normalize_context.py](../scripts/normalize_context.py)
+- [scripts/download_ynab_api.py](../scripts/download_ynab_api.py)
+- [scripts/normalize_previous_max.py](../scripts/normalize_previous_max.py)
 
-Important note:
-- unsuffixed columns like `payee_selected` and `category_selected` are compatibility/readability aliases for the target side in some flows
-- persisted review data is side-specific: `source_*_selected` and `target_*_selected`
-
-### 4. Review App
+### 3. Review build
 
 Purpose:
-- load proposed review rows
-- derive blocker/state/filter information
-- let the user edit source/target selections and decisions
-- save reviewed rows back to CSV
 
-Package:
-- `src/ynab_il_importer/review_app/`
+- pair source rows against YNAB rows
+- apply deterministic payee/category suggestions
+- build the persisted review artifact
 
-Submodules:
-- `app.py`: Streamlit UI, session state, orchestration
-- `state.py`: derived series, filtering, row-edit helpers
-- `validation.py`: blocker logic, allowed actions, component validation
-- `model.py`: edit application and competing-row behavior
-- `io.py`: load/save of review CSVs
+Key code:
 
-Entry points:
-- `scripts/review_app.py`
-- `documents/review_app_workflow.md`
+- [scripts/build_context_review.py](../scripts/build_context_review.py)
+- [scripts/build_proposed_transactions.py](../scripts/build_proposed_transactions.py)
+- [src/ynab_il_importer/pairing.py](../src/ynab_il_importer/pairing.py)
+- [src/ynab_il_importer/rules.py](../src/ynab_il_importer/rules.py)
 
-### 5. Upload Preparation and Execution
+### 4. Canonical review artifact and working projection
 
 Purpose:
-- convert reviewed rows into YNAB-ready payloads
-- keep upload behavior explicit, dry-runnable, and idempotent
 
-Key modules:
-- `src/ynab_il_importer/upload_prep.py`
-- `src/ynab_il_importer/ynab_api.py`
-- `src/ynab_il_importer/export.py`
+- persist review state as `review_v4` Parquet
+- keep source/target current and original transaction structs intact
+- derive one flat working dataframe for app and upload logic
 
-Entry points:
-- `scripts/prepare_ynab_upload.py`
+Key code:
 
-### 6. Reconciliation and Post-Review Flows
+- [src/ynab_il_importer/artifacts/review_schema.py](../src/ynab_il_importer/artifacts/review_schema.py)
+- [src/ynab_il_importer/review_app/io.py](../src/ynab_il_importer/review_app/io.py)
+- [src/ynab_il_importer/review_app/working_schema.py](../src/ynab_il_importer/review_app/working_schema.py)
+- [src/ynab_il_importer/review_reconcile.py](../src/ynab_il_importer/review_reconcile.py)
+
+Important rule:
+
+- the persisted artifact is canonical
+- the flat working dataframe is derived and not itself a persisted format contract
+
+### 5. Review app
 
 Purpose:
-- sync lineage onto existing YNAB rows
-- reconcile bank/card/cross-budget states after upload or review
 
-Key modules:
-- `src/ynab_il_importer/bank_reconciliation.py`
-- `src/ynab_il_importer/card_reconciliation.py`
-- `src/ynab_il_importer/cross_budget_reconciliation.py`
-- `src/ynab_il_importer/review_reconcile.py`
+- load the working projection
+- show row and grouped review state
+- let the human edit selected values and decisions
+- save back to the canonical review artifact
 
-Entry points:
-- `scripts/sync_bank_matches.py`
-- `scripts/sync_card_matches.py`
-- `scripts/reconcile_bank_statement.py`
-- `scripts/reconcile_card_cycle.py`
-- `scripts/reconcile_cross_budget_balance.py`
-- `scripts/reconcile_reviewed_transactions.py`
+Key code:
 
-## Two Kinds of Entry Point
+- [scripts/review_context.py](../scripts/review_context.py)
+- [scripts/review_app.py](../scripts/review_app.py)
+- [src/ynab_il_importer/review_app/app.py](../src/ynab_il_importer/review_app/app.py)
+- [src/ynab_il_importer/review_app/state.py](../src/ynab_il_importer/review_app/state.py)
+- [src/ynab_il_importer/review_app/validation.py](../src/ynab_il_importer/review_app/validation.py)
+- [src/ynab_il_importer/review_app/model.py](../src/ynab_il_importer/review_app/model.py)
 
-There are two parallel "front doors" in the repo:
+### 6. Upload, sync, and reconciliation
 
-- `scripts/`
-  - operational wrappers used directly in day-to-day runs
-  - often handle CLI parsing, path defaults, and process launching
-- `src/ynab_il_importer/cli.py`
-  - package CLI surface for commands that have been promoted into the main application interface
+Purpose:
 
-As a rule of thumb, business logic should live in `src/`, while `scripts/` should stay thin wrappers when practical.
+- prepare explicit `create_target` rows for YNAB upload
+- stamp lineage markers onto existing YNAB rows
+- reconcile bank and card accounts against canonical normalized inputs
 
-## Where To Start Reading
+Key code:
 
-If you want to understand behavior:
+- [scripts/prepare_ynab_upload.py](../scripts/prepare_ynab_upload.py)
+- [src/ynab_il_importer/upload_prep.py](../src/ynab_il_importer/upload_prep.py)
+- [scripts/sync_bank_matches.py](../scripts/sync_bank_matches.py)
+- [scripts/reconcile_bank_statement.py](../scripts/reconcile_bank_statement.py)
+- [scripts/sync_card_matches.py](../scripts/sync_card_matches.py)
+- [scripts/reconcile_card_cycle.py](../scripts/reconcile_card_cycle.py)
+- [src/ynab_il_importer/bank_reconciliation.py](../src/ynab_il_importer/bank_reconciliation.py)
+- [src/ynab_il_importer/card_reconciliation.py](../src/ynab_il_importer/card_reconciliation.py)
 
-1. Read `README.md` for the runnable workflow.
-2. Read `documents/project_context.md`.
-3. Read the unified review model docs in `documents/decisions/`.
-4. Read this file.
-5. Then jump into the stage you care about.
+## Current Legacy Edges
 
-Suggested code-reading paths:
+These are still present, but they are not the preferred workflow model:
 
-- Review app:
-  - `scripts/review_app.py`
-  - `src/ynab_il_importer/review_app/app.py`
-  - `src/ynab_il_importer/review_app/state.py`
-  - `src/ynab_il_importer/review_app/validation.py`
+- [src/ynab_il_importer/workflow_profiles.py](../src/ynab_il_importer/workflow_profiles.py)
+  Still supplies the review app's default category-cache path.
+- older one-off scripts under [scripts/](../scripts/)
+  Useful for diagnostics or migration support, but not the default runbook.
 
-- Import/build pipeline:
-  - `scripts/normalize_file.py`
-  - `scripts/build_proposed_transactions.py`
-  - `src/ynab_il_importer/pairing.py`
-  - `src/ynab_il_importer/rules.py`
+## Suggested Reading Paths
 
-- Upload/reconcile pipeline:
-  - `scripts/prepare_ynab_upload.py`
-  - `src/ynab_il_importer/upload_prep.py`
-  - `src/ynab_il_importer/bank_reconciliation.py`
-  - `src/ynab_il_importer/card_reconciliation.py`
+If you want to understand the workflow end to end:
 
-## Current Pain Points
+1. [README.md](../README.md)
+2. [context_workflow_spec.md](context_workflow_spec.md)
+3. [upload_reconcile_cutover_spec.md](upload_reconcile_cutover_spec.md)
+4. Then follow the code in the stage you care about.
 
-The main architectural debt that still matters:
+If you want to understand the review model first:
 
-- `src/ynab_il_importer/review_app/app.py` is still too large
-- some scripts still hold more workflow logic than ideal
-- a few compatibility conventions are implicit rather than explained in code
-
-Those are active cleanup areas, not signs that the core model is unstable.
+1. [decisions/unified_review_model_design.md](decisions/unified_review_model_design.md)
+2. [decisions/unified_review_model_schema.md](decisions/unified_review_model_schema.md)
+3. [src/ynab_il_importer/review_app/io.py](../src/ynab_il_importer/review_app/io.py)
+4. [src/ynab_il_importer/review_app/working_schema.py](../src/ynab_il_importer/review_app/working_schema.py)

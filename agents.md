@@ -18,7 +18,7 @@
 - Prefer explicit, strict boundaries over compatibility layers.
 - Do not preserve old behavior, formats, or compatibility paths unless they clearly serve the active plan.
 - Do not “hedge” for incomplete or malformed inputs unless explicitly requested; prefer failing fast and fixing the real boundary.
-- Validate once, use often: don't write code that is defensive about its inputs if you can see that its inputs are guranateed by the calling layer. If not, check if object validity can be ensured earlier in some way and then utitlized. In general, avoid defensive, over-engineered programming or code that is ignorant of its context.
+- Validate once, use often: don't write code that is defensive about its inputs if you can see that its inputs are guaranteed by the calling layer. If not, check if object validity can be ensured earlier in some way and then utilized. In general, avoid defensive, over-engineered programming or code that is ignorant of its context.
 - Centralize construction, normalization, flattening, explosion, and validation at clear boundaries instead of spreading them through the codebase.
 - Prefer dataframe-level operations over Python loops, dict unpacking, and ad hoc row logic whenever practical.
 - Be honest in naming. Do not use names like `precompute_*` for plain full-dataframe passes. In general, be wary of paying attention to promises in variable or function names when the actual code doesn't support the naming that is provided. In such cases, work to make 'honest' code.

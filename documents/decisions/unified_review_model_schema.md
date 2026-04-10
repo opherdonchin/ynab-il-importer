@@ -1,51 +1,91 @@
-# Unified Review Model - Technical Contract
+# Unified Review Model Schema
 
-## Hard Cutover
+## Canonical Persisted Artifact
 
-The persisted review CSV is the only review artifact. There is no `--out-v2` flag and no legacy proposal-format path to maintain.
+The persisted review artifact is canonical `review_v4` Parquet, defined in [src/ynab_il_importer/artifacts/review_schema.py](../../src/ynab_il_importer/artifacts/review_schema.py).
 
-## Canonical Persisted Fields
+It contains:
 
-The persisted file should carry:
+- review/control fields
+- `source_current`
+- `target_current`
+- `source_original`
+- `target_original`
+
+Those four transaction fields use the canonical `transaction_v1` struct from [src/ynab_il_importer/artifacts/transaction_schema.py](../../src/ynab_il_importer/artifacts/transaction_schema.py).
+
+## Canonical Control Fields
+
+The persisted artifact carries these top-level review fields:
+
 - row identity and relation state
-- source-side snapshot fields
-- target-side snapshot fields
+- `match_status` and `match_method`
+- `payee_options` and `category_options`
+- `decision_action`
+- `reviewed`
+- `changed`
+- `memo_append`
+- side-presence flags and row ids
 - side-specific selected values
-- row decision fields
-- review state
+- `update_maps`
 
-Required naming and shape decisions:
+Required naming rules:
+
 - side-specific selected fields are canonical:
   - `source_payee_selected`
   - `source_category_selected`
   - `target_payee_selected`
   - `target_category_selected`
-- unsuffixed `payee_selected` and `category_selected` do not belong in the persisted review CSV
-- the row action column is `decision_action`
-- the review gate is `reviewed`
-- map update intent lives in `update_maps`
+- unsuffixed `payee_selected` and `category_selected` are working-dataframe aliases only
+- `decision_action` is the stored row action
+- `reviewed` is the stored review gate
+- `changed` is persisted review state, not a derived UI-only hint
+
+## Working Projection
+
+The persisted artifact is not the everyday UI shape.
+
+The active app/upload shape is a flat working dataframe built through:
+
+1. [review_app/io.project_review_artifact_to_working_dataframe](../../src/ynab_il_importer/review_app/io.py)
+2. [review_app/working_schema.build_working_dataframe](../../src/ynab_il_importer/review_app/working_schema.py)
+
+That working dataframe contains:
+
+- review/control columns
+- exploded current source/target scalar columns
+- split columns
+- current/original transaction reference columns
+- unsuffixed `payee_selected` and `category_selected` aliases for the target side
+
+The working projection is derived. It is not a second persisted artifact format.
 
 ## Invariants
 
-- Repeated `source_row_id` values are allowed.
-- Repeated `target_row_id` values are allowed.
-- Source-side selected values must stay consistent across rows sharing the same source transaction.
-- Target-side selected values must stay consistent across rows sharing the same target transaction.
-- `decision_action` is stored per row.
-- `reviewed` propagates across the connected component induced by shared source and target IDs.
+The persisted artifact must satisfy:
 
-## Default Builder Outputs
+- repeated `source_row_id` values are allowed
+- repeated `target_row_id` values are allowed
+- side-specific selected values must stay consistent across rows sharing the same source or target transaction
+- `decision_action` is stored per row
+- `reviewed` propagates across the connected component induced by shared source and target ids
+- if `changed = FALSE`, current and original transaction structs must be equal for both sides
+- split totals must equal the parent transaction amount for both current and original transaction structs
+
+## Builder Defaults
+
+Current institutional builders seed:
 
 - `matched_auto` -> `reviewed = FALSE`, `decision_action = keep_match`
+- `matched_cleared` -> `reviewed = TRUE`, `decision_action = keep_match`
 - `source_only` -> `reviewed = FALSE`, `decision_action = create_target`
-- `target_only` -> `reviewed = FALSE`, `decision_action = create_source`
-- `ambiguous` -> `reviewed = FALSE`, `decision_action = No decision`
-
-These are defaults, not approvals.
+- unsettled `target_only` -> `reviewed = FALSE`, `decision_action = No decision`
+- auto-settled `target_only` rows -> `reviewed = TRUE`, `decision_action = ignore_row`
 
 ## Review Validation Rules
 
 A row or connected component cannot be reviewed if:
+
 - any reviewed row still has `decision_action = No decision`
 - an institutional-source row uses `create_source`, `delete_source`, or `delete_both`
 - a transaction is both matched and deleted
@@ -54,16 +94,13 @@ A row or connected component cannot be reviewed if:
 
 Unreviewed inconsistency is allowed. Reviewed inconsistency is not.
 
-## Current Execution Boundary
+## Execution Boundary
 
-For the current cutover, upload preparation should only prepare explicit reviewed `create_target` rows. Other actions still need coherent persistence and validation even if their execution path is deferred.
+The active upload path prepares only explicit reviewed `create_target` rows.
 
-## `update_maps`
+Other stored actions still matter because they must round-trip cleanly through:
 
-`update_maps` replaces the old boolean `update_map`. The minimal intent set discussed so far is:
-- add source to fingerprint-map options
-- limit fingerprint-map options to this source
-- add fingerprint to payee-map options
-- limit payee-map options to this fingerprint
-
-The storage format can be simple, but it should be explicit and non-boolean.
+- builder output
+- review save/load
+- rebuild reconciliation
+- validation and reporting

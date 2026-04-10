@@ -1,28 +1,32 @@
 # Documents Guide
 
-This folder is intentionally small at the top level.
+Start with the active docs:
 
-Start here:
-1. `project_context.md` - durable project orientation
-2. `plan.md` - the current active workstream and next steps
+1. [project_context.md](project_context.md)
+2. [plan.md](plan.md)
+3. [architecture_overview.md](architecture_overview.md)
 
-If you are touching the unified review cutover, read next:
-- `decisions/unified_review_model_design.md`
-- `decisions/unified_review_model_schema.md`
+Then read the workflow docs you need:
+
+- [context_workflow_spec.md](context_workflow_spec.md)
+  Context config model, run-tag path resolution, and active build/review entrypoints.
+- [upload_reconcile_cutover_spec.md](upload_reconcile_cutover_spec.md)
+  Active upload, sync, and reconciliation path after review.
+
+Durable model docs:
+
+- [decisions/unified_review_model_design.md](decisions/unified_review_model_design.md)
+- [decisions/unified_review_model_schema.md](decisions/unified_review_model_schema.md)
 
 Reference:
-- `reference/reconciliation_packets.md`
-- `reference/update_workflow.md`
-- `reference/NIS_Transactions_File_Structure_acc.pdf`
 
-Archive:
-- `archive/plan_*.md` - old plan snapshots
-- `archive/drafts/` - superseded draft plans
-- `archive/handoffs/` - handoff packets and snapshots
-- `archive/legacy_docs_2026-03-28/` - older topical notes kept for recovery, not guidance
+- [reference/reconciliation_packets.md](reference/reconciliation_packets.md)
 
-Rule of thumb:
-- read top-level docs for what matters now
-- read `decisions/` for settled rules
-- read `reference/` for durable operational detail
-- treat `archive/` as historical material
+Historical material:
+
+- `archive/plan_*.md`
+- `archive/drafts/`
+- `archive/handoffs/`
+- `archive/legacy_docs_2026-03-28/`
+
+Archive docs are intentionally historical. They are kept for recovery and audit trails, not as current guidance.
