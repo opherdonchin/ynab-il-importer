@@ -120,6 +120,7 @@ def apply_to_same_fingerprint(
 
     fingerprint_value = str(fingerprint).strip()
     rows = df.to_dicts()
+    original_rows = [dict(current_row) for current_row in rows]
     eligible_values = _eligible_mask_values(eligible_mask, len(rows))
     touched_indices: list[int] = []
 
@@ -161,6 +162,29 @@ def apply_to_same_fingerprint(
             category=category,
         )
     updated = review_state._recompute_presence(updated, touched_indices)
+    if reviewed is None and "reviewed" in updated.columns:
+        updated_rows = updated.to_dicts()
+        edited_fields = [
+            "target_payee_selected",
+            "target_category_selected",
+            "memo_append",
+            "update_maps",
+            "decision_action",
+        ]
+        implicit_reopen_indices = [
+            current_idx
+            for current_idx in touched_indices
+            if any(
+                updated_rows[current_idx].get(field) != original_rows[current_idx].get(field)
+                for field in edited_fields
+            )
+        ]
+        if implicit_reopen_indices:
+            updated, _ = review_state.apply_review_flag(
+                updated,
+                implicit_reopen_indices,
+                reviewed=False,
+            )
     updated = review_state.recompute_changed_for_rows(updated, touched_indices)
     updated = review_state.rebuild_working_rows(updated, touched_indices)
     return updated
@@ -201,6 +225,8 @@ def apply_competing_row_resolution(
         for current_idx in competing_indices:
             if "decision_action" in rows[current_idx]:
                 rows[current_idx]["decision_action"] = "ignore_row"
+            if "reviewed" in rows[current_idx]:
+                rows[current_idx]["reviewed"] = False
         touched.extend(competing_indices)
 
     if not touched:

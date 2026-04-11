@@ -368,11 +368,13 @@ def review_filter_state_view(
         [
             pl.when(pl.col("reviewed_bool") & pl.col("blocker_label").is_in(["", "None"]))
             .then(pl.lit("Settled"))
+            .when(pl.col("blocker_label").eq("Decision required"))
+            .then(pl.lit("Needs decision"))
             .when(~pl.col("blocker_label").is_in(["", "None"]))
-            .then(pl.lit("Fix"))
+            .then(pl.lit("Needs fix"))
             .when(pl.col("action_label").ne("No decision"))
-            .then(pl.lit("Decide"))
-            .otherwise(pl.lit("Fix"))
+            .then(pl.lit("Needs review"))
+            .otherwise(pl.lit("Needs decision"))
             .alias("primary_state"),
         ]
     ).select(
@@ -837,12 +839,14 @@ def primary_state_series(df: pl.DataFrame, blocker_series: pl.Series) -> pl.Seri
     for is_reviewed, blocker_value, action_value in zip(reviewed_values, blocker, action, strict=False):
         if is_reviewed and blocker_value in {"", "None"}:
             states.append("Settled")
+        elif blocker_value == "Decision required":
+            states.append("Needs decision")
         elif blocker_value not in {"", "None"}:
-            states.append("Fix")
+            states.append("Needs fix")
         elif action_value != "No decision":
-            states.append("Decide")
+            states.append("Needs review")
         else:
-            states.append("Fix")
+            states.append("Needs decision")
     return pl.Series(states, dtype=pl.Utf8)
 
 
@@ -1386,6 +1390,52 @@ def recompute_changed_for_rows(df: pl.DataFrame, indices: list[Any]) -> pl.DataF
     return pl.from_dicts(rows, infer_schema_length=None)
 
 
+def apply_review_flag(
+    df: pl.DataFrame,
+    indices: list[Any],
+    *,
+    reviewed: bool,
+    component_map: dict[Any, int] | None = None,
+) -> tuple[pl.DataFrame, list[int]]:
+    touched = [
+        current_idx
+        for current_idx in dict.fromkeys(indices)
+        if isinstance(current_idx, int) and 0 <= current_idx < len(df)
+    ]
+    if not touched or "reviewed" not in df.columns:
+        return df, []
+
+    if component_map is None:
+        import ynab_il_importer.review_app.validation as review_validation
+
+        component_map = review_validation.compute_components(df)
+
+    affected: list[int] = []
+    seen_components: set[int] = set()
+    for current_idx in touched:
+        component_label = component_map.get(current_idx)
+        if component_label is None:
+            affected.append(current_idx)
+            continue
+        if component_label in seen_components:
+            continue
+        seen_components.add(component_label)
+        affected.extend(
+            idx
+            for idx, label in component_map.items()
+            if label == component_label and isinstance(idx, int) and 0 <= idx < len(df)
+        )
+
+    affected = list(dict.fromkeys(affected))
+    if not affected:
+        return df, []
+
+    rows = df.to_dicts()
+    for current_idx in affected:
+        rows[current_idx]["reviewed"] = bool(reviewed)
+    return pl.from_dicts(rows, infer_schema_length=None), affected
+
+
 def _signed_amount_from_row_values(*, inflow: Any, outflow: Any) -> float:
     inflow_value = _parse_float_value(inflow)
     outflow_value = _parse_float_value(outflow)
@@ -1561,6 +1611,8 @@ def apply_target_split_edit(
     )
 
     updated = pl.from_dicts(rows, infer_schema_length=None)
+    if "reviewed" in updated.columns:
+        updated, _ = apply_review_flag(updated, [idx], reviewed=False)
     updated = recompute_changed_for_rows(updated, [idx])
     updated = rebuild_working_rows(updated, [idx])
     updated = recompute_changed_for_rows(updated, [idx])
@@ -1589,6 +1641,7 @@ def apply_row_edit(
     import ynab_il_importer.review_app.validation as review_validation
 
     rows = df.to_dicts()
+    original_rows = [dict(current_row) for current_row in rows]
     row = rows[idx]
     target_payee = payee if target_payee is None else target_payee
     target_category = category if target_category is None else target_category
@@ -1651,6 +1704,34 @@ def apply_row_edit(
     updated = pl.from_dicts(rows, infer_schema_length=None)
     updated = _recompute_presence(updated, [idx])
     rows = updated.to_dicts()
+    changed_indices = list(dict.fromkeys([*source_indices, *target_indices, idx]))
+    if reviewed is None and "reviewed" in updated.columns:
+        edited_fields = [
+            "source_payee_selected",
+            "source_category_selected",
+            "target_payee_selected",
+            "target_category_selected",
+            "memo_append",
+            "update_maps",
+            "decision_action",
+        ]
+        implicit_reopen_indices = [
+            current_idx
+            for current_idx in changed_indices
+            if 0 <= current_idx < len(rows)
+            and any(
+                rows[current_idx].get(field) != original_rows[current_idx].get(field)
+                for field in edited_fields
+            )
+        ]
+        if implicit_reopen_indices:
+            updated, _ = apply_review_flag(
+                updated,
+                implicit_reopen_indices,
+                reviewed=False,
+                component_map=component_map,
+            )
+            rows = updated.to_dicts()
     if reviewed is not None and "reviewed" in rows[idx]:
         if component_map is None:
             reviewed_mask = review_validation.connected_component_mask(updated, idx)
@@ -1669,7 +1750,6 @@ def apply_row_edit(
             if 0 <= current_idx < len(rows):
                 rows[current_idx]["reviewed"] = bool(reviewed)
         updated = pl.from_dicts(rows, infer_schema_length=None)
-    changed_indices = list(dict.fromkeys([*source_indices, *target_indices, idx]))
     updated = recompute_changed_for_rows(updated, changed_indices)
     updated = rebuild_working_rows(updated, changed_indices)
     return updated

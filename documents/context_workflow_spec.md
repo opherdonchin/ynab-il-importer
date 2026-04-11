@@ -135,6 +135,25 @@ Behavior:
 - if the standard reviewed artifact already exists, the launcher automatically passes it as `--resume`
 - if no reviewed artifact exists yet, the app starts from the proposal artifact only
 
+Current review-state model inside the app:
+
+- `Needs fix`
+  The row is invalid or incomplete.
+- `Needs decision`
+  The row is valid, but `decision_action` is still `No decision`.
+- `Needs review`
+  The row is valid, has a decision, and still needs acceptance.
+- `Settled`
+  The row has been accepted.
+
+Current fresh-build defaults are intentional:
+
+- matched rows start with `decision_action = keep_match`, `reviewed = FALSE`
+- source-only rows start with `decision_action = create_target`, `reviewed = FALSE`
+- target-only rows start with `decision_action = No decision`, `reviewed = FALSE`
+
+This means existing YNAB-only rows require an explicit decision in review; they do not auto-default to `ignore_row`.
+
 Supported options on the launcher:
 
 ```bash

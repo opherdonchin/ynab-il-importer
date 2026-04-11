@@ -463,7 +463,7 @@ def validate_row(row: Any) -> tuple[list[str], list[str]]:
     update_maps = parse_update_maps(_row_get(row, "update_maps", ""))
 
     if reviewed and action == NO_DECISION:
-        errors.append("reviewed row cannot have No decision")
+        errors.append("accepted row cannot have No decision")
     if workflow_type == "institutional" and action in SOURCE_MUTATION_ACTIONS:
         errors.append(f"{action} is not allowed for institutional sources")
     if action == "create_source":
@@ -529,7 +529,7 @@ def review_component_errors(
     component_mask: pl.Series | None = None,
     component_indices: list[Any] | None = None,
     row_errors_by_index: dict[Any, list[str]] | None = None,
-    rows: list[dict[str, Any]] | None = None,
+    rows: list[dict[str, Any]] | dict[Any, dict[str, Any]] | None = None,
 ) -> list[str]:
     if component_indices is None:
         if component_mask is not None:
@@ -544,7 +544,14 @@ def review_component_errors(
             component_indices = _component_members(component_map).get(component_label, [])
 
     row_cache = rows if rows is not None else df.to_dicts()
-    component_rows = _row_items(row_cache, component_indices)
+    if isinstance(row_cache, dict):
+        component_rows = [
+            (idx, row_cache[idx])
+            for idx in component_indices
+            if idx in row_cache and isinstance(row_cache[idx], dict)
+        ]
+    else:
+        component_rows = _row_items(row_cache, component_indices)
     if not component_rows:
         return []
 
@@ -573,7 +580,7 @@ def review_component_errors(
     for source_id in sorted({value for value in source_ids if value}):
         group_actions = [action for sid, action in zip(source_ids, actions, strict=False) if sid == source_id]
         if sum(1 for action in group_actions if action in SOURCE_MATCH_ACTIONS) > 1:
-            errors.append(f"source transaction {source_id} has multiple reviewed match outcomes")
+            errors.append(f"source transaction {source_id} has multiple accepted match outcomes")
         if any(action in SOURCE_MATCH_ACTIONS for action in group_actions) and any(
             action in SOURCE_DELETE_ACTIONS for action in group_actions
         ):
@@ -582,7 +589,7 @@ def review_component_errors(
     for target_id in sorted({value for value in target_ids if value}):
         group_actions = [action for tid, action in zip(target_ids, actions, strict=False) if tid == target_id]
         if sum(1 for action in group_actions if action in TARGET_MATCH_ACTIONS) > 1:
-            errors.append(f"target transaction {target_id} has multiple reviewed match outcomes")
+            errors.append(f"target transaction {target_id} has multiple accepted match outcomes")
         if any(action in TARGET_MATCH_ACTIONS for action in group_actions) and any(
             action in TARGET_DELETE_ACTIONS for action in group_actions
         ):
@@ -604,7 +611,7 @@ def blocker_label(
     combined_errors = list(row_errors) + list(component_errors)
 
     if any(
-        ("multiple reviewed match outcomes" in error) or ("both matched and deleted" in error)
+        ("multiple accepted match outcomes" in error) or ("both matched and deleted" in error)
         for error in combined_errors
     ):
         return "Contradiction in component"
@@ -614,7 +621,7 @@ def blocker_label(
     ):
         return "Institutional source mutation"
     if action == NO_DECISION or any("No decision" in error for error in combined_errors):
-        return "No decision"
+        return "Decision required"
     if any(("missing" in error) and ("payee" in error) for error in row_errors):
         return "Missing payee"
     if any(("missing" in error) and ("category" in error) for error in row_errors):
@@ -665,45 +672,55 @@ def apply_review_state(
     if not touched:
         return edited_df, []
 
-    updated = edited_df
-    for idx in touched:
-        updated = review_state.apply_row_edit(
-            updated,
-            idx,
-            reviewed=reviewed,
-            component_map=component_map,
-        )
+    if component_map is None:
+        component_map = compute_components(edited_df)
+
+    updated, affected_indices = review_state.apply_review_flag(
+        edited_df,
+        touched,
+        reviewed=reviewed,
+        component_map=component_map,
+    )
+    if not affected_indices:
+        return edited_df, []
 
     if not reviewed:
         return updated, []
 
     errors: list[str] = []
-    if component_map is None:
-        component_map = compute_components(updated)
-    component_series = component_map
+    component_indices_map = _component_members(component_map)
     seen_components: set[int] = set()
     for idx in touched:
         component_label = component_map.get(idx)
         if component_label is None or component_label in seen_components:
             continue
         seen_components.add(component_label)
-        component_mask = pl.Series(
-            [component_series.get(current_idx) == component_label for current_idx in range(len(updated))],
-            dtype=pl.Boolean,
-        )
+        component_indices = component_indices_map.get(component_label, [])
+        component_rows = {
+            current_idx: updated.row(current_idx, named=True)
+            for current_idx in component_indices
+        }
+        row_errors_by_index = {
+            current_idx: validate_row(row)[0]
+            for current_idx, row in component_rows.items()
+        }
         errors.extend(
-            review_component_errors(updated, idx, component_mask=component_mask)
+            review_component_errors(
+                updated,
+                idx,
+                component_indices=component_indices,
+                row_errors_by_index=row_errors_by_index,
+                rows=component_rows,
+            )
         )
 
     if errors:
-        reverted = edited_df
-        for idx in touched:
-            reverted = review_state.apply_row_edit(
-                reverted,
-                idx,
-                reviewed=False,
-                component_map=component_map,
-            )
+        reverted, _ = review_state.apply_review_flag(
+            updated,
+            touched,
+            reviewed=False,
+            component_map=component_map,
+        )
         unique_errors = list(dict.fromkeys(errors))
         return reverted, unique_errors
 

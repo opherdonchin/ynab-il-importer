@@ -255,7 +255,9 @@ def _caption_values(container) -> list[str]:
 
 
 def _show_all_primary_states(app: AppTest) -> None:
-    _find_multiselect_by_label(app.sidebar, "State").set_value(["Fix", "Decide", "Settled"])
+    _find_multiselect_by_label(app.sidebar, "State").set_value(
+        ["Needs fix", "Needs decision", "Needs review", "Settled"]
+    )
     _find_multiselect_by_label(app.sidebar, "Save status").set_value(["Unsaved", "Saved"])
 
 
@@ -337,8 +339,8 @@ def test_default_row_kind_selection_hides_matched_cleared_by_default() -> None:
 
 def test_default_primary_state_selection_hides_settled_by_default() -> None:
     assert review_app._default_primary_state_selection(
-        ["Fix", "Decide", "Settled"]
-    ) == ["Fix", "Decide"]
+        ["Needs fix", "Needs decision", "Needs review", "Settled"]
+    ) == ["Needs fix", "Needs decision", "Needs review"]
 
 
 def test_preserve_expansion_context_sets_group_and_row_targets() -> None:
@@ -1168,7 +1170,7 @@ def test_app_row_save_persists_side_specific_fields_and_review_state(tmp_path: P
 
     row = app.expander[0]
     _find_selectbox(row, "target_category_select_0").set_value("Dining")
-    _find_button_by_label(row, "Mark reviewed").click()
+    _find_button_by_label(row, "Accept row").click()
     app.run()
 
     session_df = app.session_state["df"]
@@ -1213,7 +1215,7 @@ def test_mark_reviewed_opens_next_row_in_row_view(tmp_path: Path) -> None:
     app.run()
 
     row = app.expander[0]
-    _find_button_by_label(row, "Mark reviewed").click()
+    _find_button_by_label(row, "Accept row").click()
     app.run()
 
     session_df = app.session_state["df"]
@@ -1240,7 +1242,7 @@ def test_app_review_blocked_for_cascaded_component_with_no_decision_rows(tmp_pat
 
     row = app.expander[0]
     _find_selectbox(row, "decision_action_0").set_value("keep_match")
-    _find_button_by_label(row, "Mark reviewed").click()
+    _find_button_by_label(row, "Accept row").click()
     app.run()
 
     session_df = app.session_state["df"]
@@ -1265,7 +1267,7 @@ def test_app_create_target_auto_ignores_same_source_rows(tmp_path: Path) -> None
 
     row = app.expander[0]
     _find_selectbox(row, "decision_action_0").set_value("create_target")
-    _find_button_by_label(row, "Apply without review").click()
+    _find_button_by_label(row, "Apply edits").click()
     app.run()
 
     session_df = app.session_state["df"]
@@ -1292,7 +1294,7 @@ def test_app_keep_match_auto_ignores_same_source_and_target_rows(tmp_path: Path)
 
     row = app.expander[0]
     _find_selectbox(row, "decision_action_0").set_value("keep_match")
-    _find_button_by_label(row, "Apply without review").click()
+    _find_button_by_label(row, "Apply edits").click()
     app.run()
 
     session_df = app.session_state["df"]
@@ -1316,7 +1318,7 @@ def test_app_ignore_row_does_not_propagate(tmp_path: Path) -> None:
 
     row = app.expander[0]
     _find_selectbox(row, "decision_action_0").set_value("ignore_row")
-    _find_button_by_label(row, "Apply without review").click()
+    _find_button_by_label(row, "Apply edits").click()
     app.run()
 
     session_df = app.session_state["df"]
@@ -1340,7 +1342,7 @@ def test_mark_reviewed_reviews_auto_ignored_competing_rows(tmp_path: Path) -> No
 
     row = app.expander[0]
     _find_selectbox(row, "decision_action_0").set_value("create_target")
-    _find_button_by_label(row, "Mark reviewed").click()
+    _find_button_by_label(row, "Accept row").click()
     app.run()
 
     session_df = app.session_state["df"]
@@ -1375,7 +1377,7 @@ def test_group_accept_reviews_set_decisions_without_overwriting_them(tmp_path: P
     app.run()
 
     group = app.expander[0]
-    _find_button_by_label(group, "Accept set decisions in group (2)").click()
+    _find_button_by_label(group, "Accept group").click()
     app.run()
 
     session_df = app.session_state["df"]
@@ -1414,7 +1416,7 @@ def test_group_accept_uses_live_group_row_decisions(tmp_path: Path) -> None:
     app.run()
 
     group = app.expander[0]
-    _find_button_by_label(group, "Accept set decisions in group (2)").click()
+    _find_button_by_label(group, "Accept group").click()
     app.run()
 
     session_df = app.session_state["df"]
@@ -1453,11 +1455,57 @@ def test_group_accept_resolves_competing_rows_for_ambiguous_group(tmp_path: Path
     app.run()
 
     group = app.expander[0]
-    _find_button_by_label(group, "Accept set decisions in group (1)").click()
+    _find_button_by_label(group, "Accept group").click()
     app.run()
 
     session_df = app.session_state["df"]
     assert session_df["decision_action"].to_list() == ["keep_match", "ignore_row"]
+    assert session_df["reviewed"].to_list() == [True, True]
+
+
+def test_group_accept_uses_group_widget_values_without_separate_apply(tmp_path: Path) -> None:
+    app, _ = _build_app_test(
+        tmp_path,
+        proposed_rows=[
+            _row(
+                transaction_id="t1",
+                fingerprint="fp-group-widgets",
+                source_row_id="s1",
+                target_row_id="x1",
+                match_status="ambiguous",
+                decision_action=review_validation.NO_DECISION,
+                target_category="Uncategorized",
+            ),
+            _row(
+                transaction_id="t2",
+                fingerprint="fp-group-widgets",
+                source_row_id="s2",
+                target_row_id="x2",
+                match_status="ambiguous",
+                decision_action=review_validation.NO_DECISION,
+                target_category="Uncategorized",
+            ),
+        ],
+    )
+
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    group = app.expander[0]
+    _find_selectbox(group, "group_category_").set_value("Living / Dining")
+    app.run()
+    group = app.expander[0]
+    _find_selectbox(group, "group_decision_").set_value("ignore_row")
+    app.run()
+
+    group = app.expander[0]
+    _find_button_by_label(group, "Accept group").click()
+    app.run()
+
+    session_df = app.session_state["df"]
+    assert session_df["target_category_selected"].to_list() == ["Dining", "Dining"]
+    assert session_df["decision_action"].to_list() == ["ignore_row", "ignore_row"]
     assert session_df["reviewed"].to_list() == [True, True]
 
 
@@ -1489,7 +1537,7 @@ def test_group_accept_button_disabled_until_group_has_chosen_row_decisions(tmp_p
     app.run()
 
     group = app.expander[0]
-    accept_button = _find_button_by_label(group, "Accept set decisions in group (0)")
+    accept_button = _find_button_by_label(group, "Accept group")
     assert accept_button.disabled is True
 
 
@@ -1515,7 +1563,7 @@ def test_accept_all_set_decisions_reviews_only_rows_with_actions(tmp_path: Path)
     )
 
     app.run()
-    _find_button_by_label(app.sidebar, "Accept all set decisions").click()
+    _find_button_by_label(app.sidebar, "Accept all reviewable rows").click()
     app.run()
 
     session_df = app.session_state["df"]
@@ -1553,7 +1601,7 @@ def test_accept_all_set_decisions_uses_staged_values_and_skips_blocked_component
     _find_selectbox(app, "decision_action_0").set_value("keep_match")
     app.run()
 
-    _find_button_by_label(app.sidebar, "Accept all set decisions").click()
+    _find_button_by_label(app.sidebar, "Accept all reviewable rows").click()
     app.run()
 
     session_df = app.session_state["df"]
@@ -1565,7 +1613,7 @@ def test_accept_all_set_decisions_uses_staged_values_and_skips_blocked_component
     )
 
 
-def test_primary_state_series_treats_no_decision_as_fix_and_component_conflicts_fix() -> None:
+def test_primary_state_series_treats_no_decision_as_needs_decision_and_component_conflicts_as_needs_fix() -> None:
     df = pl.DataFrame(
         [
             _row(transaction_id="draft", decision_action=review_validation.NO_DECISION),
@@ -1591,11 +1639,11 @@ def test_primary_state_series_treats_no_decision_as_fix_and_component_conflicts_
     primary_state_series = review_state.primary_state_series(df, blocker_series)
 
     assert blocker_series.to_list() == [
-        "No decision",
+        "Decision required",
         "Contradiction in component",
         "Contradiction in component",
     ]
-    assert primary_state_series.to_list() == ["Fix", "Fix", "Fix"]
+    assert primary_state_series.to_list() == ["Needs decision", "Needs fix", "Needs fix"]
 
 
 def test_transfer_uncategorized_is_not_treated_as_fix() -> None:
@@ -1675,7 +1723,7 @@ def test_off_budget_transfer_without_category_is_treated_as_fix() -> None:
     primary_state_series = review_state.primary_state_series(df, blocker_series)
 
     assert blocker_series.to_list() == ["Missing category"]
-    assert primary_state_series.to_list() == ["Fix"]
+    assert primary_state_series.to_list() == ["Needs fix"]
 
 
 def test_apply_row_filters_supports_action_blocker_suggestions_map_updates_and_search() -> None:
@@ -1708,7 +1756,7 @@ def test_apply_row_filters_supports_action_blocker_suggestions_map_updates_and_s
 
     filtered = review_state.apply_row_filters(
         df,
-        primary_state=["Decide"],
+        primary_state=["Needs review"],
         row_kind=["Source only"],
         action_filter=["create_target"],
         save_status=["Unsaved"],

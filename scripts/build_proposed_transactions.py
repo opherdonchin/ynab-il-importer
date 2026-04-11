@@ -1477,7 +1477,7 @@ def build_review_rows(
             .then(pl.lit("No decision"))
             .otherwise(pl.lit("keep_match"))
             .alias("decision_action"),
-            pl.col("_matched_cleared").alias("reviewed"),
+            pl.lit(False).alias("reviewed"),
             pl.lit("institutional").alias("workflow_type"),
             pl.when(pl.col("ambiguous_key"))
             .then(pl.lit("ambiguous_candidate"))
@@ -1637,11 +1637,8 @@ def build_review_rows(
             pl.col("_target_category_selected").alias("category_options"),
             pl.lit("target_only").alias("match_status"),
             pl.lit("").alias("update_maps"),
-            pl.when(pl.col("_settled_target_only"))
-            .then(pl.lit("ignore_row"))
-            .otherwise(pl.lit("No decision"))
-            .alias("decision_action"),
-            pl.col("_settled_target_only").alias("reviewed"),
+            pl.lit("No decision").alias("decision_action"),
+            pl.lit(False).alias("reviewed"),
             pl.lit("institutional").alias("workflow_type"),
             pl.when(pl.col("_settled_transfer_counterpart"))
             .then(pl.lit("target_only_transfer_counterpart"))

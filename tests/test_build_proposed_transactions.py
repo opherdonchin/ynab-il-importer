@@ -536,7 +536,7 @@ def test_build_review_rows_marks_cleared_exact_matches_as_settled(
     matched = review_rows.row(0, named=True)
     assert matched["match_status"] == "matched_cleared"
     assert matched["relation_kind"] == "matched_cleared_pair"
-    assert bool(matched["reviewed"]) is True
+    assert bool(matched["reviewed"]) is False
     assert matched["source_source_system"] == "bank"
     assert matched["source_payee_current"] == "Groceries"
     assert matched["target_source_system"] == "ynab"
@@ -595,7 +595,7 @@ def test_build_review_rows_normalizes_transfer_uncategorized_to_explicit_none(
     assert matched["category_options"] == review_model.NO_CATEGORY_REQUIRED
 
 
-def test_build_review_rows_auto_settles_target_only_transfer_counterparts(
+def test_build_review_rows_leaves_target_only_transfer_counterparts_for_explicit_decision(
     tmp_path: Path,
 ) -> None:
     map_path = tmp_path / "payee_map.csv"
@@ -661,13 +661,13 @@ def test_build_review_rows_auto_settles_target_only_transfer_counterparts(
         pl.col("target_payee_selected") == "Transfer : Checking"
     ).row(0, named=True)
     assert target_only["match_status"] == "target_only"
-    assert target_only["decision_action"] == "ignore_row"
-    assert bool(target_only["reviewed"]) is True
+    assert target_only["decision_action"] == "No decision"
+    assert bool(target_only["reviewed"]) is False
     assert target_only["relation_kind"] == "target_only_transfer_counterpart"
     assert target_only["target_category_selected"] == review_model.NO_CATEGORY_REQUIRED
 
 
-def test_build_review_rows_auto_settles_reconciled_target_only_rows(
+def test_build_review_rows_leaves_reconciled_target_only_rows_for_explicit_decision(
     tmp_path: Path,
 ) -> None:
     map_path = tmp_path / "payee_map.csv"
@@ -733,12 +733,12 @@ def test_build_review_rows_auto_settles_reconciled_target_only_rows(
         pl.col("target_payee_selected") == "Manual Cash"
     ).row(0, named=True)
     assert target_only["match_status"] == "target_only"
-    assert target_only["decision_action"] == "ignore_row"
-    assert bool(target_only["reviewed"]) is True
+    assert target_only["decision_action"] == "No decision"
+    assert bool(target_only["reviewed"]) is False
     assert target_only["relation_kind"] == "target_only_cleared"
 
 
-def test_build_review_rows_auto_settles_manual_target_only_rows(tmp_path: Path) -> None:
+def test_build_review_rows_leaves_manual_target_only_rows_for_explicit_decision(tmp_path: Path) -> None:
     map_path = tmp_path / "payee_map.csv"
     _write_payee_map(map_path)
 
@@ -802,8 +802,8 @@ def test_build_review_rows_auto_settles_manual_target_only_rows(tmp_path: Path) 
         pl.col("target_payee_selected") == "Manual Cash"
     ).row(0, named=True)
     assert target_only["match_status"] == "target_only"
-    assert target_only["decision_action"] == "ignore_row"
-    assert bool(target_only["reviewed"]) is True
+    assert target_only["decision_action"] == "No decision"
+    assert bool(target_only["reviewed"]) is False
     assert target_only["relation_kind"] == "target_only_manual"
 
 

@@ -172,7 +172,7 @@ def test_review_component_errors_catch_unresolved_and_conflicting_rows() -> None
     errors = review_validation.review_component_errors(df, 0)
 
     assert "connected rows still contain No decision" in errors
-    assert "row 1: reviewed row cannot have No decision" in errors
+    assert "row 1: accepted row cannot have No decision" in errors
     assert "source transaction s1 is both matched and deleted" in errors
 
 
@@ -438,7 +438,7 @@ def test_filtered_row_indices_follow_series_filters_without_dataframe_masks() ->
 
     indices = review_state.filtered_row_indices(
         list(range(len(df))),
-        primary_state=["Decide"],
+        primary_state=["Needs review"],
         row_kind=["Source only", "Ambiguous"],
         action_filter=["create_target"],
         save_status=["Unsaved", "Saved"],
@@ -501,7 +501,7 @@ def test_review_data_and_state_views_separate_data_from_app_state() -> None:
         save_state=save_state,
     )
 
-    assert state_view["primary_state"].to_list() == ["Decide", "Settled"]
+    assert state_view["primary_state"].to_list() == ["Needs review", "Settled"]
     assert data_view["row_kind"].to_list() == ["Source only", "Ambiguous"]
     assert state_view["suggestion_label"].to_list() == ["Has suggestions", "Has suggestions"]
     assert state_view["map_update_label"].to_list() == ["No update_maps", "Has update_maps"]
@@ -551,7 +551,7 @@ def test_filtered_row_indices_from_views_use_polars_helper_columns() -> None:
         data_view,
         state_view,
         list(range(len(df))),
-        primary_state=["Decide"],
+        primary_state=["Needs review"],
         row_kind=["Source only", "Ambiguous"],
         action_filter=["create_target"],
         save_status=["Unsaved", "Saved"],
@@ -565,14 +565,14 @@ def test_filtered_row_indices_from_views_use_polars_helper_columns() -> None:
 
 
 def test_state_matrix_counts_accepts_series_inputs() -> None:
-    primary_state = pd.Series(["Fix", "Fix", "Settled"], dtype="string")
+    primary_state = pd.Series(["Needs fix", "Needs fix", "Settled"], dtype="string")
     save_state = pd.Series(["Unsaved", "Saved", "Saved"], dtype="string")
 
     counts = review_state.state_matrix_counts(primary_state, save_state)
 
     assert counts == {
-        "Fix / Unsaved": 1,
-        "Fix / Saved": 1,
+        "Needs fix / Unsaved": 1,
+        "Needs fix / Saved": 1,
         "Settled / Saved": 1,
     }
 
@@ -607,7 +607,7 @@ def test_primary_state_series_maps_fix_decide_and_settled() -> None:
 
     states = review_state.primary_state_series(df, blockers)
 
-    assert states.to_list() == ["Fix", "Decide", "Settled"]
+    assert states.to_list() == ["Needs fix", "Needs review", "Settled"]
 
 
 def test_allowed_decision_actions_allow_source_mutation_for_cross_budget_target_only() -> None:
@@ -648,7 +648,7 @@ def test_apply_review_state_rejects_reviewed_no_decision() -> None:
     assert updated["reviewed"].to_list() == [False]
     assert errors == [
         "connected rows still contain No decision",
-        "row 0: reviewed row cannot have No decision",
+        "row 0: accepted row cannot have No decision",
     ]
 
 

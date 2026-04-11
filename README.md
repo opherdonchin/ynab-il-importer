@@ -95,6 +95,21 @@ pixi run review-context -- <context> <run_tag> --port 8502
 
 The app also expects a YNAB category cache; if that cache is missing or stale, use the app's `Refresh categories from YNAB` button after launch.
 
+The current review-state model is:
+
+- `Needs fix`: the row is invalid or incomplete
+- `Needs decision`: the row is valid, but still on `No decision`
+- `Needs review`: the row is valid and has a decision, but has not been accepted yet
+- `Settled`: the row has been accepted
+
+Fresh proposal defaults matter:
+
+- matched rows start as `keep_match` and land in `Needs review`
+- source-only rows start as `create_target` and land in `Needs review`
+- target-only rows start as `No decision` and land in `Needs decision`
+
+Accept actions use the decision currently staged in the UI. Applying edits to a settled row implicitly reopens it back to `Needs review`, `Needs decision`, or `Needs fix` depending on the result.
+
 ### 7. Prepare upload artifacts
 
 ```bash

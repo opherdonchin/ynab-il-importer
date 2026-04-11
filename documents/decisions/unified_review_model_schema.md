@@ -38,7 +38,7 @@ Required naming rules:
   - `target_category_selected`
 - unsuffixed `payee_selected` and `category_selected` are working-dataframe aliases only
 - `decision_action` is the stored row action
-- `reviewed` is the stored review gate
+- `reviewed` is the stored acceptance gate
 - `changed` is persisted review state, not a derived UI-only hint
 
 ## Working Projection
@@ -77,14 +77,35 @@ The persisted artifact must satisfy:
 Current institutional builders seed:
 
 - `matched_auto` -> `reviewed = FALSE`, `decision_action = keep_match`
-- `matched_cleared` -> `reviewed = TRUE`, `decision_action = keep_match`
+- `matched_cleared` -> `reviewed = FALSE`, `decision_action = keep_match`
 - `source_only` -> `reviewed = FALSE`, `decision_action = create_target`
-- unsettled `target_only` -> `reviewed = FALSE`, `decision_action = No decision`
-- auto-settled `target_only` rows -> `reviewed = TRUE`, `decision_action = ignore_row`
+- `target_only` -> `reviewed = FALSE`, `decision_action = No decision`
+
+This means fresh builder output intentionally leaves existing YNAB-only rows in an explicit
+needs-decision state. They do not silently default to `ignore_row`.
+
+## Review App State Model
+
+The review app derives four user-facing states from blockers, decision, and acceptance:
+
+- `Needs fix`
+  The row is invalid or incomplete.
+- `Needs decision`
+  The row is valid enough to act on, but `decision_action = No decision`.
+- `Needs review`
+  The row is valid and has a concrete decision, but `reviewed = FALSE`.
+- `Settled`
+  The row is valid and accepted with `reviewed = TRUE`.
+
+Applied edits implicitly unsettle previously settled rows:
+
+- if the edit creates a blocker -> `Needs fix`
+- if the edit clears the decision -> `Needs decision`
+- if the edit leaves a valid decision -> `Needs review`
 
 ## Review Validation Rules
 
-A row or connected component cannot be reviewed if:
+A row or connected component cannot be accepted if:
 
 - any reviewed row still has `decision_action = No decision`
 - an institutional-source row uses `create_source`, `delete_source`, or `delete_both`
@@ -92,11 +113,11 @@ A row or connected component cannot be reviewed if:
 - a source transaction ends up with more than one reviewed match or create outcome
 - a target transaction ends up with more than one reviewed match or create outcome
 
-Unreviewed inconsistency is allowed. Reviewed inconsistency is not.
+Unaccepted inconsistency is allowed. Accepted inconsistency is not.
 
 ## Execution Boundary
 
-The active upload path prepares only explicit reviewed `create_target` rows.
+The active upload path prepares only explicit accepted `create_target` rows.
 
 Other stored actions still matter because they must round-trip cleanly through:
 

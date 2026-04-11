@@ -2,7 +2,7 @@
 
 ## Workstream
 
-Keep the context/run-tag institutional workflow stable, well-documented, and easy to execute while finishing the remaining cleanup around the active path.
+Keep the context/run-tag institutional workflow stable while tightening the review-state model so the app is explicit, fast enough to use, and honest about what still needs user action.
 
 ## Current State
 
@@ -23,82 +23,68 @@ Keep the context/run-tag institutional workflow stable, well-documented, and eas
 
 ## Recently Completed
 
-- documentation cleanup and alignment:
-  - active docs rewritten around the current workflow and code
-  - stale prompts, implementation plans, and CSV/profile-era runbooks removed
-  - README now points to a smaller, clearer doc path
-- previous MAX normalization boundary fixed:
-  - [scripts/normalize_previous_max.py](../scripts/normalize_previous_max.py) now writes Parquet outputs that match the canonical normalization boundary
-  - [tests/test_normalize_previous_max_script.py](../tests/test_normalize_previous_max_script.py) covers that path
-- Pilates YNAB fingerprint boundary fixed:
-  - [ynab_api.py](../src/ynab_il_importer/ynab_api.py) now derives canonical YNAB identity fields from parent payee, memo, or split-line payee/memo text instead of leaving blank-payee transactions with empty fingerprints
-  - split-bearing and memo-only live YNAB transactions now preserve real grouping identity without mutating `payee_raw`
-  - refreshed Pilates artifacts now load cleanly into the review app:
-    - `pixi run download-context-ynab -- pilates 2026_04_01`
-    - `pixi run build-context-review -- pilates 2026_04_01`
-    - projected review dataframe blank fingerprints: `0`
-- review app Pilates startup/filter fixes:
-  - [validation.py](../src/ynab_il_importer/review_app/validation.py) now reuses one materialized row cache while building component errors and blocker labels instead of reserializing the whole dataframe per component
-  - first render on `pilates_proposed_transactions.parquet` dropped from minute-scale spinner behavior to roughly:
-    - review artifact load: `~4.6s`
-    - working projection: `~11.2s`
-    - canonical helper bundle: `~1.8s`
-    - derived-state compute: `~1.4s`
-  - grouped-mode filtering now preserves original row ids:
-    - [state.py](../src/ynab_il_importer/review_app/state.py) `grouped_row_indices(...)` uses `_row_pos` when present
-    - [app.py](../src/ynab_il_importer/review_app/app.py) now builds the grouped-mode filter frame from original `_row_pos` + `fingerprint`
-  - [app.py](../src/ynab_il_importer/review_app/app.py) `_grouped_row_indices(...)` now passes the full filtered frame through instead of dropping `_row_pos` with `select("fingerprint")`
-  - this fixes settled green groups leaking into the grouped view when `Settled` is not selected, including the reported Pilates groups:
-    - `facebk` -> `Decide`
-    - `transfer in family` -> `Fix`
-    - `income tax` -> `Decide`
-    - `harel insurance` -> `Decide`
-    - `bank leumi` -> `Decide`
-- review app group editing and transfer-category rules:
-  - grouped review now supports one shared `memo_append` edit across all visible rows with the same fingerprint
-  - the grouped apply action no longer claims to mark unresolved rows reviewed when no group decision is selected; it now applies edits in memory and asks the reviewer to choose a decision before accepting
-  - transfer category requirements now distinguish true on-budget transfers from budget-to-tracking or budget-to-loan transfers:
-    - the review app enriches the working dataframe with live `on_budget` account metadata from YNAB at load time
-    - `Transfer : ...` rows only default to `None` when both sides are on-budget
-    - off-budget transfer targets keep and require a real category
-  - upload prep now preserves categories on off-budget transfer payloads instead of silently dropping them
-  - [tests/test_review_app.py](../tests/test_review_app.py) and [tests/test_upload_prep.py](../tests/test_upload_prep.py) cover the new group-memo and off-budget transfer behavior
-- review launcher docs clarified:
-  - [scripts/review_context.py](../scripts/review_context.py) auto-resume behavior and its `--resume`, `--foreground`, and `--port` options are now described in the active docs
-  - [README.md](../README.md) and [context_workflow_spec.md](../context_workflow_spec.md) now explain that `pixi run review-context -- <context> <run_tag>` resumes the standard reviewed artifact automatically when present
-- Pilates transfer-row review fixes:
-  - [io.py](../src/ynab_il_importer/review_app/io.py) now projects target-only review rows from the real target transaction instead of letting synthetic empty-source zeros overwrite amount, fingerprint, memo, and account summary fields
-  - [app.py](../src/ynab_il_importer/review_app/app.py) now keeps missing source sides blank in account-budget enrichment and row details instead of backfilling them from the target account
-  - transfer rows in the details pane now show the transfer counterpart account explicitly from `Transfer : ...`
-  - target-only rows no longer render editable source controls
-  - grouped `Apply group edits` now applies to the visible group instead of silently skipping rows already marked updated in the current session
-  - [tests/test_review_io.py](../tests/test_review_io.py) and [tests/test_review_app.py](../tests/test_review_app.py) cover the target-only projection and missing-source metadata behavior
+- review-state redesign for the active app path:
+  - user-facing primary states are now:
+    - `Needs fix`
+    - `Needs decision`
+    - `Needs review`
+    - `Settled`
+  - `No decision` is no longer treated like a generic fix blocker; it maps to `Needs decision`
+  - applied edits now implicitly unsettle previously settled rows instead of leaving stale accepted state behind
+  - row/group accept actions now operate on the currently staged decisions instead of requiring a separate “mark reviewed” step
+- explicit target-only institutional defaults:
+  - [scripts/build_proposed_transactions.py](../scripts/build_proposed_transactions.py) now leaves all `target_only` rows on `decision_action = No decision`, `reviewed = False`
+  - `matched_cleared` rows also start unaccepted with `keep_match`, so system defaults land in `Needs review` instead of `Settled`
+  - on the rebuilt Pilates artifact:
+    - total rows: `4056`
+    - `target_only` rows: `4022`
+    - `target_only` rows still on explicit `No decision`: `4022`
+- clearer blocker messaging in the app:
+  - [validation.py](../src/ynab_il_importer/review_app/validation.py) now surfaces `Decision required` as a first-class blocker label
+  - [app.py](../src/ynab_il_importer/review_app/app.py) now explains common blockers, including the explicit-decision requirement for existing YNAB-only rows
+  - row/group button wording now matches the workflow more closely:
+    - `Apply edits`
+    - `Accept row`
+    - `Apply group edits`
+    - `Accept group`
+    - `Accept all reviewable rows`
+- grouped-edit persistence tightened:
+  - group widgets now render from the currently staged session values instead of silently snapping back to computed defaults
+  - this keeps grouped category/decision changes aligned with the actual apply/accept path
+- active docs aligned with the shipped model:
+  - [README.md](../README.md)
+  - [documents/context_workflow_spec.md](context_workflow_spec.md)
+  - [documents/decisions/unified_review_model_schema.md](decisions/unified_review_model_schema.md)
 
 ## Recent Validation
 
 ```bash
-pixi run pytest tests/test_normalize_previous_max_script.py tests/test_download_ynab_api_script.py tests/test_prepare_ynab_upload_script.py -q
-pixi run normalize-previous-max --help
-pixi run pytest tests/test_review.py tests/test_review_app.py -q
-pixi run pytest tests/test_review_app.py tests/test_upload_prep.py tests/test_prepare_ynab_upload_script.py tests/test_review.py -q
-pixi run pytest tests/test_review_io.py tests/test_review_app.py tests/test_review.py -q
+pixi run pytest tests/test_build_proposed_transactions.py tests/test_review.py tests/test_review_app.py -q
+pixi run build-context-review -- pilates 2026_04_01
+pixi run python -  # Pilates state sanity check on data/paired/2026_04_01/pilates_proposed_transactions.parquet
 ```
 
 Result:
 
-- tests: `5 passed`
-- help command: OK
-- review tests: `95 passed`
-- latest focused validation: `135 passed`
-- latest transfer-row validation: `113 passed`
+- focused review/build tests: `118 passed`
+- Pilates review rebuild: OK
+- Pilates state sanity check:
+  - `target_only_total = 4022`
+  - `target_only_no_decision = 4022`
+  - state counts:
+    - `Needs decision = 4022`
+    - `Needs fix = 1`
+    - `Needs review = 33`
 
 ## Next Steps
 
-1. Verify the Pilates workflow end to end on the context/run-tag path.
-2. Re-open the Pilates review app and confirm the transfer-row UI now shows the correct loan amounts, blank missing-source side, and working grouped edits for the `transfer in family` fingerprint.
-3. Verify the Aikido workflow on the same path, or explicitly archive any remaining non-active pieces.
-4. Remove the review app's remaining dependency on [workflow_profiles.py](../src/ynab_il_importer/workflow_profiles.py) for category-cache path resolution.
-5. Decide whether to add dedicated pixi aliases for upload prep and category-cache refresh.
+1. Re-open the Pilates review app and verify the new state model feels coherent in the live workflow:
+   - `target_only` rows should clearly read as `Needs decision`
+   - grouped edits should persist and accept cleanly
+   - blocker text should explain why a row cannot yet be settled
+2. Decide whether the active workflow needs an explicit `update_target` mutation path for editing existing YNAB transactions instead of only creating new targets.
+3. Remove the review app's remaining dependency on [workflow_profiles.py](../src/ynab_il_importer/workflow_profiles.py) for category-cache path resolution.
+4. Decide whether to add dedicated pixi aliases for upload prep and category-cache refresh.
 
 ## Working Rules
 
