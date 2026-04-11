@@ -657,46 +657,48 @@ def _preferred_summary_number(*values: Any) -> float:
 
 
 def _working_row_from_record(row: dict[str, Any]) -> dict[str, Any]:
-    source_current = (
-        _normalize_transaction_record(row.get("source_current"))
-        or _empty_transaction_record()
-    )
-    target_current = (
-        _normalize_transaction_record(row.get("target_current"))
-        or _empty_transaction_record()
-    )
+    source_present = bool(_required_mapping_value(row, "source_present"))
+    target_present = bool(_required_mapping_value(row, "target_present"))
+    source_current_raw = _normalize_transaction_record(row.get("source_current"))
+    target_current_raw = _normalize_transaction_record(row.get("target_current"))
+    source_current = source_current_raw or _empty_transaction_record()
+    target_current = target_current_raw or _empty_transaction_record()
     source_original = _normalize_transaction_record(row.get("source_original"))
     target_original = _normalize_transaction_record(row.get("target_original"))
+    source_summary = source_current_raw if source_present else None
+    target_summary = target_current_raw if target_present else None
 
     working: dict[str, Any] = {
         "transaction_id": _normalize_text(row.get("review_transaction_id")),
         "source": _preferred_summary_value(
-            source_current.get("source_system"),
+            source_summary.get("source_system") if source_summary else "",
             source_original.get("source_system") if source_original else "",
-            target_current.get("source_system"),
+            target_summary.get("source_system") if target_summary else "",
         ),
         "account_name": _preferred_summary_value(
-            row.get("target_account"),
-            target_current.get("account_name"),
-            source_current.get("account_name"),
+            row.get("target_account") if target_present else "",
+            target_summary.get("account_name") if target_summary else "",
+            source_summary.get("account_name") if source_summary else "",
         ),
         "date": _preferred_summary_value(
-            source_current.get("date"), target_current.get("date")
+            source_summary.get("date") if source_summary else "",
+            target_summary.get("date") if target_summary else "",
         ),
         "outflow_ils": _preferred_summary_number(
-            source_current.get("outflow_ils"),
-            target_current.get("outflow_ils"),
+            source_summary.get("outflow_ils") if source_summary else None,
+            target_summary.get("outflow_ils") if target_summary else None,
         ),
         "inflow_ils": _preferred_summary_number(
-            source_current.get("inflow_ils"),
-            target_current.get("inflow_ils"),
+            source_summary.get("inflow_ils") if source_summary else None,
+            target_summary.get("inflow_ils") if target_summary else None,
         ),
         "memo": _preferred_summary_value(
-            source_current.get("memo"), target_current.get("memo")
+            source_summary.get("memo") if source_summary else "",
+            target_summary.get("memo") if target_summary else "",
         ),
         "fingerprint": _preferred_summary_value(
-            source_current.get("fingerprint"),
-            target_current.get("fingerprint"),
+            source_summary.get("fingerprint") if source_summary else "",
+            target_summary.get("fingerprint") if target_summary else "",
         ),
         "workflow_type": _normalize_text(row.get("workflow_type")),
         "relation_kind": _normalize_text(row.get("relation_kind")),
@@ -709,14 +711,14 @@ def _working_row_from_record(row: dict[str, Any]) -> dict[str, Any]:
         "reviewed": bool(row.get("reviewed", False)),
         "changed": bool(row.get("changed", False)),
         "memo_append": _normalize_text(row.get("memo_append")),
-        "source_present": bool(_required_mapping_value(row, "source_present")),
-        "target_present": bool(_required_mapping_value(row, "target_present")),
+        "source_present": source_present,
+        "target_present": target_present,
         "source_row_id": _normalize_text(row.get("source_row_id")),
         "target_row_id": _normalize_text(row.get("target_row_id")),
         "target_account": _preferred_summary_value(
-            row.get("target_account"),
-            target_current.get("account_name"),
-            target_current.get("source_account"),
+            row.get("target_account") if target_present else "",
+            target_summary.get("account_name") if target_summary else "",
+            target_summary.get("source_account") if target_summary else "",
             row.get("account_name"),
         ),
         "source_context_kind": _normalize_text(row.get("source_context_kind")),
@@ -730,21 +732,25 @@ def _working_row_from_record(row: dict[str, Any]) -> dict[str, Any]:
             row.get("source_context_matching_split_ids")
         ),
         "source_payee_selected": _normalize_text(row.get("source_payee_selected"))
-        or _normalize_text(source_current.get("payee_raw")),
+        or _normalize_text(source_summary.get("payee_raw") if source_summary else ""),
         "source_category_selected": model.normalize_category_value(
             row.get("source_category_selected")
         )
-        or model.normalize_category_value(source_current.get("category_raw")),
+        or model.normalize_category_value(
+            source_summary.get("category_raw") if source_summary else ""
+        ),
         "target_context_kind": _normalize_text(row.get("target_context_kind")),
         "target_context_matching_split_ids": _normalize_text(
             row.get("target_context_matching_split_ids")
         ),
         "target_payee_selected": _normalize_text(row.get("target_payee_selected"))
-        or _normalize_text(target_current.get("payee_raw")),
+        or _normalize_text(target_summary.get("payee_raw") if target_summary else ""),
         "target_category_selected": model.normalize_category_value(
             row.get("target_category_selected")
         )
-        or model.normalize_category_value(target_current.get("category_raw")),
+        or model.normalize_category_value(
+            target_summary.get("category_raw") if target_summary else ""
+        ),
         "source_current_transaction": source_current,
         "target_current_transaction": target_current,
         "source_original_transaction": source_original,

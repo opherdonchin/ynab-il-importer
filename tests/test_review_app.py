@@ -380,6 +380,35 @@ def test_augment_with_account_budget_metadata_derives_transfer_budget_flags() ->
     assert row["source_transfer_account_on_budget"] is True
 
 
+def test_augment_with_account_budget_metadata_keeps_missing_source_side_blank() -> None:
+    review_app.st.session_state.clear()
+    review_app.st.session_state["account_budget_lookup"] = {
+        "leumi loan 64370054": False,
+        "in family": True,
+    }
+    df = pl.DataFrame(
+        [
+            {
+                "account_name": "Leumi loan 64370054",
+                "target_account": "Leumi loan 64370054",
+                "source_account": "",
+                "source_present": False,
+                "target_present": True,
+                "target_payee_selected": "Transfer : In Family",
+                "source_payee_selected": "",
+            }
+        ]
+    )
+
+    enriched = review_app._augment_with_account_budget_metadata(df)
+    row = enriched.row(0, named=True)
+
+    assert row["target_account_on_budget"] is False
+    assert row["source_account_on_budget"] is None
+    assert row["target_transfer_account_on_budget"] is True
+    assert row["source_transfer_account_on_budget"] is None
+
+
 def test_clear_split_editor_state_removes_modal_buffer_and_widget_keys() -> None:
     review_app.st.session_state.clear()
     review_app.st.session_state["_split_editor"] = {"idx": 1}

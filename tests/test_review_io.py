@@ -137,6 +137,55 @@ def test_project_review_artifact_to_working_dataframe_preserves_source_lineage_i
     assert loaded.loc[0, "source_bank_txn_id"] == "BANK:V1:111111111111111111111111"
 
 
+def test_project_review_artifact_to_working_dataframe_preserves_target_only_values() -> (
+    None
+):
+    table = review_io.coerce_review_artifact_table(
+        pd.DataFrame(
+            [
+                {
+                    "review_transaction_id": "row-target-only",
+                    "workflow_type": "institutional",
+                    "relation_kind": "target_only_manual",
+                    "match_status": "target_only",
+                    "decision_action": "ignore_row",
+                    "source_present": False,
+                    "target_present": True,
+                    "target_account": "Leumi loan 64370054",
+                    "target_current": {
+                        "artifact_kind": "transaction",
+                        "artifact_version": "transaction_v1",
+                        "source_system": "ynab",
+                        "transaction_id": "tgt-1",
+                        "parent_transaction_id": "tgt-1",
+                        "account_name": "Leumi loan 64370054",
+                        "source_account": "Leumi loan 64370054",
+                        "date": "2026-03-10",
+                        "inflow_ils": 1663.12,
+                        "outflow_ils": 0.0,
+                        "signed_amount_ils": 1663.12,
+                        "payee_raw": "Transfer : In Family",
+                        "category_raw": "Leumi loan 64370054",
+                        "memo": "",
+                        "fingerprint": "transfer in family",
+                        "approved": False,
+                        "is_subtransaction": False,
+                    },
+                }
+            ]
+        )
+    )
+
+    loaded = review_io.project_review_artifact_to_working_dataframe(table).to_pandas()
+
+    assert loaded.loc[0, "account_name"] == "Leumi loan 64370054"
+    assert loaded.loc[0, "target_account"] == "Leumi loan 64370054"
+    assert loaded.loc[0, "source_account"] == ""
+    assert loaded.loc[0, "inflow_ils"] == pytest.approx(1663.12)
+    assert loaded.loc[0, "outflow_ils"] == pytest.approx(0.0)
+    assert loaded.loc[0, "target_payee_current"] == "Transfer : In Family"
+
+
 def test_load_category_list_accepts_arrow_table() -> None:
     table = pa.table(
         {

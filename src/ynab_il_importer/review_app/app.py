@@ -521,6 +521,8 @@ def _augment_with_account_budget_metadata(df: pl.DataFrame) -> pl.DataFrame:
 
     rows = df.to_dicts()
     for row in rows:
+        source_present = bool(row.get("source_present", False))
+        target_present = bool(row.get("target_present", False))
         target_payee = str(
             row.get("target_payee_selected")
             or row.get("target_payee_current")
@@ -533,10 +535,12 @@ def _augment_with_account_budget_metadata(df: pl.DataFrame) -> pl.DataFrame:
             or ""
         ).strip()
         target_account = str(
-            row.get("target_account") or row.get("account_name") or ""
+            row.get("target_account")
+            or (row.get("account_name") if target_present else "")
         ).strip()
         source_account = str(
-            row.get("source_account") or row.get("account_name") or ""
+            row.get("source_account")
+            or (row.get("account_name") if source_present else "")
         ).strip()
         row["target_account_on_budget"] = _lookup_account_on_budget(target_account)
         row["source_account_on_budget"] = _lookup_account_on_budget(source_account)
@@ -1945,6 +1949,23 @@ def _render_row_details(
     category_group_map: dict[str, str],
     helper_row: dict[str, Any] | None = None,
 ) -> None:
+    def _side_value(side: str, field: str, *, allow_summary_fallback: bool = False) -> str:
+        present = bool(row.get(f"{side}_present", False))
+        key = f"{side}_{field}"
+        value = str(row.get(key, "") or "").strip()
+        if value:
+            return value
+        if present and allow_summary_fallback:
+            return str(row.get(field, "") or "").strip()
+        return ""
+
+    def _side_transfer_counterpart(side: str) -> str:
+        payee = (
+            _side_value(side, "payee_current")
+            or _side_value(side, "payee_selected")
+        )
+        return review_model.transfer_target_account_name(payee)
+
     source_splits = review_io._normalize_split_records(row.get("source_splits"))
     target_splits = review_io._normalize_split_records(row.get("target_splits"))
     source_category_current = _format_category_label(
@@ -1999,8 +2020,9 @@ def _render_row_details(
         _render_detail_section(
             "Source",
             [
-                ("Account", row.get("source_account", "") or row.get("account_name", "")),
-                ("Date", row.get("source_date", "") or row.get("date", "")),
+                ("Account", _side_value("source", "account", allow_summary_fallback=True)),
+                ("Date", _side_value("source", "date", allow_summary_fallback=True)),
+                ("Transfer with", _side_transfer_counterpart("source")),
                 ("Payee", source_payee),
                 ("Category", source_category),
                 ("Split", _split_category_summary(source_splits)),
@@ -2011,8 +2033,9 @@ def _render_row_details(
         _render_detail_section(
             "Target",
             [
-                ("Account", row.get("target_account", "") or row.get("account_name", "")),
-                ("Date", row.get("target_date", "") or row.get("date", "")),
+                ("Account", _side_value("target", "account", allow_summary_fallback=True)),
+                ("Date", _side_value("target", "date", allow_summary_fallback=True)),
+                ("Transfer with", _side_transfer_counterpart("target")),
                 ("Payee", target_payee),
                 ("Category", target_category),
                 ("Split", _split_category_summary(target_splits)),
@@ -2049,6 +2072,7 @@ def _render_row_controls(
     current_action = review_validation.normalize_decision_action(
         row.get("decision_action", review_validation.NO_DECISION)
     )
+    source_present = bool(row["source_present"])
     target_present = bool(row["target_present"])
     create_target_default = current_action == "create_target" and not target_present
     uncategorized_default = "Uncategorized" if "Uncategorized" in category_choices else ""
@@ -2156,20 +2180,29 @@ def _render_row_controls(
         source_col, target_col, decision_col = st.columns([1.1, 1.2, 1], vertical_alignment="top")
         with source_col:
             st.markdown("**Source**")
-            source_payee_input = st.text_input(
-                "Source payee",
-                value=str(st.session_state.get(source_payee_key, source_payee_selected) or ""),
-                key=source_payee_key,
-            )
-            source_category_select = st.selectbox(
-                "Source category",
-                options=source_category_choices,
-                index=source_category_choices.index(source_category_selected)
-                if source_category_selected in source_category_choices
-                else 0,
-                format_func=lambda value: _format_category_label(value, category_group_map),
-                key=source_category_key,
-            )
+            if source_present:
+                source_payee_input = st.text_input(
+                    "Source payee",
+                    value=str(
+                        st.session_state.get(source_payee_key, source_payee_selected) or ""
+                    ),
+                    key=source_payee_key,
+                )
+                source_category_select = st.selectbox(
+                    "Source category",
+                    options=source_category_choices,
+                    index=source_category_choices.index(source_category_selected)
+                    if source_category_selected in source_category_choices
+                    else 0,
+                    format_func=lambda value: _format_category_label(
+                        value, category_group_map
+                    ),
+                    key=source_category_key,
+                )
+            else:
+                st.caption("No source transaction for this row.")
+                source_payee_input = ""
+                source_category_select = ""
 
         with target_col:
             st.markdown("**Target**")
@@ -3132,12 +3165,11 @@ def main() -> None:
                         else None
                     )
                     working_df = df
-                    untouched_mask = ~updated_mask.cast(pl.Boolean, strict=False).fill_null(False)
                     visible_group_mask = pl.Series(
                         [idx in set(group_indices) for idx in range(len(working_df))],
                         dtype=pl.Boolean,
                     )
-                    eligible_mask = untouched_mask & visible_group_mask
+                    eligible_mask = visible_group_mask
                     applied_mask = eligible_mask & review_state.series_or_default(
                         working_df, "fingerprint"
                     ).eq(fp)
