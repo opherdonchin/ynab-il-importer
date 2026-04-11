@@ -18,6 +18,7 @@ import ynab_il_importer.review_app.app as review_app  # noqa: E402
 
 SESSION_ROOT = ROOT / "outputs" / "review_app_sessions"
 POLL_INTERVAL_SECONDS = 0.5
+STARTUP_TIMEOUT_SECONDS = 45.0
 
 
 def _default_output_path(input_path: Path) -> Path:
@@ -205,15 +206,29 @@ def _launch_background_watcher(control_dir: Path, pid: int, log_path: Path) -> N
         )
 
 
-def _wait_for_streamlit_ready(process: subprocess.Popen[object], port: int) -> bool:
-    deadline = time.time() + 12.0
+def _streamlit_log_indicates_ready(log_path: Path) -> bool:
+    try:
+        text = log_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return "Local URL:" in text or "Network URL:" in text
+
+
+def _wait_for_streamlit_ready(
+    process: subprocess.Popen[object], port: int, log_path: Path
+) -> bool:
+    deadline = time.time() + STARTUP_TIMEOUT_SECONDS
     while time.time() < deadline:
         if process.poll() is not None:
             return False
         if _port_has_listener(port):
             return True
+        if _streamlit_log_indicates_ready(log_path):
+            return True
         time.sleep(0.25)
-    return process.poll() is None and _port_has_listener(port)
+    return process.poll() is None and (
+        _port_has_listener(port) or _streamlit_log_indicates_ready(log_path)
+    )
 
 
 def _launch_review_app(args: argparse.Namespace) -> int:
@@ -261,7 +276,7 @@ def _launch_review_app(args: argparse.Namespace) -> int:
             close_fds=True,
         )
 
-    if not _wait_for_streamlit_ready(process, port):
+    if not _wait_for_streamlit_ready(process, port, log_path):
         raise RuntimeError(
             f"Review app failed to start on port {port}. Check log: {log_path}"
         )

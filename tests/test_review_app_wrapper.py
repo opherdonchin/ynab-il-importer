@@ -78,3 +78,30 @@ def test_wait_foreground_treats_interrupted_quit_as_clean_exit(
     )
 
     assert review_app_wrapper._wait_foreground(_FakeProcess(), control_dir) == 0
+
+
+def test_streamlit_log_indicates_ready_when_local_url_present(tmp_path: Path) -> None:
+    log_path = tmp_path / "streamlit.log"
+    log_path.write_text("Local URL: http://localhost:8501\n", encoding="utf-8")
+
+    assert review_app_wrapper._streamlit_log_indicates_ready(log_path) is True
+
+
+def test_wait_for_streamlit_ready_accepts_log_signal_without_listener(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    log_path = tmp_path / "streamlit.log"
+    log_path.write_text("Local URL: http://localhost:8501\n", encoding="utf-8")
+
+    class _FakeProcess:
+        @staticmethod
+        def poll() -> int | None:
+            return None
+
+    monkeypatch.setattr(review_app_wrapper, "_port_has_listener", lambda port: False)
+    monkeypatch.setattr(review_app_wrapper.time, "sleep", lambda seconds: None)
+
+    assert (
+        review_app_wrapper._wait_for_streamlit_ready(_FakeProcess(), 8501, log_path)
+        is True
+    )
