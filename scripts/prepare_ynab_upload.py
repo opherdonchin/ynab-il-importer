@@ -202,12 +202,12 @@ def main() -> None:
             "Unsupported upload transaction units: "
             + ", ".join(preflight["unsupported_transaction_unit_ids"])
         )
-    payload = upload_prep.upload_payload_records(prepared)
+    payload = upload_prep.upload_payload_batches(prepared)
 
     export.write_dataframe(prepared, out_path)
     json_out_path.parent.mkdir(parents=True, exist_ok=True)
     json_out_path.write_text(
-        json.dumps({"transactions": payload}, ensure_ascii=False, indent=2),
+        json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
@@ -217,6 +217,8 @@ def main() -> None:
             ("prepared CSV", export.display_path(out_path)),
             ("payload JSON", export.display_path(json_out_path)),
             ("prepared rows", len(prepared)),
+            ("create payload rows", len(payload["create_transactions"])),
+            ("update payload rows", len(payload["update_transactions"])),
         ],
     )
     _print_section(
@@ -255,71 +257,107 @@ def main() -> None:
         )
 
     if args.execute:
-        response = ynab_api.create_transactions(payload, plan_id=plan_id or None)
-        summary = upload_prep.summarize_upload_response(response)
-        outcome = upload_prep.classify_upload_result(
-            summary, prepared_count=len(prepared)
-        )
-        _print_section(
-            "Upload result",
-            [
-                ("newly saved", outcome["saved"]),
-                ("duplicate import_ids", outcome["duplicate_import_ids"]),
-                ("matched existing", outcome["matched_existing"]),
-                ("transfer rows returned", outcome["transfer_saved"]),
-                ("split rows returned", outcome["split_saved"]),
-                ("status", outcome["status"]),
-            ],
-        )
+        create_payload = payload["create_transactions"]
+        update_payload = payload["update_transactions"]
 
-        upload_notes: list[str] = []
-        if outcome["matched_existing"]:
-            upload_notes.append(
-                "Some rows matched existing user-entered transactions rather than creating new imports."
+        if create_payload:
+            create_prepared = prepared.filter(
+                pl.col("decision_action")
+                .cast(pl.Utf8, strict=False)
+                .fill_null("")
+                .str.strip_chars()
+                .str.to_lowercase()
+                .eq("create_target")
             )
-        if outcome["idempotent_rerun"]:
-            upload_notes.append("All payload rows were already present in YNAB.")
-        _print_messages("Upload notes", upload_notes)
-
-        if outcome["verification_needed"]:
-            verification = upload_prep.verify_upload_response(prepared, response)
+            response = ynab_api.create_transactions(create_payload, plan_id=plan_id or None)
+            summary = upload_prep.summarize_upload_response(response)
+            outcome = upload_prep.classify_upload_result(
+                summary, prepared_count=len(create_prepared)
+            )
             _print_section(
-                "Upload verification",
+                "Create upload result",
                 [
-                    ("checked", verification["checked"]),
-                    (
-                        "missing saved txns",
-                        len(verification["missing_saved_transactions"]),
-                    ),
-                    ("amount mismatches", len(verification["amount_mismatches"])),
-                    ("date mismatches", len(verification["date_mismatches"])),
-                    ("account mismatches", len(verification["account_mismatches"])),
-                    ("transfer mismatches", len(verification["transfer_mismatches"])),
-                    ("category mismatches", len(verification["category_mismatches"])),
-                    ("split mismatches", len(verification["split_mismatches"])),
+                    ("newly saved", outcome["saved"]),
+                    ("duplicate import_ids", outcome["duplicate_import_ids"]),
+                    ("matched existing", outcome["matched_existing"]),
+                    ("transfer rows returned", outcome["transfer_saved"]),
+                    ("split rows returned", outcome["split_saved"]),
+                    ("status", outcome["status"]),
                 ],
             )
-            upload_warnings: list[str] = []
-            if verification["transfer_mismatches"]:
-                upload_warnings.append(
-                    "Some transfer rows did not come back as the expected transfer."
+
+            upload_notes: list[str] = []
+            if outcome["matched_existing"]:
+                upload_notes.append(
+                    "Some rows matched existing user-entered transactions rather than creating new imports."
                 )
-            if verification["split_mismatches"]:
-                upload_warnings.append(
-                    "Some split rows did not come back with the expected split child structure."
+            if outcome["idempotent_rerun"]:
+                upload_notes.append("All payload rows were already present in YNAB.")
+            _print_messages("Create upload notes", upload_notes)
+
+            if outcome["verification_needed"]:
+                verification = upload_prep.verify_upload_response(create_prepared, response)
+                _print_section(
+                    "Create upload verification",
+                    [
+                        ("checked", verification["checked"]),
+                        (
+                            "missing saved txns",
+                            len(verification["missing_saved_transactions"]),
+                        ),
+                        ("amount mismatches", len(verification["amount_mismatches"])),
+                        ("date mismatches", len(verification["date_mismatches"])),
+                        ("account mismatches", len(verification["account_mismatches"])),
+                        ("transfer mismatches", len(verification["transfer_mismatches"])),
+                        ("category mismatches", len(verification["category_mismatches"])),
+                        ("split mismatches", len(verification["split_mismatches"])),
+                    ],
                 )
-            if verification["missing_saved_transactions"]:
-                upload_warnings.append(
-                    "Some saved transaction_ids were not present in the response transaction list."
+                upload_warnings: list[str] = []
+                if verification["transfer_mismatches"]:
+                    upload_warnings.append(
+                        "Some transfer rows did not come back as the expected transfer."
+                    )
+                if verification["split_mismatches"]:
+                    upload_warnings.append(
+                        "Some split rows did not come back with the expected split child structure."
+                    )
+                if verification["missing_saved_transactions"]:
+                    upload_warnings.append(
+                        "Some saved transaction_ids were not present in the response transaction list."
+                    )
+                _print_messages("Create warnings", upload_warnings)
+            else:
+                _print_section(
+                    "Create upload verification",
+                    [
+                        ("status", "skipped"),
+                        ("reason", "no newly saved transactions returned by YNAB"),
+                    ],
                 )
-            _print_messages("Warnings", upload_warnings)
         else:
             _print_section(
-                "Upload verification",
+                "Create upload result",
+                [("status", "skipped"), ("reason", "no create_target rows selected")],
+            )
+
+        if update_payload:
+            update_response = ynab_api.update_transactions(update_payload, plan_id=plan_id or None)
+            updated_transactions = update_response.get("transactions", []) or []
+            if not updated_transactions and update_response.get("transaction"):
+                updated_transactions = [update_response["transaction"]]
+            _print_section(
+                "Update upload result",
                 [
-                    ("status", "skipped"),
-                    ("reason", "no newly saved transactions returned by YNAB"),
+                    ("requested updates", len(update_payload)),
+                    ("updated rows returned", len(updated_transactions)),
+                    ("status", "existing transactions updated" if updated_transactions else "no transactions returned"),
                 ],
+            )
+        else:
+            _print_section(
+                "Update upload result",
+                [("status", "skipped"), ("reason", "no update_target rows selected")],
             )
 
 

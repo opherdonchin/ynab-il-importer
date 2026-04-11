@@ -19,7 +19,7 @@ UPDATE_MAP_TOKENS = (
 )
 SOURCE_MUTATION_ACTIONS = {"create_source", "delete_source", "delete_both"}
 SOURCE_MATCH_ACTIONS = {"keep_match", "create_target"}
-TARGET_MATCH_ACTIONS = {"keep_match", "create_source"}
+TARGET_MATCH_ACTIONS = {"keep_match", "create_source", "update_target"}
 SOURCE_DELETE_ACTIONS = {"delete_source", "delete_both"}
 TARGET_DELETE_ACTIONS = {"delete_target", "delete_both"}
 
@@ -471,7 +471,7 @@ def validate_row(row: Any) -> tuple[list[str], list[str]]:
             errors.append("missing source payee")
         if source_category_required and (not source_category or source_no_category_required):
             errors.append("missing source category")
-    if action == "create_target":
+    if action in {"create_target", "update_target"}:
         if not target_payee:
             errors.append("missing target payee")
         if category_required and (not target_category or target_no_category_required):
@@ -648,11 +648,14 @@ def allowed_decision_actions(row: Any) -> list[str]:
         actions = [NO_DECISION, "create_source", "delete_target", "ignore_row"]
 
     if workflow_type == "institutional":
-        actions = [
-            action
-            for action in actions
-            if action not in SOURCE_MUTATION_ACTIONS
-        ]
+        if target_present and not source_present:
+            actions = [NO_DECISION, "update_target", "delete_target", "ignore_row"]
+        else:
+            actions = [
+                action
+                for action in actions
+                if action not in SOURCE_MUTATION_ACTIONS
+            ]
 
     ordered: list[str] = []
     for action in actions:

@@ -102,6 +102,91 @@ def _eligible_mask_values(
     return values[:length]
 
 
+def apply_to_indices(
+    df: pl.DataFrame,
+    indices: list[Any],
+    *,
+    payee: str | None = None,
+    category: str | None = None,
+    memo_append: str | None = None,
+    update_maps: str | None = None,
+    decision_action: str | None = None,
+    reviewed: bool | None = None,
+) -> pl.DataFrame:
+    import ynab_il_importer.review_app.state as review_state
+
+    if df.is_empty():
+        return df
+
+    touched_indices = [
+        idx
+        for idx in dict.fromkeys(indices)
+        if isinstance(idx, int) and 0 <= idx < len(df)
+    ]
+    if not touched_indices:
+        return df
+
+    rows = df.to_dicts()
+    original_rows = [dict(current_row) for current_row in rows]
+
+    for idx in touched_indices:
+        row = rows[idx]
+        if payee is not None:
+            row["payee_selected"] = payee
+            if "target_payee_selected" in row:
+                row["target_payee_selected"] = payee
+        if category is not None:
+            normalized_category = normalize_category_value(category)
+            row["category_selected"] = normalized_category
+            if "target_category_selected" in row:
+                row["target_category_selected"] = normalized_category
+        if memo_append is not None and "memo_append" in row:
+            row["memo_append"] = str(memo_append).strip()
+        if update_maps is not None and "update_maps" in row:
+            row["update_maps"] = str(update_maps).strip()
+        if decision_action is not None and "decision_action" in row:
+            row["decision_action"] = str(decision_action).strip()
+        if reviewed is not None and "reviewed" in row:
+            row["reviewed"] = bool(reviewed)
+
+    updated = pl.from_dicts(rows, infer_schema_length=None)
+    if payee is not None or category is not None:
+        updated = review_state._update_current_transaction_values(
+            updated,
+            touched_indices,
+            side="target",
+            payee=payee,
+            category=category,
+        )
+    updated = review_state._recompute_presence(updated, touched_indices)
+    if reviewed is None and "reviewed" in updated.columns:
+        updated_rows = updated.to_dicts()
+        edited_fields = [
+            "target_payee_selected",
+            "target_category_selected",
+            "memo_append",
+            "update_maps",
+            "decision_action",
+        ]
+        implicit_reopen_indices = [
+            current_idx
+            for current_idx in touched_indices
+            if any(
+                updated_rows[current_idx].get(field) != original_rows[current_idx].get(field)
+                for field in edited_fields
+            )
+        ]
+        if implicit_reopen_indices:
+            updated, _ = review_state.apply_review_flag(
+                updated,
+                implicit_reopen_indices,
+                reviewed=False,
+            )
+    updated = review_state.recompute_changed_for_rows(updated, touched_indices)
+    updated = review_state.rebuild_working_rows(updated, touched_indices)
+    return updated
+
+
 def apply_to_same_fingerprint(
     df: pl.DataFrame,
     fingerprint: str,

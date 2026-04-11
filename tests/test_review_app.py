@@ -331,6 +331,58 @@ def test_apply_to_same_fingerprint_propagates_memo_append() -> None:
     assert updated["memo_append"].to_list() == ["shared memo", "shared memo", ""]
 
 
+def test_apply_to_indices_only_updates_selected_rows() -> None:
+    df = pl.DataFrame(
+        {
+            "fingerprint": ["fp1", "fp1", "fp1"],
+            "memo_append": ["", "", ""],
+            "target_payee_selected": ["A", "B", "C"],
+            "target_category_selected": ["Food", "Food", "Food"],
+            "update_maps": ["", "", ""],
+            "reviewed": [False, False, False],
+        }
+    )
+
+    updated = review_model.apply_to_indices(
+        df,
+        [0, 2],
+        payee="Transfer : In Family",
+        memo_append="loan sync",
+    )
+
+    assert updated["target_payee_selected"].to_list() == [
+        "Transfer : In Family",
+        "B",
+        "Transfer : In Family",
+    ]
+    assert updated["memo_append"].to_list() == ["loan sync", "", "loan sync"]
+
+
+def test_apply_group_edits_in_memory_only_updates_selected_group_rows() -> None:
+    df = pl.DataFrame(
+        {
+            "fingerprint": ["transfer in family", "transfer in family", "transfer in family"],
+            "target_payee_selected": ["Transfer : In Family", "Transfer : In Family", "Transfer : In Family"],
+            "target_category_selected": ["", "", ""],
+            "memo_append": ["", "", ""],
+            "update_maps": ["", "", ""],
+            "decision_action": [review_validation.NO_DECISION, review_validation.NO_DECISION, review_validation.NO_DECISION],
+            "reviewed": [False, False, False],
+            "source_row_id": ["", "", ""],
+            "target_row_id": ["t1", "t2", "t3"],
+        }
+    )
+
+    updated, affected = review_app._apply_group_edits_in_memory(
+        df,
+        group_indices=[0, 2],
+        category="Loan Paydown",
+    )
+
+    assert affected == [0, 2]
+    assert updated["target_category_selected"].to_list() == ["Loan Paydown", "", "Loan Paydown"]
+
+
 def test_default_row_kind_selection_hides_matched_cleared_by_default() -> None:
     assert review_app._default_row_kind_selection(
         ["Matched", "Matched cleared", "Source only"]
@@ -1153,7 +1205,7 @@ def test_allowed_decision_actions_block_source_mutation_for_institutional() -> N
         )
     )
 
-    assert actions == [review_validation.NO_DECISION, "delete_target", "ignore_row"]
+    assert actions == [review_validation.NO_DECISION, "update_target", "delete_target", "ignore_row"]
 
 
 def test_app_row_save_persists_side_specific_fields_and_review_state(tmp_path: Path) -> None:

@@ -2,7 +2,7 @@
 
 ## Workstream
 
-Keep the context/run-tag institutional workflow stable while tightening the review-state model so the app is explicit, fast enough to use, and honest about what still needs user action.
+Keep the context/run-tag institutional workflow stable while tightening the review workflow so grouped edits are fast enough to use, target-only rows are explicit about the decision they need, and existing YNAB rows can be updated deliberately instead of only created or deleted.
 
 ## Current State
 
@@ -23,79 +23,30 @@ Keep the context/run-tag institutional workflow stable while tightening the revi
 
 ## Recently Completed
 
-- review launcher startup detection fix:
-  - [scripts/review_app.py](../scripts/review_app.py) no longer treats slow Streamlit startup as a hard failure after only `12s`
-  - startup readiness now accepts either:
-    - an actual port listener, or
-    - the Streamlit log writing `Local URL:` / `Network URL:`
-  - this fixes the false-negative case where `pixi run review-context -- pilates 2026_04_01` raised:
-    - `Review app failed to start on port 8501`
-    - even though the app finished starting moments later
-  - focused wrapper coverage now exists in [tests/test_review_app_wrapper.py](../tests/test_review_app_wrapper.py)
-- review-state redesign for the active app path:
-  - user-facing primary states are now:
-    - `Needs fix`
-    - `Needs decision`
-    - `Needs review`
-    - `Settled`
-  - `No decision` is no longer treated like a generic fix blocker; it maps to `Needs decision`
-  - applied edits now implicitly unsettle previously settled rows instead of leaving stale accepted state behind
-  - row/group accept actions now operate on the currently staged decisions instead of requiring a separate “mark reviewed” step
-- explicit target-only institutional defaults:
-  - [scripts/build_proposed_transactions.py](../scripts/build_proposed_transactions.py) now leaves all `target_only` rows on `decision_action = No decision`, `reviewed = False`
-  - `matched_cleared` rows also start unaccepted with `keep_match`, so system defaults land in `Needs review` instead of `Settled`
-  - on the rebuilt Pilates artifact:
-    - total rows: `4056`
-    - `target_only` rows: `4022`
-    - `target_only` rows still on explicit `No decision`: `4022`
-- clearer blocker messaging in the app:
-  - [validation.py](../src/ynab_il_importer/review_app/validation.py) now surfaces `Decision required` as a first-class blocker label
-  - [app.py](../src/ynab_il_importer/review_app/app.py) now explains common blockers, including the explicit-decision requirement for existing YNAB-only rows
-  - row/group button wording now matches the workflow more closely:
-    - `Apply edits`
-    - `Accept row`
-    - `Apply group edits`
-    - `Accept group`
-    - `Accept all reviewable rows`
-- grouped-edit persistence tightened:
-  - group widgets now render from the currently staged session values instead of silently snapping back to computed defaults
-  - this keeps grouped category/decision changes aligned with the actual apply/accept path
-- active docs aligned with the shipped model:
-  - [README.md](../README.md)
-  - [documents/context_workflow_spec.md](context_workflow_spec.md)
-  - [documents/decisions/unified_review_model_schema.md](decisions/unified_review_model_schema.md)
-
-## Recent Validation
-
-```bash
-pixi run pytest tests/test_review_app_wrapper.py -q
-pixi run pytest tests/test_build_proposed_transactions.py tests/test_review.py tests/test_review_app.py -q
-pixi run build-context-review -- pilates 2026_04_01
-pixi run python -  # Pilates state sanity check on data/paired/2026_04_01/pilates_proposed_transactions.parquet
-pixi run review-context -- pilates 2026_04_01 --port 8502
-```
-
-Result:
-
-- review-app wrapper tests: `5 passed`
-- focused review/build tests: `118 passed`
-- Pilates review rebuild: OK
-- real review-context launch on alternate port: OK
-- Pilates state sanity check:
-  - `target_only_total = 4022`
-  - `target_only_no_decision = 4022`
-  - state counts:
-    - `Needs decision = 4022`
-    - `Needs fix = 1`
-    - `Needs review = 33`
+- grouped review edits now apply to the exact visible row indices instead of routing back through the broader same-fingerprint mutation path:
+  - [app.py](../src/ynab_il_importer/review_app/app.py) now calls [model.py](../src/ynab_il_importer/review_app/model.py) `apply_to_indices(...)` for grouped edits
+  - this keeps `Apply group edits` scoped to the rows the user is actually looking at
+  - focused grouped-edit coverage now exists in [test_review_app.py](../tests/test_review_app.py)
+- existing institutional target-only YNAB rows now have an explicit keep-and-edit decision:
+  - [validation.py](../src/ynab_il_importer/review_app/validation.py) now allows `update_target` for `target_present && !source_present` institutional rows
+  - the row help text in [app.py](../src/ynab_il_importer/review_app/app.py) now tells the user to choose `update_target` when they want to preserve and edit an existing YNAB-only row
+- upload prep now supports reviewed `update_target` rows in addition to reviewed `create_target` rows:
+  - [upload_prep.py](../src/ynab_il_importer/upload_prep.py) now treats both decisions as uploadable mutation actions
+  - prepared upload rows carry `existing_transaction_id` for `update_target`
+  - payload generation is split into create and update batches so `prepare_ynab_upload.py` can call either the YNAB create or patch endpoint as appropriate
+  - focused upload-prep coverage now exists in [test_upload_prep.py](../tests/test_upload_prep.py)
+- focused validation for the bundled review/upload change passed:
+  - `pixi run pytest tests/test_review_app.py tests/test_upload_prep.py tests/test_prepare_ynab_upload_script.py -q`
+  - result: `92 passed`
 
 ## Next Steps
 
-1. Re-open the Pilates review app and verify the new state model feels coherent in the live workflow:
-   - `target_only` rows should clearly read as `Needs decision`
-   - grouped edits should persist and accept cleanly
-   - blocker text should explain why a row cannot yet be settled
-2. Decide whether the active workflow needs an explicit `update_target` mutation path for editing existing YNAB transactions instead of only creating new targets.
+1. Re-open the Pilates review app and verify the `transfer in family` group now behaves coherently in the live UI:
+   - `Apply group edits` should only touch the visible rows
+   - target-only rows should offer `update_target`
+   - `Accept group` should become available once `update_target` is selected
+2. Dry-run the upload prep on the updated workflow and inspect the emitted create/update payload batches:
+   - `pixi run python scripts/prepare_ynab_upload.py pilates 2026_04_01`
 3. Remove the review app's remaining dependency on [workflow_profiles.py](../src/ynab_il_importer/workflow_profiles.py) for category-cache path resolution.
 4. Decide whether to add dedicated pixi aliases for upload prep and category-cache refresh.
 

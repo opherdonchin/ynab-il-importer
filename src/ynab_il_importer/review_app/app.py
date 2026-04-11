@@ -297,6 +297,29 @@ def _call_apply_to_same_fingerprint(
     )
 
 
+def _call_apply_to_indices(
+    df: pl.DataFrame,
+    indices: list[Any],
+    *,
+    payee: str | None = None,
+    category: str | None = None,
+    memo_append: str | None = None,
+    update_maps: str | None = None,
+    decision_action: str | None = None,
+    reviewed: bool | None = None,
+) -> pl.DataFrame:
+    return review_model.apply_to_indices(
+        df,
+        indices,
+        payee=payee,
+        category=category,
+        memo_append=memo_append,
+        update_maps=update_maps,
+        decision_action=decision_action,
+        reviewed=reviewed,
+    )
+
+
 def _call_apply_competing_row_resolution(
     df: pl.DataFrame,
     indices: list[Any],
@@ -323,7 +346,6 @@ def _call_apply_review_state(
 def _apply_group_edits_in_memory(
     df: pl.DataFrame,
     *,
-    fingerprint: str,
     group_indices: list[int],
     payee: str | None = None,
     category: str | None = None,
@@ -341,28 +363,15 @@ def _apply_group_edits_in_memory(
     if not scoped_indices:
         return df, []
 
-    working_df = df
-    visible_group_mask = pl.Series(
-        [idx in set(scoped_indices) for idx in range(len(working_df))],
-        dtype=pl.Boolean,
-    )
-    applied_mask = visible_group_mask & review_state.series_or_default(
-        working_df, "fingerprint"
-    ).eq(fingerprint)
-    working_df = _call_apply_to_same_fingerprint(
-        working_df,
-        fingerprint,
+    working_df = _call_apply_to_indices(
+        df,
+        scoped_indices,
         payee=payee,
         category=category,
         memo_append=memo_append,
         decision_action=decision_action,
-        eligible_mask=visible_group_mask,
     )
-    affected_indices = [
-        current_idx
-        for current_idx, flag in enumerate(applied_mask.to_list())
-        if flag
-    ]
+    affected_indices = list(scoped_indices)
     working_df, competing_indices = _call_apply_competing_row_resolution(
         working_df, affected_indices
     )
@@ -2034,7 +2043,7 @@ def _render_row_details(
             target_present = bool(row.get("target_present", False))
             if target_present and not source_present:
                 return (
-                    "Existing YNAB-only row. Choose an explicit decision before it can be settled."
+                    "Existing YNAB-only row. Choose update_target to keep and edit it, or choose delete_target/ignore_row."
                 )
             if source_present and not target_present:
                 return (
@@ -3327,7 +3336,6 @@ def main() -> None:
                 if apply_group:
                     working_df, affected_indices = _apply_group_edits_in_memory(
                         df,
-                        fingerprint=fp,
                         group_indices=group_indices,
                         payee=payee_to_apply,
                         category=category_to_apply,
@@ -3352,7 +3360,6 @@ def main() -> None:
                     working_df = staged_group
                     working_df, affected_indices = _apply_group_edits_in_memory(
                         working_df,
-                        fingerprint=fp,
                         group_indices=group_indices,
                         payee=payee_to_apply,
                         category=category_to_apply,

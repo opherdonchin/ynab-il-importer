@@ -29,10 +29,14 @@ REQUIRED_REVIEW_COLUMNS = [
 ]
 _LEADING_SYMBOL_RE = re.compile(r"^[^\w\u0590-\u05FF]+")
 _CREATE_TARGET_ACTION = "create_target"
+_UPDATE_TARGET_ACTION = "update_target"
+_UPLOAD_DECISION_ACTIONS = {_CREATE_TARGET_ACTION, _UPDATE_TARGET_ACTION}
 _TRUE_VALUES = ("1", "true", "t", "yes", "y")
 TRANSACTION_UNIT_COLUMNS = [
     "upload_transaction_id",
     "source_row_count",
+    "decision_action",
+    "existing_transaction_id",
     "upload_kind",
     "unsupported_reason",
     "account_id",
@@ -192,7 +196,7 @@ def _decision_action_mask(df: pl.DataFrame) -> pl.Series:
     _validate_columns(df, REQUIRED_REVIEW_COLUMNS)
     return df.select(
         (
-            (_text_expr("decision_action").str.to_lowercase() == _CREATE_TARGET_ACTION)
+            _text_expr("decision_action").str.to_lowercase().is_in(_UPLOAD_DECISION_ACTIONS)
             & _flag_expr("reviewed")
         ).alias("decision_action_mask")
     ).to_series()
@@ -533,7 +537,7 @@ def validate_ready_for_upload(
     zero_amount_count = upload_df.filter(~nonzero_amount_expr).height
     if missing_payee_count or missing_category_count or zero_amount_count:
         raise ValueError(
-            "Rows selected for create_target are not ready for upload: "
+            "Rows selected for upload are not ready: "
             f"{missing_payee_count} rows missing payee, "
             f"{missing_category_count} rows missing category, "
             f"{zero_amount_count} rows with zero amount."
@@ -622,12 +626,32 @@ def prepare_upload_transactions(
             .then(pl.format("upload_txn_{}", pl.col("upload_row_position")))
             .otherwise(pl.col("transaction_id"))
             .alias("upload_transaction_id"),
+            pl.when(pl.col("decision_action").str.to_lowercase() == _UPDATE_TARGET_ACTION)
+            .then(_text_expr_or_default(df, "target_row_id"))
+            .otherwise(pl.lit(""))
+            .alias("existing_transaction_id"),
             _amount_milliunits_expr(
                 inflow_col="inflow_ils",
                 outflow_col="outflow_ils",
             ).alias("import_amount_milliunits"),
         )
     )
+    missing_existing_ids = sorted(
+        set(
+            df.filter(
+                (pl.col("decision_action").str.to_lowercase() == _UPDATE_TARGET_ACTION)
+                & (pl.col("existing_transaction_id") == "")
+            )
+            .get_column("upload_transaction_id")
+            .to_list()
+        )
+    )
+    if missing_existing_ids:
+        raise ValueError(
+            "Missing target_row_id values for update_target rows: "
+            + ", ".join(missing_existing_ids)
+        )
+
     df = _explode_target_splits_for_upload(df)
 
     account_ids, transfer_payees = _account_lookup(accounts)
@@ -931,6 +955,7 @@ def prepare_upload_transactions(
         "approved",
         "import_id",
         "upload_kind",
+        "existing_transaction_id",
     ]
     optional_columns = [
         "source",
@@ -960,6 +985,8 @@ def _empty_transaction_units_frame() -> pl.DataFrame:
         schema={
             "upload_transaction_id": pl.String,
             "source_row_count": pl.Int64,
+            "decision_action": pl.String,
+            "existing_transaction_id": pl.String,
             "upload_kind": pl.String,
             "unsupported_reason": pl.String,
             "account_id": pl.String,
@@ -1009,6 +1036,8 @@ def assemble_upload_transaction_units(prepared_df: pl.DataFrame) -> pl.DataFrame
         "memo": "",
         "cleared": "cleared",
         "approved": False,
+        "decision_action": _CREATE_TARGET_ACTION,
+        "existing_transaction_id": "",
         "payee_id": "",
         "payee_name_upload": "",
         "category_id": "",
@@ -1034,6 +1063,8 @@ def assemble_upload_transaction_units(prepared_df: pl.DataFrame) -> pl.DataFrame
             for name in [
                 "upload_transaction_id",
                 "upload_kind",
+                "decision_action",
+                "existing_transaction_id",
                 "account_id",
                 "account_name",
                 "date",
@@ -1067,9 +1098,14 @@ def assemble_upload_transaction_units(prepared_df: pl.DataFrame) -> pl.DataFrame
         is_split = len(rows) > 1
         unsupported_reason = ""
         unit_kind = _normalize_text(first.get("upload_kind", ""))
+        decision_action = _normalize_text(first.get("decision_action", "")) or _CREATE_TARGET_ACTION
+        existing_transaction_id = _normalize_text(first.get("existing_transaction_id", ""))
         parent_category_id = _normalize_text(first.get("category_id", ""))
         parent_target_category = _normalize_text(first.get("target_category_selected", ""))
         subtransactions: list[dict[str, Any]] = []
+
+        if decision_action == _UPDATE_TARGET_ACTION and not existing_transaction_id:
+            unsupported_reason = "missing_existing_transaction_id"
 
         if is_split:
             unit_kind = "split"
@@ -1107,6 +1143,8 @@ def assemble_upload_transaction_units(prepared_df: pl.DataFrame) -> pl.DataFrame
             {
                 "upload_transaction_id": upload_transaction_id,
                 "source_row_count": len(rows),
+                "decision_action": decision_action,
+                "existing_transaction_id": existing_transaction_id,
                 "upload_kind": unit_kind,
                 "unsupported_reason": unsupported_reason,
                 "account_id": _normalize_text(first.get("account_id", "")),
@@ -1146,8 +1184,22 @@ def assemble_upload_transaction_units(prepared_df: pl.DataFrame) -> pl.DataFrame
     return units
 
 
-def upload_payload_records(prepared_df: pl.DataFrame) -> list[dict[str, Any]]:
+def upload_payload_records(
+    prepared_df: pl.DataFrame,
+    *,
+    decision_action: str | None = None,
+) -> list[dict[str, Any]]:
     units = assemble_upload_transaction_units(prepared_df)
+    if decision_action:
+        wanted_action = _normalize_text(decision_action).casefold()
+        units = units.filter(
+            pl.col("decision_action")
+            .cast(pl.Utf8, strict=False)
+            .fill_null("")
+            .str.strip_chars()
+            .str.to_lowercase()
+            .eq(wanted_action)
+        )
     records: list[dict[str, Any]] = []
     for row in units.rows(named=True):
         unsupported_reason = _normalize_text(row.get("unsupported_reason", ""))
@@ -1163,8 +1215,19 @@ def upload_payload_records(prepared_df: pl.DataFrame) -> list[dict[str, Any]]:
             "memo": _normalize_text(row.get("memo", "")) or None,
             "cleared": _normalize_text(row.get("cleared", "")) or "cleared",
             "approved": bool(row.get("approved", True)),
-            "import_id": _normalize_text(row.get("import_id", "")),
         }
+        mutation_action = _normalize_text(row.get("decision_action", "")) or _CREATE_TARGET_ACTION
+        if mutation_action == _UPDATE_TARGET_ACTION:
+            existing_transaction_id = _normalize_text(
+                row.get("existing_transaction_id", "")
+            )
+            if not existing_transaction_id:
+                raise ValueError(
+                    "update_target payload requires existing_transaction_id"
+                )
+            payload["id"] = existing_transaction_id
+        else:
+            payload["import_id"] = _normalize_text(row.get("import_id", ""))
         payee_id = _normalize_text(row.get("payee_id", ""))
         payee_name = _normalize_text(row.get("payee_name_upload", ""))
         category_id = _normalize_text(row.get("category_id", ""))
@@ -1571,3 +1634,16 @@ def verify_upload_response(
 
 
 
+
+
+def upload_payload_batches(prepared_df: pl.DataFrame) -> dict[str, list[dict[str, Any]]]:
+    return {
+        "create_transactions": upload_payload_records(
+            prepared_df,
+            decision_action=_CREATE_TARGET_ACTION,
+        ),
+        "update_transactions": upload_payload_records(
+            prepared_df,
+            decision_action=_UPDATE_TARGET_ACTION,
+        ),
+    }
