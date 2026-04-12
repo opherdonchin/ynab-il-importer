@@ -154,6 +154,12 @@ def test_resolve_run_paths_and_context_artifacts(tmp_path: Path) -> None:
         run_paths.matched_pairs_path(defaults, "family").name
         == "family_matched_pairs.parquet"
     )
+    assert (
+        run_paths.category_account_reconcile_report_path(
+            defaults, "aikido", "aikido_family_category"
+        ).name
+        == "aikido_aikido_family_category_category_account_reconcile_report.csv"
+    )
 
 
 def test_resolve_context_ynab_path_requires_file(tmp_path: Path) -> None:

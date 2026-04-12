@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the current context/run-tag workflow model for normalization, YNAB snapshot download, review building, and review app launch.
+Define the current context/run-tag workflow model for normalization, YNAB snapshot download, review building, review app launch, and source-specific closeout.
 
 The active goals are:
 
@@ -132,6 +132,27 @@ Default behavior is intentionally conservative:
 - YNAB rows already marked `cleared` or `reconciled` are excluded from the review artifact
 - this applies both to exact matched rows and to unmatched `target_only` YNAB rows, including transfer counterparts and ambiguous candidate rows whose YNAB side is already settled
 - use `--include-reconciled-ynab` only when you explicitly want settled YNAB history back in review
+
+### Post-review closeout
+
+Closeout is source-kind specific:
+
+- bank sources:
+  - `pixi run sync-bank-matches -- <context> <run_tag>`
+  - `pixi run reconcile-bank-statement -- <context> <run_tag>`
+- card sources:
+  - `pixi run sync-card-matches -- <context> <run_tag> --account "<Card Account Name>"`
+  - `pixi run reconcile-card-cycle -- <context> <run_tag> --account "<Card Account Name>" --previous <normalized_previous.parquet>`
+- `ynab_category` sources:
+  - `pixi run reconcile-category-account -- <context> <run_tag>`
+
+For `ynab_category` sources, the closeout step is not bank/card lineage sync. It verifies live parity between:
+
+- the source budget category balance for the run month
+- the target account balance
+- the target account cleared balance
+
+and then patches the resolved target-side rows to `cleared = reconciled`.
 
 ### Launch review app
 

@@ -6,8 +6,7 @@ Describe the current closeout path after review is complete:
 
 1. prepare upload payloads from the canonical reviewed artifact
 2. optionally upload them to YNAB
-3. sync lineage markers onto matched bank/card transactions already in YNAB
-4. reconcile bank and card accounts against canonical normalized source artifacts
+3. run the source-kind-specific closeout path
 
 ## Core Boundaries
 
@@ -28,6 +27,10 @@ The public loader is [load_upload_working_frame](../src/ynab_il_importer/upload_
 
 - bank sync and bank reconciliation consume canonical normalized bank Parquet
 - card sync and card reconciliation consume canonical normalized card Parquet
+- `ynab_category` reconcile consumes:
+  - the canonical reviewed artifact for the target context
+  - the live source-budget month detail for the run month
+  - the live target-budget account and transaction snapshot
 - previous MAX statements are normalized explicitly before card reconciliation via [scripts/normalize_previous_max.py](../scripts/normalize_previous_max.py)
 - review build excludes already settled YNAB rows by default, including reconciled exact matches, reconciled transfer counterparts, and other reconciled target-side candidates; use `pixi run build-context-review -- <context> <run_tag> --include-reconciled-ynab` only for explicit historical inspection
 
@@ -85,6 +88,26 @@ Card reconciliation supports:
 - previous-plus-current transition reconciliation
 - context-declared `allow_reconciled_source` overrides for known sequencing edge cases
 
+### YNAB-category closeout
+
+```bash
+pixi run reconcile-category-account -- <context> <run_tag>
+```
+
+This path is for contexts whose active source is another budget's YNAB category history rather than a bank/card statement.
+
+It:
+
+- selects the reviewed rows that came from the declared `ynab_category` source
+- resolves live target transactions by:
+  - existing target transaction id for `keep_match`
+  - prepared upload import id for `create_target`
+  - existing target transaction id for `update_target`
+- verifies parity between the live source category balance and the live target account balances
+- patches the resolved target transactions to `cleared = reconciled` on `--execute`
+
+This replaces the old archived cross-budget anchored reconcile for active Aikido-style workflows. It is intentionally strict and works only on the reviewed source rows for the declared category/account pair.
+
 ## Module Responsibilities
 
 ### [src/ynab_il_importer/upload_prep.py](../src/ynab_il_importer/upload_prep.py)
@@ -121,6 +144,16 @@ Owns:
 - lineage sync planning
 - current-cycle and previous-plus-current reconciliation
 - transfer and statement-window validation
+
+### [src/ynab_il_importer/ynab_category_reconciliation.py](../src/ynab_il_importer/ynab_category_reconciliation.py)
+
+Owns:
+
+- selecting reviewed rows for one `ynab_category` source
+- resolving the live source category and target account
+- resolving target transactions from reviewed/uploaded state
+- parity checks for category/account closeout
+- reconciliation patch planning for target rows
 
 ## Current Caveats
 

@@ -2,7 +2,7 @@
 
 ## Workstream
 
-Keep the context/run-tag workflow strict while extending Aikido onto the active institutional path through a first-class derived source, without dragging settled YNAB history back into review.
+Keep the context/run-tag workflow strict while finishing the missing closeout path for `ynab_category` sources, so Aikido-style contexts can complete review, upload, and reconciliation entirely on the active institutional workflow.
 
 ## Current State
 
@@ -12,11 +12,13 @@ Keep the context/run-tag workflow strict while extending Aikido onto the active 
   - exact matched rows whose YNAB side is already `cleared` or `reconciled`
   - target-only rows whose YNAB side is already `cleared` or `reconciled`
   - reconciled transfer counterparts and reconciled ambiguous target candidates
-- the review-build override remains explicit:
-  - `pixi run build-context-review -- <context> <run_tag> --include-reconciled-ynab`
 - context sources now support both:
   - raw-backed `raw_file` / `raw_match` entries
   - derived `ynab_category` entries sourced from another context's normalized YNAB snapshot for the same run tag
+- closeout now has three strict source-kind paths:
+  - bank: sync plus statement reconciliation
+  - card: sync plus cycle reconciliation
+  - `ynab_category`: category/account parity reconciliation
 
 ## Recently Completed
 
@@ -28,44 +30,54 @@ Keep the context/run-tag workflow strict while extending Aikido onto the active 
   - [contexts/aikido/context.toml](../contexts/aikido/context.toml)
   - source = Family YNAB category `Aikido`
   - target account = `Personal In Leumi`
-- propagated category-source provenance into review rows:
+- propagated category-source provenance into review rows and kept settled YNAB history out of fresh review:
   - [scripts/build_proposed_transactions.py](../scripts/build_proposed_transactions.py)
-  - source rows now carry `ynab_parent_category_match` / `ynab_split_category_match` context instead of pretending to be direct raw imports
-- tightened reconciled-row exclusion so settled Aikido history stays out of fresh review even when it appears as:
-  - ambiguous matched candidates
-  - target-only transfer counterparts
+- added the missing `ynab_category` closeout path:
+  - [src/ynab_il_importer/ynab_category_reconciliation.py](../src/ynab_il_importer/ynab_category_reconciliation.py)
+  - [scripts/reconcile_category_account.py](../scripts/reconcile_category_account.py)
+  - [pixi.toml](../pixi.toml)
+- added focused validation for the new closeout planner:
+  - [tests/test_ynab_category_reconciliation.py](../tests/test_ynab_category_reconciliation.py)
+  - [tests/test_context_config.py](../tests/test_context_config.py)
 - updated active docs:
   - [documents/context_workflow_spec.md](../documents/context_workflow_spec.md)
   - [documents/upload_reconcile_cutover_spec.md](../documents/upload_reconcile_cutover_spec.md)
   - [README.md](../README.md)
 - focused validation passed:
-  - `pixi run pytest tests/test_context_config.py tests/test_build_proposed_transactions.py tests/test_ynab_category_source.py tests/test_ynab_api.py -q`
-  - result: `47 passed`
+  - `pixi run pytest tests/test_ynab_category_reconciliation.py tests/test_context_config.py -q`
+  - result: `17 passed`
 
 ## Current Aikido Status
 
-- live Aikido YNAB remains fully reconciled:
-  - `Personal In Leumi`: `1046` reconciled
-  - `Meshulam`: `17` reconciled
-- `pixi run normalize-context -- aikido 2026_04_01` now succeeds and writes:
+- `pixi run normalize-context -- aikido 2026_04_01` succeeds and writes:
   - `data/derived/2026_04_01/aikido_family_category_norm.parquet`
   - result: `41` normalized source rows from the Family `Aikido` category
-- `pixi run build-context-review -- aikido 2026_04_01` now succeeds and writes:
+- `pixi run build-context-review -- aikido 2026_04_01` succeeds and writes:
   - `data/paired/2026_04_01/aikido_matched_pairs.parquet`
   - `data/paired/2026_04_01/aikido_proposed_transactions.parquet`
-- fresh Aikido review is now reduced to one live row:
+- Aikido review has been completed for the single live row:
   - `2026-03-31`
-  - account `Personal In Leumi`
   - payee `Tayo`
-  - `match_status = source_only`
   - `decision_action = create_target`
+  - `reviewed = TRUE`
+- the new dry-run closeout command is now working against live Aikido data:
+  - `pixi run reconcile-category-account -- aikido 2026_04_01`
+  - current blocker is expected and explicit:
+    - reviewed row resolves to `missing_uploaded_transaction_in_live_ynab`
+    - source category balance `8351.98`
+    - target account balance `9032.88`
 
 ## Next Steps
 
-1. Open the Aikido review app for `2026_04_01` and confirm the single proposed row is correct:
-   - `pixi run review-context -- aikido 2026_04_01`
-2. If review is clean, continue with the normal upload/sync closeout for Aikido.
-3. Keep `ynab_category` as the pattern for contexts whose only active source is another budget's YNAB category history.
+1. Upload the reviewed Aikido row:
+   - `pixi run python scripts/prepare_ynab_upload.py aikido 2026_04_01 --ready-only --skip-missing-accounts`
+   - if the dry run looks right:
+   - `pixi run python scripts/prepare_ynab_upload.py aikido 2026_04_01 --ready-only --skip-missing-accounts --execute`
+2. Run the new Aikido closeout step:
+   - `pixi run reconcile-category-account -- aikido 2026_04_01`
+   - and then:
+   - `pixi run reconcile-category-account -- aikido 2026_04_01 --execute`
+3. Keep `ynab_category` as the active pattern for contexts whose source of truth is another budget's YNAB category rather than a bank/card export.
 
 ## Working Rules
 

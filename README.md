@@ -127,7 +127,7 @@ This writes:
 
 Add `--execute` only after the dry run looks correct.
 
-### 8. Sync lineage onto existing YNAB transactions
+### 8. Run the source-specific closeout path
 
 Bank:
 
@@ -158,6 +158,14 @@ pixi run normalize-previous-max -- <context> <account_suffix> --cycle YYYY_MM
 pixi run reconcile-card-cycle -- <context> <run_tag> --account "<Card Account Name>" --previous data/derived/previous_max/<account_suffix>/YYYY_MM_max_norm.parquet
 ```
 
+YNAB category source:
+
+```bash
+pixi run reconcile-category-account -- <context> <run_tag>
+```
+
+This closeout is for contexts like Aikido whose source is another budget's YNAB category history instead of a bank/card statement. It verifies live category/account parity and marks the resolved target account rows `reconciled`.
+
 ## Active Entry Points
 
 Current workflow commands:
@@ -168,6 +176,7 @@ Current workflow commands:
 - `pixi run review-context -- <context> <run_tag>`
 - `pixi run sync-bank-matches -- <context> <run_tag>`
 - `pixi run reconcile-bank-statement -- <context> <run_tag>`
+- `pixi run reconcile-category-account -- <context> <run_tag>`
 - `pixi run normalize-previous-max -- <context> <account_suffix> --cycle YYYY_MM`
 - `pixi run sync-card-matches -- <context> <run_tag> --account "<Card Account Name>"`
 - `pixi run reconcile-card-cycle -- <context> <run_tag> --account "<Card Account Name>" --previous <normalized_previous.parquet>`
