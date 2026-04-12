@@ -249,6 +249,8 @@ def load_context(name: str, *, contexts_root: Path = CONTEXTS_ROOT) -> LoadedCon
 def resolve_context_sources(
     context: LoadedContext, raw_dir: Path
 ) -> list[ResolvedContextSource]:
+    if not context.config.sources:
+        raise ValueError(f"Context {context.name!r} has no declared sources.")
     if not raw_dir.exists():
         raise FileNotFoundError(f"Missing raw run directory: {raw_dir}")
     if not raw_dir.is_dir():
@@ -312,6 +314,8 @@ def resolve_context_normalized_source_paths(
     context: LoadedContext,
     run_paths: ContextRunPaths,
 ) -> list[Path]:
+    if not context.config.sources:
+        raise ValueError(f"Context {context.name!r} has no declared sources.")
     paths = [
         run_paths.derived_dir / source.normalized_name
         for source in context.config.sources

@@ -17,6 +17,40 @@ def test_load_family_context_resolves_map_paths() -> None:
     assert len(loaded.config.sources) == 2
 
 
+def test_load_aikido_context_without_sources_section_still_loads() -> None:
+    loaded = context_config.load_context("aikido")
+
+    assert loaded.name == "aikido"
+    assert loaded.budget_id_env == "YNAB_AIKIDO_BUDGET_ID"
+    assert loaded.ynab_normalized_name == "aikido_ynab_api_norm.parquet"
+    assert loaded.config.sources == []
+
+
+def test_resolve_context_sources_requires_declared_sources(tmp_path: Path) -> None:
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    loaded = context_config.load_context("aikido")
+
+    with pytest.raises(ValueError, match="has no declared sources"):
+        context_config.resolve_context_sources(loaded, raw_dir)
+
+
+def test_resolve_context_normalized_source_paths_requires_declared_sources(
+    tmp_path: Path,
+) -> None:
+    defaults = context_config.DefaultsConfig(
+        raw_root=tmp_path / "raw",
+        derived_root=tmp_path / "derived",
+        paired_root=tmp_path / "paired",
+        outputs_root=tmp_path / "outputs",
+    )
+    run_paths = context_config.resolve_run_paths(defaults, run_tag="2026_04_01")
+    loaded = context_config.load_context("aikido")
+
+    with pytest.raises(ValueError, match="has no declared sources"):
+        context_config.resolve_context_normalized_source_paths(loaded, run_paths)
+
+
 def test_resolve_context_sources_supports_exact_and_regex(tmp_path: Path) -> None:
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()

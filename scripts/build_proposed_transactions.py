@@ -1376,6 +1376,7 @@ def build_review_rows(
     ynab_df: pl.DataFrame,
     *,
     map_path: Path,
+    include_reconciled_ynab: bool = False,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     prepared_source_pl = _prepare_review_source_rows(source_df)
     prepared_target_pl = _prepare_review_target_rows(ynab_df)
@@ -1527,6 +1528,8 @@ def build_review_rows(
         )
         .select(REVIEW_ROW_COLUMNS)
     )
+    if not include_reconciled_ynab:
+        matched_pl = matched_pl.filter(pl.col("match_status") != "matched_cleared")
 
     matched_source_ids = pairs_pl.select("source_row_id").unique()
     unmatched_source_pl = (
@@ -1684,6 +1687,10 @@ def build_review_rows(
         )
         .select(REVIEW_ROW_COLUMNS)
     )
+    if not include_reconciled_ynab:
+        unmatched_target_pl = unmatched_target_pl.filter(
+            bool_text("relation_kind") != "target_only_cleared"
+        )
 
     relations_pl = pl.concat(
         [matched_pl, unmatched_source_pl, unmatched_target_pl], how="diagonal_relaxed"
@@ -1702,6 +1709,7 @@ def run_build(
     map_path: Path,
     out_path: Path,
     pairs_out: str = "",
+    include_reconciled_ynab: bool = False,
 ) -> None:
     if not source_paths:
         raise ValueError("Provide at least one --source or --source-dir input.")
@@ -1711,7 +1719,12 @@ def run_build(
     if ynab_df.is_empty():
         raise ValueError("No rows found in YNAB input.")
 
-    out, pairs = build_review_rows(source_df, ynab_df, map_path=map_path)
+    out, pairs = build_review_rows(
+        source_df,
+        ynab_df,
+        map_path=map_path,
+        include_reconciled_ynab=include_reconciled_ynab,
+    )
     if pairs_out:
         pairs_out_path = Path(pairs_out)
         pairs_out_path.parent.mkdir(parents=True, exist_ok=True)

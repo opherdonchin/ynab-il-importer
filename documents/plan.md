@@ -2,53 +2,59 @@
 
 ## Workstream
 
-Keep the context/run-tag institutional workflow stable while tightening the review workflow so grouped edits are fast enough to use, target-only rows are explicit about the decision they need, and existing YNAB rows can be updated deliberately instead of only created or deleted.
+Keep the context/run-tag institutional workflow strict and explainable while we extend it to the next context without dragging settled YNAB history back into review.
 
 ## Current State
 
 - canonical transaction artifacts are Parquet `transaction_v1`
 - canonical review artifacts are Parquet `review_v4`
-- the review app and upload prep operate on one flat Polars working dataframe
-- the active closeout path is:
-  - `pixi run normalize-context -- <context> <run_tag>`
-  - `pixi run download-context-ynab -- <context> <run_tag>`
-  - `pixi run build-context-review -- <context> <run_tag>`
-  - `pixi run review-context -- <context> <run_tag>`
-  - `pixi run python scripts/prepare_ynab_upload.py <context> <run_tag> ...`
-  - `pixi run sync-bank-matches -- <context> <run_tag>`
-  - `pixi run reconcile-bank-statement -- <context> <run_tag>`
-  - `pixi run normalize-previous-max -- <context> <account_suffix> --cycle YYYY_MM`
-  - `pixi run sync-card-matches -- <context> <run_tag> --account "<account>"`
-  - `pixi run reconcile-card-cycle -- <context> <run_tag> --account "<account>" --previous <normalized_previous.parquet>`
+- `build-context-review` now excludes already reconciled YNAB rows by default:
+  - matched rows whose YNAB side is already `reconciled`
+  - unmatched `target_only` YNAB rows already marked `reconciled`
+- the review-build override is now explicit:
+  - `pixi run build-context-review -- <context> <run_tag> --include-reconciled-ynab`
+- [contexts/aikido/context.toml](../contexts/aikido/context.toml) now loads cleanly again; the misplaced `sources = []` under `[ynab]` is gone
+- contexts with no declared `[[sources]]` now fail fast on normalization and review-build instead of silently no-oping
 
 ## Recently Completed
 
-- grouped review edits now apply to the exact visible row indices instead of routing back through the broader same-fingerprint mutation path:
-  - [app.py](../src/ynab_il_importer/review_app/app.py) now calls [model.py](../src/ynab_il_importer/review_app/model.py) `apply_to_indices(...)` for grouped edits
-  - this keeps `Apply group edits` scoped to the rows the user is actually looking at
-  - focused grouped-edit coverage now exists in [test_review_app.py](../tests/test_review_app.py)
-- existing institutional target-only YNAB rows now have an explicit keep-and-edit decision:
-  - [validation.py](../src/ynab_il_importer/review_app/validation.py) now allows `update_target` for `target_present && !source_present` institutional rows
-  - the row help text in [app.py](../src/ynab_il_importer/review_app/app.py) now tells the user to choose `update_target` when they want to preserve and edit an existing YNAB-only row
-- upload prep now supports reviewed `update_target` rows in addition to reviewed `create_target` rows:
-  - [upload_prep.py](../src/ynab_il_importer/upload_prep.py) now treats both decisions as uploadable mutation actions
-  - prepared upload rows carry `existing_transaction_id` for `update_target`
-  - payload generation is split into create and update batches so `prepare_ynab_upload.py` can call either the YNAB create or patch endpoint as appropriate
-  - focused upload-prep coverage now exists in [test_upload_prep.py](../tests/test_upload_prep.py)
-- focused validation for the bundled review/upload change passed:
-  - `pixi run pytest tests/test_review_app.py tests/test_upload_prep.py tests/test_prepare_ynab_upload_script.py -q`
-  - result: `92 passed`
+- review-build policy/spec/code now agree that settled YNAB history should stay out of fresh review artifacts unless explicitly re-included:
+  - [scripts/build_proposed_transactions.py](../scripts/build_proposed_transactions.py) now drops `matched_cleared` and `target_only_cleared` rows by default
+  - [scripts/build_context_review.py](../scripts/build_context_review.py) now exposes `--include-reconciled-ynab`
+  - [documents/context_workflow_spec.md](../documents/context_workflow_spec.md) and [documents/upload_reconcile_cutover_spec.md](../documents/upload_reconcile_cutover_spec.md) now document that default
+- context resolution now fails honestly when a context has no declared source inputs:
+  - [src/ynab_il_importer/context_config.py](../src/ynab_il_importer/context_config.py)
+  - focused coverage updated in [tests/test_context_config.py](../tests/test_context_config.py)
+- focused validation passed:
+  - `pixi run pytest tests/test_build_proposed_transactions.py tests/test_context_config.py -q`
+  - result: `30 passed`
+- real-world verification passed on Pilates:
+  - `pixi run build-context-review -- pilates 2026_04_01`
+  - result: `24` matched pairs and `283` proposal rows after reconciled YNAB history was excluded from review
+
+## Current Aikido Status
+
+- live Aikido YNAB is still fully reconciled:
+  - `Personal In Leumi`: `1046` reconciled
+  - `Meshulam`: `17` reconciled
+  - no uncleared or cleared-but-unreconciled backlog
+- `pixi run download-context-ynab -- aikido 2026_04_01` now succeeds and writes:
+  - `data/derived/2026_04_01/aikido_ynab_api_norm.parquet`
+- the active workflow is still blocked before review prep because Aikido has no declared active sources:
+  - `pixi run normalize-context -- aikido 2026_04_01`
+  - `pixi run build-context-review -- aikido 2026_04_01`
+  - both now fail clearly with `Context 'aikido' has no declared sources.`
 
 ## Next Steps
 
-1. Re-open the Pilates review app and verify the `transfer in family` group now behaves coherently in the live UI:
-   - `Apply group edits` should only touch the visible rows
-   - target-only rows should offer `update_target`
-   - `Accept group` should become available once `update_target` is selected
-2. Dry-run the upload prep on the updated workflow and inspect the emitted create/update payload batches:
-   - `pixi run python scripts/prepare_ynab_upload.py pilates 2026_04_01`
-3. Remove the review app's remaining dependency on [workflow_profiles.py](../src/ynab_il_importer/workflow_profiles.py) for category-cache path resolution.
-4. Decide whether to add dedicated pixi aliases for upload prep and category-cache refresh.
+1. Decide what the active Aikido source should be on the current context/run-tag workflow:
+   - declare real current raw source files under `contexts/aikido/context.toml`, or
+   - explicitly keep Aikido outside the active institutional normalization/review path for now
+2. Once Aikido has a declared source, rerun:
+   - `pixi run normalize-context -- aikido <run_tag>`
+   - `pixi run download-context-ynab -- aikido <run_tag>`
+   - `pixi run build-context-review -- aikido <run_tag>`
+3. Keep the reconciled-row exclusion as the default review policy unless we are doing explicit historical inspection.
 
 ## Working Rules
 

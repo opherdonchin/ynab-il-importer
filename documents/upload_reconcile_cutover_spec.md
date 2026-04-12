@@ -29,6 +29,7 @@ The public loader is [load_upload_working_frame](../src/ynab_il_importer/upload_
 - bank sync and bank reconciliation consume canonical normalized bank Parquet
 - card sync and card reconciliation consume canonical normalized card Parquet
 - previous MAX statements are normalized explicitly before card reconciliation via [scripts/normalize_previous_max.py](../scripts/normalize_previous_max.py)
+- review build excludes already reconciled YNAB rows by default; use `pixi run build-context-review -- <context> <run_tag> --include-reconciled-ynab` only for explicit historical inspection
 
 ### Live YNAB data
 

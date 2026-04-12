@@ -8,5 +8,3 @@ payee_map = "../../mappings/aikido/payee_map.csv"
 
 [ynab]
 normalized_name = "aikido_ynab_api_norm.parquet"
-
-sources = []

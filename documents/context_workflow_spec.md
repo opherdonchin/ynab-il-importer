@@ -71,6 +71,8 @@ Current source declarations support:
 - `normalized_name`
 - `allow_reconciled_source` for card reconciliation edge cases
 
+Contexts that participate in `normalize-context` or `build-context-review` must declare at least one `[[sources]]` entry. A context with no declared sources is not runnable on the active normalization/review path.
+
 ## Source Resolution Rules
 
 Source resolution is intentionally strict:
@@ -113,9 +115,16 @@ Writes the declared normalized YNAB artifact to `data/derived/<run_tag>/`.
 
 ```bash
 pixi run build-context-review -- <context> <run_tag>
+pixi run build-context-review -- <context> <run_tag> --include-reconciled-ynab
 ```
 
 Loads the declared normalized source artifacts plus the normalized YNAB artifact and writes the canonical review artifact to `data/paired/<run_tag>/`.
+
+Default behavior is intentionally conservative:
+
+- YNAB rows already marked `cleared = reconciled` are excluded from the review artifact
+- this applies both to exact matched rows and to unmatched `target_only` YNAB rows
+- use `--include-reconciled-ynab` only when you explicitly want settled YNAB history back in review
 
 ### Launch review app
 
@@ -151,6 +160,7 @@ Current fresh-build defaults are intentional:
 - matched rows start with `decision_action = keep_match`, `reviewed = FALSE`
 - source-only rows start with `decision_action = create_target`, `reviewed = FALSE`
 - target-only rows start with `decision_action = No decision`, `reviewed = FALSE`
+- already reconciled YNAB rows are omitted from fresh builds unless explicitly re-included with `--include-reconciled-ynab`
 
 This means existing YNAB-only rows require an explicit decision in review; they do not auto-default to `ignore_row`.
 

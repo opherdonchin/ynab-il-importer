@@ -33,6 +33,14 @@ def main() -> None:
         default=context_config.CONTEXTS_ROOT,
         help="Contexts root directory.",
     )
+    parser.add_argument(
+        "--include-reconciled-ynab",
+        action="store_true",
+        help=(
+            "Include already reconciled YNAB transactions in the review artifact "
+            "instead of skipping them by default."
+        ),
+    )
     args = parser.parse_args()
 
     defaults = context_config.load_defaults(args.defaults_path)
@@ -51,6 +59,7 @@ def main() -> None:
         map_path=context.payee_map_path,
         out_path=out_path,
         pairs_out=str(pairs_out),
+        include_reconciled_ynab=args.include_reconciled_ynab,
     )
 
 

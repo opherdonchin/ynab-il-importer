@@ -487,7 +487,7 @@ def test_build_review_rows_emits_institutional_statuses(tmp_path: Path) -> None:
     assert bool(target_only["reviewed"]) is False
 
 
-def test_build_review_rows_marks_cleared_exact_matches_as_settled(
+def test_build_review_rows_skips_reconciled_exact_matches_by_default(
     tmp_path: Path,
 ) -> None:
     map_path = tmp_path / "payee_map.csv"
@@ -531,6 +531,56 @@ def test_build_review_rows_marks_cleared_exact_matches_as_settled(
         _canonical_source_polars(source_df),
         _canonical_target_polars(ynab_df),
         map_path=map_path,
+    )
+
+    assert review_rows.is_empty()
+
+
+def test_build_review_rows_can_include_reconciled_exact_matches(
+    tmp_path: Path,
+) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "source": "bank",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "groceries",
+                "description_raw": "Groceries",
+            }
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-match",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Groceries",
+                "category_raw": "Food",
+                "fingerprint": "groceries",
+                "memo": "existing",
+                "import_id": "BANK:V1:abc",
+                "matched_transaction_id": "",
+                "cleared": "cleared",
+                "approved": True,
+            }
+        ]
+    )
+
+    review_rows, _ = build_proposed_transactions.build_review_rows(
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
+        map_path=map_path,
+        include_reconciled_ynab=True,
     )
 
     matched = review_rows.row(0, named=True)
@@ -587,6 +637,7 @@ def test_build_review_rows_normalizes_transfer_uncategorized_to_explicit_none(
         _canonical_source_polars(source_df),
         _canonical_target_polars(ynab_df),
         map_path=map_path,
+        include_reconciled_ynab=True,
     )
 
     matched = review_rows.row(0, named=True)
@@ -667,7 +718,7 @@ def test_build_review_rows_leaves_target_only_transfer_counterparts_for_explicit
     assert target_only["target_category_selected"] == review_model.NO_CATEGORY_REQUIRED
 
 
-def test_build_review_rows_leaves_reconciled_target_only_rows_for_explicit_decision(
+def test_build_review_rows_skips_reconciled_target_only_rows_by_default(
     tmp_path: Path,
 ) -> None:
     map_path = tmp_path / "payee_map.csv"
@@ -727,6 +778,74 @@ def test_build_review_rows_leaves_reconciled_target_only_rows_for_explicit_decis
         _canonical_source_polars(source_df),
         _canonical_target_polars(ynab_df),
         map_path=map_path,
+    )
+
+    assert review_rows.filter(
+        pl.col("target_payee_selected") == "Manual Cash"
+    ).is_empty()
+
+
+def test_build_review_rows_can_include_reconciled_target_only_rows(
+    tmp_path: Path,
+) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "source": "bank",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "groceries",
+                "description_raw": "Groceries",
+            }
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-match",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Groceries",
+                "category_raw": "Food",
+                "fingerprint": "groceries",
+                "memo": "existing",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            },
+            {
+                "ynab_id": "ynab-old",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2024-12-30",
+                "outflow_ils": 15.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Manual Cash",
+                "category_raw": "Cash",
+                "fingerprint": "manual cash",
+                "memo": "old reconciled",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "reconciled",
+                "approved": True,
+            },
+        ]
+    )
+
+    review_rows, _ = build_proposed_transactions.build_review_rows(
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
+        map_path=map_path,
+        include_reconciled_ynab=True,
     )
 
     target_only = review_rows.filter(
