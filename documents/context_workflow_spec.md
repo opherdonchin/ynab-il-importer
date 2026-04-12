@@ -65,9 +65,13 @@ Current source declarations support:
 
 - `id`
 - `kind`
-- exactly one of:
-  - `raw_file`
-  - `raw_match`
+- for raw-backed sources:
+  - exactly one of `raw_file` or `raw_match`
+- for `ynab_category` sources:
+  - `from_context`
+  - exactly one of `category_name` or `category_id`
+  - `target_account_name`
+  - optional `target_account_id`
 - `normalized_name`
 - `allow_reconciled_source` for card reconciliation edge cases
 
@@ -79,6 +83,7 @@ Source resolution is intentionally strict:
 
 - `raw_file` must exist exactly at `data/raw/<run_tag>/<raw_file>`
 - `raw_match` must match exactly one file inside `data/raw/<run_tag>/`
+- `ynab_category` sources resolve from the sibling context's normalized YNAB snapshot in `data/derived/<run_tag>/`
 - zero matches or multiple matches are hard failures
 
 This prevents the old "scan the folder and hope the right file wins" behavior.
@@ -103,6 +108,8 @@ pixi run normalize-context -- <context> <run_tag>
 
 Resolves declared sources from `data/raw/<run_tag>/` and writes canonical transaction Parquet to `data/derived/<run_tag>/`.
 
+For `ynab_category` sources, normalization is still run-tag based, but the input comes from another context's normalized YNAB snapshot for the same run tag rather than a raw bank/card file.
+
 ### Download YNAB snapshot
 
 ```bash
@@ -122,8 +129,8 @@ Loads the declared normalized source artifacts plus the normalized YNAB artifact
 
 Default behavior is intentionally conservative:
 
-- YNAB rows already marked `cleared = reconciled` are excluded from the review artifact
-- this applies both to exact matched rows and to unmatched `target_only` YNAB rows
+- YNAB rows already marked `cleared` or `reconciled` are excluded from the review artifact
+- this applies both to exact matched rows and to unmatched `target_only` YNAB rows, including transfer counterparts and ambiguous candidate rows whose YNAB side is already settled
 - use `--include-reconciled-ynab` only when you explicitly want settled YNAB history back in review
 
 ### Launch review app

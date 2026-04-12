@@ -8,3 +8,12 @@ payee_map = "../../mappings/aikido/payee_map.csv"
 
 [ynab]
 normalized_name = "aikido_ynab_api_norm.parquet"
+
+[[sources]]
+id = "aikido_family_category"
+kind = "ynab_category"
+from_context = "family"
+category_name = "Aikido"
+target_account_name = "Personal In Leumi"
+target_account_id = "20eeb986-be29-4710-95d0-56a49869db09"
+normalized_name = "aikido_family_category_norm.parquet"

@@ -41,6 +41,8 @@ The exact filenames and source kinds come from:
 - [contexts/defaults.toml](contexts/defaults.toml)
 - [contexts/<context>/context.toml](contexts/family/context.toml)
 
+Some contexts use raw bank/card files. Others can declare derived sources such as a YNAB category from another context's snapshot for the same run tag.
+
 ### 3. Normalize the declared raw sources
 
 ```bash
@@ -70,6 +72,8 @@ pixi run build-context-review -- <context> <run_tag>
 ```
 
 This writes the canonical `review_v4` artifact to `data/paired/<run_tag>/`.
+
+By default, fresh review builds exclude YNAB rows that are already settled (`cleared` or `reconciled`), including reconciled exact matches and reconciled target-only history. Use `--include-reconciled-ynab` only for explicit historical inspection.
 
 ### 6. Review in the app
 

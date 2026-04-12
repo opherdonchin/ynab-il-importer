@@ -70,9 +70,36 @@ class ContextSourceConfig(BaseModel):
     raw_match: str | None = None
     normalized_name: str = ""
     allow_reconciled_source: bool = False
+    from_context: str = ""
+    category_name: str = ""
+    category_id: str = ""
+    target_account_name: str = ""
+    target_account_id: str = ""
 
     @model_validator(mode="after")
     def _validate_source_selector(self) -> "ContextSourceConfig":
+        if self.kind == "ynab_category":
+            selectors = [bool(self.raw_file), bool(self.raw_match)]
+            if any(selectors):
+                raise ValueError(
+                    "ynab_category sources cannot define raw_file or raw_match."
+                )
+            if not str(self.from_context or "").strip():
+                raise ValueError("ynab_category sources must define from_context.")
+            category_selectors = [
+                bool(str(self.category_name or "").strip()),
+                bool(str(self.category_id or "").strip()),
+            ]
+            if sum(category_selectors) != 1:
+                raise ValueError(
+                    "ynab_category sources must define exactly one of category_name or category_id."
+                )
+            if not str(self.target_account_name or "").strip():
+                raise ValueError(
+                    "ynab_category sources must define target_account_name."
+                )
+            return self
+
         selectors = [bool(self.raw_file), bool(self.raw_match)]
         if sum(selectors) != 1:
             raise ValueError(
@@ -206,8 +233,13 @@ class LoadedContext:
 class ResolvedContextSource:
     id: str
     kind: str
-    raw_path: Path
+    raw_path: Path | None
     normalized_name: str
+    from_context: str = ""
+    category_name: str = ""
+    category_id: str = ""
+    target_account_name: str = ""
+    target_account_id: str = ""
 
 
 def _read_toml(path: Path) -> dict:
@@ -251,14 +283,35 @@ def resolve_context_sources(
 ) -> list[ResolvedContextSource]:
     if not context.config.sources:
         raise ValueError(f"Context {context.name!r} has no declared sources.")
-    if not raw_dir.exists():
-        raise FileNotFoundError(f"Missing raw run directory: {raw_dir}")
-    if not raw_dir.is_dir():
-        raise ValueError(f"Raw run path is not a directory: {raw_dir}")
+    raw_backed_sources = [
+        source for source in context.config.sources if source.kind != "ynab_category"
+    ]
+    files: list[Path] = []
+    if raw_backed_sources:
+        if not raw_dir.exists():
+            raise FileNotFoundError(f"Missing raw run directory: {raw_dir}")
+        if not raw_dir.is_dir():
+            raise ValueError(f"Raw run path is not a directory: {raw_dir}")
+        files = [path for path in sorted(raw_dir.iterdir()) if path.is_file()]
 
-    files = [path for path in sorted(raw_dir.iterdir()) if path.is_file()]
     resolved: list[ResolvedContextSource] = []
     for source in context.config.sources:
+        if source.kind == "ynab_category":
+            resolved.append(
+                ResolvedContextSource(
+                    id=source.id,
+                    kind=source.kind,
+                    raw_path=None,
+                    normalized_name=source.normalized_name,
+                    from_context=source.from_context.strip(),
+                    category_name=source.category_name.strip(),
+                    category_id=source.category_id.strip(),
+                    target_account_name=source.target_account_name.strip(),
+                    target_account_id=source.target_account_id.strip(),
+                )
+            )
+            continue
+
         if source.raw_file:
             raw_path = raw_dir / source.raw_file
             if not raw_path.exists():

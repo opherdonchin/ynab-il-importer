@@ -857,6 +857,138 @@ def test_build_review_rows_can_include_reconciled_target_only_rows(
     assert target_only["relation_kind"] == "target_only_cleared"
 
 
+def test_build_review_rows_skips_reconciled_ambiguous_matches_by_default(
+    tmp_path: Path,
+) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "source": "bank",
+                "account_name": "Checking",
+                "date": "2025-01-02",
+                "outflow_ils": 12.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "coffee shop",
+                "description_raw": "Coffee Shop",
+            }
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-a",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-02",
+                "outflow_ils": 12.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Cafe A",
+                "category_raw": "Eating Out",
+                "fingerprint": "coffee shop",
+                "memo": "a",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "reconciled",
+                "approved": False,
+            },
+            {
+                "ynab_id": "ynab-b",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-02",
+                "outflow_ils": 12.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Cafe B",
+                "category_raw": "Eating Out",
+                "fingerprint": "coffee shop",
+                "memo": "b",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "reconciled",
+                "approved": False,
+            },
+        ]
+    )
+
+    review_rows, _ = build_proposed_transactions.build_review_rows(
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
+        map_path=map_path,
+    )
+
+    assert review_rows.is_empty()
+
+
+def test_build_review_rows_skips_reconciled_transfer_counterparts_by_default(
+    tmp_path: Path,
+) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "source": "bank",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "groceries",
+                "description_raw": "Groceries",
+            }
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-match",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Groceries",
+                "category_raw": "Food",
+                "fingerprint": "groceries",
+                "memo": "existing",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            },
+            {
+                "ynab_id": "ynab-transfer",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2024-12-30",
+                "outflow_ils": 15.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Transfer : Savings",
+                "category_raw": "",
+                "fingerprint": "transfer savings",
+                "memo": "",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "reconciled",
+                "approved": True,
+            },
+        ]
+    )
+
+    review_rows, _ = build_proposed_transactions.build_review_rows(
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
+        map_path=map_path,
+    )
+
+    assert review_rows.filter(
+        pl.col("target_payee_current") == "Transfer : Savings"
+    ).is_empty()
+
+
 def test_build_review_rows_leaves_manual_target_only_rows_for_explicit_decision(tmp_path: Path) -> None:
     map_path = tmp_path / "payee_map.csv"
     _write_payee_map(map_path)
@@ -1255,3 +1387,97 @@ def test_prepare_review_source_rows_uses_canonical_transaction_id_for_lineage() 
     assert set(pairs["ynab_import_id"].to_list()) == {"BANK:V1:a", "BANK:V1:b"}
     assert pairs.height == 2
     assert pairs["ambiguous_key"].to_list() == [False, False]
+
+
+def test_prepare_review_source_rows_marks_ynab_category_split_context() -> None:
+    source_df = _canonical_transaction_polars(
+        pd.DataFrame(
+            [
+                {
+                    "transaction_id": "split-1",
+                    "ynab_id": "split-1",
+                    "account_name": "Personal In Leumi",
+                    "source_account": "Family Leumi",
+                    "date": "2026-04-01",
+                    "outflow_ils": 350.0,
+                    "inflow_ils": 0.0,
+                    "payee_raw": "Aikido Dojo",
+                    "category_id": "cat-aikido",
+                    "category_raw": "Aikido",
+                    "memo": "April class",
+                    "fingerprint": "aikido dojo",
+                    "is_subtransaction": True,
+                    "ref": "parent-1",
+                }
+            ]
+        ),
+        source_system="ynab_category",
+        artifact_kind="normalized_source_transaction",
+    )
+
+    prepared = build_proposed_transactions._prepare_review_source_rows(source_df)
+    row = prepared.row(0, named=True)
+
+    assert row["source_context_kind"] == "ynab_split_category_match"
+    assert row["source_context_category_id"] == "cat-aikido"
+    assert row["source_context_category_name"] == "Aikido"
+    assert row["source_context_matching_split_ids"] == "split-1"
+
+
+def test_build_review_rows_preserves_ynab_category_source_context(tmp_path: Path) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = _canonical_transaction_polars(
+        pd.DataFrame(
+            [
+                {
+                    "transaction_id": "family-parent-1",
+                    "ynab_id": "family-parent-1",
+                    "account_name": "Personal In Leumi",
+                    "source_account": "Family Leumi",
+                    "date": "2026-04-01",
+                    "outflow_ils": 350.0,
+                    "inflow_ils": 0.0,
+                    "payee_raw": "Aikido Dojo",
+                    "category_id": "cat-aikido",
+                    "category_raw": "Aikido",
+                    "memo": "April class",
+                    "fingerprint": "aikido dojo",
+                    "is_subtransaction": False,
+                    "ref": "family-parent-1",
+                }
+            ]
+        ),
+        source_system="ynab_category",
+        artifact_kind="normalized_source_transaction",
+    )
+    ynab_df = _canonical_target_polars(
+        pd.DataFrame(
+            [
+                {
+                    "ynab_id": "ynab-match",
+                    "account_id": "acc-1",
+                    "account_name": "Personal In Leumi",
+                    "date": "2026-04-01",
+                    "outflow_ils": 350.0,
+                    "inflow_ils": 0.0,
+                    "payee_raw": "Aikido Dojo",
+                    "category_raw": "Aikido",
+                    "fingerprint": "aikido dojo",
+                    "memo": "",
+                }
+            ]
+        )
+    )
+
+    review_rows, _ = build_proposed_transactions.build_review_rows(
+        source_df,
+        ynab_df,
+        map_path=map_path,
+    )
+
+    row = review_rows.filter(pl.col("match_status") == "matched_auto").row(0, named=True)
+    assert row["source_context_kind"] == "ynab_parent_category_match"
+    assert row["source_context_category_id"] == "cat-aikido"
+    assert row["source_context_category_name"] == "Aikido"

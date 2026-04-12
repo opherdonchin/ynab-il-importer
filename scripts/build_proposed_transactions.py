@@ -901,6 +901,26 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
                     pl.lit(""),
                 ]
             ).alias("import_id"),
+            pl.when(text("source_system").str.to_lowercase() == "ynab_category")
+            .then(
+                pl.when(pl.col("is_subtransaction"))
+                .then(pl.lit("ynab_split_category_match"))
+                .otherwise(pl.lit("ynab_parent_category_match"))
+            )
+            .otherwise(pl.lit("direct_source"))
+            .alias("source_context_kind"),
+            pl.when(text("source_system").str.to_lowercase() == "ynab_category")
+            .then(text("category_id"))
+            .otherwise(pl.lit(""))
+            .alias("source_context_category_id"),
+            text("category_raw").alias("source_context_category_name"),
+            pl.when(
+                (text("source_system").str.to_lowercase() == "ynab_category")
+                & pl.col("is_subtransaction")
+            )
+            .then(text("ynab_id"))
+            .otherwise(pl.lit(""))
+            .alias("source_context_matching_split_ids"),
         )
     )
     if source_work.select(pl.col("fingerprint").eq("").any()).item():
@@ -952,6 +972,10 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
                 "source_secondary_date",
                 "source_ref",
                 "source_lineage_id",
+                "source_context_kind",
+                "source_context_category_id",
+                "source_context_category_name",
+                "source_context_matching_split_ids",
                 *TRANSACTION_SCHEMA.names,
             ),
             on="_row_index",
@@ -1438,6 +1462,9 @@ def build_review_rows(
             selected_category_expr("ynab_payee_raw", "ynab_category_raw").alias(
                 "_target_category_selected"
             ),
+            bool_text("ynab_cleared")
+            .is_in(["cleared", "reconciled"])
+            .alias("_target_reconciled"),
             (
                 (
                     (~pl.col("ambiguous_key"))
@@ -1515,10 +1542,12 @@ def build_review_rows(
             text("source_card_suffix").alias("source_card_suffix"),
             text("source_secondary_date").alias("source_secondary_date"),
             text("source_ref").alias("source_ref"),
-            pl.lit("direct_source").alias("source_context_kind"),
-            pl.lit("").alias("source_context_category_id"),
-            pl.col("_source_category_norm").alias("source_context_category_name"),
-            pl.lit("").alias("source_context_matching_split_ids"),
+            text("source_context_kind").alias("source_context_kind"),
+            text("source_context_category_id").alias("source_context_category_id"),
+            text("source_context_category_name").alias("source_context_category_name"),
+            text("source_context_matching_split_ids").alias(
+                "source_context_matching_split_ids"
+            ),
             text("source_payee_current").alias("source_payee_selected"),
             pl.col("_source_category_norm").alias("source_category_selected"),
             pl.lit("").alias("target_context_kind"),
@@ -1526,10 +1555,10 @@ def build_review_rows(
             text("ynab_payee_raw").alias("target_payee_selected"),
             pl.col("_target_category_selected").alias("target_category_selected"),
         )
-        .select(REVIEW_ROW_COLUMNS)
     )
     if not include_reconciled_ynab:
-        matched_pl = matched_pl.filter(pl.col("match_status") != "matched_cleared")
+        matched_pl = matched_pl.filter(~pl.col("_target_reconciled"))
+    matched_pl = matched_pl.select(REVIEW_ROW_COLUMNS)
 
     matched_source_ids = pairs_pl.select("source_row_id").unique()
     unmatched_source_pl = (
@@ -1591,10 +1620,12 @@ def build_review_rows(
             text("source_card_suffix").alias("source_card_suffix"),
             text("source_secondary_date").alias("source_secondary_date"),
             text("source_ref").alias("source_ref"),
-            pl.lit("direct_source").alias("source_context_kind"),
-            pl.lit("").alias("source_context_category_id"),
-            pl.col("_source_category_norm").alias("source_context_category_name"),
-            pl.lit("").alias("source_context_matching_split_ids"),
+            text("source_context_kind").alias("source_context_kind"),
+            text("source_context_category_id").alias("source_context_category_id"),
+            text("source_context_category_name").alias("source_context_category_name"),
+            text("source_context_matching_split_ids").alias(
+                "source_context_matching_split_ids"
+            ),
             text("source_payee_current").alias("source_payee_selected"),
             pl.col("_source_category_norm").alias("source_category_selected"),
             pl.lit("").alias("target_context_kind"),
@@ -1617,6 +1648,9 @@ def build_review_rows(
             selected_category_expr("ynab_payee_raw", "ynab_category_raw").alias(
                 "_target_category_selected"
             ),
+            bool_text("ynab_cleared")
+            .is_in(["cleared", "reconciled"])
+            .alias("_target_reconciled"),
             transfer_counterpart_expr.alias("_settled_transfer_counterpart"),
             settled_target_expr.alias("_settled_target_only"),
             transaction_id_expr(
@@ -1685,12 +1719,10 @@ def build_review_rows(
             pl.col("_target_category_selected").alias("target_category_selected"),
             pl.lit(None, dtype=pl.Object).alias("source_transaction"),
         )
-        .select(REVIEW_ROW_COLUMNS)
     )
     if not include_reconciled_ynab:
-        unmatched_target_pl = unmatched_target_pl.filter(
-            bool_text("relation_kind") != "target_only_cleared"
-        )
+        unmatched_target_pl = unmatched_target_pl.filter(~pl.col("_target_reconciled"))
+    unmatched_target_pl = unmatched_target_pl.select(REVIEW_ROW_COLUMNS)
 
     relations_pl = pl.concat(
         [matched_pl, unmatched_source_pl, unmatched_target_pl], how="diagonal_relaxed"

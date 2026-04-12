@@ -17,38 +17,33 @@ def test_load_family_context_resolves_map_paths() -> None:
     assert len(loaded.config.sources) == 2
 
 
-def test_load_aikido_context_without_sources_section_still_loads() -> None:
+def test_load_aikido_context_with_ynab_category_source() -> None:
     loaded = context_config.load_context("aikido")
 
     assert loaded.name == "aikido"
     assert loaded.budget_id_env == "YNAB_AIKIDO_BUDGET_ID"
     assert loaded.ynab_normalized_name == "aikido_ynab_api_norm.parquet"
-    assert loaded.config.sources == []
+    assert [source.id for source in loaded.config.sources] == ["aikido_family_category"]
+    source = loaded.config.sources[0]
+    assert source.kind == "ynab_category"
+    assert source.from_context == "family"
+    assert source.category_name == "Aikido"
+    assert source.target_account_name == "Personal In Leumi"
 
 
-def test_resolve_context_sources_requires_declared_sources(tmp_path: Path) -> None:
-    raw_dir = tmp_path / "raw"
-    raw_dir.mkdir()
-    loaded = context_config.load_context("aikido")
-
-    with pytest.raises(ValueError, match="has no declared sources"):
-        context_config.resolve_context_sources(loaded, raw_dir)
-
-
-def test_resolve_context_normalized_source_paths_requires_declared_sources(
+def test_resolve_context_sources_supports_ynab_category_without_raw_dir(
     tmp_path: Path,
 ) -> None:
-    defaults = context_config.DefaultsConfig(
-        raw_root=tmp_path / "raw",
-        derived_root=tmp_path / "derived",
-        paired_root=tmp_path / "paired",
-        outputs_root=tmp_path / "outputs",
-    )
-    run_paths = context_config.resolve_run_paths(defaults, run_tag="2026_04_01")
+    raw_dir = tmp_path / "missing-raw"
     loaded = context_config.load_context("aikido")
 
-    with pytest.raises(ValueError, match="has no declared sources"):
-        context_config.resolve_context_normalized_source_paths(loaded, run_paths)
+    sources = context_config.resolve_context_sources(loaded, raw_dir)
+
+    assert len(sources) == 1
+    assert sources[0].kind == "ynab_category"
+    assert sources[0].raw_path is None
+    assert sources[0].from_context == "family"
+    assert sources[0].category_name == "Aikido"
 
 
 def test_resolve_context_sources_supports_exact_and_regex(tmp_path: Path) -> None:
@@ -68,6 +63,42 @@ def test_resolve_context_sources_supports_exact_and_regex(tmp_path: Path) -> Non
         "Bankin family.dat",
         "transaction-details_export_1775044561886.xlsx",
     ]
+
+
+def test_ynab_category_source_validation_requires_context_and_single_category() -> None:
+    with pytest.raises(ValueError, match="must define from_context"):
+        context_config.ContextSourceConfig.model_validate(
+            {
+                "id": "source-1",
+                "kind": "ynab_category",
+                "category_name": "Aikido",
+                "target_account_name": "Personal In Leumi",
+            }
+        )
+
+    with pytest.raises(ValueError, match="exactly one of category_name or category_id"):
+        context_config.ContextSourceConfig.model_validate(
+            {
+                "id": "source-1",
+                "kind": "ynab_category",
+                "from_context": "family",
+                "category_name": "Aikido",
+                "category_id": "cat-1",
+                "target_account_name": "Personal In Leumi",
+            }
+        )
+
+    with pytest.raises(ValueError, match="cannot define raw_file or raw_match"):
+        context_config.ContextSourceConfig.model_validate(
+            {
+                "id": "source-1",
+                "kind": "ynab_category",
+                "from_context": "family",
+                "category_name": "Aikido",
+                "target_account_name": "Personal In Leumi",
+                "raw_file": "unexpected.csv",
+            }
+        )
 
 
 def test_resolve_context_sources_requires_unique_regex_match(tmp_path: Path) -> None:
