@@ -37,6 +37,8 @@ data/
   paired/<run_tag>/
   raw/previous_max/<account_suffix>/
   derived/previous_max/<account_suffix>/
+  raw/previous_leumi_card/<account_suffix>/
+  derived/previous_leumi_card/<account_suffix>/
 ```
 
 The active context configs still reference shared CSV rule tables under [mappings/](../mappings/). That is intentional for now; `contexts/` owns non-tabular config and artifact naming, not every editable table in the repo.
@@ -142,6 +144,7 @@ Closeout is source-kind specific:
   - `pixi run reconcile-bank-statement -- <context> <run_tag>`
 - card sources:
   - `pixi run sync-card-matches -- <context> <run_tag> --account "<Card Account Name>"`
+  - `pixi run normalize-previous-max -- <context> <account_suffix> --cycle YYYY_MM`
   - `pixi run reconcile-card-cycle -- <context> <run_tag> --account "<Card Account Name>" --previous <normalized_previous.parquet>`
 - `ynab_category` sources:
   - `pixi run reconcile-category-account -- <context> <run_tag>`

@@ -31,7 +31,10 @@ The public loader is [load_upload_working_frame](../src/ynab_il_importer/upload_
   - the canonical reviewed artifact for the target context
   - the live source-budget month detail for the run month
   - the live target-budget account and transaction snapshot
-- previous MAX statements are normalized explicitly before card reconciliation via [scripts/normalize_previous_max.py](../scripts/normalize_previous_max.py)
+- previous card statements are normalized explicitly before card reconciliation via [scripts/normalize_previous_max.py](../scripts/normalize_previous_max.py)
+  - `kind = max` reads `data/raw/previous_max/<account_suffix>/` and writes `data/derived/previous_max/<account_suffix>/`
+  - `kind = leumi_card_html` reads `data/raw/previous_leumi_card/<account_suffix>/` and writes `data/derived/previous_leumi_card/<account_suffix>/`
+  - by default, the helper infers the kind from the context's declared card source
 - review build excludes already settled YNAB rows by default, including reconciled exact matches, reconciled transfer counterparts, and other reconciled target-side candidates; use `pixi run build-context-review -- <context> <run_tag> --include-reconciled-ynab` only for explicit historical inspection
 
 ### Live YNAB data
@@ -79,7 +82,7 @@ These scripts:
 ```bash
 pixi run sync-card-matches -- <context> <run_tag> --account "<Card Account Name>"
 pixi run normalize-previous-max -- <context> <account_suffix> --cycle YYYY_MM
-pixi run reconcile-card-cycle -- <context> <run_tag> --account "<Card Account Name>" --previous data/derived/previous_max/<account_suffix>/YYYY_MM_max_norm.parquet
+pixi run reconcile-card-cycle -- <context> <run_tag> --account "<Card Account Name>" --previous <normalized_previous.parquet>
 ```
 
 Card reconciliation supports:
@@ -158,5 +161,5 @@ Owns:
 ## Current Caveats
 
 - [scripts/prepare_ynab_upload.py](../scripts/prepare_ynab_upload.py) is part of the active workflow but still has no dedicated pixi alias.
-- Previous MAX normalization is explicit, but it still lives outside `contexts/<context>/context.toml`; it resolves from `data/raw/previous_max/<account_suffix>/`.
+- Previous card normalization is explicit, but it still lives outside `contexts/<context>/context.toml`; it resolves from the previous statement roots (`data/raw/previous_max/<account_suffix>/` for MAX and `data/raw/previous_leumi_card/<account_suffix>/` for Leumi HTML).
 - The review app's category-cache path is still profile-based rather than context-config-based. That affects review UX, not upload or reconciliation logic.

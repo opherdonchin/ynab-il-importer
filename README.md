@@ -151,11 +151,11 @@ Bank:
 pixi run reconcile-bank-statement -- <context> <run_tag>
 ```
 
-Cards that need a previous MAX statement first normalize that statement explicitly:
+Cards that need a previous statement first normalize that statement explicitly. The helper infers the statement kind from the context's declared card source (`max` -> `data/raw/previous_max/...`, `leumi_card_html` -> `data/raw/previous_leumi_card/...`):
 
 ```bash
 pixi run normalize-previous-max -- <context> <account_suffix> --cycle YYYY_MM
-pixi run reconcile-card-cycle -- <context> <run_tag> --account "<Card Account Name>" --previous data/derived/previous_max/<account_suffix>/YYYY_MM_max_norm.parquet
+pixi run reconcile-card-cycle -- <context> <run_tag> --account "<Card Account Name>" --previous <normalized_previous.parquet>
 ```
 
 YNAB category source:
