@@ -1818,6 +1818,21 @@ def test_transfer_without_budget_metadata_still_requires_category() -> None:
     assert primary_state_series.to_list() == ["Needs fix"]
 
 
+def test_resolved_target_category_value_clears_none_for_required_transfer() -> None:
+    row = {
+        "target_account_on_budget": False,
+        "target_transfer_account_on_budget": True,
+    }
+
+    resolved = review_app._resolved_target_category_value(
+        row,
+        "Transfer : Bank Leumi",
+        "None",
+    )
+
+    assert resolved == ""
+
+
 def test_apply_row_filters_supports_action_blocker_suggestions_map_updates_and_search() -> None:
     df = pl.DataFrame(
         [

@@ -862,6 +862,21 @@ def _target_category_required(row: dict[str, Any], payee_value: str) -> bool:
     )
 
 
+def _resolved_target_category_value(
+    row: dict[str, Any],
+    payee_value: str,
+    category_value: Any,
+) -> str:
+    text = str(category_value or "").strip()
+    if not text:
+        return ""
+    if _target_category_required(row, payee_value) and review_model.is_no_category_required(
+        text
+    ):
+        return ""
+    return text
+
+
 def _most_common_lookup_value(
     lookup: dict[Any, dict[str, Any]] | None,
     indices: list[Any],
@@ -2196,18 +2211,24 @@ def _render_row_controls(
         or payee_defaults.get(fingerprint, "")
         or (payee_options[0] if payee_options else "")
     )
+    target_category_required = _target_category_required(
+        row, target_payee_selected or target_payee_default
+    )
+    normalized_target_category_selected = _resolved_target_category_value(
+        row,
+        target_payee_selected or target_payee_default,
+        target_category_selected,
+    )
     no_category_default = (
         review_model.NO_CATEGORY_REQUIRED
         if (
             review_model.is_transfer_payee(target_payee_selected or target_payee_default)
-            and not _target_category_required(
-                row, target_payee_selected or target_payee_default
-            )
+            and not target_category_required
         )
         else ""
     )
     target_category_default = (
-        target_category_selected
+        normalized_target_category_selected
         or (no_category_default if create_target_default else "")
         or (uncategorized_default if create_target_default else "")
         or category_defaults.get(fingerprint, "")
@@ -2219,7 +2240,10 @@ def _render_row_controls(
         category_choices
         and (
             not category_options
-            or (target_category_selected and target_category_selected not in category_options)
+            or (
+                normalized_target_category_selected
+                and normalized_target_category_selected not in category_options
+            )
         )
     )
     _ensure_widget_state(show_all_categories_key, show_all_categories_default)
@@ -2271,7 +2295,7 @@ def _render_row_controls(
         category_current = str(
             st.session_state.get(
                 target_category_select_key,
-                target_category_selected or target_category_default,
+                normalized_target_category_selected or target_category_default,
             )
             or ""
         )
@@ -2379,6 +2403,8 @@ def _render_row_controls(
                 key=memo_append_key,
                 height=68,
             )
+            if target_category_required:
+                st.caption("Target category is required for this transfer.")
 
         with decision_col:
             st.markdown("**Decision**")
@@ -3114,13 +3140,19 @@ def main() -> None:
                     group_indices,
                     "target_category_selected",
                 )
+                group_requires_category = any(
+                    _target_category_required(group_row, group_payee_default)
+                    for group_row in group_rows
+                )
+                if (
+                    group_requires_category
+                    and review_model.is_no_category_required(group_category_default)
+                ):
+                    group_category_default = ""
                 if (
                     not group_category_default
                     and review_model.is_transfer_payee(group_payee_default)
-                    and not any(
-                        _target_category_required(group_row, group_payee_default)
-                        for group_row in group_rows
-                    )
+                    and not group_requires_category
                 ):
                     group_category_default = review_model.NO_CATEGORY_REQUIRED
                 if not group_category_default and "Uncategorized" in category_list:
@@ -3243,6 +3275,8 @@ def main() -> None:
                         ),
                         key=group_category_key,
                     )
+                if group_requires_category:
+                    st.caption("A real category is required for these off-budget transfer rows.")
                 group_memo_append = st.text_area(
                     "Group memo add",
                     value=str(
