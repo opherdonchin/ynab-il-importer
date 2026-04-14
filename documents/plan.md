@@ -2,87 +2,49 @@
 
 ## Workstream
 
-Keep the context/run-tag workflow strict while finishing the remaining Aikido upload/reconcile closeout and keeping the April 1 card-closeout path honest for both MAX and Leumi-card contexts.
+Run the April 14 workflow cleanly across Family, Pilates, and Aikido while keeping card closeout strict and source selection date-agnostic.
 
 ## Current State
 
 - canonical transaction artifacts are Parquet `transaction_v1`
 - canonical review artifacts are Parquet `review_v4`
-- `build-context-review` excludes settled YNAB history by default:
-  - exact matched rows whose YNAB side is already `cleared` or `reconciled`
-  - target-only rows whose YNAB side is already `cleared` or `reconciled`
-  - reconciled transfer counterparts and reconciled ambiguous target candidates
-- context sources now support both:
-  - raw-backed `raw_file` / `raw_match` entries
-  - derived `ynab_category` entries sourced from another context's normalized YNAB snapshot for the same run tag
-- closeout now has three strict source-kind paths:
+- `build-context-review` excludes settled YNAB history by default
+- closeout remains strict by source kind:
   - bank: sync plus statement reconciliation
   - card: sync plus cycle reconciliation
   - `ynab_category`: category/account parity reconciliation
-- previous card normalization now infers the statement kind from the context's declared card source by default:
-  - `max` -> `data/raw/previous_max/<account_suffix>/`
-  - `leumi_card_html` -> `data/raw/previous_leumi_card/<account_suffix>/`
+- `2026_04_01` is operationally closed:
+  - Pilates bank and card closeout complete
+  - Aikido category/account parity restored and reconciled
+- `2026_04_14` raw inputs are now present:
+  - Family bank + MAX export
+  - Pilates bank + Leumi card HTML
+  - previous full-month card statements staged under `previous_max` and `previous_leumi_card`
+- Pilates card source selection is now date-agnostic via `raw_match` so new run tags do not hard-fail on the exact HTML filename
 
 ## Recently Completed
 
-- added first-class `ynab_category` source support and Aikido category/account reconcile:
-  - [src/ynab_il_importer/ynab_category_source.py](../src/ynab_il_importer/ynab_category_source.py)
-  - [src/ynab_il_importer/ynab_category_reconciliation.py](../src/ynab_il_importer/ynab_category_reconciliation.py)
-  - [scripts/reconcile_category_account.py](../scripts/reconcile_category_account.py)
-- cleaned up previous card normalization so the helper works for both MAX and Leumi HTML statements:
-  - [scripts/normalize_previous_max.py](../scripts/normalize_previous_max.py)
-  - [tests/test_normalize_previous_max_script.py](../tests/test_normalize_previous_max_script.py)
-- updated active docs so they no longer pretend all previous card statements live only under `previous_max`:
-  - [README.md](../README.md)
-  - [documents/context_workflow_spec.md](../documents/context_workflow_spec.md)
-  - [documents/upload_reconcile_cutover_spec.md](../documents/upload_reconcile_cutover_spec.md)
-- verified the config-driven Pilates previous-card path end to end:
-  - `pixi run normalize-previous-max -- pilates x0602 --cycle 2026_03`
-  - `pixi run reconcile-card-cycle -- pilates 2026_04_01 --account "Credit card 0602" --previous data/derived/previous_leumi_card/x0602/2026_03_leumi_card_html_norm.parquet`
-  - result: previous total matched `15/15`, current total matched `25/25`, payment transfer matched, `Updates planned: 0`
-- focused validation passed:
-  - `pixi run pytest tests/test_normalize_previous_max_script.py -q`
-  - result: `2 passed`
+## Recently Completed
 
-## Confirmed April 1 Status
-
-- `pilates / 2026_04_01` is now fully closed on the active workflow:
-  - bank sync complete
-  - bank reconciliation complete
-  - card sync complete
-  - card cycle reconciliation verified cleanly with the March `x0602` previous statement
-- `aikido / 2026_04_01` is not closed yet:
-  - review is complete
-  - upload and `ynab_category` reconcile are still pending
-
-## Current Aikido Status
-
-- `pixi run normalize-context -- aikido 2026_04_01` succeeds and writes:
-  - `data/derived/2026_04_01/aikido_family_category_norm.parquet`
-  - result: `41` normalized source rows from the Family `Aikido` category
-- `pixi run build-context-review -- aikido 2026_04_01` succeeds and writes:
-  - `data/paired/2026_04_01/aikido_matched_pairs.parquet`
-  - `data/paired/2026_04_01/aikido_proposed_transactions.parquet`
-- Aikido review has been completed for the single live row:
-  - `2026-03-31`
-  - payee `Tayo`
-  - `decision_action = create_target`
-  - `reviewed = TRUE`
-- the new dry-run closeout command is working against live Aikido data and is currently blocked only because the reviewed row has not been uploaded yet:
-  - `pixi run reconcile-category-account -- aikido 2026_04_01`
-  - blocker: `missing_uploaded_transaction_in_live_ynab`
+- cleaned up Aikido March drift directly in live YNAB:
+  - removed stale Family March 25 duplicate/manual rows
+  - created the missing Aikido-side Bakr `+70` and Facebook `-735` rows
+  - restored exact Family-category vs Aikido-account parity
+- closed `aikido / 2026_04_01` with category/account reconciliation:
+  - [data/paired/2026_04_01/aikido_aikido_family_category_category_account_reconcile_report.csv](../data/paired/2026_04_01/aikido_aikido_family_category_category_account_reconcile_report.csv)
+- fixed Pilates context selection for recurring Leumi card HTML filenames:
+  - [contexts/pilates/context.toml](../contexts/pilates/context.toml)
 
 ## Next Steps
 
-1. Upload the reviewed Aikido row:
-   - `pixi run python scripts/prepare_ynab_upload.py aikido 2026_04_01 --ready-only --skip-missing-accounts`
-   - if the dry run looks right:
-   - `pixi run python scripts/prepare_ynab_upload.py aikido 2026_04_01 --ready-only --skip-missing-accounts --execute`
-2. Run the Aikido closeout step:
-   - `pixi run reconcile-category-account -- aikido 2026_04_01`
-   - and then:
-   - `pixi run reconcile-category-account -- aikido 2026_04_01 --execute`
-3. Keep `ynab_category` as the active pattern for contexts whose source of truth is another budget's YNAB category rather than a bank/card export.
+1. Normalize previous full-month card statements for the April 14 run:
+   - `family x9922`, `family x7195`, `family x5898`, `pilates x0602`
+2. Download fresh YNAB snapshots for `family`, `pilates`, and `aikido` under `2026_04_14`.
+3. Run `normalize-context` and `build-context-review` for all three contexts.
+4. Review any non-empty proposals.
+5. Execute upload plus closeout by source kind:
+   - Family and Pilates: bank sync/reconcile, card sync/reconcile
+   - Aikido: category/account reconcile
 
 ## Working Rules
 

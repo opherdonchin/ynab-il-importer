@@ -18,6 +18,6 @@ normalized_name = "pilates_leumi_norm.parquet"
 [[sources]]
 id = "pilates_card"
 kind = "leumi_card_html"
-raw_file = "BankLeumi 1_4_2026.html"
+raw_match = "^BankLeumi \\d+_\\d+_\\d+\\.html$"
 normalized_name = "pilates_leumi_card_html_norm.parquet"
 allow_reconciled_source = true
