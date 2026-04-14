@@ -1778,6 +1778,46 @@ def test_off_budget_transfer_without_category_is_treated_as_fix() -> None:
     assert primary_state_series.to_list() == ["Needs fix"]
 
 
+def test_transfer_without_budget_metadata_still_requires_category() -> None:
+    df = pl.DataFrame(
+        [
+            {
+                "transaction_id": "transfer-row",
+                "date": "2026-03-01",
+                "account_name": "US Money",
+                "outflow_ils": "10",
+                "inflow_ils": "0",
+                "memo": "bank transfer",
+                "fingerprint": "transfer bank leumi",
+                "payee_options": "Transfer : Bank Leumi",
+                "category_options": "",
+                "match_status": "target_only",
+                "workflow_type": "institutional",
+                "source_row_id": "",
+                "target_row_id": "t1",
+                "source_present": "FALSE",
+                "target_present": "TRUE",
+                "source_payee_selected": "",
+                "source_category_selected": "",
+                "target_payee_selected": "Transfer : Bank Leumi",
+                "target_category_selected": "None",
+                "decision_action": "update_target",
+                "update_maps": "",
+                "reviewed": "FALSE",
+            }
+        ]
+    )
+    df = df.with_columns(
+        review_validation.normalize_flag_series(df["reviewed"]).alias("reviewed")
+    )
+
+    blocker_series = review_validation.blocker_series(df)
+    primary_state_series = review_state.primary_state_series(df, blocker_series)
+
+    assert blocker_series.to_list() == ["Missing category"]
+    assert primary_state_series.to_list() == ["Needs fix"]
+
+
 def test_apply_row_filters_supports_action_blocker_suggestions_map_updates_and_search() -> None:
     df = pl.DataFrame(
         [

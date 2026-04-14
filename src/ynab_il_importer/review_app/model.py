@@ -57,7 +57,10 @@ def category_required_for_payee(
     if not is_transfer_payee(value):
         return True
     if current_account_on_budget is None or transfer_target_on_budget is None:
-        return False
+        # Fail closed when account budget metadata is unavailable. Off-budget
+        # transfers need categories, so only waive the category when we can
+        # positively prove both sides are on-budget.
+        return True
     return not (current_account_on_budget and transfer_target_on_budget)
 
 

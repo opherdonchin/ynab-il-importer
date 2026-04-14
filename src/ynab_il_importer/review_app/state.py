@@ -212,19 +212,35 @@ def review_data_view(df: pl.DataFrame) -> pl.DataFrame:
     )
     update_maps_expr = pl.col("update_maps")
     has_update_maps = update_maps_expr.ne("")
-    is_transfer = target_payee_selected.str.starts_with("Transfer :")
     no_category_required = target_category_selected.str.to_lowercase().eq(
         model.NO_CATEGORY_REQUIRED.casefold()
     )
-    missing_payee = action_expr.eq("create_target") & target_payee_selected.eq("")
+    rows = frame.to_dicts()
+    target_category_required = pl.Series(
+        [
+            model.category_required_for_payee(
+                row.get("target_payee_selected", ""),
+                current_account_on_budget=_optional_row_bool(
+                    row, "target_account_on_budget"
+                ),
+                transfer_target_on_budget=_optional_row_bool(
+                    row, "target_transfer_account_on_budget"
+                ),
+            )
+            for row in rows
+        ],
+        dtype=pl.Boolean,
+    )
+    target_mutation_action = action_expr.is_in(["create_target", "update_target"])
+    missing_payee = target_mutation_action & target_payee_selected.eq("")
     missing_category = (
-        action_expr.eq("create_target")
+        target_mutation_action
         & (target_category_selected.eq("") | no_category_required)
-        & ~is_transfer
+        & target_category_required
     )
     uncategorized_selected = (
         target_category_selected.str.to_lowercase().str.contains("uncategorized", literal=True)
-        & ~is_transfer
+        & target_category_required
     )
     has_suggestions = (
         (~source_present) & (source_payee_selected.ne("") | source_category_selected.ne(""))
@@ -500,7 +516,7 @@ def _component_mask_from_map(
 
 def _missing_value_masks(df: pl.DataFrame) -> tuple[pl.Series, pl.Series, pl.Series]:
     decision_action = _decision_action_series(df)
-    create_target = decision_action.eq("create_target")
+    target_mutation = decision_action.is_in(["create_target", "update_target"])
     payee = series_or_default(df, "payee_selected").str.strip_chars()
     payee_blank = payee.eq("")
     category = pl.Series(
@@ -512,13 +528,25 @@ def _missing_value_masks(df: pl.DataFrame) -> tuple[pl.Series, pl.Series, pl.Ser
         [model.is_no_category_required(value) for value in category.to_list()],
         dtype=pl.Boolean,
     )
-    transfer_payee = pl.Series(
-        [model.is_transfer_payee(value) for value in payee.to_list()],
+    rows = df.to_dicts()
+    category_required = pl.Series(
+        [
+            model.category_required_for_payee(
+                row.get("payee_selected", ""),
+                current_account_on_budget=_optional_row_bool(
+                    row, "target_account_on_budget"
+                ),
+                transfer_target_on_budget=_optional_row_bool(
+                    row, "target_transfer_account_on_budget"
+                ),
+            )
+            for row in rows
+        ],
         dtype=pl.Boolean,
     )
-    missing_payee = create_target & payee_blank
-    missing_category = create_target & (category_blank | no_category_required) & ~transfer_payee
-    return missing_payee, missing_category, create_target
+    missing_payee = target_mutation & payee_blank
+    missing_category = target_mutation & (category_blank | no_category_required) & category_required
+    return missing_payee, missing_category, target_mutation
 
 
 def unresolved_mask(df: pl.DataFrame) -> pl.Series:

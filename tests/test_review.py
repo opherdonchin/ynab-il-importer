@@ -229,7 +229,12 @@ def test_allowed_decision_actions_accepts_plain_mapping() -> None:
         }
     )
 
-    assert actions == [review_validation.NO_DECISION, "delete_target", "ignore_row"]
+    assert actions == [
+        review_validation.NO_DECISION,
+        "update_target",
+        "delete_target",
+        "ignore_row",
+    ]
 
 
 def test_most_common_value_accepts_polars_series() -> None:
@@ -727,6 +732,29 @@ def test_uncategorized_mask_detects_uncategorized_label() -> None:
     mask = review_state.uncategorized_mask(df)
 
     assert mask.to_list() == [True, False]
+
+
+def test_review_data_view_marks_unknown_transfer_category_as_missing() -> None:
+    df = _review_rows(
+        [
+            {
+                "transaction_id": "t1",
+                "workflow_type": "institutional",
+                "match_status": "target_only",
+                "decision_action": "update_target",
+                "reviewed": False,
+                "source_present": False,
+                "target_present": True,
+                "target_account": "US Money",
+                "target_payee_selected": "Transfer : Bank Leumi",
+                "target_category_selected": "None",
+            }
+        ]
+    )
+
+    view = review_state.review_data_view(df)
+
+    assert view.get_column("missing_category").to_list() == [True]
 
 
 def test_blocker_series_allows_reviewed_uncategorized_row() -> None:
