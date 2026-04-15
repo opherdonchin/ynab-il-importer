@@ -638,13 +638,7 @@ def _is_cleared_match(row: Mapping[str, object]) -> bool:
 
 
 def _normalize_selected_category(payee: str, category: str) -> str:
-    normalized = review_model.normalize_category_value(category)
-    if (
-        review_model.is_transfer_payee(payee)
-        and normalized.casefold() == "uncategorized"
-    ):
-        return review_model.NO_CATEGORY_REQUIRED
-    return normalized
+    return review_model.normalize_category_value(category)
 
 
 def _is_target_only_transfer_counterpart(row: Mapping[str, object]) -> bool:
@@ -1240,17 +1234,93 @@ def _apply_review_target_suggestions(
     *,
     map_path: Path,
 ) -> pl.DataFrame:
-    source_rows = relations.filter(pl.col("source_present"))
-    if source_rows.is_empty():
-        return relations
-
     text = (
         lambda name: pl.col(name)
         .cast(pl.String, strict=False)
         .fill_null("")
         .str.strip_chars()
     )
-    candidates = source_rows.select(
+    suggestion_schema = [
+        ("suggested_payee_options", pl.String),
+        ("suggested_category_options", pl.String),
+        ("suggested_payee_selected", pl.String),
+        ("suggested_category_selected", pl.String),
+    ]
+
+    def _empty_suggestions(id_col: str, prefix: str) -> pl.DataFrame:
+        return pl.DataFrame(
+            schema=[(id_col, pl.String)]
+            + [(f"{prefix}_{name}", dtype) for name, dtype in suggestion_schema]
+        )
+
+    def _aggregate_suggestions(
+        candidates: pl.DataFrame,
+        *,
+        id_col: str,
+        prefix: str,
+    ) -> pl.DataFrame:
+        if candidates.is_empty():
+            return _empty_suggestions(id_col, prefix)
+        suggested = build_target_suggestions(candidates, map_path=map_path).rename(
+            {
+                "payee_options": "suggested_payee_options",
+                "category_options": "suggested_category_options",
+                "payee_selected": "suggested_payee_selected",
+                "category_selected": "suggested_category_selected",
+            }
+        )
+        if suggested.is_empty():
+            return _empty_suggestions(id_col, prefix)
+        return (
+            suggested.group_by("source_row_id", maintain_order=True)
+            .agg(
+                pl.col("suggested_payee_options"),
+                pl.col("suggested_category_options"),
+                pl.col("suggested_payee_selected"),
+                pl.col("suggested_category_selected"),
+            )
+            .with_columns(
+                pl.col("suggested_payee_options")
+                .map_elements(
+                    lambda values: _review_join_options(*values),
+                    return_dtype=pl.String,
+                )
+                .alias("suggested_payee_options"),
+                pl.col("suggested_category_options")
+                .map_elements(
+                    lambda values: _review_join_options(*values),
+                    return_dtype=pl.String,
+                )
+                .alias("suggested_category_options"),
+                pl.col("suggested_payee_selected")
+                .map_elements(
+                    lambda values: next(
+                        (item.strip() for item in values if item and item.strip()),
+                        "",
+                    ),
+                    return_dtype=pl.String,
+                )
+                .alias("suggested_payee_selected"),
+                pl.col("suggested_category_selected")
+                .map_elements(
+                    lambda values: next(
+                        (item.strip() for item in values if item and item.strip()),
+                        "",
+                    ),
+                    return_dtype=pl.String,
+                )
+                .alias("suggested_category_selected"),
+            )
+            .rename({"source_row_id": id_col})
+            .rename(
+                {
+                    name: f"{prefix}_{name}"
+                    for name, _dtype in suggestion_schema
+                }
+            )
+        )
+
+    source_candidates = relations.filter(pl.col("source_present")).select(
         text("source").alias("source"),
         text("source_account").alias("account_name"),
         text("source_account").alias("source_account"),
@@ -1268,71 +1338,38 @@ def _apply_review_target_suggestions(
         text("source_memo").alias("raw_text"),
         text("source_fingerprint").alias("fingerprint"),
     ).filter(pl.col("fingerprint") != "")
-
-    if candidates.is_empty():
-        suggested = pl.DataFrame(
-            schema=[
-                ("source_row_id", pl.String),
-                ("suggested_payee_options", pl.String),
-                ("suggested_category_options", pl.String),
-                ("suggested_payee_selected", pl.String),
-                ("suggested_category_selected", pl.String),
-            ]
-        )
-    else:
-        suggested = build_target_suggestions(candidates, map_path=map_path).rename(
-            {
-                "payee_options": "suggested_payee_options",
-                "category_options": "suggested_category_options",
-                "payee_selected": "suggested_payee_selected",
-                "category_selected": "suggested_category_selected",
-            }
-        )
-        if not suggested.is_empty():
-            suggested = (
-                suggested.group_by("source_row_id", maintain_order=True)
-                .agg(
-                    pl.col("suggested_payee_options"),
-                    pl.col("suggested_category_options"),
-                    pl.col("suggested_payee_selected"),
-                    pl.col("suggested_category_selected"),
-                )
-                .with_columns(
-                    pl.col("suggested_payee_options")
-                    .map_elements(
-                        lambda values: _review_join_options(*values),
-                        return_dtype=pl.String,
-                    )
-                    .alias("suggested_payee_options"),
-                    pl.col("suggested_category_options")
-                    .map_elements(
-                        lambda values: _review_join_options(*values),
-                        return_dtype=pl.String,
-                    )
-                    .alias("suggested_category_options"),
-                    pl.col("suggested_payee_selected")
-                    .map_elements(
-                        lambda values: next(
-                            (item.strip() for item in values if item and item.strip()),
-                            "",
-                        ),
-                        return_dtype=pl.String,
-                    )
-                    .alias("suggested_payee_selected"),
-                    pl.col("suggested_category_selected")
-                    .map_elements(
-                        lambda values: next(
-                            (item.strip() for item in values if item and item.strip()),
-                            "",
-                        ),
-                        return_dtype=pl.String,
-                    )
-                    .alias("suggested_category_selected"),
-                )
-            )
+    target_candidates = relations.filter(pl.col("target_present")).select(
+        pl.lit("ynab").alias("source"),
+        text("target_account").alias("account_name"),
+        text("target_account").alias("source_account"),
+        text("target_row_id").alias("source_row_id"),
+        text("target_date").alias("date"),
+        pl.col("outflow_ils")
+        .cast(pl.Float64, strict=False)
+        .fill_null(0.0)
+        .alias("outflow_ils"),
+        pl.col("inflow_ils")
+        .cast(pl.Float64, strict=False)
+        .fill_null(0.0)
+        .alias("inflow_ils"),
+        text("target_memo").alias("memo"),
+        text("target_memo").alias("raw_text"),
+        text("target_fingerprint").alias("fingerprint"),
+    ).filter((pl.col("fingerprint") != "") & (pl.col("source_row_id") != ""))
+    source_suggested = _aggregate_suggestions(
+        source_candidates,
+        id_col="source_row_id",
+        prefix="source",
+    )
+    target_suggested = _aggregate_suggestions(
+        target_candidates,
+        id_col="target_row_id",
+        prefix="target",
+    )
 
     merged = (
-        relations.join(suggested, on="source_row_id", how="left")
+        relations.join(source_suggested, on="source_row_id", how="left")
+        .join(target_suggested, on="target_row_id", how="left")
         .with_columns(
             text("target_payee_current").alias("_current_target_payee"),
             pl.struct(["target_payee_current", "target_category_current"])
@@ -1344,54 +1381,121 @@ def _apply_review_target_suggestions(
                 return_dtype=pl.String,
             )
             .alias("_current_target_category"),
-            text("suggested_payee_selected").alias("_suggested_payee"),
-            pl.col("suggested_category_selected")
+            text("source_suggested_payee_selected").alias("_source_suggested_payee"),
+            text("target_suggested_payee_selected").alias("_target_suggested_payee"),
+            pl.col("source_suggested_category_selected")
             .cast(pl.String, strict=False)
             .fill_null("")
             .map_elements(review_model.normalize_category_value, return_dtype=pl.String)
-            .alias("_suggested_category"),
+            .alias("_source_suggested_category"),
+            pl.col("target_suggested_category_selected")
+            .cast(pl.String, strict=False)
+            .fill_null("")
+            .map_elements(review_model.normalize_category_value, return_dtype=pl.String)
+            .alias("_target_suggested_category"),
         )
         .with_columns(
-            pl.struct(["_current_target_payee", "suggested_payee_options"])
+            pl.struct(
+                [
+                    "_current_target_payee",
+                    "source_suggested_payee_options",
+                    "target_suggested_payee_options",
+                ]
+            )
             .map_elements(
                 lambda row: _review_join_options(
                     row["_current_target_payee"],
-                    _optional_text(row["suggested_payee_options"]),
+                    _optional_text(row["source_suggested_payee_options"]),
+                    _optional_text(row["target_suggested_payee_options"]),
                 ),
                 return_dtype=pl.String,
             )
             .alias("payee_options"),
-            pl.struct(["_current_target_category", "suggested_category_options"])
+            pl.struct(
+                [
+                    "_current_target_category",
+                    "source_suggested_category_options",
+                    "target_suggested_category_options",
+                ]
+            )
             .map_elements(
                 lambda row: _review_join_options(
                     row["_current_target_category"],
-                    _optional_text(row["suggested_category_options"]),
+                    _optional_text(row["source_suggested_category_options"]),
+                    _optional_text(row["target_suggested_category_options"]),
                 ),
                 return_dtype=pl.String,
             )
             .alias("category_options"),
             pl.when(pl.col("target_present") & (pl.col("_current_target_payee") != ""))
             .then(pl.col("_current_target_payee"))
-            .otherwise(pl.col("_suggested_payee"))
+            .otherwise(pl.col("_source_suggested_payee"))
             .alias("target_payee_selected"),
+        )
+        .with_columns(
+            pl.when(
+                (~pl.col("target_present"))
+                & (pl.col("target_payee_selected") == "")
+                & (pl.col("_target_suggested_payee") != "")
+            )
+            .then(pl.col("_target_suggested_payee"))
+            .otherwise(pl.col("target_payee_selected"))
+            .alias("target_payee_selected"),
+        )
+        .with_columns(
+            pl.struct(
+                [
+                    "target_present",
+                    "_current_target_payee",
+                    "_current_target_category",
+                    "_target_suggested_category",
+                ]
+            )
+            .map_elements(
+                lambda row: bool(row["target_present"])
+                and review_model.is_transfer_payee(
+                    _optional_text(row["_current_target_payee"])
+                )
+                and review_model.normalize_category_value(
+                    row["_current_target_category"]
+                )
+                in {"", "Uncategorized", review_model.NO_CATEGORY_REQUIRED}
+                and _optional_text(row["_target_suggested_category"]) != "",
+                return_dtype=pl.Boolean,
+            )
+            .alias("_replace_current_target_category"),
+        )
+        .with_columns(
             pl.when(
                 pl.col("target_present") & (pl.col("_current_target_category") != "")
+                & (~pl.col("_replace_current_target_category"))
             )
             .then(pl.col("_current_target_category"))
-            .otherwise(pl.col("_suggested_category"))
+            .when(pl.col("_source_suggested_category") != "")
+            .then(pl.col("_source_suggested_category"))
+            .when(pl.col("_target_suggested_category") != "")
+            .then(pl.col("_target_suggested_category"))
+            .otherwise(pl.lit(""))
             .alias("target_category_selected"),
         )
     )
 
     return merged.drop(
-        "suggested_payee_options",
-        "suggested_category_options",
-        "suggested_payee_selected",
-        "suggested_category_selected",
+        "source_suggested_payee_options",
+        "source_suggested_category_options",
+        "source_suggested_payee_selected",
+        "source_suggested_category_selected",
+        "target_suggested_payee_options",
+        "target_suggested_category_options",
+        "target_suggested_payee_selected",
+        "target_suggested_category_selected",
         "_current_target_payee",
         "_current_target_category",
-        "_suggested_payee",
-        "_suggested_category",
+        "_source_suggested_payee",
+        "_target_suggested_payee",
+        "_source_suggested_category",
+        "_target_suggested_category",
+        "_replace_current_target_category",
     )
 
 

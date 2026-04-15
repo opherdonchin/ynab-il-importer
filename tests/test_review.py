@@ -266,6 +266,32 @@ def test_grouped_row_indices_preserves_original_row_positions() -> None:
     assert group_indices == {"fp-a": [10, 19], "fp-b": [14]}
 
 
+def test_grouped_row_indices_split_transfer_rows_by_account() -> None:
+    df = pl.DataFrame(
+        {
+            "_row_pos": [10, 11, 12],
+            "fingerprint": ["transfer bank leumi", "transfer bank leumi", "transfer bank leumi"],
+            "target_payee_selected": [
+                "Transfer : Bank Leumi",
+                "Transfer : Bank Leumi",
+                "Transfer : Bank Leumi",
+            ],
+            "target_account": ["US Money", "Investments", "US Money"],
+        }
+    )
+
+    fingerprints, group_indices = review_state.grouped_row_indices(df)
+
+    assert fingerprints == [
+        "transfer bank leumi | US Money",
+        "transfer bank leumi | Investments",
+    ]
+    assert group_indices == {
+        "transfer bank leumi | US Money": [10, 12],
+        "transfer bank leumi | Investments": [11],
+    }
+
+
 def test_load_save_roundtrip_uses_side_specific_selected_fields(tmp_path) -> None:
     src = tmp_path / "review.parquet"
     review_io.save_review_artifact(

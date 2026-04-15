@@ -778,19 +778,35 @@ def grouped_row_indices(filtered: pl.DataFrame) -> tuple[list[str], dict[str, li
         indices = filtered.get_column("_row_pos").to_list()
     else:
         indices = list(range(filtered.height))
-    fingerprints = _clean_text_list(filtered.get_column("fingerprint")) if "fingerprint" in filtered.columns else [""] * filtered.height
+    rows = filtered.to_dicts()
     group_indices: dict[str, list[Any]] = {}
     counts: Counter[str] = Counter()
     first_seen: list[str] = []
-    for idx, fingerprint in zip(indices, fingerprints, strict=False):
-        fp = str(fingerprint or "").strip()
+    for idx, row in zip(indices, rows, strict=False):
+        fp = str(row.get("fingerprint", "") or "").strip()
         if not fp:
             continue
-        if fp not in group_indices:
-            group_indices[fp] = []
-            first_seen.append(fp)
-        group_indices[fp].append(idx)
-        counts[fp] += 1
+        payee = str(
+            row.get("target_payee_selected")
+            or row.get("payee_selected")
+            or row.get("target_payee_current")
+            or ""
+        ).strip()
+        group_key = fp
+        if model.is_transfer_payee(payee):
+            account = str(
+                row.get("target_account")
+                or row.get("account_name")
+                or row.get("source_account")
+                or ""
+            ).strip()
+            if account:
+                group_key = f"{fp} | {account}"
+        if group_key not in group_indices:
+            group_indices[group_key] = []
+            first_seen.append(group_key)
+        group_indices[group_key].append(idx)
+        counts[group_key] += 1
     ordered = sorted(first_seen, key=lambda fp: (-counts[fp], first_seen.index(fp)))
     return ordered, group_indices
 

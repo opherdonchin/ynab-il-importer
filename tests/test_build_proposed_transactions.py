@@ -593,7 +593,7 @@ def test_build_review_rows_can_include_reconciled_exact_matches(
     assert matched["target_splits"] is None
 
 
-def test_build_review_rows_normalizes_transfer_uncategorized_to_explicit_none(
+def test_build_review_rows_preserves_transfer_uncategorized_without_budget_context(
     tmp_path: Path,
 ) -> None:
     map_path = tmp_path / "payee_map.csv"
@@ -642,8 +642,8 @@ def test_build_review_rows_normalizes_transfer_uncategorized_to_explicit_none(
 
     matched = review_rows.row(0, named=True)
     assert matched["target_category_current"] == "Uncategorized"
-    assert matched["target_category_selected"] == review_model.NO_CATEGORY_REQUIRED
-    assert matched["category_options"] == review_model.NO_CATEGORY_REQUIRED
+    assert matched["target_category_selected"] == "Uncategorized"
+    assert matched["category_options"] == "Uncategorized"
 
 
 def test_build_review_rows_leaves_target_only_transfer_counterparts_for_explicit_decision(
@@ -715,7 +715,119 @@ def test_build_review_rows_leaves_target_only_transfer_counterparts_for_explicit
     assert target_only["decision_action"] == "No decision"
     assert bool(target_only["reviewed"]) is False
     assert target_only["relation_kind"] == "target_only_transfer_counterpart"
-    assert target_only["target_category_selected"] == review_model.NO_CATEGORY_REQUIRED
+    assert target_only["target_category_selected"] == "Uncategorized"
+
+
+def test_build_review_rows_applies_payee_map_to_target_only_transfer_rows(
+    tmp_path: Path,
+) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    rows = [
+        {
+            "rule_id": "coffee_1",
+            "is_active": True,
+            "priority": 0,
+            "txn_kind": "",
+            "fingerprint": "coffee shop",
+            "description_clean_norm": "",
+            "account_name": "",
+            "source": "",
+            "direction": "",
+            "currency": "",
+            "amount_bucket": "",
+            "payee_canonical": "Coffee Shop",
+            "category_target": "Eating Out",
+            "notes": "",
+            "card_suffix": "",
+        },
+        {
+            "rule_id": "transfer_bank_leumi_us_money",
+            "is_active": True,
+            "priority": 10,
+            "txn_kind": "",
+            "fingerprint": "transfer bank leumi",
+            "description_clean_norm": "",
+            "account_name": "US Money",
+            "source": "ynab",
+            "direction": "outflow",
+            "currency": "",
+            "amount_bucket": "",
+            "payee_canonical": "Transfer : Bank Leumi",
+            "category_target": "Ready to Assign",
+            "notes": "manual target_only transfer default",
+            "card_suffix": "",
+        },
+    ]
+    pd.DataFrame(
+        rows,
+        columns=build_proposed_transactions.rules_mod.PAYEE_MAP_COLUMNS,
+    ).to_csv(map_path, index=False, encoding="utf-8-sig")
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "source": "bank",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "groceries",
+                "description_raw": "Groceries",
+            }
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-match",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Groceries",
+                "category_raw": "Food",
+                "fingerprint": "groceries",
+                "memo": "existing",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            },
+            {
+                "ynab_id": "ynab-transfer-us",
+                "account_id": "acc-us",
+                "account_name": "US Money",
+                "date": "2025-01-03",
+                "outflow_ils": 100.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Transfer : Bank Leumi",
+                "category_raw": "Uncategorized",
+                "fingerprint": "transfer bank leumi",
+                "memo": "family transfer",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            }
+        ]
+    )
+
+    review_rows, _ = build_proposed_transactions.build_review_rows(
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
+        map_path=map_path,
+    )
+
+    target_only = review_rows.filter(
+        (pl.col("target_account") == "US Money")
+        & (pl.col("target_payee_current") == "Transfer : Bank Leumi")
+    ).row(0, named=True)
+
+    assert target_only["match_status"] == "target_only"
+    assert target_only["target_payee_selected"] == "Transfer : Bank Leumi"
+    assert target_only["target_category_selected"] == "Ready to Assign"
+    assert "Ready to Assign" in str(target_only["category_options"])
 
 
 def test_build_review_rows_skips_reconciled_target_only_rows_by_default(

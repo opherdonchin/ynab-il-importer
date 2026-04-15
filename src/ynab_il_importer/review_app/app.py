@@ -891,6 +891,14 @@ def _filtered_target_category_options(
     ]
 
 
+def _display_target_category_options(
+    row: dict[str, Any],
+    payee_value: str,
+    category_options: list[str],
+) -> list[str]:
+    return _filtered_target_category_options(row, payee_value, category_options)
+
+
 def _most_common_lookup_value(
     lookup: dict[Any, dict[str, Any]] | None,
     indices: list[Any],
@@ -3006,8 +3014,18 @@ def main() -> None:
                 review_model.parse_option_string(row.get("payee_options", "")),
                 limit=2,
             )
+            summary_target_payee = str(
+                row.get("target_payee_selected")
+                or row.get("target_payee_current")
+                or row.get("payee_selected")
+                or ""
+            ).strip()
             category_summary = _format_option_summary(
-                review_model.parse_option_string(row.get("category_options", "")),
+                _display_target_category_options(
+                    row,
+                    summary_target_payee,
+                    review_model.parse_option_string(row.get("category_options", "")),
+                ),
                 formatter=lambda value: _format_category_label(value, category_group_map),
                 limit=2,
             )
@@ -3090,9 +3108,27 @@ def main() -> None:
                 [str(row.get("category_options", "") or "") for row in group_rows]
             )
 
+            group_payee_default = _most_common_lookup_value(
+                data_lookup,
+                group_indices,
+                "target_payee_selected",
+            )
+            if not group_payee_default:
+                group_payee_default = fp if fp else ""
+            if not group_payee_default and group_payee_options:
+                group_payee_default = group_payee_options[0]
+            group_category_summary_options = (
+                _display_target_category_options(
+                    group_rows[0],
+                    group_payee_default,
+                    group_category_options,
+                )
+                if group_rows
+                else group_category_options
+            )
             group_payee_summary = _format_option_summary(group_payee_options, limit=3)
             group_category_summary = _format_option_summary(
-                group_category_options,
+                group_category_summary_options,
                 formatter=lambda value: _format_category_label(value, category_group_map),
                 limit=3,
             )
@@ -3141,19 +3177,6 @@ def main() -> None:
                         ).strip(),
                         unsafe_allow_html=True,
                     )
-                payee_options = group_payee_options
-                category_options = group_category_options
-
-                group_payee_default = _most_common_lookup_value(
-                    data_lookup,
-                    group_indices,
-                    "target_payee_selected",
-                )
-                if not group_payee_default:
-                    group_payee_default = fp if fp else ""
-                if not group_payee_default and payee_options:
-                    group_payee_default = payee_options[0]
-
                 group_category_default = _most_common_lookup_value(
                     data_lookup,
                     group_indices,
@@ -3163,7 +3186,7 @@ def main() -> None:
                     _target_category_required(group_row, group_payee_default)
                     for group_row in group_rows
                 )
-                group_category_options = _filtered_target_category_options(
+                group_category_options = _display_target_category_options(
                     group_rows[0],
                     group_payee_default,
                     group_category_options,
@@ -3181,8 +3204,11 @@ def main() -> None:
                     group_category_default = review_model.NO_CATEGORY_REQUIRED
                 if not group_category_default and "Uncategorized" in category_list:
                     group_category_default = "Uncategorized"
-                if not group_category_default and category_options:
-                    group_category_default = category_options[0]
+                if not group_category_default and group_category_options:
+                    group_category_default = group_category_options[0]
+
+                payee_options = group_payee_options
+                category_options = group_category_options
 
                 group_payee_choices = [""] + payee_options
                 if group_payee_default and group_payee_default not in group_payee_choices:
@@ -3496,8 +3522,18 @@ def main() -> None:
                         review_model.parse_option_string(row.get("payee_options", "")),
                         limit=2,
                     )
+                    summary_target_payee = str(
+                        row.get("target_payee_selected")
+                        or row.get("target_payee_current")
+                        or row.get("payee_selected")
+                        or ""
+                    ).strip()
                     category_summary = _format_option_summary(
-                        review_model.parse_option_string(row.get("category_options", "")),
+                        _display_target_category_options(
+                            row,
+                            summary_target_payee,
+                            review_model.parse_option_string(row.get("category_options", "")),
+                        ),
                         formatter=lambda value: _format_category_label(
                             value, category_group_map
                         ),

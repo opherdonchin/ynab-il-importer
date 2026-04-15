@@ -38,6 +38,15 @@
 - When making architectural choices with non-obvious consequences, explain the tradeoff briefly and choose the simpler, less state-heavy design unless instructed otherwise.
 - If you encounter a meaningful architectural uncertainty, ask only after checking the code and existing plans carefully.
 
+## Autonomy
+
+- Default to acting without asking for permission for ordinary repo work.
+- Automatically proceed with routine reads, searches, local file edits, focused refactors, debugging, artifact inspection, and normal workflow commands.
+- Automatically run ordinary `pixi`, `python`, `pytest`, and git status/diff/log commands needed to complete the current task.
+- Do not pause to ask before rerunning a command, restarting a local workflow step, or validating a likely fix when the action is low-risk and within the repo workspace.
+- Only stop to ask when a choice has meaningful product or accounting consequences, when the action is destructive or hard to undo, or when external side effects are non-obvious.
+- Prefer doing the next reasonable thing over asking a procedural question the user has already implicitly answered.
+
 ## Execution
 
 - Use `pixi` for project commands.

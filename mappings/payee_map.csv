@@ -1041,3 +1041,6 @@
 "manual_20260402_mega_pet_default","TRUE","10","","מגה פט","","","","","","","Mega Pet","Pets","manual 2026-04-02: Mega Pet defaults to Pets",""
 "manual_20260402_mega_pet_refund_default","TRUE","10","","מגה פט ביטול","","","","","","","Mega Pet","Pets","manual 2026-04-02: Mega Pet refunds keep Pets category",""
 "manual_20260402_spotify_default","TRUE","10","","spotify stockholm עסקת חו","","","","","","","Spotify","Software Subscriptions","manual 2026-04-02: Spotify defaults to Software Subscriptions",""
+"manual_20260415_transfer_bank_leumi_us_money","TRUE","10","","transfer bank leumi","","US Money","ynab","outflow","","","Transfer : Bank Leumi","Ready to Assign","manual 2026-04-15: off-budget US Money -> Bank Leumi transfers default to Ready to Assign",""
+"manual_20260415_transfer_bank_leumi_investments","TRUE","10","","transfer bank leumi","","Investments","ynab","outflow","","","Transfer : Bank Leumi","Investment income and expenses","manual 2026-04-15: off-budget Investments -> Bank Leumi transfers keep investment category",""
+"manual_20260415_transfer_bank_leumi_pilates","TRUE","10","","transfer bank leumi","","Pilates Leumi","ynab","","","","Transfer : Bank Leumi","Pilates","manual 2026-04-15: Pilates Leumi transfers keep Pilates category",""
