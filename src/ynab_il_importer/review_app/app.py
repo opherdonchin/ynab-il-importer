@@ -877,6 +877,20 @@ def _resolved_target_category_value(
     return text
 
 
+def _filtered_target_category_options(
+    row: dict[str, Any],
+    payee_value: str,
+    category_options: list[str],
+) -> list[str]:
+    if not _target_category_required(row, payee_value):
+        return category_options
+    return [
+        value
+        for value in category_options
+        if not review_model.is_no_category_required(value)
+    ]
+
+
 def _most_common_lookup_value(
     lookup: dict[Any, dict[str, Any]] | None,
     indices: list[Any],
@@ -2227,22 +2241,27 @@ def _render_row_controls(
         )
         else ""
     )
+    filtered_category_options = _filtered_target_category_options(
+        row,
+        target_payee_selected or target_payee_default,
+        category_options,
+    )
     target_category_default = (
         normalized_target_category_selected
         or (no_category_default if create_target_default else "")
         or (uncategorized_default if create_target_default else "")
         or category_defaults.get(fingerprint, "")
-        or (category_options[0] if category_options else "")
+        or (filtered_category_options[0] if filtered_category_options else "")
     )
 
     show_all_categories_key = _editor_key(f"show_all_categories_{idx}")
     show_all_categories_default = bool(
         category_choices
         and (
-            not category_options
+            not filtered_category_options
             or (
                 normalized_target_category_selected
-                and normalized_target_category_selected not in category_options
+                and normalized_target_category_selected not in filtered_category_options
             )
         )
     )
@@ -3144,6 +3163,11 @@ def main() -> None:
                     _target_category_required(group_row, group_payee_default)
                     for group_row in group_rows
                 )
+                group_category_options = _filtered_target_category_options(
+                    group_rows[0],
+                    group_payee_default,
+                    group_category_options,
+                ) if group_rows else group_category_options
                 if (
                     group_requires_category
                     and review_model.is_no_category_required(group_category_default)
@@ -3537,3 +3561,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
