@@ -1034,6 +1034,75 @@ def test_build_review_rows_skips_reconciled_ambiguous_matches_by_default(
     assert review_rows.is_empty()
 
 
+def test_build_review_rows_filters_target_scope_to_allowed_accounts(
+    tmp_path: Path,
+) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "source": "bank",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "groceries",
+                "description_raw": "Groceries",
+            }
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-match",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Groceries",
+                "category_raw": "Food",
+                "fingerprint": "groceries",
+                "memo": "existing",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            },
+            {
+                "ynab_id": "ynab-offscope",
+                "account_id": "acc-2",
+                "account_name": "US Money",
+                "date": "2025-01-03",
+                "outflow_ils": 100.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Transfer : Checking",
+                "category_raw": "Uncategorized",
+                "fingerprint": "transfer checking",
+                "memo": "legacy transfer",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            },
+        ]
+    )
+
+    review_rows, _ = build_proposed_transactions.build_review_rows(
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
+        map_path=map_path,
+        allowed_target_accounts=["Checking"],
+    )
+
+    assert review_rows.height == 1
+    row = review_rows.row(0, named=True)
+    assert row["target_account"] == "Checking"
+    assert row["match_status"] == "matched_auto"
+
+
 def test_build_review_rows_skips_reconciled_transfer_counterparts_by_default(
     tmp_path: Path,
 ) -> None:

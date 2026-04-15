@@ -1504,9 +1504,27 @@ def build_review_rows(
     ynab_df: pl.DataFrame,
     *,
     map_path: Path,
+    allowed_target_accounts: list[str] | None = None,
     include_reconciled_ynab: bool = False,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     prepared_source_pl = _prepare_review_source_rows(source_df)
+    if allowed_target_accounts is not None:
+        normalized_accounts = [
+            _optional_text(account)
+            for account in allowed_target_accounts
+            if _optional_text(account)
+        ]
+        if not normalized_accounts:
+            raise ValueError(
+                "allowed_target_accounts must contain at least one non-empty account name."
+            )
+        ynab_df = ynab_df.filter(
+            pl.col("account_name")
+            .cast(pl.Utf8, strict=False)
+            .fill_null("")
+            .str.strip_chars()
+            .is_in(normalized_accounts)
+        )
     prepared_target_pl = _prepare_review_target_rows(ynab_df)
     pairs_pl = _institutional_candidate_pairs(prepared_source_pl, prepared_target_pl)
     text = (
@@ -1845,6 +1863,7 @@ def run_build(
     map_path: Path,
     out_path: Path,
     pairs_out: str = "",
+    allowed_target_accounts: list[str] | None = None,
     include_reconciled_ynab: bool = False,
 ) -> None:
     if not source_paths:
@@ -1859,6 +1878,7 @@ def run_build(
         source_df,
         ynab_df,
         map_path=map_path,
+        allowed_target_accounts=allowed_target_accounts,
         include_reconciled_ynab=include_reconciled_ynab,
     )
     if pairs_out:

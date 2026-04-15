@@ -15,6 +15,13 @@ def test_load_family_context_resolves_map_paths() -> None:
     assert loaded.payee_map_path.name == "payee_map.csv"
     assert loaded.ynab_normalized_name == "family_ynab_api_norm.parquet"
     assert len(loaded.config.sources) == 2
+    assert loaded.config.sources[0].target_account_names == ["Bank Leumi"]
+    assert loaded.config.sources[1].target_account_names == [
+        "Bank Leumi",
+        "Liya X7195",
+        "Opher X5898",
+        "Opher x9922",
+    ]
 
 
 def test_load_aikido_context_with_ynab_category_source() -> None:
@@ -44,6 +51,7 @@ def test_resolve_context_sources_supports_ynab_category_without_raw_dir(
     assert sources[0].raw_path is None
     assert sources[0].from_context == "family"
     assert sources[0].category_name == "Aikido"
+    assert sources[0].target_account_name == "Personal In Leumi"
 
 
 def test_resolve_context_sources_supports_exact_and_regex(tmp_path: Path) -> None:
@@ -63,6 +71,13 @@ def test_resolve_context_sources_supports_exact_and_regex(tmp_path: Path) -> Non
         "Bankin family.dat",
         "transaction-details_export_1775044561886.xlsx",
     ]
+    assert sources[0].target_account_names == ("Bank Leumi",)
+    assert sources[1].target_account_names == (
+        "Bank Leumi",
+        "Liya X7195",
+        "Opher X5898",
+        "Opher x9922",
+    )
 
 
 def test_ynab_category_source_validation_requires_context_and_single_category() -> None:
@@ -97,6 +112,31 @@ def test_ynab_category_source_validation_requires_context_and_single_category() 
                 "category_name": "Aikido",
                 "target_account_name": "Personal In Leumi",
                 "raw_file": "unexpected.csv",
+            }
+        )
+
+
+def test_raw_backed_source_validation_requires_target_account_scope() -> None:
+    with pytest.raises(ValueError, match="target_account_names"):
+        context_config.ContextSourceConfig.model_validate(
+            {
+                "id": "source-1",
+                "kind": "leumi",
+                "raw_file": "bank.dat",
+            }
+        )
+
+
+def test_ynab_category_source_rejects_target_account_names() -> None:
+    with pytest.raises(ValueError, match="cannot define target_account_names"):
+        context_config.ContextSourceConfig.model_validate(
+            {
+                "id": "source-1",
+                "kind": "ynab_category",
+                "from_context": "family",
+                "category_name": "Aikido",
+                "target_account_name": "Personal In Leumi",
+                "target_account_names": ["Personal In Leumi"],
             }
         )
 
@@ -216,3 +256,11 @@ def test_resolve_context_budget_id_falls_back_to_local_config(
     resolved = context_config.resolve_context_budget_id(context)
 
     assert resolved == "15662d89-1e9a-4b67-b83c-38359bcea8a7"
+
+
+def test_resolve_context_target_account_names_unions_source_scopes() -> None:
+    loaded = context_config.load_context("family")
+
+    accounts = context_config.resolve_context_target_account_names(loaded)
+
+    assert accounts == ["Bank Leumi", "Liya X7195", "Opher X5898", "Opher x9922"]

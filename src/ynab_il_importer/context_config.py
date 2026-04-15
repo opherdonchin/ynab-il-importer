@@ -78,6 +78,7 @@ class ContextSourceConfig(BaseModel):
     category_id: str = ""
     target_account_name: str = ""
     target_account_id: str = ""
+    target_account_names: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_source_selector(self) -> "ContextSourceConfig":
@@ -101,12 +102,20 @@ class ContextSourceConfig(BaseModel):
                 raise ValueError(
                     "ynab_category sources must define target_account_name."
                 )
+            if self.target_account_names:
+                raise ValueError(
+                    "ynab_category sources cannot define target_account_names."
+                )
             return self
 
         selectors = [bool(self.raw_file), bool(self.raw_match)]
         if sum(selectors) != 1:
             raise ValueError(
                 "Each source must define exactly one of raw_file or raw_match."
+            )
+        if not self.target_account_names:
+            raise ValueError(
+                "Raw-backed sources must define at least one target_account_names entry."
             )
         return self
 
@@ -251,6 +260,7 @@ class ResolvedContextSource:
     category_id: str = ""
     target_account_name: str = ""
     target_account_id: str = ""
+    target_account_names: tuple[str, ...] = ()
 
 
 def _read_toml(path: Path) -> dict:
@@ -319,6 +329,7 @@ def resolve_context_sources(
                     category_id=source.category_id.strip(),
                     target_account_name=source.target_account_name.strip(),
                     target_account_id=source.target_account_id.strip(),
+                    target_account_names=(),
                 )
             )
             continue
@@ -335,6 +346,11 @@ def resolve_context_sources(
                     kind=source.kind,
                     raw_path=raw_path,
                     normalized_name=source.normalized_name,
+                    target_account_names=tuple(
+                        account.strip()
+                        for account in source.target_account_names
+                        if str(account).strip()
+                    ),
                 )
             )
             continue
@@ -352,6 +368,11 @@ def resolve_context_sources(
                 kind=source.kind,
                 raw_path=matches[0],
                 normalized_name=source.normalized_name,
+                target_account_names=tuple(
+                    account.strip()
+                    for account in source.target_account_names
+                    if str(account).strip()
+                ),
             )
         )
 
@@ -391,6 +412,30 @@ def resolve_context_normalized_source_paths(
             f"{[path.as_posix() for path in missing]}"
         )
     return paths
+
+
+def resolve_context_target_account_names(context: LoadedContext) -> list[str]:
+    if not context.config.sources:
+        raise ValueError(f"Context {context.name!r} has no declared sources.")
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for source in context.config.sources:
+        candidates = (
+            [source.target_account_name]
+            if source.kind == "ynab_category"
+            else list(source.target_account_names)
+        )
+        for candidate in candidates:
+            account = str(candidate or "").strip()
+            if not account or account in seen:
+                continue
+            ordered.append(account)
+            seen.add(account)
+    if not ordered:
+        raise ValueError(
+            f"Context {context.name!r} has no declared target account scope."
+        )
+    return ordered
 
 
 def select_context_sources(

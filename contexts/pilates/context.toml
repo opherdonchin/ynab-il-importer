@@ -14,6 +14,7 @@ id = "pilates_bank"
 kind = "leumi"
 raw_file = "Bankin pilates.dat"
 normalized_name = "pilates_leumi_norm.parquet"
+target_account_names = ["Bank Leumi 225237"]
 
 [[sources]]
 id = "pilates_card"
@@ -21,3 +22,4 @@ kind = "leumi_card_html"
 raw_match = "^BankLeumi \\d+_\\d+_\\d+\\.html$"
 normalized_name = "pilates_leumi_card_html_norm.parquet"
 allow_reconciled_source = true
+target_account_names = ["Credit card 0602"]

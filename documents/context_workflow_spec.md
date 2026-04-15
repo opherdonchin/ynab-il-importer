@@ -69,6 +69,7 @@ Current source declarations support:
 - `kind`
 - for raw-backed sources:
   - exactly one of `raw_file` or `raw_match`
+  - `target_account_names`
 - for `ynab_category` sources:
   - `from_context`
   - exactly one of `category_name` or `category_id`
@@ -78,6 +79,7 @@ Current source declarations support:
 - `allow_reconciled_source` for card reconciliation edge cases
 
 Contexts that participate in `normalize-context` or `build-context-review` must declare at least one `[[sources]]` entry. A context with no declared sources is not runnable on the active normalization/review path.
+Raw-backed sources must also declare explicit `target_account_names` so review matching stays within the YNAB accounts actually covered by the provided source files.
 
 ## Source Resolution Rules
 
@@ -132,8 +134,11 @@ Loads the declared normalized source artifacts plus the normalized YNAB artifact
 Default behavior is intentionally conservative:
 
 - YNAB rows already marked `cleared` or `reconciled` are excluded from the review artifact
+- YNAB target rows are limited to the explicit target-account scope declared by the context's active sources
 - this applies both to exact matched rows and to unmatched `target_only` YNAB rows, including transfer counterparts and ambiguous candidate rows whose YNAB side is already settled
 - use `--include-reconciled-ynab` only when you explicitly want settled YNAB history back in review
+
+This means a context like `family` will only review YNAB rows from accounts declared by its active bank/card sources, rather than every account in the Family budget.
 
 ### Post-review closeout
 

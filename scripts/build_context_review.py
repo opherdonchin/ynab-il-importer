@@ -49,6 +49,7 @@ def main() -> None:
     run_paths.paired_dir.mkdir(parents=True, exist_ok=True)
 
     source_paths = context_config.resolve_context_normalized_source_paths(context, run_paths)
+    target_account_names = context_config.resolve_context_target_account_names(context)
     ynab_path = context_config.resolve_context_ynab_path(context, run_paths)
     out_path = run_paths.proposal_review_path(defaults, context.name)
     pairs_out = run_paths.matched_pairs_path(defaults, context.name)
@@ -59,6 +60,7 @@ def main() -> None:
         map_path=context.payee_map_path,
         out_path=out_path,
         pairs_out=str(pairs_out),
+        allowed_target_accounts=target_account_names,
         include_reconciled_ynab=args.include_reconciled_ynab,
     )
 
