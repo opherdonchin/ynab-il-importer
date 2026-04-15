@@ -135,10 +135,12 @@ Default behavior is intentionally conservative:
 
 - YNAB rows already marked `cleared` or `reconciled` are excluded from the review artifact
 - YNAB target rows are limited to the explicit target-account scope declared by the context's active sources
+- internal in-budget transfer counterparts that already have a reciprocal YNAB transfer row in another in-scope target account are excluded from institutional review
 - this applies both to exact matched rows and to unmatched `target_only` YNAB rows, including transfer counterparts and ambiguous candidate rows whose YNAB side is already settled
 - use `--include-reconciled-ynab` only when you explicitly want settled YNAB history back in review
 
 This means a context like `family` will only review YNAB rows from accounts declared by its active bank/card sources, rather than every account in the Family budget.
+It also means card-payment transfer pairs like `Opher x9922 <-> Bank Leumi` do not surface as ordinary unmatched review rows; they are handled by the closeout logic for the relevant source kind.
 
 ### Post-review closeout
 

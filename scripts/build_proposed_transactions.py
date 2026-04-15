@@ -646,6 +646,84 @@ def _is_target_only_transfer_counterpart(row: Mapping[str, object]) -> bool:
     return review_model.is_transfer_payee(target_payee)
 
 
+def _transfer_peer_account_name(payee: object) -> str:
+    text = _optional_text(payee)
+    prefix = "Transfer : "
+    if not text.startswith(prefix):
+        return ""
+    return text[len(prefix) :].strip()
+
+
+def _internal_transfer_counterpart_ids(
+    prepared_target_pl: pl.DataFrame,
+    *,
+    allowed_target_accounts: list[str] | None,
+) -> set[str]:
+    if prepared_target_pl.is_empty() or not allowed_target_accounts:
+        return set()
+    in_scope = {_optional_text(account) for account in allowed_target_accounts if _optional_text(account)}
+    if not in_scope:
+        return set()
+
+    candidates = (
+        prepared_target_pl.with_columns(
+            pl.col("ynab_account")
+            .cast(pl.Utf8, strict=False)
+            .fill_null("")
+            .str.strip_chars()
+            .alias("_account_name"),
+            pl.col("ynab_payee_raw")
+            .cast(pl.Utf8, strict=False)
+            .fill_null("")
+            .str.strip_chars()
+            .alias("_payee_raw"),
+            pl.col("target_row_id")
+            .cast(pl.Utf8, strict=False)
+            .fill_null("")
+            .str.strip_chars()
+            .alias("_target_row_id"),
+            pl.col("ynab_payee_raw")
+            .map_elements(_transfer_peer_account_name, return_dtype=pl.String)
+            .alias("_peer_account_name"),
+        )
+        .filter(
+            pl.col("_account_name").is_in(sorted(in_scope))
+            & pl.col("_peer_account_name").is_in(sorted(in_scope))
+            & (pl.col("_peer_account_name") != "")
+        )
+        .select(
+            "_target_row_id",
+            "_account_name",
+            "_peer_account_name",
+            "date_key",
+            "amount_key",
+        )
+    )
+    if candidates.is_empty():
+        return set()
+
+    reciprocal = candidates.select(
+        pl.col("_account_name").alias("_match_peer_account_name"),
+        pl.col("_peer_account_name").alias("_match_account_name"),
+        pl.col("date_key").alias("_match_date_key"),
+        (-pl.col("amount_key")).alias("_match_amount_key"),
+    )
+    matched = candidates.join(
+        reciprocal,
+        left_on=["_account_name", "_peer_account_name", "date_key", "amount_key"],
+        right_on=[
+            "_match_account_name",
+            "_match_peer_account_name",
+            "_match_date_key",
+            "_match_amount_key",
+        ],
+        how="inner",
+    )
+    if matched.is_empty():
+        return set()
+    return set(matched.get_column("_target_row_id").to_list())
+
+
 def _is_target_only_manual_entry(row: Mapping[str, object]) -> bool:
     approved = _optional_text(row.get("ynab_approved")).casefold() in {
         "true",
@@ -1526,6 +1604,10 @@ def build_review_rows(
             .is_in(normalized_accounts)
         )
     prepared_target_pl = _prepare_review_target_rows(ynab_df)
+    hidden_internal_transfer_ids = _internal_transfer_counterpart_ids(
+        prepared_target_pl,
+        allowed_target_accounts=allowed_target_accounts,
+    )
     pairs_pl = _institutional_candidate_pairs(prepared_source_pl, prepared_target_pl)
     text = (
         lambda name: pl.col(name)
@@ -1842,6 +1924,10 @@ def build_review_rows(
             pl.lit(None, dtype=pl.Object).alias("source_transaction"),
         )
     )
+    if hidden_internal_transfer_ids:
+        unmatched_target_pl = unmatched_target_pl.filter(
+            ~pl.col("target_row_id").is_in(sorted(hidden_internal_transfer_ids))
+        )
     if not include_reconciled_ynab:
         unmatched_target_pl = unmatched_target_pl.filter(~pl.col("_target_reconciled"))
     unmatched_target_pl = unmatched_target_pl.select(REVIEW_ROW_COLUMNS)

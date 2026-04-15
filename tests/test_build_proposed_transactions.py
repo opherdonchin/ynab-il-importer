@@ -718,6 +718,93 @@ def test_build_review_rows_leaves_target_only_transfer_counterparts_for_explicit
     assert target_only["target_category_selected"] == "Uncategorized"
 
 
+def test_build_review_rows_hides_internal_in_scope_transfer_counterparts(
+    tmp_path: Path,
+) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "source": "bank",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "groceries",
+                "description_raw": "Groceries",
+            }
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-match",
+                "account_id": "acc-1",
+                "account_name": "Checking",
+                "date": "2025-01-01",
+                "outflow_ils": 40.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Groceries",
+                "category_raw": "Food",
+                "fingerprint": "groceries",
+                "memo": "existing",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            },
+            {
+                "ynab_id": "ynab-bank-transfer",
+                "account_id": "acc-bank",
+                "account_name": "Bank Leumi",
+                "date": "2025-01-03",
+                "outflow_ils": 20.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Transfer : Opher x9922",
+                "category_raw": "Uncategorized",
+                "fingerprint": "transfer opher x9922",
+                "memo": "card payment",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            },
+            {
+                "ynab_id": "ynab-card-transfer",
+                "account_id": "acc-card",
+                "account_name": "Opher x9922",
+                "date": "2025-01-03",
+                "outflow_ils": 0.0,
+                "inflow_ils": 20.0,
+                "payee_raw": "Transfer : Bank Leumi",
+                "category_raw": "Uncategorized",
+                "fingerprint": "transfer bank leumi",
+                "memo": "card payment",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            },
+        ]
+    )
+
+    review_rows, _ = build_proposed_transactions.build_review_rows(
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
+        map_path=map_path,
+        allowed_target_accounts=["Checking", "Bank Leumi", "Opher x9922"],
+    )
+
+    transfer_rows = review_rows.filter(
+        pl.col("target_payee_current").is_in(
+            ["Transfer : Opher x9922", "Transfer : Bank Leumi"]
+        )
+    )
+    assert transfer_rows.is_empty()
+
+
 def test_build_review_rows_applies_payee_map_to_target_only_transfer_rows(
     tmp_path: Path,
 ) -> None:
