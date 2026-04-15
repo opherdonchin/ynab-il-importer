@@ -60,6 +60,8 @@ That working dataframe contains:
 
 The working projection is derived. It is not a second persisted artifact format.
 
+Transfer-specific UI behavior may derive a transfer relation layer from that working dataframe, but that relation layer is not itself a second persisted review artifact. See [transfer_review_mode_design.md](transfer_review_mode_design.md).
+
 ## Invariants
 
 The persisted artifact must satisfy:

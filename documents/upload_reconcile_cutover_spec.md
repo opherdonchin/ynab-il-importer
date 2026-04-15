@@ -36,6 +36,7 @@ The public loader is [load_upload_working_frame](../src/ynab_il_importer/upload_
   - `kind = leumi_card_html` reads `data/raw/previous_leumi_card/<account_suffix>/` and writes `data/derived/previous_leumi_card/<account_suffix>/`
   - by default, the helper infers the kind from the context's declared card source
 - review build excludes already settled YNAB rows by default, including reconciled exact matches, reconciled transfer counterparts, and other reconciled target-side candidates; use `pixi run build-context-review -- <context> <run_tag> --include-reconciled-ynab` only for explicit historical inspection
+- transfer-specific review behavior is currently a derived app/runtime layer over `review_v4`, not a second persisted review artifact
 
 ### Live YNAB data
 
@@ -163,3 +164,4 @@ Owns:
 - [scripts/prepare_ynab_upload.py](../scripts/prepare_ynab_upload.py) is part of the active workflow but still has no dedicated pixi alias.
 - Previous card normalization is explicit, but it still lives outside `contexts/<context>/context.toml`; it resolves from the previous statement roots (`data/raw/previous_max/<account_suffix>/` for MAX and `data/raw/previous_leumi_card/<account_suffix>/` for Leumi HTML).
 - The review app's category-cache path is still profile-based rather than context-config-based. That affects review UX, not upload or reconciliation logic.
+- Transfer review mode is intentionally write-through to the existing review rows. Upload and closeout still consume the ordinary reviewed artifact rather than a separate transfer artifact.

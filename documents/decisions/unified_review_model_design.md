@@ -74,6 +74,8 @@ That split is deliberate:
 - persisted artifacts keep real structure
 - ordinary UI and upload logic stays flat and dataframe-friendly
 
+Transfer-specific review behavior should currently be added as a derived layer on top of that working dataframe, not as a second canonical persisted review schema. See [transfer_review_mode_design.md](transfer_review_mode_design.md).
+
 ## Institutional Restrictions
 
 For institutional source data, the UI and validation must reject `create_source`, `delete_source`, and `delete_both`.

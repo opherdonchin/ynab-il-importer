@@ -218,6 +218,18 @@ pixi run review-context -- <context> <run_tag> --port 8502
 
 One current caveat remains: the review app still resolves its default category-cache path through [src/ynab_il_importer/workflow_profiles.py](../src/ynab_il_importer/workflow_profiles.py), not through `contexts/defaults.toml`.
 
+### Transfer Review Mode
+
+The active transfer direction keeps one canonical persisted review artifact.
+
+- transfer relations are derived from the working review dataframe
+- transfer review UI is an app-level mode or panel layered on top of the existing row-based review model
+- transfer actions write through to the existing underlying review rows
+
+This means the app may treat transfer-linked rows differently in the UI without introducing a second canonical transfer review schema.
+
+Internal in-budget transfer counterparts that are already represented by reciprocal YNAB rows in another in-scope account still stay out of ordinary institutional review. Transfer review mode is for the transfer-linked rows that remain visible after that filtering step.
+
 ## Responsibilities
 
 ### Code under `src/`
