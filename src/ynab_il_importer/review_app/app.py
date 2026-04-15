@@ -18,6 +18,7 @@ import ynab_il_importer.map_updates as map_updates
 import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
 import ynab_il_importer.review_app.state as review_state
+import ynab_il_importer.review_app.transfer_relations as review_transfer_relations
 import ynab_il_importer.review_app.validation as review_validation
 import ynab_il_importer.review_app.working_schema as working_schema
 import ynab_il_importer.workflow_profiles as workflow_profiles
@@ -1347,6 +1348,10 @@ def _compute_derived_state(
         dtype=pl.Utf8,
     )
     persistence_tag = save_state.str.to_lowercase()
+    transfer_relations = review_transfer_relations.build_transfer_relation_frame(data_view)
+    transfer_relation_lookup = review_transfer_relations.transfer_relation_lookup(
+        transfer_relations
+    )
     base_count = len(base) if isinstance(base, pl.DataFrame) and not base.is_empty() else len(df)
     updated_confirmed_count = int(updated_mask.sum())
     saved_reviewed_count = int(saved_mask.sum())
@@ -1369,6 +1374,8 @@ def _compute_derived_state(
         "inference_tag": inference_tag,
         "progress_tag": progress_tag,
         "persistence_tag": persistence_tag,
+        "transfer_relations": transfer_relations,
+        "transfer_relation_lookup": transfer_relation_lookup,
         "base_count": base_count,
         "updated_confirmed_count": updated_confirmed_count,
         "saved_reviewed_count": saved_reviewed_count,
@@ -2197,6 +2204,152 @@ def _render_row_details(
         st.caption(line)
 
 
+def _render_transfer_relation_panel(
+    df: pl.DataFrame,
+    *,
+    idx: Any,
+    relation: dict[str, Any],
+    component_map: dict[Any, int] | None = None,
+    group_fingerprint: str | None = None,
+) -> None:
+    if not relation:
+        return
+
+    relation_id = str(relation.get("transfer_relation_id", "") or "").strip()
+    row_positions = [
+        row_pos
+        for row_pos in relation.get("row_positions", [])
+        if isinstance(row_pos, int) and 0 <= row_pos < len(df)
+    ]
+    if not relation_id or not row_positions:
+        return
+
+    relation_kind = str(relation.get("relation_kind", "") or "").strip()
+    relation_status = str(relation.get("relation_status", "") or "").strip()
+    ambiguous_relation = bool(relation.get("ambiguous_relation"))
+    decision_options = review_transfer_relations.relation_allowed_decision_actions(df, relation)
+    decision_default = review_transfer_relations.relation_default_decision(df, relation)
+    if decision_default not in decision_options:
+        decision_default = review_validation.NO_DECISION
+
+    decision_key = _editor_key(f"transfer_decision_{relation_id}")
+    _ensure_widget_state(decision_key, decision_default)
+    decision_current = str(
+        st.session_state.get(decision_key, decision_default) or review_validation.NO_DECISION
+    )
+    if decision_current not in decision_options:
+        decision_current = decision_default
+        st.session_state[decision_key] = decision_default
+
+    kind_labels = {
+        "internal_budget": "Internal on-budget transfer",
+        "budget_boundary": "Budget-boundary transfer",
+        "card_payment": "Card payment transfer",
+        "transfer": "Transfer",
+    }
+    status_labels = {
+        "fully_visible_in_review": "Both review sides are visible in this run.",
+        "peer_source_missing_this_run": "The peer source side is missing from this run.",
+        "peer_review_row_missing": "The peer review row is not visible in ordinary review.",
+        "ambiguous_multiple_review_rows": "Multiple review rows share this transfer signature.",
+    }
+
+    st.markdown("**Transfer review**")
+    st.caption(
+        f"{kind_labels.get(relation_kind, relation_kind or 'Transfer')} | "
+        f"{str(relation.get('date', '') or '').strip() or 'no date'} | "
+        f"₪{float(relation.get('amount_abs_ils', 0.0) or 0.0):g}"
+    )
+    if relation_status:
+        st.caption(status_labels.get(relation_status, relation_status))
+
+    left_col, right_col = st.columns(2)
+    with left_col:
+        _render_detail_section(
+            str(relation.get("account_a", "") or "").strip() or "Account A",
+            [
+                (
+                    "Source present",
+                    "Yes" if bool(relation.get("account_a_source_present")) else "No",
+                ),
+                (
+                    "Target present",
+                    "Yes" if bool(relation.get("account_a_target_present")) else "No",
+                ),
+            ],
+        )
+    with right_col:
+        _render_detail_section(
+            str(relation.get("account_b", "") or "").strip() or "Account B",
+            [
+                (
+                    "Source present",
+                    "Yes" if bool(relation.get("account_b_source_present")) else "No",
+                ),
+                (
+                    "Target present",
+                    "Yes" if bool(relation.get("account_b_target_present")) else "No",
+                ),
+            ],
+        )
+
+    st.caption(
+        "Transfer review actions work across the linked review rows. "
+        "Per-side payee/category edits still happen in the ordinary row editor below."
+    )
+    if ambiguous_relation:
+        st.warning(
+            "This transfer relation is ambiguous because multiple review rows share the same "
+            "account/date/amount signature. Review the member rows individually for now."
+        )
+
+    decision_col, action_col = st.columns([2, 2])
+    with decision_col:
+        st.selectbox(
+            "Transfer decision",
+            options=decision_options,
+            index=decision_options.index(decision_current),
+            key=decision_key,
+        )
+    with action_col:
+        apply_button = st.button(
+            "Apply transfer decision",
+            use_container_width=True,
+            key=_editor_key(f"transfer_apply_{relation_id}"),
+            disabled=ambiguous_relation,
+        )
+        accept_button = st.button(
+            "Accept transfer",
+            use_container_width=True,
+            key=_editor_key(f"transfer_accept_{relation_id}"),
+            disabled=ambiguous_relation
+            or decision_current == review_validation.NO_DECISION,
+        )
+
+    if apply_button or accept_button:
+        _preserve_expansion_context(idx=idx, group_fingerprint=group_fingerprint)
+        chosen_decision = str(
+            st.session_state.get(decision_key, decision_current) or review_validation.NO_DECISION
+        )
+        updated_df, affected_indices, relation_errors = review_transfer_relations.apply_transfer_relation(
+            df,
+            relation,
+            decision_action=chosen_decision,
+            reviewed=True if accept_button else None,
+            component_map=component_map,
+        )
+        if relation_errors:
+            st.error("; ".join(relation_errors))
+        else:
+            _set_review_frames(df=updated_df, changed_indices=affected_indices)
+            st.session_state["review_notice"] = (
+                "Applied and accepted the transfer relation in memory. Click Save to persist."
+                if accept_button
+                else "Applied the transfer decision in memory. Click Accept transfer to settle it."
+            )
+            st.rerun()
+
+
 def _render_row_controls(
     df: pl.DataFrame,
     idx: Any,
@@ -2678,6 +2831,7 @@ def main() -> None:
     inference_tag = derived["inference_tag"]
     progress_tag = derived["progress_tag"]
     persistence_tag = derived["persistence_tag"]
+    transfer_relation_lookup: dict[int, dict[str, Any]] = derived["transfer_relation_lookup"]
     base_count = derived["base_count"]
     updated_confirmed_count = derived["updated_confirmed_count"]
     saved_reviewed_count = derived["saved_reviewed_count"]
@@ -3057,6 +3211,12 @@ def main() -> None:
                     blocker=str(blocker_series[idx] or ""),
                     category_group_map=category_group_map,
                     helper_row=helper_row,
+                )
+                _render_transfer_relation_panel(
+                    df,
+                    idx=idx,
+                    relation=transfer_relation_lookup.get(idx, {}),
+                    component_map=component_map,
                 )
                 _render_split_action_buttons(row, idx=idx)
                 _render_row_controls(
@@ -3570,6 +3730,13 @@ def main() -> None:
                             blocker=str(blocker_series[idx] or ""),
                             category_group_map=category_group_map,
                             helper_row=helper_row,
+                        )
+                        _render_transfer_relation_panel(
+                            df,
+                            idx=idx,
+                            relation=transfer_relation_lookup.get(idx, {}),
+                            component_map=component_map,
+                            group_fingerprint=fp,
                         )
                         _render_split_action_buttons(
                             row,
