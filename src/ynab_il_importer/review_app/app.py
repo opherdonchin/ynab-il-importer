@@ -1351,8 +1351,13 @@ def _compute_derived_state(
     data_lookup = review_state.view_row_lookup(
         data_view.select(
             "_row_pos",
+            "fingerprint",
+            "account_name",
+            "target_account",
             "target_payee_selected",
             "target_category_selected",
+            "target_account_on_budget",
+            "target_transfer_account_on_budget",
             "action_label",
             "payee_options",
             "category_options",

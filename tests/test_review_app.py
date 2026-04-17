@@ -1867,6 +1867,75 @@ def test_target_category_required_falls_back_to_context_target_accounts() -> Non
     assert required is False
 
 
+def test_compute_derived_state_keeps_transfer_budget_metadata_in_group_lookup() -> None:
+    review_app.st.session_state.clear()
+    df = pl.DataFrame(
+        [
+            {
+                "transaction_id": "transfer-row",
+                "date": "2026-03-01",
+                "account_name": "Bank Leumi",
+                "target_account": "Bank Leumi",
+                "source_account": "Bank Leumi",
+                "outflow_ils": "10",
+                "inflow_ils": "0",
+                "memo": "loan payment",
+                "fingerprint": "מקס איט פיננ",
+                "payee_options": "Transfer : Opher x9922",
+                "category_options": "None",
+                "match_status": "source_only",
+                "workflow_type": "institutional",
+                "source_row_id": "s1",
+                "target_row_id": "",
+                "source_present": True,
+                "target_present": False,
+                "source_payee_selected": "מקס איט פיננ-י",
+                "source_category_selected": "",
+                "target_payee_selected": "Transfer : Opher x9922",
+                "target_category_selected": "None",
+                "target_account_on_budget": True,
+                "target_transfer_account_on_budget": True,
+                "decision_action": "create_target",
+                "update_maps": "",
+                "memo_append": "",
+                "reviewed": False,
+                "source_payee_current": "מקס איט פיננ-י",
+                "target_payee_current": "",
+                "source_category_current": "",
+                "target_category_current": "",
+                "source_date": "2026-03-01",
+                "target_date": "",
+                "source_memo": "",
+                "target_memo": "",
+                "source_description_raw": "",
+                "source_description_clean": "",
+                "source_merchant_raw": "",
+                "target_description_raw": "",
+                "target_description_clean": "",
+                "target_merchant_raw": "",
+                "source": "",
+                "source_context_kind": "",
+                "source_context_category_name": "",
+                "source_context_matching_split_ids": "",
+                "target_context_kind": "",
+                "target_context_matching_split_ids": "",
+                "source_splits": [],
+                "target_splits": [],
+            }
+        ]
+    )
+
+    derived = review_app._compute_derived_state(df, None, None)
+    row = derived["data_lookup"][0]
+
+    assert row["target_account"] == "Bank Leumi"
+    assert row["target_account_on_budget"] is True
+    assert row["target_transfer_account_on_budget"] is True
+    assert (
+        review_app._target_category_required(row, row["target_payee_selected"]) is False
+    )
+
+
 def test_apply_row_filters_supports_action_blocker_suggestions_map_updates_and_search() -> None:
     df = pl.DataFrame(
         [
