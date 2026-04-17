@@ -1833,6 +1833,20 @@ def test_resolved_target_category_value_clears_none_for_required_transfer() -> N
     assert resolved == ""
 
 
+def test_target_category_required_uses_row_transfer_budget_metadata() -> None:
+    row = {
+        "target_account_on_budget": True,
+        "target_transfer_account_on_budget": True,
+    }
+
+    required = review_app._target_category_required(
+        row,
+        "Transfer : Opher x9922",
+    )
+
+    assert required is False
+
+
 def test_apply_row_filters_supports_action_blocker_suggestions_map_updates_and_search() -> None:
     df = pl.DataFrame(
         [

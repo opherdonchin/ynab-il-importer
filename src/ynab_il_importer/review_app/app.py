@@ -850,6 +850,13 @@ def _lookup_rows(
 
 
 def _target_category_required(row: dict[str, Any], payee_value: str) -> bool:
+    transfer_target_on_budget = (
+        bool(row.get("target_transfer_account_on_budget"))
+        if row.get("target_transfer_account_on_budget") is not None
+        else _lookup_account_on_budget(
+            review_model.transfer_target_account_name(payee_value)
+        )
+    )
     return review_model.category_required_for_payee(
         payee_value,
         current_account_on_budget=(
@@ -857,9 +864,7 @@ def _target_category_required(row: dict[str, Any], payee_value: str) -> bool:
             if row.get("target_account_on_budget") is not None
             else None
         ),
-        transfer_target_on_budget=_lookup_account_on_budget(
-            review_model.transfer_target_account_name(payee_value)
-        ),
+        transfer_target_on_budget=transfer_target_on_budget,
     )
 
 
