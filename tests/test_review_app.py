@@ -383,6 +383,42 @@ def test_apply_group_edits_in_memory_only_updates_selected_group_rows() -> None:
     assert updated["target_category_selected"].to_list() == ["Loan Paydown", "", "Loan Paydown"]
 
 
+def test_apply_group_edits_in_memory_preserves_transfer_budget_metadata() -> None:
+    df = pl.DataFrame(
+        {
+            "fingerprint": ["", ""],
+            "account_name": ["Bank Leumi", "Bank Leumi"],
+            "target_account": ["Bank Leumi", "Bank Leumi"],
+            "target_payee_selected": ["Transfer : Opher x9922", "Transfer : Opher x9922"],
+            "target_category_selected": ["None", "None"],
+            "memo_append": ["", ""],
+            "update_maps": ["", ""],
+            "decision_action": [review_validation.NO_DECISION, review_validation.NO_DECISION],
+            "reviewed": [False, False],
+            "source_row_id": ["s1", "s2"],
+            "target_row_id": ["", ""],
+            "source_present": [True, True],
+            "target_present": [False, False],
+            "target_account_on_budget": [True, True],
+            "target_transfer_account_on_budget": [True, True],
+        }
+    )
+
+    updated, affected = review_app._apply_group_edits_in_memory(
+        df,
+        group_indices=[0, 1],
+        decision_action="create_target",
+    )
+
+    assert affected == [0, 1]
+    assert updated["target_account_on_budget"].to_list() == [True, True]
+    assert updated["target_transfer_account_on_budget"].to_list() == [True, True]
+    assert all(
+        not review_validation.validate_row(row)[0]
+        for row in updated.iter_rows(named=True)
+    )
+
+
 def test_default_row_kind_selection_hides_matched_cleared_by_default() -> None:
     assert review_app._default_row_kind_selection(
         ["Matched", "Matched cleared", "Source only"]
@@ -1933,6 +1969,17 @@ def test_compute_derived_state_keeps_transfer_budget_metadata_in_group_lookup() 
     assert row["target_transfer_account_on_budget"] is True
     assert (
         review_app._target_category_required(row, row["target_payee_selected"]) is False
+    )
+
+
+def test_safe_selectbox_current_falls_back_when_current_value_missing() -> None:
+    assert (
+        review_app._safe_selectbox_current(
+            ["No decision", "create_target"],
+            "update_target",
+            "No decision",
+        )
+        == "No decision"
     )
 
 

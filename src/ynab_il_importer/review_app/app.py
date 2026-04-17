@@ -271,7 +271,10 @@ def _call_apply_row_edit(
     idx: Any,
     **kwargs: Any,
 ) -> pl.DataFrame:
-    return review_state.apply_row_edit(df, idx, **kwargs)
+    return _restore_account_budget_metadata(
+        review_state.apply_row_edit(df, idx, **kwargs),
+        df,
+    )
 
 
 def _call_apply_to_same_fingerprint(
@@ -286,16 +289,19 @@ def _call_apply_to_same_fingerprint(
     reviewed: bool | None = None,
     eligible_mask: pl.Series | None = None,
 ) -> pl.DataFrame:
-    return review_model.apply_to_same_fingerprint(
+    return _restore_account_budget_metadata(
+        review_model.apply_to_same_fingerprint(
+            df,
+            fingerprint,
+            payee=payee,
+            category=category,
+            memo_append=memo_append,
+            update_maps=update_maps,
+            decision_action=decision_action,
+            reviewed=reviewed,
+            eligible_mask=eligible_mask,
+        ),
         df,
-        fingerprint,
-        payee=payee,
-        category=category,
-        memo_append=memo_append,
-        update_maps=update_maps,
-        decision_action=decision_action,
-        reviewed=reviewed,
-        eligible_mask=eligible_mask,
     )
 
 
@@ -310,15 +316,18 @@ def _call_apply_to_indices(
     decision_action: str | None = None,
     reviewed: bool | None = None,
 ) -> pl.DataFrame:
-    return review_model.apply_to_indices(
+    return _restore_account_budget_metadata(
+        review_model.apply_to_indices(
+            df,
+            indices,
+            payee=payee,
+            category=category,
+            memo_append=memo_append,
+            update_maps=update_maps,
+            decision_action=decision_action,
+            reviewed=reviewed,
+        ),
         df,
-        indices,
-        payee=payee,
-        category=category,
-        memo_append=memo_append,
-        update_maps=update_maps,
-        decision_action=decision_action,
-        reviewed=reviewed,
     )
 
 
@@ -326,7 +335,8 @@ def _call_apply_competing_row_resolution(
     df: pl.DataFrame,
     indices: list[Any],
 ) -> tuple[pl.DataFrame, list[Any]]:
-    return review_model.apply_competing_row_resolution(df, indices)
+    updated, affected = review_model.apply_competing_row_resolution(df, indices)
+    return _restore_account_budget_metadata(updated, df), affected
 
 
 def _call_apply_review_state(
@@ -342,7 +352,7 @@ def _call_apply_review_state(
         reviewed=reviewed,
         component_map=component_map,
     )
-    return updated, errors
+    return _restore_account_budget_metadata(updated, df), errors
 
 
 def _apply_group_edits_in_memory(
@@ -595,6 +605,33 @@ def _lookup_account_on_budget(account_name: Any) -> bool | None:
     return None
 
 
+_ACCOUNT_BUDGET_METADATA_COLUMNS = [
+    "target_account_on_budget",
+    "source_account_on_budget",
+    "target_transfer_account_on_budget",
+    "source_transfer_account_on_budget",
+]
+
+
+def _restore_account_budget_metadata(
+    updated: pl.DataFrame,
+    prior: pl.DataFrame,
+) -> pl.DataFrame:
+    if updated.is_empty() or prior.is_empty() or len(updated) != len(prior):
+        return _augment_with_account_budget_metadata(updated)
+
+    prior_rows = prior.to_dicts()
+    rows = updated.to_dicts()
+    for idx, row in enumerate(rows):
+        prior_row = prior_rows[idx]
+        for column in _ACCOUNT_BUDGET_METADATA_COLUMNS:
+            if row.get(column) is None:
+                row[column] = prior_row.get(column)
+    return _augment_with_account_budget_metadata(
+        pl.from_dicts(rows, infer_schema_length=None)
+    )
+
+
 def _augment_with_account_budget_metadata(df: pl.DataFrame) -> pl.DataFrame:
     if df.is_empty():
         return df
@@ -622,13 +659,33 @@ def _augment_with_account_budget_metadata(df: pl.DataFrame) -> pl.DataFrame:
             row.get("source_account")
             or (row.get("account_name") if source_present else "")
         ).strip()
-        row["target_account_on_budget"] = _lookup_account_on_budget(target_account)
-        row["source_account_on_budget"] = _lookup_account_on_budget(source_account)
-        row["target_transfer_account_on_budget"] = _lookup_account_on_budget(
+        target_account_on_budget = _lookup_account_on_budget(target_account)
+        source_account_on_budget = _lookup_account_on_budget(source_account)
+        target_transfer_account_on_budget = _lookup_account_on_budget(
             review_model.transfer_target_account_name(target_payee)
         )
-        row["source_transfer_account_on_budget"] = _lookup_account_on_budget(
+        source_transfer_account_on_budget = _lookup_account_on_budget(
             review_model.transfer_target_account_name(source_payee)
+        )
+        row["target_account_on_budget"] = (
+            target_account_on_budget
+            if target_account_on_budget is not None
+            else row.get("target_account_on_budget")
+        )
+        row["source_account_on_budget"] = (
+            source_account_on_budget
+            if source_account_on_budget is not None
+            else row.get("source_account_on_budget")
+        )
+        row["target_transfer_account_on_budget"] = (
+            target_transfer_account_on_budget
+            if target_transfer_account_on_budget is not None
+            else row.get("target_transfer_account_on_budget")
+        )
+        row["source_transfer_account_on_budget"] = (
+            source_transfer_account_on_budget
+            if source_transfer_account_on_budget is not None
+            else row.get("source_transfer_account_on_budget")
         )
     return pl.from_dicts(rows, infer_schema_length=None)
 
@@ -1519,6 +1576,20 @@ def _category_choice_list(
         if value not in options:
             options.append(value)
     return options
+
+
+def _safe_selectbox_current(
+    options: list[str],
+    current_value: str,
+    default_value: str = "",
+) -> str:
+    if current_value in options:
+        return current_value
+    if default_value in options:
+        return default_value
+    if options:
+        return options[0]
+    return default_value
 
 
 def _selected_side_value(row: dict[str, Any], *, side: str, field: str) -> str:
@@ -3538,6 +3609,12 @@ def main() -> None:
                 group_decision_current = str(
                     st.session_state.get(group_decision_key, group_decision_default) or ""
                 )
+                group_decision_current = _safe_selectbox_current(
+                    group_decision_options,
+                    group_decision_current,
+                    group_decision_default,
+                )
+                st.session_state[group_decision_key] = group_decision_current
                 group_decision = st.selectbox(
                     "Group decision",
                     options=group_decision_options,
