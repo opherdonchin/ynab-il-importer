@@ -14,6 +14,7 @@ import polars as pl
 import streamlit as st
 import streamlit.components.v1 as components
 
+import ynab_il_importer.context_config as context_config
 import ynab_il_importer.map_updates as map_updates
 import ynab_il_importer.review_app.io as review_io
 import ynab_il_importer.review_app.model as review_model
@@ -565,14 +566,33 @@ def _account_budget_lookup_from_accounts(
     }
 
 
+def _context_target_account_lookup(*, profile: str) -> dict[str, bool]:
+    profile_name = str(profile or "").strip()
+    if not profile_name:
+        return {}
+    try:
+        context = context_config.load_context(profile_name)
+        account_names = context_config.resolve_context_target_account_names(context)
+    except Exception:
+        return {}
+    return {
+        _account_lookup_key(account_name): True
+        for account_name in account_names
+        if _account_lookup_key(account_name)
+    }
+
+
 def _lookup_account_on_budget(account_name: Any) -> bool | None:
     lookup = st.session_state.get("account_budget_lookup")
-    if not isinstance(lookup, dict):
-        return None
     key = _account_lookup_key(account_name)
-    if not key or key not in lookup:
+    if not key:
         return None
-    return bool(lookup[key])
+    if isinstance(lookup, dict) and key in lookup:
+        return bool(lookup[key])
+    context_lookup = st.session_state.get("context_target_account_lookup")
+    if isinstance(context_lookup, dict) and key in context_lookup:
+        return bool(context_lookup[key])
+    return None
 
 
 def _augment_with_account_budget_metadata(df: pl.DataFrame) -> pl.DataFrame:
@@ -667,6 +687,10 @@ def _init_from_cli() -> None:
     st.session_state.setdefault("category_path", str(categories_path))
     st.session_state.setdefault("profile_name", profile_name)
     st.session_state.setdefault("control_dir", str(getattr(args, "control_dir", "") or ""))
+    st.session_state.setdefault(
+        "context_target_account_lookup",
+        _context_target_account_lookup(profile=profile_name),
+    )
 
     refresh_key = f"categories_api_refreshed::{categories_path}"
     if not st.session_state.get(refresh_key, False):
@@ -850,6 +874,13 @@ def _lookup_rows(
 
 
 def _target_category_required(row: dict[str, Any], payee_value: str) -> bool:
+    current_account_on_budget = (
+        bool(row.get("target_account_on_budget"))
+        if row.get("target_account_on_budget") is not None
+        else _lookup_account_on_budget(
+            row.get("target_account") or row.get("account_name") or ""
+        )
+    )
     transfer_target_on_budget = (
         bool(row.get("target_transfer_account_on_budget"))
         if row.get("target_transfer_account_on_budget") is not None
@@ -859,11 +890,7 @@ def _target_category_required(row: dict[str, Any], payee_value: str) -> bool:
     )
     return review_model.category_required_for_payee(
         payee_value,
-        current_account_on_budget=(
-            bool(row.get("target_account_on_budget"))
-            if row.get("target_account_on_budget") is not None
-            else None
-        ),
+        current_account_on_budget=current_account_on_budget,
         transfer_target_on_budget=transfer_target_on_budget,
     )
 

@@ -1847,6 +1847,26 @@ def test_target_category_required_uses_row_transfer_budget_metadata() -> None:
     assert required is False
 
 
+def test_target_category_required_falls_back_to_context_target_accounts() -> None:
+    review_app.st.session_state.clear()
+    review_app.st.session_state["context_target_account_lookup"] = {
+        "bank leumi": True,
+        "opher x9922": True,
+    }
+    row = {
+        "target_account": "Bank Leumi",
+        "target_account_on_budget": None,
+        "target_transfer_account_on_budget": None,
+    }
+
+    required = review_app._target_category_required(
+        row,
+        "Transfer : Opher x9922",
+    )
+
+    assert required is False
+
+
 def test_apply_row_filters_supports_action_blocker_suggestions_map_updates_and_search() -> None:
     df = pl.DataFrame(
         [
