@@ -917,6 +917,114 @@ def test_build_review_rows_applies_payee_map_to_target_only_transfer_rows(
     assert "Ready to Assign" in str(target_only["category_options"])
 
 
+def test_build_review_rows_applies_card_suffix_transfer_rule_to_leumi_visa_source_only_row(
+    tmp_path: Path,
+) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    rows = [
+        {
+            "rule_id": "leumi_visa_7195",
+            "is_active": True,
+            "priority": 0,
+            "txn_kind": "",
+            "fingerprint": "לאומי ויזה",
+            "description_clean_norm": "",
+            "account_name": "",
+            "source": "bank",
+            "direction": "outflow",
+            "currency": "",
+            "amount_bucket": "",
+            "payee_canonical": "Transfer : Liya X7195",
+            "category_target": "None",
+            "notes": "",
+            "card_suffix": "7195",
+        },
+        {
+            "rule_id": "leumi_visa_5898",
+            "is_active": True,
+            "priority": 0,
+            "txn_kind": "",
+            "fingerprint": "לאומי ויזה",
+            "description_clean_norm": "",
+            "account_name": "",
+            "source": "bank",
+            "direction": "outflow",
+            "currency": "",
+            "amount_bucket": "",
+            "payee_canonical": "Transfer : Opher X5898",
+            "category_target": "None",
+            "notes": "",
+            "card_suffix": "5898",
+        },
+    ]
+    pd.DataFrame(
+        rows,
+        columns=build_proposed_transactions.rules_mod.PAYEE_MAP_COLUMNS,
+    ).to_csv(map_path, index=False, encoding="utf-8-sig")
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "transaction_id": "BANK:V1:e20b1e2745f03414b076c305",
+                "account_name": "Bank Leumi",
+                "source_account": "67833011333622",
+                "date": "2026-04-10",
+                "secondary_date": "2026-04-10",
+                "outflow_ils": 1251.08,
+                "inflow_ils": 0.0,
+                "payee_raw": "לאומי ויזה",
+                "fingerprint": "לאומי ויזה",
+                "description_raw": "לאומי ויזה",
+                "ref": "0425898",
+            },
+            {
+                "transaction_id": "BANK:V1:match",
+                "account_name": "Bank Leumi",
+                "source_account": "67833011333622",
+                "date": "2026-04-09",
+                "secondary_date": "2026-04-09",
+                "outflow_ils": 10.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Unrelated",
+                "fingerprint": "unrelated",
+                "description_raw": "Unrelated",
+                "ref": "0000001",
+            },
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-unrelated",
+                "account_id": "acc-1",
+                "account_name": "Bank Leumi",
+                "date": "2026-04-09",
+                "outflow_ils": 10.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Unrelated",
+                "category_raw": "Misc",
+                "fingerprint": "unrelated",
+                "memo": "",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            }
+        ]
+    )
+
+    review_rows, _ = build_proposed_transactions.build_review_rows(
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
+        map_path=map_path,
+    )
+
+    row = review_rows.filter(pl.col("source_ref") == "0425898").row(0, named=True)
+    assert row["match_status"] == "source_only"
+    assert row["target_payee_selected"] == "Transfer : Opher X5898"
+    assert "Transfer : Opher X5898" in str(row["payee_options"])
+
+
 def test_build_review_rows_skips_reconciled_target_only_rows_by_default(
     tmp_path: Path,
 ) -> None:

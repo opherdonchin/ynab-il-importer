@@ -435,6 +435,16 @@ def _extract_bank_card_suffix(value: object) -> str:
     return match.group(1).zfill(4)
 
 
+def _extract_leumi_visa_ref_suffix(payee_raw: object, ref: object) -> str:
+    payee = _optional_text(payee_raw)
+    if payee != "לאומי ויזה":
+        return ""
+    ref_digits = _CARD_SUFFIX_DIGITS_RE.sub("", str(ref or ""))
+    if len(ref_digits) < 3:
+        return ""
+    return ref_digits[-4:].zfill(4)
+
+
 def _normalize_card_suffix(value: object) -> str:
     text = _optional_text(value)
     if not text:
@@ -845,13 +855,26 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
         .str.strip_chars()
     )
     nonempty = lambda name: text(name).replace("", None)
+    optional_text = (
+        lambda name: text(name) if name in source_df.columns else pl.lit("")
+    )
     canonical_lineage = pl.coalesce(
         [nonempty("import_id"), nonempty("transaction_id"), pl.lit("")]
     )
-    normalized_suffix = pl.col("card_suffix").map_elements(
-        _normalize_card_suffix,
+    raw_card_suffix = pl.struct(
+        [
+            optional_text("card_suffix").alias("card_suffix"),
+            optional_text("description_raw").alias("description_raw"),
+            optional_text("payee_raw").alias("payee_raw"),
+            optional_text("ref").alias("ref"),
+        ]
+    ).map_elements(
+        lambda row: _normalize_card_suffix(row["card_suffix"])
+        or _extract_bank_card_suffix(row["description_raw"])
+        or _extract_leumi_visa_ref_suffix(row["payee_raw"], row["ref"]),
         return_dtype=pl.String,
     )
+    normalized_suffix = text("card_suffix")
     source_type = text("source_system").str.to_lowercase().replace("", "source")
     bank_raw_text = pl.coalesce(
         [
@@ -884,7 +907,7 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
             pl.lit("").alias("source_file"),
             pl.lit("").alias("raw_text"),
             canonical_lineage.alias("_canonical_lineage_id"),
-            pl.lit("").alias("card_suffix"),
+            raw_card_suffix.alias("card_suffix"),
         )
         .with_columns(
             pl.when(source_type == "bank")
@@ -1415,6 +1438,7 @@ def _apply_review_target_suggestions(
         text("source_memo").alias("memo"),
         text("source_memo").alias("raw_text"),
         text("source_fingerprint").alias("fingerprint"),
+        text("source_card_suffix").alias("card_suffix"),
     ).filter(pl.col("fingerprint") != "")
     target_candidates = relations.filter(pl.col("target_present")).select(
         pl.lit("ynab").alias("source"),
