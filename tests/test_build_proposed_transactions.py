@@ -1025,6 +1025,104 @@ def test_build_review_rows_applies_card_suffix_transfer_rule_to_leumi_visa_sourc
     assert "Transfer : Opher X5898" in str(row["payee_options"])
 
 
+def test_build_review_rows_applies_description_based_transfer_rule_to_leumi_gold_inflow(
+    tmp_path: Path,
+) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    rows = [
+        {
+            "rule_id": "leumi_gold_transfer_us_money",
+            "is_active": True,
+            "priority": 10,
+            "txn_kind": "",
+            "fingerprint": "",
+            "description_clean_norm": "העברת זהב",
+            "account_name": "",
+            "source": "bank",
+            "direction": "inflow",
+            "currency": "",
+            "amount_bucket": "",
+            "payee_canonical": "Transfer : US Money",
+            "category_target": "Ready to Assign",
+            "notes": "",
+            "card_suffix": "",
+        },
+    ]
+    pd.DataFrame(
+        rows,
+        columns=build_proposed_transactions.rules_mod.PAYEE_MAP_COLUMNS,
+    ).to_csv(map_path, index=False, encoding="utf-8-sig")
+
+    source_df = pd.DataFrame(
+        [
+            {
+                "transaction_id": "BANK:V1:gold-transfer",
+                "account_name": "Bank Leumi",
+                "source_account": "67833011333622",
+                "date": "2026-04-12",
+                "secondary_date": "2026-04-12",
+                "outflow_ils": 0.0,
+                "inflow_ils": 27187.52,
+                "payee_raw": "העברת זהב",
+                "fingerprint": "זהב",
+                "description_raw": 'OPHER DONCHIN,P1629664,BEZALEL 8  6 BEE :"העברת זהב העברה מאת',
+                "description_clean": "העברת זהב",
+                "merchant_raw": "העברת זהב",
+                "ref": "3041322",
+                "source_system": "bank",
+            },
+            {
+                "transaction_id": "BANK:V1:match",
+                "account_name": "Bank Leumi",
+                "source_account": "67833011333622",
+                "date": "2026-04-09",
+                "secondary_date": "2026-04-09",
+                "outflow_ils": 10.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Unrelated",
+                "fingerprint": "unrelated",
+                "description_raw": "Unrelated",
+                "description_clean": "Unrelated",
+                "merchant_raw": "Unrelated",
+                "ref": "0000001",
+                "source_system": "bank",
+            },
+        ]
+    )
+    ynab_df = pd.DataFrame(
+        [
+            {
+                "ynab_id": "ynab-unrelated",
+                "account_id": "acc-1",
+                "account_name": "Bank Leumi",
+                "date": "2026-04-09",
+                "outflow_ils": 10.0,
+                "inflow_ils": 0.0,
+                "payee_raw": "Unrelated",
+                "category_raw": "Misc",
+                "fingerprint": "unrelated",
+                "memo": "",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            }
+        ]
+    )
+
+    review_rows, _ = build_proposed_transactions.build_review_rows(
+        _canonical_source_polars(source_df),
+        _canonical_target_polars(ynab_df),
+        map_path=map_path,
+    )
+
+    row = review_rows.filter(pl.col("source_ref") == "3041322").row(0, named=True)
+    assert row["match_status"] == "source_only"
+    assert row["target_payee_selected"] == "Transfer : US Money"
+    assert row["target_category_selected"] == "Ready to Assign"
+    assert "Transfer : US Money" in str(row["payee_options"])
+
+
 def test_build_review_rows_skips_reconciled_target_only_rows_by_default(
     tmp_path: Path,
 ) -> None:

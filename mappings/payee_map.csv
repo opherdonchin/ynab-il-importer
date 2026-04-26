@@ -35,6 +35,7 @@
 "open_spot_145","TRUE","0","","open spot","","","","","","","Offen Spot","🛍️Groceries","bootstrap count=5",""
 "opher_donchin_146","TRUE","0","","opher donchin","","","","inflow","",">0","Transfer : US Money","Ready to Assign","bootstrap count=17",""
 "opher_donchin_147","TRUE","0","","opher donchin","","","","outflow","","","Transfer : US Money","Future planned expenses","bootstrap count=2",""
+"manual_20260427_leumi_gold_transfer_us_money","TRUE","10","","","העברת זהב","","bank","inflow","","","Transfer : US Money","Ready to Assign","manual 2026-04-27: Leumi gold-transfer inflows create the US Money transfer counterpart",""
 "ortokal_httpsortokal_148","TRUE","0","","ortokal httpsortokal","","","","","","","Ortokal","Pilates","bootstrap count=2",""
 "paybox_149","TRUE","0","","paybox","","","","","","","Paybox","","bootstrap count=6",""
 "paypal_alipaysinga_170","TRUE","0","","paypal alipaysinga","","","","","","","Ali Express","","bootstrap count=1",""
