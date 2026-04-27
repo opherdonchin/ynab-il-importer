@@ -2,247 +2,52 @@
 
 ## Workstream
 
-Run the April 14 workflow cleanly across Family, Pilates, and Aikido while keeping card closeout strict, source selection date-agnostic, and transfer review semantics explicit.
+Carry the April 14 workflow fixes back to `main`, then start the next update from a clean branch on top of the merged workflow.
 
 ## Current State
 
 - canonical transaction artifacts are Parquet `transaction_v1`
 - canonical review artifacts are Parquet `review_v4`
 - `build-context-review` excludes settled YNAB history by default
-- `build-context-review` now carries forward staged previous card snapshots into ordinary review
-  - staged `previous_max` and `previous_leumi_card` artifacts are checked newest-to-oldest per card account against the run's YNAB snapshot
-  - once a fully reconciled statement is reached, older statements are assumed reconciled and stay out of review
-  - duplicate rows shared by the active run source and a carried-forward statement collapse on canonical `transaction_id`, so the active run source remains authoritative
+- `build-context-review` now carries forward staged previous card snapshots into ordinary review until it reaches the first fully reconciled statement boundary
 - closeout remains strict by source kind:
   - bank: sync plus statement reconciliation
   - card: sync plus cycle reconciliation
   - `ynab_category`: category/account parity reconciliation
-- `2026_04_01` is operationally closed:
-  - Pilates bank and card closeout complete
-  - Aikido category/account parity restored and reconciled
-- `2026_04_14` raw inputs are now present:
-  - Family bank + MAX export
-  - Pilates bank + Leumi card HTML
-  - previous full-month card statements staged under `previous_max` and `previous_leumi_card`
-- Pilates now again treats `In Family` as a declared `ynab_category` source backed by Family's `Pilates` category
-- `download-context-ynab` now honors declared `ynab_category` dependencies:
-  - downloading one context refreshes upstream context YNAB snapshots first, in dependency order
-  - `normalize-context` remains the boundary that materializes the cross-budget source artifact
-- `pilates / 2026_04_14` has now been refreshed against that restored Family-backed source:
-  - `download-context-ynab -- pilates 2026_04_14` refreshed both Family and Pilates YNAB snapshots
-  - `normalize-context -- pilates 2026_04_14` rebuilt `pilates_family_category_norm.parquet`
-  - `build-context-review -- pilates 2026_04_14` expanded the proposal from the old 20-row shape to 46 rows
-  - the saved reviewed artifact was merged forward onto the rebuilt proposal so earlier review work was preserved
-- Pilates review exposed one more cross-budget transfer-default gap:
-  - Family category source rows with payee `Transfer : Pilates Leumi` normalize to fingerprint `pilates leumi`
-  - the Pilates payee map only matched `transfer pilates leumi`, so these rows stayed blank and the review app then required a category
-  - the fix is to map the current `pilates leumi` fingerprint to `Transfer : Bank Leumi 225237` at build time so the resulting on-budget transfer remains categoryless in review
-- Pilates upload exposed an `update_target` ID boundary bug:
-  - canonical review artifacts carry synthetic `target_row_id` values alongside the real live `target_transaction_id` / `target_ynab_id`
-  - upload prep was incorrectly using `target_row_id` as the update payload `id`, which fails against the live YNAB API
-  - `update_target` now uses the real live target transaction id first and only falls back to `target_row_id` for older flat test fixtures
-- Pilates category/account closeout exposed two more `ynab_category` reconciliation boundary gaps:
-  - `keep_match` resolution was still preferring synthetic `target_row_id` over the real live `target_transaction_id`
-  - pre-run reconciled Family-category history was being treated as a hard blocker when the corresponding legacy `In Family` import lineage was absent from live YNAB
-  - category/account reconcile now prefers the real target transaction id first and skips missing pre-run reconciled source rows as legacy history instead of blocking current-month parity closeout
-- Pilates category/account closeout exposed one final parity projection bug:
-  - the reconcile planner was still validating current cleared and uncleared balances before applying its own planned `uncleared -> reconciled` updates
-  - for the `2026-04-06` `In Family` rows, that produced a false cleared-balance mismatch equal to the exact uncleared total waiting to be reconciled
-  - category/account reconcile now projects the effect of planned uncleared-to-reconciled updates into cleared/uncleared parity validation before deciding whether the closeout is blocked
-- Pilates card source selection is now date-agnostic via `raw_match` so new run tags do not hard-fail on the exact HTML filename
-- Family April 14 review exposed a transfer-category regression:
-  - off-budget to on-budget transfer rows were being treated as categoryless in parts of the review app
-  - this is now fixed to fail closed unless both sides are positively known to be on-budget
-  - the editor now clears stale `None` transfer categories when a real category is required, so these rows no longer look falsely complete
-  - group headers, row details, and category dropdown options now suppress `None` whenever a real category is required
-  - target-only YNAB transfer rows now pick up account-specific default categories from [mappings/payee_map.csv](../mappings/payee_map.csv) during review build instead of relying on hard-wired app behavior
-  - `transfer bank leumi` groups are now split by account in grouped review so `US Money`, `Investments`, and `Pilates Leumi` no longer collapse into one mixed bucket
-- Family April 14 review also exposed an account-scope boundary bug:
-  - build review was considering every YNAB account in the budget as a target candidate
-  - out-of-scope off-budget accounts were surfacing in review even though the run had no sources for them
-  - target-account scope is now explicit in context config and review build only considers declared in-scope target accounts
-  - in-scope internal transfer counterparts like `Opher x9922 <-> Bank Leumi` should also stay out of ordinary institutional review because they are validated by source-specific closeout rather than by source-vs-target review matching
-- transfer review architecture is now clarified:
-  - canonical persisted review remains `review_v4`
-  - transfer handling will use a derived transfer relation layer plus transfer review mode in the app
-  - we are explicitly not introducing a second canonical transfer review artifact in the first implementation slice
-- the first transfer review slice is now implemented:
-  - [src/ynab_il_importer/review_app/transfer_relations.py](../src/ynab_il_importer/review_app/transfer_relations.py) derives transfer relations from the working review dataframe
-  - [src/ynab_il_importer/review_app/app.py](../src/ynab_il_importer/review_app/app.py) now renders a transfer review panel for transfer-linked rows
-  - transfer review actions can apply a relation-level decision or accept the relation by writing through to the linked review rows
-  - ambiguous same-signature transfer relations are shown but blocked from relation-level actions for now
-- Family April 14 review exposed one more transfer-category bug in the app:
-  - internal `Bank Leumi -> Opher x9922` transfer rows with fingerprint `מקס איט פיננ` were being treated as off-budget at render time
-  - the row already carried `target_transfer_account_on_budget = TRUE`, but `_target_category_required(...)` was ignoring that stored metadata and re-looking up the peer account from the payee
-  - this is now fixed to trust the stored row metadata first and only fall back to a live account lookup when the row metadata is missing
-- Family April 14 review exposed a stale-session variant of the same issue:
-  - some live Streamlit sessions still had blank account budget metadata after an earlier failed or stale account lookup
-  - in that state, internal `Bank Leumi -> Opher x9922` rows still rendered as though both sides of the transfer were budget-unknown
-  - the app now falls back to the context's configured in-scope target accounts for budget status when live account lookup metadata is missing, and `_target_category_required(...)` now falls back for both the current account and the transfer peer account
-- Family April 14 review exposed one more grouped-UI transfer bug:
-  - row-level transfer category checks were fixed, but the grouped editor was still computing `group_requires_category` from a reduced `data_lookup` row that omitted `target_account`, `target_account_on_budget`, and `target_transfer_account_on_budget`
-  - for the `מקס איט פיננ -> Transfer : Opher x9922` group, that caused the grouped editor to fall back to the fingerprint text, treat the transfer as budget-unknown, show the off-budget warning, and default the category widget to `Uncategorized`
-  - the grouped helper projection now keeps the transfer budget metadata needed for `_target_category_required(...)`
-- Family April 14 review exposed a grouped-accept follow-up bug:
-  - app-side row mutations rebuild working rows from the canonical review artifact, which drops the non-canonical account-budget metadata columns used by transfer validation
-  - for the `Transfer : Opher x9922` group, grouped apply/accept could therefore turn a valid internal transfer row back into a budget-unknown transfer row mid-interaction and block acceptance with `missing target category`
-  - grouped decision widgets could also retain a stale value that no longer existed in the available decision options, causing `list.index(x): x not in list`
-  - the app now restores account-budget metadata from the pre-edit dataframe after app-side mutations, re-augments from live/config lookup, and safely coerces stale grouped decision widget values back onto a valid option before rendering
-- Family April 14 review exposed a stale source-only transfer-default gap:
-  - bank-side `לאומי ויזה` rows should still be disambiguated by card suffix and default to the mapped transfer payee
-  - canonical `transaction_v1` artifacts do not persist `card_suffix`, so review build must re-derive the suffix from the bank source row itself
-  - review build now re-derives Leumi Visa suffixes from `description_raw` or `ref` and passes that suffix into payee-map matching
-  - real Family row `2026-04-10 / -1251.08 / ref 0425898` now auto-suggests `Transfer : Opher X5898`
-  - existing reviewed artifacts still preserve old blank selections on resume, so unresolved stale rows will not backfill automatically without an explicit refresh/replacement step
-- Family April 14 review exposed another source-only transfer-default gap:
-  - Leumi inflow rows with cleaned description `העברת זהב` were still collapsing to fingerprint `זהב`, so the existing `opher donchin -> Transfer : US Money` rule never saw them
-  - an explicit description-based payee-map rule now defaults those inflows to `Transfer : US Money` with category `Ready to Assign`
-  - the real Family row `2026-04-12 / +27187.52 / ref 3041322` now auto-suggests the US Money transfer counterpart
-  - the refreshed reviewed artifact keeps prior review decisions while backfilling fresh defaults only onto still-unreviewed blank selections
-- Family April 14 card closeout exposed the carryforward gap directly:
-  - `reconcile-card-cycle` can see staged `previous_max/*/2026_04_*` rows that are absent from YNAB
-  - ordinary review cannot see those rows because they are not part of `family_max_norm.parquet`
-  - review build now surfaces those rows before reconciliation time as ordinary `source_only -> create_target` review rows
+- `download-context-ynab` now honors declared `ynab_category` dependencies
+- Pilates again declares `In Family` as a Family-backed `ynab_category` source
+- `2026_04_14` is operationally closed across all active contexts:
+  - Family closed
+  - Pilates closed
+  - Aikido closed
 
 ## Recently Completed
 
-- cleaned up Aikido March drift directly in live YNAB:
-  - removed stale Family March 25 duplicate/manual rows
-  - created the missing Aikido-side Bakr `+70` and Facebook `-735` rows
-  - restored exact Family-category vs Aikido-account parity
-- closed `aikido / 2026_04_01` with category/account reconciliation:
-  - [data/paired/2026_04_01/aikido_aikido_family_category_category_account_reconcile_report.csv](../data/paired/2026_04_01/aikido_aikido_family_category_category_account_reconcile_report.csv)
-- fixed Pilates context selection for recurring Leumi card HTML filenames:
-  - [contexts/pilates/context.toml](../contexts/pilates/context.toml)
-- fixed Family review transfer category enforcement:
-  - [src/ynab_il_importer/review_app/model.py](../src/ynab_il_importer/review_app/model.py)
-  - [src/ynab_il_importer/review_app/state.py](../src/ynab_il_importer/review_app/state.py)
-  - transfer rows now require categories unless both sides are known on-budget
-  - `update_target` rows now participate in missing payee/category state consistently with validation
-- fixed Family transfer editor defaults:
-  - [src/ynab_il_importer/review_app/app.py](../src/ynab_il_importer/review_app/app.py)
-  - off-budget transfer rows no longer prefill invalid `None` as though it were a valid category
-  - row and group editors now explicitly note when a real category is required
-- moved Family off-budget transfer defaults to the payee-map/build boundary:
-  - [mappings/payee_map.csv](../mappings/payee_map.csv)
-  - [scripts/build_proposed_transactions.py](../scripts/build_proposed_transactions.py)
-  - target-only YNAB transfer rows can now receive mapped default categories during build
-  - transfer `Uncategorized` is preserved until budget metadata or mapping can make an honest decision instead of being hard-wired to `None`
-- split grouped review transfer buckets by account:
-  - [src/ynab_il_importer/review_app/state.py](../src/ynab_il_importer/review_app/state.py)
-  - `transfer bank leumi` now appears as separate groups per counterpart account
-- made target-account review scope explicit in context config:
-  - [src/ynab_il_importer/context_config.py](../src/ynab_il_importer/context_config.py)
-  - [scripts/build_context_review.py](../scripts/build_context_review.py)
-  - [scripts/build_proposed_transactions.py](../scripts/build_proposed_transactions.py)
-  - [contexts/family/context.toml](../contexts/family/context.toml)
-  - [contexts/pilates/context.toml](../contexts/pilates/context.toml)
-  - raw-backed sources now declare `target_account_names`
-  - review build filters YNAB target candidates to those configured accounts instead of scanning the whole budget
-  - rebuilt `family / 2026_04_14` dropped from `193` rows to `69`, eliminating the out-of-scope off-budget transfer backlog
-- hid internal in-scope transfer counterparts from institutional review:
-  - [scripts/build_proposed_transactions.py](../scripts/build_proposed_transactions.py)
-  - reciprocal YNAB transfer rows within the configured target-account scope are now suppressed from `target_only` review
-  - this removes internal card-payment transfer pairs like `Opher x9922 <-> Bank Leumi` from ordinary review while leaving them to card closeout validation
-  - rebuilt `family / 2026_04_14` now drops from `69` rows to `62`, and `transfer bank leumi` is no longer present in the proposal
-- clarified repo autonomy expectations in [AGENTS.md](../AGENTS.md):
-  - routine reads, edits, tests, `pixi` commands, and ordinary debugging should proceed without permission requests
-  - escalation should be reserved for destructive actions, meaningful accounting/product decisions, or non-obvious external side effects
-- documented transfer review mode:
-  - [documents/decisions/transfer_review_mode_design.md](../documents/decisions/transfer_review_mode_design.md)
-- added focused transfer relation tests:
-  - [tests/test_transfer_relations.py](../tests/test_transfer_relations.py)
-  - `pixi run pytest tests/test_transfer_relations.py tests/test_review.py tests/test_review_app.py -q`
-- fixed the internal-transfer category regression for `Opher x9922` rows:
-  - [src/ynab_il_importer/review_app/app.py](../src/ynab_il_importer/review_app/app.py)
-  - `_target_category_required(...)` now uses `target_transfer_account_on_budget` from the row before falling back to a fresh lookup
-  - [tests/test_review_app.py](../tests/test_review_app.py)
-  - `pixi run pytest tests/test_review_app.py tests/test_review.py -q`
-- fixed the stale-session fallback for internal transfer category checks:
-  - [src/ynab_il_importer/review_app/app.py](../src/ynab_il_importer/review_app/app.py)
-  - the review app now seeds a fallback `context_target_account_lookup` from [contexts/family/context.toml](../contexts/family/context.toml) / profile config
-  - `_target_category_required(...)` now falls back on both the current account and transfer peer account when row metadata is missing
-  - [tests/test_review_app.py](../tests/test_review_app.py)
-  - `pixi run pytest tests/test_review_app.py tests/test_review.py -q`
-- fixed the grouped transfer category check to keep transfer budget metadata:
-  - [src/ynab_il_importer/review_app/app.py](../src/ynab_il_importer/review_app/app.py)
-  - `_compute_derived_state(...)` now keeps `target_account`, `account_name`, `target_account_on_budget`, and `target_transfer_account_on_budget` in `data_lookup`
-  - this keeps grouped transfer rows consistent with row-level transfer category evaluation
-  - [tests/test_review_app.py](../tests/test_review_app.py)
-  - `pixi run pytest tests/test_review_app.py tests/test_review.py -q`
-- fixed grouped accept for internal transfer rows:
-  - [src/ynab_il_importer/review_app/app.py](../src/ynab_il_importer/review_app/app.py)
-  - app-side mutation wrappers now restore and re-augment account-budget metadata after rebuilding working rows
-  - grouped decision selectboxes now coerce stale widget values onto a valid option before rendering
-  - reproduced against the real `family / 2026_04_14` `Transfer : Opher x9922` group: rows `10, 15, 21, 34, 40` now retain `target_account_on_budget = TRUE`, `target_transfer_account_on_budget = TRUE`, and validate cleanly after grouped edits
-  - [tests/test_review_app.py](../tests/test_review_app.py)
-  - `pixi run pytest tests/test_review_app.py tests/test_review.py -q`
-- restored Leumi Visa source-only transfer defaults through payee-map matching:
-  - [scripts/build_proposed_transactions.py](../scripts/build_proposed_transactions.py)
-  - review build now re-derives bank card suffixes from source rows, including Leumi Visa `ref` values like `0425898`
-  - source-side suggestion matching now passes `source_card_suffix` into `payee_map` so `לאומי ויזה` rules keyed by suffix apply during review build
-  - verified against the real `family / 2026_04_14` row `2026-04-10 / -1251.08 / ref 0425898`, which now defaults to `Transfer : Opher X5898`
-  - [tests/test_build_proposed_transactions.py](../tests/test_build_proposed_transactions.py)
-  - `pixi run pytest tests/test_build_proposed_transactions.py -q`
-- restored US Money transfer defaults for Leumi `העברת זהב` inflows:
-  - [mappings/payee_map.csv](../mappings/payee_map.csv)
-  - [tests/test_build_proposed_transactions.py](../tests/test_build_proposed_transactions.py)
-  - explicit description-based payee-map matching now turns bank-side `העברת זהב` inflows into `Transfer : US Money` / `Ready to Assign`
-  - rebuilt and refreshed `family / 2026_04_14` review now backfills the real row `2026-04-12 / +27187.52 / ref 3041322` while preserving prior reviewed decisions
-  - `pixi run pytest tests/test_build_proposed_transactions.py -q`
-- fixed card-review carryforward at the workflow boundary:
-  - [scripts/build_context_review.py](../scripts/build_context_review.py)
-  - [scripts/build_proposed_transactions.py](../scripts/build_proposed_transactions.py)
-  - [tests/test_build_context_review_script.py](../tests/test_build_context_review_script.py)
-  - [tests/test_build_proposed_transactions.py](../tests/test_build_proposed_transactions.py)
-  - review build now walks staged previous card statements newest-to-oldest per account and includes only the contiguous unreconciled tail
-  - source rows duplicated between the active run source and a carried-forward statement now dedupe by canonical `transaction_id`
-  - verified against the real `family / 2026_04_14` data: the previously blocked April-cycle card rows now appear in review before reconciliation
-  - `pixi run pytest tests/test_build_context_review_script.py tests/test_build_proposed_transactions.py -q`
-- restored Pilates cross-budget source declaration and YNAB dependency refresh:
-  - [contexts/pilates/context.toml](../contexts/pilates/context.toml)
-  - [scripts/download_ynab_api.py](../scripts/download_ynab_api.py)
-  - [src/ynab_il_importer/context_config.py](../src/ynab_il_importer/context_config.py)
-  - `pilates` now declares `pilates_family_category` sourced from `family` category `Pilates` into target account `In Family`
-  - `pixi run download-context-ynab -- pilates <run_tag>` now refreshes Family's YNAB snapshot before downloading Pilates's own snapshot
-  - `normalize-context` still materializes `pilates_family_category_norm.parquet` from that downloaded Family snapshot
-  - `pixi run pytest tests/test_context_config.py tests/test_download_ynab_api_script.py tests/test_ynab_category_source.py -q`
-- refreshed and re-merged `pilates / 2026_04_14` after restoring the Family-backed source:
-  - [data/paired/2026_04_14/pilates_proposed_transactions_reviewed.parquet](../data/paired/2026_04_14/pilates_proposed_transactions_reviewed.parquet)
-  - [data/paired/2026_04_14/pilates_proposed_transactions_reviewed_pre_family_rebuild_20260427_144515.parquet](../data/paired/2026_04_14/pilates_proposed_transactions_reviewed_pre_family_rebuild_20260427_144515.parquet)
-  - the rebuilt proposal now includes the `In Family` carryover rows sourced from Family category history while preserving the prior saved Pilates review decisions
-- fixed Pilates `In Family -> Bank Leumi 225237` transfer defaults at the payee-map boundary:
-  - [mappings/pilates/payee_map.csv](../mappings/pilates/payee_map.csv)
-  - [tests/test_build_proposed_transactions.py](../tests/test_build_proposed_transactions.py)
-  - `ynab_category` rows fingerprinted as `pilates leumi` now default to `Transfer : Bank Leumi 225237`
-  - those rows therefore stay true on-budget transfers and no longer require a category in the review app
-  - `pixi run pytest tests/test_build_proposed_transactions.py -q`
-- fixed `update_target` payload construction to use real YNAB ids:
-  - [src/ynab_il_importer/upload_prep.py](../src/ynab_il_importer/upload_prep.py)
-  - [tests/test_upload_prep.py](../tests/test_upload_prep.py)
-  - update payloads now prefer `target_transaction_id`, then `target_ynab_id`, and only fall back to `target_row_id`
-  - `pixi run pytest tests/test_upload_prep.py -q`
-- fixed `ynab_category` reconcile to respect live ids and legacy history boundaries:
-  - [scripts/reconcile_category_account.py](../scripts/reconcile_category_account.py)
-  - [src/ynab_il_importer/ynab_category_reconciliation.py](../src/ynab_il_importer/ynab_category_reconciliation.py)
-  - [tests/test_ynab_category_reconciliation.py](../tests/test_ynab_category_reconciliation.py)
-  - `keep_match` resolution now prefers `target_transaction_id`, then `target_ynab_id`, before synthetic `target_row_id`
-  - missing `create_target` rows are skipped as legacy history only when they predate the run month and the source-side Family category row is already reconciled
-  - `pixi run pytest tests/test_ynab_category_reconciliation.py -q`
-- fixed projected cleared/uncleared parity for `ynab_category` reconcile:
-  - [src/ynab_il_importer/ynab_category_reconciliation.py](../src/ynab_il_importer/ynab_category_reconciliation.py)
-  - [tests/test_ynab_category_reconciliation.py](../tests/test_ynab_category_reconciliation.py)
-  - planned updates that move live target rows from `uncleared` to `reconciled` now count toward the parity checks before blocking execute
-  - `pixi run pytest tests/test_ynab_category_reconciliation.py -q`
+- surfaced unreconciled carried-forward card statement rows in ordinary review before card reconciliation
+- restored Family bank transfer defaults for:
+  - Leumi Visa card-payment rows keyed by suffix
+  - Leumi `העברת זהב` inflows keyed to `US Money`
+- tightened review scope to declared target accounts and removed in-scope internal transfer counterparts from ordinary institutional review
+- stabilized transfer review behavior in the review app:
+  - internal transfer budget metadata now survives row and grouped edits
+  - grouped transfer category checks use the same budget facts as row-level validation
+- restored Pilates cross-budget dependency flow:
+  - Pilates now declares its Family-backed source in config
+  - `download-context-ynab` refreshes upstream YNAB dependencies in config order
+  - `normalize-context` remains the materialization boundary for `ynab_category` sources
+- fixed Pilates `In Family` transfer defaults so on-budget transfers stay categoryless in review
+- fixed upload prep and `ynab_category` reconciliation to use live YNAB transaction ids instead of synthetic row ids
+- fixed `ynab_category` reconciliation legacy-boundary handling and projected cleared/uncleared parity checks
+- closed `family / 2026_04_14`, `pilates / 2026_04_14`, and `aikido / 2026_04_14`
 
 ## Next Steps
 
-1. Rerun `pilates / 2026_04_14` `ynab_category` parity reconcile on the corrected projected-balance boundary and finish closeout.
-2. Run the same active context workflow for `aikido / 2026_04_14` and close its `ynab_category` parity path.
+1. Merge `handle_splits` back into `main`.
+2. Start the next update from a fresh branch off the merged `main`.
+3. Keep the active docs focused on the next live run instead of April 14 closeout history.
 
 ## Working Rules
 
 - Prefer strict canonical boundaries over compatibility wrappers.
 - Keep nested data only where it is semantically real.
 - Treat active docs plus code as the source of truth; move history to `documents/archive/` instead of keeping duplicate active docs.
-
