@@ -39,6 +39,7 @@ income_tax_cross_budget_37,True,10,,income tax,,,,outflow,,,Income tax,Taxes 7% 
 taxes_cross_budget_38,True,10,,taxes,,,,outflow,,,Income tax,Taxes 7% of all income,cross-budget live synonym merged 2026-03-22,
 loan_pilates_cross_budget_39,True,10,,loan pilates,,,,outflow,,,Transfer : Leumi loan 64370054,,cross-budget live loan mapping merged 2026-03-22,
 transfer_pilates_leumi_cross_budget_40,True,10,,transfer pilates leumi,,,,,,,Transfer : Bank Leumi 225237,,cross-budget transfer mapping merged 2026-03-22,
+pilates_leumi_cross_budget_40b,True,10,,pilates leumi,,,,,,,Transfer : Bank Leumi 225237,,cross-budget transfer alias for ynab_category fingerprint merged 2026-04-27,
 google_one_dublin_cross_budget_41,True,10,,google one dublin,,,,outflow,,,Google One,Google storage 75 NIS 20 Euro 30/11,cross-budget live google storage mapping merged 2026-03-23,
 הפקדות_קופג_cross_budget_42,True,10,,הפקדות קופג,,,,outflow,,,Excellence,Pension 10th,cross-budget live excellence pension mapping merged 2026-03-23,
 adva_shtainberg_cross_budget_43,True,10,,adva shtainberg,,,,outflow,,,Adva Shtainberg,Accountant 125 NIS 10th,cross-budget live split mapping merged 2026-03-24,

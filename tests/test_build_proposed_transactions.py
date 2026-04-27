@@ -2008,3 +2008,95 @@ def test_build_review_rows_preserves_ynab_category_source_context(tmp_path: Path
     assert row["source_context_kind"] == "ynab_parent_category_match"
     assert row["source_context_category_id"] == "cat-aikido"
     assert row["source_context_category_name"] == "Aikido"
+
+
+def test_apply_review_target_suggestions_uses_current_pilates_bank_transfer_alias(
+    tmp_path: Path,
+) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    pd.DataFrame(
+        [
+            {
+                "rule_id": "pilates_leumi_alias",
+                "is_active": True,
+                "priority": 10,
+                "txn_kind": "",
+                "fingerprint": "pilates leumi",
+                "description_clean_norm": "",
+                "account_name": "",
+                "source": "",
+                "direction": "",
+                "currency": "",
+                "amount_bucket": "",
+                "payee_canonical": "Transfer : Bank Leumi 225237",
+                "category_target": "",
+                "notes": "",
+                "card_suffix": "",
+            }
+        ],
+        columns=build_proposed_transactions.rules_mod.PAYEE_MAP_COLUMNS,
+    ).to_csv(map_path, index=False, encoding="utf-8-sig")
+
+    relations = pl.DataFrame(
+        [
+            {
+                "transaction_id": "family-transfer-1",
+                "source": "ynab",
+                "account_name": "In Family",
+                "date": "2026-04-10",
+                "outflow_ils": 0.0,
+                "inflow_ils": 5000.0,
+                "memo": "Transfer : Pilates Leumi",
+                "fingerprint": "pilates leumi",
+                "match_status": "source_only",
+                "update_maps": "",
+                "decision_action": "create_target",
+                "reviewed": False,
+                "workflow_type": "institutional",
+                "relation_kind": "source_only",
+                "match_method": "",
+                "source_present": True,
+                "target_present": False,
+                "source_row_id": "source-row-1",
+                "target_row_id": "",
+                "source_account": "Family Leumi",
+                "target_account": "In Family",
+                "source_date": "2026-04-10",
+                "target_date": "",
+                "source_payee_current": "Transfer : Pilates Leumi",
+                "target_payee_current": "",
+                "source_category_current": "Pilates",
+                "target_category_current": "",
+                "source_memo": "Transfer : Pilates Leumi",
+                "target_memo": "",
+                "source_fingerprint": "pilates leumi",
+                "target_fingerprint": "",
+                "source_bank_txn_id": "",
+                "source_card_txn_id": "",
+                "source_card_suffix": "",
+                "source_secondary_date": "",
+                "source_ref": "family-transfer-1",
+                "source_context_kind": "ynab_parent_category_match",
+                "source_context_category_id": "cat-pilates",
+                "source_context_category_name": "Pilates",
+                "source_context_matching_split_ids": "",
+                "source_payee_selected": "Transfer : Pilates Leumi",
+                "source_category_selected": "Pilates",
+                "target_context_kind": "",
+                "target_context_matching_split_ids": "",
+                "target_payee_selected": "",
+                "target_category_selected": "",
+                "source_transaction": {"transaction_id": "family-transfer-1"},
+                "target_transaction": None,
+            }
+        ]
+    )
+
+    review_rows = build_proposed_transactions._apply_review_target_suggestions(
+        relations,
+        map_path=map_path,
+    )
+
+    row = review_rows.row(0, named=True)
+    assert row["target_payee_selected"] == "Transfer : Bank Leumi 225237"
+    assert row["target_category_selected"] == ""
