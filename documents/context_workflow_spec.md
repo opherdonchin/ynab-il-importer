@@ -131,6 +131,13 @@ pixi run build-context-review -- <context> <run_tag> --include-reconciled-ynab
 
 Loads the declared normalized source artifacts plus the normalized YNAB artifact and writes the canonical review artifact to `data/paired/<run_tag>/`.
 
+For card contexts, review build also carries forward staged previous-card snapshots from `derived/previous_max/` or `derived/previous_leumi_card/` when they still belong to the unreconciled boundary for that account:
+
+- statements are checked newest-to-oldest per card account
+- once a fully reconciled statement is reached, older statements are assumed reconciled too and are not reintroduced into review
+- only the contiguous unreconciled tail is carried forward
+- if a carried-forward row is also present in the active run source, the active run row wins by canonical `transaction_id`
+
 Default behavior is intentionally conservative:
 
 - YNAB rows already marked `cleared` or `reconciled` are excluded from the review artifact

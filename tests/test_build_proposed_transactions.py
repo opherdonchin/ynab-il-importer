@@ -135,6 +135,59 @@ def test_dedupe_source_overlaps_drops_matching_card_rows() -> None:
     assert deduped["memo"].to_list() == ["bank row", "other card row"]
 
 
+def test_dedupe_duplicate_source_transaction_ids_keeps_first_row() -> None:
+    source_df = pl.DataFrame(
+        [
+            {
+                "transaction_id": "CARD:V1:duplicate",
+                "source_system": "card",
+                "account_name": "Liya X7195",
+                "source_account": "x7195",
+                "date": "2026-04-03",
+                "outflow_ils": 60.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "charge a",
+                "description_raw": "April charge current",
+                "memo": "current row",
+            },
+            {
+                "transaction_id": "CARD:V1:duplicate",
+                "source_system": "card",
+                "account_name": "Liya X7195",
+                "source_account": "x7195",
+                "date": "2026-04-03",
+                "outflow_ils": 60.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "charge a",
+                "description_raw": "April charge previous",
+                "memo": "previous row",
+            },
+            {
+                "transaction_id": "CARD:V1:unique",
+                "source_system": "card",
+                "account_name": "Liya X7195",
+                "source_account": "x7195",
+                "date": "2026-04-04",
+                "outflow_ils": 70.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "charge b",
+                "description_raw": "Other charge",
+                "memo": "unique row",
+            },
+        ]
+    )
+
+    with pytest.warns(
+        UserWarning,
+        match="Dropping 1 duplicate source rows matched on canonical transaction_id",
+    ):
+        deduped = build_proposed_transactions._dedupe_duplicate_source_transaction_ids(
+            source_df
+        )
+
+    assert deduped["memo"].to_list() == ["current row", "unique row"]
+
+
 def test_pairs_artifact_frame_drops_object_transaction_columns() -> None:
     pairs = pl.DataFrame(
         {

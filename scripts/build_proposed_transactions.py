@@ -320,6 +320,45 @@ def _dedupe_source_overlaps(source_df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _dedupe_duplicate_source_transaction_ids(source_df: pl.DataFrame) -> pl.DataFrame:
+    if source_df.is_empty() or "transaction_id" not in source_df.columns:
+        return source_df.clone()
+
+    work = source_df.with_row_index("_row_index").with_columns(
+        pl.col("transaction_id")
+        .cast(pl.Utf8, strict=False)
+        .fill_null("")
+        .str.strip_chars()
+        .alias("_transaction_id_key")
+    )
+    keyed = work.filter(pl.col("_transaction_id_key") != "")
+    if keyed.is_empty():
+        return source_df.clone()
+
+    deduped_keyed = keyed.unique(
+        subset=["_transaction_id_key"],
+        keep="first",
+        maintain_order=True,
+    )
+    drop_count = keyed.height - deduped_keyed.height
+    if drop_count <= 0:
+        return source_df.clone()
+
+    warnings.warn(
+        f"Dropping {drop_count} duplicate source rows matched on canonical transaction_id.",
+        UserWarning,
+    )
+    deduped = (
+        pl.concat(
+            [deduped_keyed, work.filter(pl.col("_transaction_id_key") == "")],
+            how="diagonal_relaxed",
+        )
+        .sort("_row_index")
+        .select(source_df.columns)
+    )
+    return deduped
+
+
 def _build_options_from_applied(
     applied: pd.DataFrame, rules: pd.DataFrame
 ) -> pd.DataFrame:
@@ -1979,7 +2018,9 @@ def run_build(
     if not source_paths:
         raise ValueError("Provide at least one --source or --source-dir input.")
 
-    source_df = _dedupe_source_overlaps(_load_source_inputs(source_paths))
+    source_df = _dedupe_source_overlaps(
+        _dedupe_duplicate_source_transaction_ids(_load_source_inputs(source_paths))
+    )
     ynab_df = pl.from_arrow(read_transactions_arrow(ynab_path))
     if ynab_df.is_empty():
         raise ValueError("No rows found in YNAB input.")

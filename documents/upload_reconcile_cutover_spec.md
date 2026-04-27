@@ -35,6 +35,10 @@ The public loader is [load_upload_working_frame](../src/ynab_il_importer/upload_
   - `kind = max` reads `data/raw/previous_max/<account_suffix>/` and writes `data/derived/previous_max/<account_suffix>/`
   - `kind = leumi_card_html` reads `data/raw/previous_leumi_card/<account_suffix>/` and writes `data/derived/previous_leumi_card/<account_suffix>/`
   - by default, the helper infers the kind from the context's declared card source
+- card review build now also consumes staged previous-card snapshots before reconciliation time
+  - it walks newest-to-oldest per card account and carries forward only the contiguous unreconciled tail
+  - once a fully reconciled statement is found, older statements are assumed reconciled and stay out of review
+  - duplicate rows shared by the active run source and a carried-forward statement are collapsed at the canonical `transaction_id` boundary so the active run source stays authoritative
 - review build excludes already settled YNAB rows by default, including reconciled exact matches, reconciled transfer counterparts, and other reconciled target-side candidates; use `pixi run build-context-review -- <context> <run_tag> --include-reconciled-ynab` only for explicit historical inspection
 - transfer-specific review behavior is currently a derived app/runtime layer over `review_v4`, not a second persisted review artifact
 
