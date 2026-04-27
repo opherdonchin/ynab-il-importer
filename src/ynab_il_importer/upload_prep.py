@@ -627,7 +627,15 @@ def prepare_upload_transactions(
             .otherwise(pl.col("transaction_id"))
             .alias("upload_transaction_id"),
             pl.when(pl.col("decision_action").str.to_lowercase() == _UPDATE_TARGET_ACTION)
-            .then(_text_expr_or_default(df, "target_row_id"))
+            .then(
+                pl.coalesce(
+                    [
+                        _text_expr_or_default(df, "target_transaction_id"),
+                        _text_expr_or_default(df, "target_ynab_id"),
+                        _text_expr_or_default(df, "target_row_id"),
+                    ]
+                )
+            )
             .otherwise(pl.lit(""))
             .alias("existing_transaction_id"),
             _amount_milliunits_expr(
@@ -648,7 +656,7 @@ def prepare_upload_transactions(
     )
     if missing_existing_ids:
         raise ValueError(
-            "Missing target_row_id values for update_target rows: "
+            "Missing target transaction ids for update_target rows: "
             + ", ".join(missing_existing_ids)
         )
 

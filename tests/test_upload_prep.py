@@ -968,7 +968,9 @@ def test_prepare_upload_transactions_builds_update_target_payloads() -> None:
     reviewed = _reviewed_df(
         {
             "transaction_id": ["live-update"],
-            "target_row_id": ["txn-live-1"],
+            "target_row_id": ["tgt-synthetic-1"],
+            "target_transaction_id": ["txn-live-1"],
+            "target_ynab_id": ["txn-live-1"],
             "account_name": ["Bank Leumi"],
             "date": ["2026-03-05"],
             "outflow_ils": ["25.00"],
@@ -1004,6 +1006,40 @@ def test_prepare_upload_transactions_builds_update_target_payloads() -> None:
     assert payload["update_transactions"][0]["amount"] == -25000
     assert payload["update_transactions"][0]["payee_id"] == "payee-loan"
     assert payload["update_transactions"][0]["category_id"] == "cat-loan"
+
+
+def test_prepare_upload_transactions_prefers_live_target_transaction_id_for_updates() -> None:
+    reviewed = _reviewed_df(
+        {
+            "transaction_id": ["live-update"],
+            "target_row_id": ["tgt_synthetic_1"],
+            "target_transaction_id": ["txn-live-real-1"],
+            "target_ynab_id": ["txn-live-real-1"],
+            "account_name": ["Bank Leumi"],
+            "date": ["2026-03-05"],
+            "outflow_ils": ["25.00"],
+            "inflow_ils": ["0"],
+            "memo": ["loan payment"],
+            "payee_selected": ["Transfer : Loan"],
+            "category_selected": ["Loan Paydown"],
+            "decision_action": ["update_target"],
+            "reviewed": [True],
+            "source_present": [False],
+            "target_present": [True],
+        }
+    )
+
+    prepared = upload_prep.prepare_upload_transactions(
+        reviewed,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+
+    assert _row(prepared, 0)["existing_transaction_id"] == "txn-live-real-1"
+
+    payload = upload_prep.upload_payload_batches(prepared)
+
+    assert payload["update_transactions"][0]["id"] == "txn-live-real-1"
 
 
 def test_summarize_upload_response_counts_matches_and_transfers() -> None:
