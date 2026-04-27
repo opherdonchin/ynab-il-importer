@@ -170,6 +170,53 @@ def test_plan_category_account_reconciliation_accepts_already_reconciled_keep_ma
     assert result["report"]["action"].tolist() == ["already_reconciled"]
 
 
+def test_plan_category_account_reconciliation_prefers_live_target_id_for_keep_match() -> None:
+    reviewed = pl.DataFrame(
+        {
+            "transaction_id": ["review-1"],
+            "decision_action": ["keep_match"],
+            "target_row_id": ["tgt-synthetic-1"],
+            "target_transaction_id": ["txn-live-1"],
+            "target_ynab_id": ["txn-live-1"],
+            "source_date": ["2026-03-31"],
+            "source_payee_current": ["Tayo"],
+            "outflow_ils": [0.0],
+            "inflow_ils": [150.0],
+        }
+    )
+    target_transactions = [
+        {
+            "id": "txn-live-1",
+            "account_id": "acc-target",
+            "import_id": "",
+            "amount": 150000,
+            "date": "2026-03-31",
+            "payee_name": "Tayo",
+            "cleared": "reconciled",
+        }
+    ]
+    target_account = {
+        "id": "acc-target",
+        "name": "Personal In Leumi",
+        "balance": 150000,
+        "cleared_balance": 150000,
+        "uncleared_balance": 0,
+    }
+    source_category = {"id": "cat-aikido", "name": "Aikido", "balance": 150000}
+
+    result = category_reconciliation.plan_category_account_reconciliation(
+        reviewed,
+        pl.DataFrame(),
+        target_transactions=target_transactions,
+        target_account=target_account,
+        source_category=source_category,
+    )
+
+    assert result["ok"] is True
+    assert result["report"]["resolved_transaction_id"].tolist() == ["txn-live-1"]
+    assert result["report"]["action"].tolist() == ["already_reconciled"]
+
+
 def test_plan_category_account_reconciliation_blocks_when_uploaded_row_is_missing() -> None:
     reviewed = pl.DataFrame(
         {
@@ -209,6 +256,53 @@ def test_plan_category_account_reconciliation_blocks_when_uploaded_row_is_missin
     assert result["ok"] is False
     assert "missing_uploaded_transaction_in_live_ynab" in result["reason"]
     assert result["report"]["action"].tolist() == ["blocked"]
+
+
+def test_plan_category_account_reconciliation_skips_legacy_pre_run_missing_uploads() -> None:
+    reviewed = pl.DataFrame(
+        {
+            "transaction_id": ["review-1"],
+            "decision_action": ["create_target"],
+            "source_date": ["2024-01-04"],
+            "source_payee_current": ["Legacy row"],
+            "source_cleared": ["reconciled"],
+            "outflow_ils": [200.0],
+            "inflow_ils": [0.0],
+        }
+    )
+    prepared_units = pl.DataFrame(
+        {
+            "upload_transaction_id": ["review-1"],
+            "import_id": ["YNAB:-200000:2024-01-04:1"],
+            "existing_transaction_id": [""],
+            "account_id": ["acc-target"],
+        }
+    )
+    target_account = {
+        "id": "acc-target",
+        "name": "Personal In Leumi",
+        "balance": 500000,
+        "cleared_balance": 500000,
+        "uncleared_balance": 0,
+    }
+    source_category = {"id": "cat-aikido", "name": "Aikido", "balance": 500000}
+
+    result = category_reconciliation.plan_category_account_reconciliation(
+        reviewed,
+        prepared_units,
+        target_transactions=[],
+        target_account=target_account,
+        source_category=source_category,
+        run_month="2026-04-01",
+    )
+
+    assert result["ok"] is True
+    assert result["blocked_count"] == 0
+    assert result["skipped_count"] == 1
+    assert result["report"]["action"].tolist() == ["skipped"]
+    assert result["report"]["reason"].tolist() == [
+        "legacy_pre_run_source_row_without_live_import"
+    ]
 
 
 def test_plan_category_account_reconciliation_blocks_on_cleared_balance_mismatch() -> None:

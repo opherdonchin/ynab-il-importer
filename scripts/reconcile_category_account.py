@@ -186,6 +186,7 @@ def main() -> None:
         target_transactions=target_transactions,
         target_account=target_account,
         source_category=source_category,
+        run_month=run_month,
     )
     export.write_dataframe(result["report"], report_path)
     _print_summary(result, report_path, execute=args.execute)
