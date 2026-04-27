@@ -187,6 +187,12 @@ def _source_amount_ils(row: dict[str, Any]) -> float:
     )
 
 
+def _cleared_balance_delta_ils(prior_cleared: str, amount_ils: float) -> float:
+    if _normalize_text(prior_cleared) == "uncleared":
+        return round(float(amount_ils or 0.0), 2)
+    return 0.0
+
+
 def _report_row(row: dict[str, Any], target_account: dict[str, Any]) -> dict[str, Any]:
     return {
         "review_transaction_id": _normalize_text(row.get("transaction_id", "")),
@@ -245,6 +251,7 @@ def plan_category_account_reconciliation(
     update_ids: set[str] = set()
     updates: list[dict[str, str]] = []
     blocked_reason = ""
+    projected_cleared_delta_ils = 0.0
 
     for row in relevant.to_dicts():
         review_transaction_id = _normalize_text(row.get("transaction_id", ""))
@@ -351,6 +358,10 @@ def plan_category_account_reconciliation(
                             "cleared": "reconciled",
                         }
                     )
+                    projected_cleared_delta_ils += _cleared_balance_delta_ils(
+                        report_row["prior_cleared"],
+                        report_row["resolved_amount_ils"],
+                    )
 
         report_rows.append(report_row)
         if report_row["action"] == "blocked" and not blocked_reason:
@@ -374,13 +385,21 @@ def plan_category_account_reconciliation(
         float(target_account.get("uncleared_balance", 0) or 0) / 1000.0,
         2,
     )
+    projected_target_account_cleared_balance_ils = round(
+        target_account_cleared_balance_ils + projected_cleared_delta_ils,
+        2,
+    )
+    projected_target_account_uncleared_balance_ils = round(
+        target_account_uncleared_balance_ils - projected_cleared_delta_ils,
+        2,
+    )
     balance_parity_ok = _same_amount(
         source_category_balance_ils, target_account_balance_ils
     )
     cleared_parity_ok = _same_amount(
-        source_category_balance_ils, target_account_cleared_balance_ils
+        source_category_balance_ils, projected_target_account_cleared_balance_ils
     )
-    uncleared_zero_ok = _same_amount(target_account_uncleared_balance_ils, 0.0)
+    uncleared_zero_ok = _same_amount(projected_target_account_uncleared_balance_ils, 0.0)
 
     if not blocked_reason and not balance_parity_ok:
         blocked_reason = (
@@ -428,6 +447,8 @@ def plan_category_account_reconciliation(
         "target_account_balance_ils": target_account_balance_ils,
         "target_account_cleared_balance_ils": target_account_cleared_balance_ils,
         "target_account_uncleared_balance_ils": target_account_uncleared_balance_ils,
+        "projected_target_account_cleared_balance_ils": projected_target_account_cleared_balance_ils,
+        "projected_target_account_uncleared_balance_ils": projected_target_account_uncleared_balance_ils,
         "balance_parity_ok": balance_parity_ok,
         "cleared_parity_ok": cleared_parity_ok,
         "uncleared_zero_ok": uncleared_zero_ok,

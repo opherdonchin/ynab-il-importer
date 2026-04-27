@@ -348,3 +348,52 @@ def test_plan_category_account_reconciliation_blocks_on_cleared_balance_mismatch
     assert result["ok"] is False
     assert "category/cleared balance mismatch" in result["reason"]
     assert result["cleared_parity_ok"] is False
+
+
+def test_plan_category_account_reconciliation_projects_uncleared_reconciles_into_parity() -> None:
+    reviewed = pl.DataFrame(
+        {
+            "transaction_id": ["review-1"],
+            "decision_action": ["keep_match"],
+            "target_transaction_id": ["txn-live-1"],
+            "target_ynab_id": ["txn-live-1"],
+            "source_date": ["2026-04-06"],
+            "source_payee_current": ["Tayo"],
+            "outflow_ils": [0.0],
+            "inflow_ils": [1070.0],
+        }
+    )
+    target_transactions = [
+        {
+            "id": "txn-live-1",
+            "account_id": "acc-target",
+            "import_id": "",
+            "amount": 1070000,
+            "date": "2026-04-06",
+            "payee_name": "Tayo",
+            "cleared": "uncleared",
+        }
+    ]
+    target_account = {
+        "id": "acc-target",
+        "name": "Personal In Leumi",
+        "balance": 12171310,
+        "cleared_balance": 11101310,
+        "uncleared_balance": 1070000,
+    }
+    source_category = {"id": "cat-aikido", "name": "Aikido", "balance": 12171310}
+
+    result = category_reconciliation.plan_category_account_reconciliation(
+        reviewed,
+        pl.DataFrame(),
+        target_transactions=target_transactions,
+        target_account=target_account,
+        source_category=source_category,
+    )
+
+    assert result["ok"] is True
+    assert result["update_count"] == 1
+    assert result["cleared_parity_ok"] is True
+    assert result["uncleared_zero_ok"] is True
+    assert result["projected_target_account_cleared_balance_ils"] == 12171.31
+    assert result["projected_target_account_uncleared_balance_ils"] == 0.0
