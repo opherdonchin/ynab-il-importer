@@ -38,6 +38,25 @@ def test_load_aikido_context_with_ynab_category_source() -> None:
     assert source.target_account_name == "Personal In Leumi"
 
 
+def test_load_pilates_context_with_family_category_source() -> None:
+    loaded = context_config.load_context("pilates")
+
+    assert loaded.name == "pilates"
+    assert loaded.budget_id_env == "YNAB_PILATES_BUDGET_ID"
+    assert loaded.ynab_normalized_name == "pilates_ynab_api_norm.parquet"
+    assert [source.id for source in loaded.config.sources] == [
+        "pilates_bank",
+        "pilates_card",
+        "pilates_family_category",
+    ]
+    source = loaded.config.sources[2]
+    assert source.kind == "ynab_category"
+    assert source.from_context == "family"
+    assert source.category_name == "Pilates"
+    assert source.target_account_name == "In Family"
+    assert source.target_account_id == "6fbef967-60b8-4897-b8da-d14202907584"
+
+
 def test_resolve_context_sources_supports_ynab_category_without_raw_dir(
     tmp_path: Path,
 ) -> None:
@@ -264,3 +283,19 @@ def test_resolve_context_target_account_names_unions_source_scopes() -> None:
     accounts = context_config.resolve_context_target_account_names(loaded)
 
     assert accounts == ["Bank Leumi", "Liya X7195", "Opher X5898", "Opher x9922"]
+
+
+def test_resolve_context_target_account_names_includes_ynab_category_targets() -> None:
+    loaded = context_config.load_context("pilates")
+
+    accounts = context_config.resolve_context_target_account_names(loaded)
+
+    assert accounts == ["Bank Leumi 225237", "Credit card 0602", "In Family"]
+
+
+def test_resolve_context_ynab_dependencies_orders_upstream_first() -> None:
+    loaded = context_config.load_context("pilates")
+
+    dependencies = context_config.resolve_context_ynab_dependencies(loaded)
+
+    assert [context.name for context in dependencies] == ["family", "pilates"]

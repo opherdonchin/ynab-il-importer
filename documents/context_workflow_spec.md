@@ -80,6 +80,7 @@ Current source declarations support:
 
 Contexts that participate in `normalize-context` or `build-context-review` must declare at least one `[[sources]]` entry. A context with no declared sources is not runnable on the active normalization/review path.
 Raw-backed sources must also declare explicit `target_account_names` so review matching stays within the YNAB accounts actually covered by the provided source files.
+Declared `ynab_category` sources also define an upstream context dependency: the target context depends on the sibling context's normalized YNAB snapshot for the same run tag.
 
 ## Source Resolution Rules
 
@@ -122,6 +123,9 @@ pixi run download-context-ynab -- <context> <run_tag>
 
 Writes the declared normalized YNAB artifact to `data/derived/<run_tag>/`.
 
+If the context declares one or more `ynab_category` sources, this step also refreshes the upstream contexts' normalized YNAB snapshots first, in dependency order.
+It does not materialize the `ynab_category` source rows themselves; that still happens in `normalize-context`.
+
 ### Build review artifact
 
 ```bash
@@ -130,6 +134,7 @@ pixi run build-context-review -- <context> <run_tag> --include-reconciled-ynab
 ```
 
 Loads the declared normalized source artifacts plus the normalized YNAB artifact and writes the canonical review artifact to `data/paired/<run_tag>/`.
+`build-context-review` does not download YNAB data or materialize `ynab_category` sources on its own; it only reads the artifacts already present on disk.
 
 For card contexts, review build also carries forward staged previous-card snapshots from `derived/previous_max/` or `derived/previous_leumi_card/` when they still belong to the unreconciled boundary for that account:
 

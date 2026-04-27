@@ -30,6 +30,40 @@ def _filter_canonical_by_date(table, since: str | None, until: str | None):
     return filtered.to_arrow()
 
 
+def _download_context_snapshot(
+    *,
+    context: context_config.LoadedContext,
+    defaults: context_config.DefaultsConfig,
+    run_tag: str,
+    budget_id: str = "",
+    since_date: str = "",
+    until_date: str = "",
+    out_path: Path | None = None,
+) -> None:
+    run_paths = context_config.resolve_run_paths(defaults, run_tag=run_tag)
+    run_paths.derived_dir.mkdir(parents=True, exist_ok=True)
+
+    plan_id = context_config.resolve_context_budget_id(context, budget_id=budget_id)
+    resolved_out_path = out_path or (run_paths.derived_dir / context.ynab_normalized_name)
+    if resolved_out_path.suffix.lower() != ".parquet":
+        raise ValueError(f"YNAB snapshot output must be parquet: {resolved_out_path}")
+
+    accounts = ynab_api.fetch_accounts(plan_id=plan_id or None)
+    txns = ynab_api.fetch_transactions(
+        plan_id=plan_id or None,
+        since_date=since_date or None,
+    )
+    canonical = ynab_api.transactions_to_canonical_table(txns, accounts)
+    canonical = _filter_canonical_by_date(
+        canonical,
+        since_date or None,
+        until_date or None,
+    )
+
+    write_transactions_parquet(canonical, resolved_out_path)
+    print(export.wrote_message(resolved_out_path, canonical.num_rows))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Download the declared YNAB snapshot for one context/run-tag pair."
@@ -69,25 +103,27 @@ def main() -> None:
 
     defaults = context_config.load_defaults(args.defaults_path)
     context = context_config.load_context(args.context, contexts_root=args.contexts_root)
-    run_paths = context_config.resolve_run_paths(defaults, run_tag=args.run_tag)
-    run_paths.derived_dir.mkdir(parents=True, exist_ok=True)
-
-    plan_id = context_config.resolve_context_budget_id(context, budget_id=args.budget_id)
-    out_path = args.out_path or (run_paths.derived_dir / context.ynab_normalized_name)
-    if out_path.suffix.lower() != ".parquet":
-        raise ValueError(f"YNAB snapshot output must be parquet: {out_path}")
-
-    accounts = ynab_api.fetch_accounts(plan_id=plan_id or None)
-    txns = ynab_api.fetch_transactions(plan_id=plan_id or None, since_date=args.since_date or None)
-    canonical = ynab_api.transactions_to_canonical_table(txns, accounts)
-    canonical = _filter_canonical_by_date(
-        canonical,
-        args.since_date or None,
-        args.until_date or None,
+    dependency_order = context_config.resolve_context_ynab_dependencies(
+        context,
+        contexts_root=args.contexts_root,
     )
-
-    write_transactions_parquet(canonical, out_path)
-    print(export.wrote_message(out_path, canonical.num_rows))
+    for dependency in dependency_order[:-1]:
+        _download_context_snapshot(
+            context=dependency,
+            defaults=defaults,
+            run_tag=args.run_tag,
+            since_date=args.since_date,
+            until_date=args.until_date,
+        )
+    _download_context_snapshot(
+        context=context,
+        defaults=defaults,
+        run_tag=args.run_tag,
+        budget_id=args.budget_id,
+        since_date=args.since_date,
+        until_date=args.until_date,
+        out_path=args.out_path,
+    )
 
 
 if __name__ == "__main__":

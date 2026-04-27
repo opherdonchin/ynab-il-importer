@@ -23,3 +23,12 @@ raw_match = "^BankLeumi \\d+_\\d+_\\d+\\.html$"
 normalized_name = "pilates_leumi_card_html_norm.parquet"
 allow_reconciled_source = true
 target_account_names = ["Credit card 0602"]
+
+[[sources]]
+id = "pilates_family_category"
+kind = "ynab_category"
+from_context = "family"
+category_name = "Pilates"
+target_account_name = "In Family"
+target_account_id = "6fbef967-60b8-4897-b8da-d14202907584"
+normalized_name = "pilates_family_category_norm.parquet"

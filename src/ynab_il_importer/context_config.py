@@ -295,8 +295,38 @@ def load_context(name: str, *, contexts_root: Path = CONTEXTS_ROOT) -> LoadedCon
     if loaded.name.strip().lower() != context_name:
         raise ValueError(
             f"Context file name mismatch: expected {context_name!r}, found {loaded.name!r}."
-        )
+    )
     return LoadedContext(config=loaded, context_dir=context_dir.resolve())
+
+
+def resolve_context_ynab_dependencies(
+    context: LoadedContext,
+    *,
+    contexts_root: Path = CONTEXTS_ROOT,
+) -> list[LoadedContext]:
+    ordered: list[LoadedContext] = []
+    seen: set[str] = set()
+    visiting: list[str] = []
+
+    def visit(current: LoadedContext) -> None:
+        name = current.name
+        if name in seen:
+            return
+        if name in visiting:
+            cycle = " -> ".join([*visiting, name])
+            raise ValueError(f"Cyclic ynab_category context dependency: {cycle}")
+        visiting.append(name)
+        for source in current.config.sources:
+            if source.kind != "ynab_category":
+                continue
+            upstream = load_context(source.from_context, contexts_root=contexts_root)
+            visit(upstream)
+        visiting.pop()
+        seen.add(name)
+        ordered.append(current)
+
+    visit(context)
+    return ordered
 
 
 def resolve_context_sources(
