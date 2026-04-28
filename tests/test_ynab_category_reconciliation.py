@@ -258,7 +258,7 @@ def test_plan_category_account_reconciliation_blocks_when_uploaded_row_is_missin
     assert result["report"]["action"].tolist() == ["blocked"]
 
 
-def test_plan_category_account_reconciliation_skips_legacy_pre_run_missing_uploads() -> None:
+def test_plan_category_account_reconciliation_blocks_on_missing_legacy_uploads() -> None:
     reviewed = pl.DataFrame(
         {
             "transaction_id": ["review-1"],
@@ -293,15 +293,15 @@ def test_plan_category_account_reconciliation_skips_legacy_pre_run_missing_uploa
         target_transactions=[],
         target_account=target_account,
         source_category=source_category,
-        run_month="2026-04-01",
     )
 
-    assert result["ok"] is True
-    assert result["blocked_count"] == 0
-    assert result["skipped_count"] == 1
-    assert result["report"]["action"].tolist() == ["skipped"]
+    assert result["ok"] is False
+    assert "missing_uploaded_transaction_in_live_ynab" in result["reason"]
+    assert result["blocked_count"] == 1
+    assert result["skipped_count"] == 0
+    assert result["report"]["action"].tolist() == ["blocked"]
     assert result["report"]["reason"].tolist() == [
-        "legacy_pre_run_source_row_without_live_import"
+        "missing_uploaded_transaction_in_live_ynab"
     ]
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 import pandas as pd
@@ -56,13 +56,6 @@ def run_month_from_tag(run_tag: str) -> str:
             f"run_tag must look like YYYY_MM_DD for ynab_category reconciliation, got {text!r}."
         ) from exc
     return parsed.strftime("%Y-%m-01")
-
-
-def _parse_date(value: Any) -> date | None:
-    text = _normalize_text(value)
-    if not text:
-        return None
-    return datetime.strptime(text, "%Y-%m-%d").date()
 
 
 def select_review_rows_for_source(
@@ -221,11 +214,9 @@ def plan_category_account_reconciliation(
     target_transactions: list[dict[str, Any]],
     target_account: dict[str, Any],
     source_category: dict[str, Any],
-    run_month: str = "",
 ) -> dict[str, Any]:
     relevant = reviewed_rows.clone()
     units = prepared_units.clone()
-    run_month_start = _parse_date(run_month)
 
     transactions_by_id = {
         _normalize_text(txn.get("id", "")): txn
@@ -291,23 +282,10 @@ def plan_category_account_reconciliation(
                             (account_id, expected_import_id)
                         )
                         if resolved_txn is None:
-                            source_date = _parse_date(row.get("source_date", ""))
-                            source_cleared = _normalize_text(row.get("source_cleared", ""))
-                            if (
-                                run_month_start is not None
-                                and source_date is not None
-                                and source_date < run_month_start
-                                and source_cleared == "reconciled"
-                            ):
-                                report_row["action"] = "skipped"
-                                report_row["reason"] = (
-                                    "legacy_pre_run_source_row_without_live_import"
-                                )
-                            else:
-                                report_row["action"] = "blocked"
-                                report_row["reason"] = (
-                                    "missing_uploaded_transaction_in_live_ynab"
-                                )
+                            report_row["action"] = "blocked"
+                            report_row["reason"] = (
+                                "missing_uploaded_transaction_in_live_ynab"
+                            )
                 else:
                     if not existing_id:
                         report_row["action"] = "blocked"
