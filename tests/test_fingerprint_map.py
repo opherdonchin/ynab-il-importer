@@ -76,3 +76,25 @@ def test_apply_fingerprints_collapses_paypal_facebook_variants() -> None:
     out = fingerprint.apply_fingerprints(df, map_rules=rules, use_fingerprint_map=True)
 
     assert out.loc[0, "fingerprint"] == "paypal facebook עסקת חו"
+
+
+def test_apply_fingerprints_collapses_kemach_haaretz_refund_variant() -> None:
+    rules = fingerprint.load_fingerprint_map(ROOT / "mappings" / "fingerprint_map.csv")
+
+    df = pd.DataFrame(
+        [
+            {
+                "description_clean": "קמח הארץ - נתיב אשכול בעמ",
+                "source": "bank",
+            },
+            {
+                "description_clean": "קמח הארץ - נתיב אשכול בעמ | ביטול עסקה",
+                "source": "bank",
+            },
+        ]
+    )
+
+    out = fingerprint.apply_fingerprints(df, map_rules=rules, use_fingerprint_map=True)
+
+    assert out.loc[0, "fingerprint"] == "קמח הארץ נתיב אשכול"
+    assert out.loc[1, "fingerprint"] == "קמח הארץ נתיב אשכול"
