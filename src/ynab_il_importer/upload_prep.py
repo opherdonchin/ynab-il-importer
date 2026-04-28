@@ -118,6 +118,30 @@ def _target_category_expr(df: pl.DataFrame) -> pl.Expr:
     )
 
 
+def _upload_transaction_id_expr(df: pl.DataFrame) -> pl.Expr:
+    source_row_id = _text_expr_or_default(df, "source_row_id")
+    target_row_id = _text_expr_or_default(df, "target_row_id")
+    return (
+        pl.when(pl.col("decision_action").str.to_lowercase() == _UPDATE_TARGET_ACTION)
+        .then(
+            pl.coalesce(
+                [
+                    pl.col("existing_transaction_id"),
+                    target_row_id,
+                    _text_expr("transaction_id"),
+                ]
+            )
+        )
+        .when(source_row_id != "")
+        .then(source_row_id)
+        .when(target_row_id != "")
+        .then(target_row_id)
+        .when(pl.col("transaction_id") == "")
+        .then(pl.format("upload_txn_{}", pl.col("upload_row_position")))
+        .otherwise(pl.col("transaction_id"))
+    )
+
+
 def _combined_memo_expr(df: pl.DataFrame) -> pl.Expr:
     base = _text_expr_or_default(df, "memo")
     extra = _text_expr_or_default(df, "memo_append")
@@ -643,10 +667,6 @@ def prepare_upload_transactions(
             _float_expr("inflow_ils").round(2).alias("inflow_ils"),
         )
         .with_columns(
-            pl.when(pl.col("transaction_id") == "")
-            .then(pl.format("upload_txn_{}", pl.col("upload_row_position")))
-            .otherwise(pl.col("transaction_id"))
-            .alias("upload_transaction_id"),
             pl.when(pl.col("decision_action").str.to_lowercase() == _UPDATE_TARGET_ACTION)
             .then(
                 pl.coalesce(
@@ -663,6 +683,9 @@ def prepare_upload_transactions(
                 inflow_col="inflow_ils",
                 outflow_col="outflow_ils",
             ).alias("import_amount_milliunits"),
+        )
+        .with_columns(
+            _upload_transaction_id_expr(df).alias("upload_transaction_id"),
         )
     )
     missing_existing_ids = sorted(

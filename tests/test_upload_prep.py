@@ -262,7 +262,7 @@ def test_prepare_upload_transactions_explodes_committed_target_splits() -> None:
     units = upload_prep.assemble_upload_transaction_units(prepared)
     payload = upload_prep.upload_payload_records(prepared)
 
-    assert prepared["upload_transaction_id"].to_list() == ["review-1", "review-1"]
+    assert prepared["upload_transaction_id"].to_list() == ["src-1", "src-1"]
     assert prepared["import_id"].to_list() == [
         "YNAB:-10000:2026-03-01:1",
         "YNAB:-10000:2026-03-01:1",
@@ -871,6 +871,37 @@ def test_prepare_upload_transactions_resolves_selected_category_when_cached_id_i
     )
 
     assert _row(prepared, 0)["category_id"] == "cat-groceries"
+
+
+def test_prepare_upload_transactions_distinguishes_identical_create_rows_by_source_row_id() -> None:
+    reviewed = _reviewed_df(
+        {
+            "transaction_id": ["shared-review-id", "shared-review-id"],
+            "source_row_id": ["src-1", "src-2"],
+            "account_name": ["Bank Leumi", "Bank Leumi"],
+            "date": ["2026-03-01", "2026-03-01"],
+            "outflow_ils": ["350.00", "350.00"],
+            "inflow_ils": ["0", "0"],
+            "memo": ["same memo", "same memo"],
+            "payee_selected": ["Shira Yahav", "Shira Yahav"],
+            "category_selected": ["Groceries", "Groceries"],
+        }
+    )
+
+    prepared = upload_prep.prepare_upload_transactions(
+        reviewed,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+    units = upload_prep.assemble_upload_transaction_units(prepared)
+    payload = upload_prep.upload_payload_batches(prepared)
+
+    assert prepared["upload_transaction_id"].to_list() == ["src-1", "src-2"]
+    assert units["upload_transaction_id"].to_list() == ["src-1", "src-2"]
+    assert units["source_row_count"].to_list() == [1, 1]
+    assert len(payload["create_transactions"]) == 2
+    assert payload["create_transactions"][0]["amount"] == -350000
+    assert payload["create_transactions"][1]["amount"] == -350000
 
 
 def test_uploadable_account_mask_marks_unknown_accounts() -> None:
