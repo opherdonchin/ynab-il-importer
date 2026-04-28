@@ -849,6 +849,30 @@ def test_prepare_upload_transactions_rejects_zero_amount_rows() -> None:
         )
 
 
+def test_prepare_upload_transactions_resolves_selected_category_when_cached_id_is_invalid() -> None:
+    reviewed = _reviewed_df(
+        {
+            "transaction_id": ["t1"],
+            "account_name": ["Bank Leumi"],
+            "date": ["2026-03-01"],
+            "outflow_ils": ["10.00"],
+            "inflow_ils": ["0"],
+            "memo": ["pending"],
+            "payee_selected": ["Bit"],
+            "category_selected": ["Groceries"],
+            "target_category_id": ["stale-category-id"],
+        }
+    )
+
+    prepared = upload_prep.prepare_upload_transactions(
+        reviewed,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+
+    assert _row(prepared, 0)["category_id"] == "cat-groceries"
+
+
 def test_uploadable_account_mask_marks_unknown_accounts() -> None:
     reviewed = _reviewed_df(
         {
@@ -1038,8 +1062,102 @@ def test_prepare_upload_transactions_prefers_live_target_transaction_id_for_upda
     assert _row(prepared, 0)["existing_transaction_id"] == "txn-live-real-1"
 
     payload = upload_prep.upload_payload_batches(prepared)
-
     assert payload["update_transactions"][0]["id"] == "txn-live-real-1"
+
+
+def test_prepare_upload_transactions_recovers_original_splits_for_split_update_parent() -> None:
+    target_current = _txn(
+        transaction_id="txn-live-1",
+        payee="Hava",
+        category="Split",
+        category_id="stale-split-category-id",
+        amount=10.0,
+        memo="Parent memo",
+    )
+    target_original = {
+        **target_current,
+        "splits": [
+            {
+                "split_id": "sub-1",
+                "parent_transaction_id": "txn-live-1",
+                "ynab_subtransaction_id": "sub-1",
+                "payee_raw": "Hava",
+                "category_id": "cat-groceries",
+                "category_raw": "Groceries",
+                "memo": "Line one",
+                "inflow_ils": 0.0,
+                "outflow_ils": 7.0,
+                "import_id": "",
+                "matched_transaction_id": "",
+            },
+            {
+                "split_id": "sub-2",
+                "parent_transaction_id": "txn-live-1",
+                "ynab_subtransaction_id": "sub-2",
+                "payee_raw": "Hava",
+                "category_id": "cat-uncat",
+                "category_raw": "Uncategorized",
+                "memo": "Line two",
+                "inflow_ils": 0.0,
+                "outflow_ils": 3.0,
+                "import_id": "",
+                "matched_transaction_id": "",
+            },
+        ],
+    }
+    working = review_io.project_review_artifact_to_working_dataframe(
+        pl.from_arrow(
+            review_io.coerce_review_artifact_table(
+                pd.DataFrame(
+                    [
+                        {
+                            "transaction_id": "review-1",
+                            "account_name": "Bank Leumi",
+                            "date": "2026-03-01",
+                            "outflow_ils": 10.0,
+                            "inflow_ils": 0.0,
+                            "memo": "Parent memo",
+                            "source": "ynab",
+                            "workflow_type": "institutional",
+                            "decision_action": "update_target",
+                            "reviewed": True,
+                            "changed": True,
+                            "source_present": False,
+                            "target_present": True,
+                            "source_row_id": "",
+                            "target_row_id": "tgt-1",
+                            "target_account": "Bank Leumi",
+                            "source_payee_selected": "",
+                            "source_category_selected": "",
+                            "target_payee_selected": "Hava",
+                            "target_category_selected": "Split",
+                            "source_current": None,
+                            "source_original": None,
+                            "target_current": {**target_current, "splits": None},
+                            "target_original": target_original,
+                        }
+                    ]
+                )
+            )
+        )
+    )
+
+    prepared = upload_prep.prepare_upload_transactions(
+        working,
+        accounts=_accounts(),
+        categories_df=_categories(),
+    )
+    payload = upload_prep.upload_payload_batches(prepared)
+
+    assert prepared["category_id"].to_list() == ["cat-groceries", "cat-uncat"]
+    assert payload["create_transactions"] == []
+    assert len(payload["update_transactions"]) == 1
+    assert payload["update_transactions"][0]["id"] == "txn-live-1"
+    assert payload["update_transactions"][0]["category_id"] is None
+    assert payload["update_transactions"][0]["subtransactions"] == [
+        {"amount": -7000, "memo": "Line one", "category_id": "cat-groceries", "payee_name": "Hava"},
+        {"amount": -3000, "memo": "Line two", "category_id": "cat-uncat", "payee_name": "Hava"},
+    ]
 
 
 def test_summarize_upload_response_counts_matches_and_transfers() -> None:

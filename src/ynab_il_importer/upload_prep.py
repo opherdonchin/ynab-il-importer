@@ -230,6 +230,27 @@ def _normalize_split_records(value: Any) -> list[dict[str, Any]]:
     return [line for line in value if isinstance(line, dict)]
 
 
+def _row_keeps_split_category(row_payload: Mapping[str, Any]) -> bool:
+    for name in ("target_category_selected", "target_category_current"):
+        if review_model.normalize_category_value(row_payload.get(name, "")) == "Split":
+            return True
+    return False
+
+
+def _target_split_lines_for_upload(row_payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    split_lines = _normalize_split_records(row_payload.get("target_splits"))
+    if split_lines or not _row_keeps_split_category(row_payload):
+        return split_lines
+
+    for name in ("target_current_transaction", "target_original_transaction"):
+        transaction = row_payload.get(name)
+        if isinstance(transaction, dict):
+            split_lines = _normalize_split_records(transaction.get("splits"))
+            if split_lines:
+                return split_lines
+    return []
+
+
 def _explode_target_splits_for_upload(df: pl.DataFrame) -> pl.DataFrame:
     if df.is_empty():
         return df.clone()
@@ -244,7 +265,7 @@ def _explode_target_splits_for_upload(df: pl.DataFrame) -> pl.DataFrame:
             target_current.get("memo", "") if isinstance(target_current, dict) else ""
         ) or _normalize_text(row_payload.get("memo", ""))
         row_payload["upload_is_split"] = False
-        split_lines = _normalize_split_records(row_payload.get("target_splits"))
+        split_lines = _target_split_lines_for_upload(row_payload)
         if not split_lines:
             row_payload["subtransaction_memo"] = ""
             rows.append(row_payload)
@@ -747,17 +768,19 @@ def prepare_upload_transactions(
             f"Missing transfer payee ids for target accounts: {missing_transfer_targets}"
         )
 
-    invalid_selected_ids = df.filter(
-        pl.col("_category_required")
-        & (pl.col("_upload_category") != "")
-        & (pl.col("category_id") != "")
-        & (~pl.col("category_id").is_in(valid_category_ids))
-    )
-    if not invalid_selected_ids.is_empty():
-        invalid_ids = sorted(set(invalid_selected_ids.get_column("category_id").to_list()))
-        raise ValueError(f"Unknown YNAB category ids in reviewed upload rows: {invalid_ids}")
     df = df.with_columns(
-        pl.when(pl.col("_category_required") & (pl.col("category_id") == ""))
+        pl.when(
+            pl.col("_category_required")
+            & (pl.col("_upload_category") != "")
+        )
+        .then(pl.lit(""))
+        .when(pl.col("category_id").is_in(valid_category_ids))
+        .then(pl.col("category_id"))
+        .otherwise(pl.lit(""))
+        .alias("category_id")
+    )
+    df = df.with_columns(
+        pl.when(pl.col("_category_required") & (pl.col("_upload_category") != ""))
         .then(
             pl.col("_upload_category").map_elements(
                 lambda value: category_ids.get(value, ""),
@@ -780,11 +803,23 @@ def prepare_upload_transactions(
     )
     if uncategorized_category_id:
         df = df.with_columns(
-            pl.when(pl.col("_category_required") & (pl.col("category_id") == ""))
+            pl.when(
+                pl.col("_category_required")
+                & (pl.col("category_id") == "")
+                & (pl.col("_upload_category") != "Split")
+            )
             .then(pl.lit(uncategorized_category_id))
             .otherwise(pl.col("category_id"))
             .alias("category_id")
         )
+    invalid_selected_ids = df.filter(
+        pl.col("_category_required")
+        & (pl.col("category_id") != "")
+        & (~pl.col("category_id").is_in(valid_category_ids))
+    )
+    if not invalid_selected_ids.is_empty():
+        invalid_ids = sorted(set(invalid_selected_ids.get_column("category_id").to_list()))
+        raise ValueError(f"Unknown YNAB category ids in reviewed upload rows: {invalid_ids}")
     missing_categories = sorted(
         set(
             df.filter(pl.col("_category_required") & (pl.col("category_id") == ""))
