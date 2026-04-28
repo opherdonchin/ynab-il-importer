@@ -124,6 +124,60 @@ def test_plan_category_account_reconciliation_resolves_create_target_uploads() -
     assert result["report"]["action"].tolist() == ["reconcile"]
 
 
+def test_plan_category_account_reconciliation_resolves_create_target_uploads_by_source_row_id() -> None:
+    reviewed = pl.DataFrame(
+        {
+            "transaction_id": ["review-1"],
+            "source_row_id": ["source-1"],
+            "decision_action": ["create_target"],
+            "source_date": ["2026-03-31"],
+            "source_payee_current": ["Tayo"],
+            "outflow_ils": [200.0],
+            "inflow_ils": [0.0],
+        }
+    )
+    prepared_units = pl.DataFrame(
+        {
+            "upload_transaction_id": ["source-1"],
+            "import_id": ["YNAB:-200000:2026-03-31:1"],
+            "existing_transaction_id": [""],
+            "account_id": ["acc-target"],
+        }
+    )
+    target_transactions = [
+        {
+            "id": "txn-created-1",
+            "account_id": "acc-target",
+            "import_id": "YNAB:-200000:2026-03-31:1",
+            "amount": -200000,
+            "date": "2026-03-31",
+            "payee_name": "Tayo",
+            "cleared": "cleared",
+        }
+    ]
+    target_account = {
+        "id": "acc-target",
+        "name": "Personal In Leumi",
+        "balance": 500000,
+        "cleared_balance": 500000,
+        "uncleared_balance": 0,
+    }
+    source_category = {"id": "cat-aikido", "name": "Aikido", "balance": 500000}
+
+    result = category_reconciliation.plan_category_account_reconciliation(
+        reviewed,
+        prepared_units,
+        target_transactions=target_transactions,
+        target_account=target_account,
+        source_category=source_category,
+    )
+
+    assert result["ok"] is True
+    assert result["update_count"] == 1
+    assert result["updates"] == [{"id": "txn-created-1", "cleared": "reconciled"}]
+    assert result["report"]["action"].tolist() == ["reconcile"]
+
+
 def test_plan_category_account_reconciliation_accepts_already_reconciled_keep_match() -> None:
     reviewed = pl.DataFrame(
         {

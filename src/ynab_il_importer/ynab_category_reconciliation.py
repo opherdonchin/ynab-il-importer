@@ -207,6 +207,30 @@ def _report_row(row: dict[str, Any], target_account: dict[str, Any]) -> dict[str
     }
 
 
+def _prepared_unit_lookup_keys(row: dict[str, Any], decision_action: str) -> list[str]:
+    candidates: list[str] = []
+
+    def add(value: Any) -> None:
+        text = _normalize_text(value)
+        if text and text not in candidates:
+            candidates.append(text)
+
+    if decision_action == "create_target":
+        add(row.get("source_row_id", ""))
+        add(row.get("transaction_id", ""))
+        return candidates
+
+    if decision_action == "update_target":
+        add(row.get("target_transaction_id", ""))
+        add(row.get("target_ynab_id", ""))
+        add(row.get("target_row_id", ""))
+        add(row.get("transaction_id", ""))
+        return candidates
+
+    add(row.get("transaction_id", ""))
+    return candidates
+
+
 def plan_category_account_reconciliation(
     reviewed_rows: pl.DataFrame,
     prepared_units: pl.DataFrame,
@@ -232,7 +256,7 @@ def plan_category_account_reconciliation(
         if _normalize_text(txn.get("account_id", ""))
         and _normalize_text(txn.get("import_id", ""))
     }
-    units_by_review_transaction_id = {
+    units_by_upload_transaction_id = {
         _normalize_text(row.get("upload_transaction_id", "")): row
         for row in units.to_dicts()
         if _normalize_text(row.get("upload_transaction_id", ""))
@@ -263,7 +287,11 @@ def plan_category_account_reconciliation(
                 report_row["action"] = "blocked"
                 report_row["reason"] = "missing_target_transaction_id_in_live_ynab"
         elif decision_action in {"create_target", "update_target"}:
-            unit = units_by_review_transaction_id.get(review_transaction_id)
+            unit = None
+            for lookup_key in _prepared_unit_lookup_keys(row, decision_action):
+                unit = units_by_upload_transaction_id.get(lookup_key)
+                if unit is not None:
+                    break
             if unit is None:
                 report_row["action"] = "blocked"
                 report_row["reason"] = "missing_prepared_upload_unit"
