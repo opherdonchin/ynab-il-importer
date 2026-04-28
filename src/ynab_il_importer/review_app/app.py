@@ -989,6 +989,23 @@ def _display_target_category_options(
     return _filtered_target_category_options(row, payee_value, category_options)
 
 
+def _default_target_category_value(
+    *,
+    selected_value: str,
+    no_category_default: str,
+    fingerprint_default: str,
+    category_options: list[str],
+    uncategorized_default: str,
+) -> str:
+    return (
+        selected_value
+        or no_category_default
+        or fingerprint_default
+        or (category_options[0] if category_options else "")
+        or uncategorized_default
+    )
+
+
 def _most_common_lookup_value(
     lookup: dict[Any, dict[str, Any]] | None,
     indices: list[Any],
@@ -2516,11 +2533,13 @@ def _render_row_controls(
         category_options,
     )
     target_category_default = (
-        normalized_target_category_selected
-        or (no_category_default if create_target_default else "")
-        or (uncategorized_default if create_target_default else "")
-        or category_defaults.get(fingerprint, "")
-        or (filtered_category_options[0] if filtered_category_options else "")
+        _default_target_category_value(
+            selected_value=normalized_target_category_selected,
+            no_category_default=no_category_default if create_target_default else "",
+            fingerprint_default=category_defaults.get(fingerprint, ""),
+            category_options=filtered_category_options,
+            uncategorized_default=uncategorized_default if create_target_default else "",
+        )
     )
 
     show_all_categories_key = _editor_key(f"show_all_categories_{idx}")
@@ -3470,10 +3489,16 @@ def main() -> None:
                     and not group_requires_category
                 ):
                     group_category_default = review_model.NO_CATEGORY_REQUIRED
-                if not group_category_default and "Uncategorized" in category_list:
-                    group_category_default = "Uncategorized"
-                if not group_category_default and group_category_options:
-                    group_category_default = group_category_options[0]
+                if not group_category_default:
+                    group_category_default = _default_target_category_value(
+                        selected_value="",
+                        no_category_default="",
+                        fingerprint_default="",
+                        category_options=group_category_options,
+                        uncategorized_default=(
+                            "Uncategorized" if "Uncategorized" in category_list else ""
+                        ),
+                    )
 
                 payee_options = group_payee_options
                 category_options = group_category_options

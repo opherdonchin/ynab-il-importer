@@ -59,3 +59,20 @@ def test_apply_fingerprints_uses_map_and_logs(tmp_path: Path) -> None:
     assert "run_id" in log_df.columns
     assert log_df.loc[0, "matched_rule_id"] == "r1"
     assert log_df.loc[1, "matched_rule_id"] == ""
+
+
+def test_apply_fingerprints_collapses_paypal_facebook_variants() -> None:
+    rules = fingerprint.load_fingerprint_map(ROOT / "mappings" / "fingerprint_map.csv")
+
+    df = pd.DataFrame(
+        [
+            {
+                "description_clean": "PAYPAL FACEBOOK 35314369001 IE חיוב עסקת חו ל בשח",
+                "source": "card",
+            }
+        ]
+    )
+
+    out = fingerprint.apply_fingerprints(df, map_rules=rules, use_fingerprint_map=True)
+
+    assert out.loc[0, "fingerprint"] == "paypal facebook עסקת חו"

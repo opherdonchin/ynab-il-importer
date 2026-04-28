@@ -261,6 +261,26 @@ def _show_all_primary_states(app: AppTest) -> None:
     _find_multiselect_by_label(app.sidebar, "Save status").set_value(["Unsaved", "Saved"])
 
 
+def test_default_target_category_prefers_suggestions_over_uncategorized() -> None:
+    assert review_app._default_target_category_value(
+        selected_value="",
+        no_category_default="",
+        fingerprint_default="",
+        category_options=["Chugim parents", "Chugim"],
+        uncategorized_default="Uncategorized",
+    ) == "Chugim parents"
+
+
+def test_default_target_category_uses_uncategorized_only_as_last_fallback() -> None:
+    assert review_app._default_target_category_value(
+        selected_value="",
+        no_category_default="",
+        fingerprint_default="",
+        category_options=[],
+        uncategorized_default="Uncategorized",
+    ) == "Uncategorized"
+
+
 def test_apply_to_same_fingerprint_respects_eligible_mask() -> None:
     df = pl.DataFrame(
         {

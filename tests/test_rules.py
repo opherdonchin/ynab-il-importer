@@ -198,3 +198,52 @@ def test_card_suffix_disambiguates_transfer_rules() -> None:
     assert out[0, "match_status"] == "unique"
     assert out[0, "match_rule_id"] == "specific"
     assert out[0, "payee_canonical_suggested"] == "Transfer : Liya X7195"
+
+
+def test_specific_account_rule_beats_generic_facebook_payee_default() -> None:
+    rules = _rules(
+        [
+            {
+                "rule_id": "generic",
+                "priority": 0,
+                "fingerprint": "paypal facebook עסקת חו",
+                "source": "card",
+                "direction": "outflow",
+                "payee_canonical": "Facebook",
+            },
+            {
+                "rule_id": "specific",
+                "priority": 10,
+                "fingerprint": "paypal facebook עסקת חו",
+                "account_name": "Opher x9922",
+                "source": "card",
+                "direction": "outflow",
+                "payee_canonical": "Facebook",
+                "category_target": "Aikido",
+            },
+        ]
+    )
+    tx = pl.DataFrame(
+        [
+            {
+                "fingerprint": "paypal facebook עסקת חו",
+                "account_name": "Opher x9922",
+                "source": "card",
+                "outflow_ils": 568,
+                "inflow_ils": 0,
+            },
+            {
+                "fingerprint": "paypal facebook עסקת חו",
+                "account_name": "Liya X7195",
+                "source": "card",
+                "outflow_ils": 120,
+                "inflow_ils": 0,
+            },
+        ]
+    )
+
+    out = rules_mod.apply_payee_map_rules(tx, rules)
+
+    assert out["match_rule_id"].to_list() == ["specific", "generic"]
+    assert out["payee_canonical_suggested"].to_list() == ["Facebook", "Facebook"]
+    assert out["category_target_suggested"].to_list() == ["Aikido", ""]
