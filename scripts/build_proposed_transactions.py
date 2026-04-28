@@ -593,12 +593,18 @@ def _optional_text(value: object) -> str:
 
 
 def _build_target_suggestions_pandas(
-    transactions: pd.DataFrame, *, map_path: Path
+    transactions: pd.DataFrame,
+    *,
+    map_path: Path,
+    fingerprint_map_path: Path | None = None,
 ) -> pd.DataFrame:
     if transactions.empty:
         return pd.DataFrame(columns=TARGET_SUGGESTION_COLUMNS)
 
-    rules = rules_mod.load_payee_map(map_path)
+    rules = rules_mod.load_payee_map(
+        map_path,
+        fingerprint_map_path=fingerprint_map_path,
+    )
     rules_pd = rules.to_pandas()
     out = transactions.copy()
     out["transaction_id"] = out.apply(_make_transaction_id, axis=1)
@@ -641,14 +647,19 @@ def _build_target_suggestions_pandas(
 
 
 def build_target_suggestions(
-    transactions: pl.DataFrame, *, map_path: Path
+    transactions: pl.DataFrame,
+    *,
+    map_path: Path,
+    fingerprint_map_path: Path | None = None,
 ) -> pl.DataFrame:
     if transactions.is_empty():
         return pl.DataFrame(
             schema={column: pl.String for column in TARGET_SUGGESTION_COLUMNS}
         )
     suggested = _build_target_suggestions_pandas(
-        transactions.to_pandas(), map_path=map_path
+        transactions.to_pandas(),
+        map_path=map_path,
+        fingerprint_map_path=fingerprint_map_path,
     )
     if suggested.empty:
         return pl.DataFrame(
@@ -1373,6 +1384,7 @@ def _apply_review_target_suggestions(
     relations: pl.DataFrame,
     *,
     map_path: Path,
+    fingerprint_map_path: Path | None = None,
 ) -> pl.DataFrame:
     text = (
         lambda name: pl.col(name)
@@ -1401,7 +1413,11 @@ def _apply_review_target_suggestions(
     ) -> pl.DataFrame:
         if candidates.is_empty():
             return _empty_suggestions(id_col, prefix)
-        suggested = build_target_suggestions(candidates, map_path=map_path).rename(
+        suggested = build_target_suggestions(
+            candidates,
+            map_path=map_path,
+            fingerprint_map_path=fingerprint_map_path,
+        ).rename(
             {
                 "payee_options": "suggested_payee_options",
                 "category_options": "suggested_category_options",
@@ -1462,7 +1478,7 @@ def _apply_review_target_suggestions(
 
     source_candidates = relations.filter(pl.col("source_present")).select(
         text("source").alias("source"),
-        text("source_account").alias("account_name"),
+        text("account_name").alias("account_name"),
         text("source_account").alias("source_account"),
         text("source_row_id").alias("source_row_id"),
         text("source_date").alias("date"),
@@ -1645,6 +1661,7 @@ def build_review_rows(
     ynab_df: pl.DataFrame,
     *,
     map_path: Path,
+    fingerprint_map_path: Path | None = None,
     allowed_target_accounts: list[str] | None = None,
     include_reconciled_ynab: bool = False,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -1998,7 +2015,11 @@ def build_review_rows(
     relations_pl = pl.concat(
         [matched_pl, unmatched_source_pl, unmatched_target_pl], how="diagonal_relaxed"
     )
-    relations = _apply_review_target_suggestions(relations_pl, map_path=map_path)
+    relations = _apply_review_target_suggestions(
+        relations_pl,
+        map_path=map_path,
+        fingerprint_map_path=fingerprint_map_path,
+    )
     relations = review_io.project_review_artifact_to_working_dataframe(
         pl.from_arrow(review_io.coerce_review_artifact_table(relations))
     )
@@ -2010,6 +2031,7 @@ def run_build(
     source_paths: list[Path],
     ynab_path: Path,
     map_path: Path,
+    fingerprint_map_path: Path | None = None,
     out_path: Path,
     pairs_out: str = "",
     allowed_target_accounts: list[str] | None = None,
@@ -2029,6 +2051,7 @@ def run_build(
         source_df,
         ynab_df,
         map_path=map_path,
+        fingerprint_map_path=fingerprint_map_path,
         allowed_target_accounts=allowed_target_accounts,
         include_reconciled_ynab=include_reconciled_ynab,
     )
@@ -2055,6 +2078,12 @@ def main() -> None:
     parser.add_argument("--ynab", required=True)
     parser.add_argument("--map", dest="map_path", type=Path, default=None)
     parser.add_argument(
+        "--fingerprint-map",
+        dest="fingerprint_map_path",
+        type=Path,
+        default=None,
+    )
+    parser.add_argument(
         "--out", dest="out_path", default="outputs/proposed_transactions.parquet"
     )
     parser.add_argument("--pairs-out", dest="pairs_out", default="")
@@ -2062,6 +2091,7 @@ def main() -> None:
 
     profile = workflow_profiles.resolve_profile(args.profile or None)
     map_path = args.map_path or profile.payee_map_path
+    fingerprint_map_path = args.fingerprint_map_path or profile.fingerprint_map_path
 
     source_paths = _expand_source_paths(
         [Path(p) for p in args.source],
@@ -2071,6 +2101,7 @@ def main() -> None:
         source_paths=source_paths,
         ynab_path=Path(args.ynab),
         map_path=map_path,
+        fingerprint_map_path=fingerprint_map_path,
         out_path=Path(args.out_path),
         pairs_out=args.pairs_out,
     )

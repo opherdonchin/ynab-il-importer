@@ -46,6 +46,21 @@ def _write_payee_map(path: Path) -> None:
     ).to_csv(path, index=False, encoding="utf-8-sig")
 
 
+def _write_fingerprint_map(path: Path) -> None:
+    pd.DataFrame(
+        [
+            {
+                "rule_id": "coffee",
+                "is_active": True,
+                "priority": 0,
+                "pattern": "בית קפה",
+                "canonical_text": "coffee shop",
+                "notes": "",
+            }
+        ]
+    ).to_csv(path, index=False, encoding="utf-8-sig")
+
+
 def _canonical_source_polars(df: pd.DataFrame) -> pl.DataFrame:
     return _canonical_transaction_polars(
         df,
@@ -289,6 +304,61 @@ def test_load_source_inputs_requires_parquet_inputs(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Canonical transaction input must be parquet"):
         build_proposed_transactions._load_source_inputs([csv_path])
+
+
+def test_build_target_suggestions_canonicalizes_payee_map_fingerprints(
+    tmp_path: Path,
+) -> None:
+    payee_map_path = tmp_path / "payee_map.csv"
+    fingerprint_map_path = tmp_path / "fingerprint_map.csv"
+    pd.DataFrame(
+        [
+            {
+                "rule_id": "coffee_1",
+                "is_active": True,
+                "priority": 0,
+                "txn_kind": "",
+                "fingerprint": "בית קפה",
+                "description_clean_norm": "",
+                "account_name": "",
+                "source": "",
+                "direction": "",
+                "currency": "",
+                "amount_bucket": "",
+                "payee_canonical": "Coffee Shop",
+                "category_target": "Eating Out",
+                "notes": "",
+                "card_suffix": "",
+            }
+        ],
+        columns=build_proposed_transactions.rules_mod.PAYEE_MAP_COLUMNS,
+    ).to_csv(payee_map_path, index=False, encoding="utf-8-sig")
+    _write_fingerprint_map(fingerprint_map_path)
+
+    transactions = pl.DataFrame(
+        [
+            {
+                "transaction_id": "t1",
+                "fingerprint": "coffee shop",
+                "source": "card",
+                "account_name": "Account",
+                "date": "2026-04-01",
+                "outflow_ils": 10.0,
+                "inflow_ils": 0.0,
+                "description_raw": "בית קפה",
+                "memo": "בית קפה",
+            }
+        ]
+    )
+
+    out = build_proposed_transactions.build_target_suggestions(
+        transactions,
+        map_path=payee_map_path,
+        fingerprint_map_path=fingerprint_map_path,
+    )
+
+    assert out[0, "payee_selected"] == "Coffee Shop"
+    assert out[0, "category_selected"] == "Eating Out"
 
 
 def test_build_options_from_applied_uses_candidate_rule_ids() -> None:
@@ -2100,3 +2170,95 @@ def test_apply_review_target_suggestions_uses_current_pilates_bank_transfer_alia
     row = review_rows.row(0, named=True)
     assert row["target_payee_selected"] == "Transfer : Bank Leumi 225237"
     assert row["target_category_selected"] == ""
+
+
+def test_apply_review_target_suggestions_uses_canonical_account_name_for_rules(
+    tmp_path: Path,
+) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    pd.DataFrame(
+        [
+            {
+                "rule_id": "facebook_aikido",
+                "is_active": True,
+                "priority": 10,
+                "txn_kind": "",
+                "fingerprint": "paypal facebook עסקת חו",
+                "description_clean_norm": "",
+                "account_name": "Opher x9922",
+                "source": "card",
+                "direction": "outflow",
+                "currency": "",
+                "amount_bucket": "",
+                "payee_canonical": "Facebook",
+                "category_target": "Aikido",
+                "notes": "",
+                "card_suffix": "",
+            }
+        ],
+        columns=build_proposed_transactions.rules_mod.PAYEE_MAP_COLUMNS,
+    ).to_csv(map_path, index=False, encoding="utf-8-sig")
+
+    relations = pl.DataFrame(
+        [
+            {
+                "transaction_id": "facebook-1",
+                "source": "card",
+                "account_name": "Opher x9922",
+                "date": "2026-04-10",
+                "outflow_ils": 735.0,
+                "inflow_ils": 0.0,
+                "memo": "PAYPAL *FACEBOOK",
+                "fingerprint": "paypal facebook עסקת חו",
+                "match_status": "source_only",
+                "update_maps": "",
+                "decision_action": "create_target",
+                "reviewed": False,
+                "workflow_type": "institutional",
+                "relation_kind": "source_only",
+                "match_method": "",
+                "source_present": True,
+                "target_present": False,
+                "source_row_id": "source-row-1",
+                "target_row_id": "",
+                "source_account": "x9922",
+                "target_account": "",
+                "source_date": "2026-04-10",
+                "target_date": "",
+                "source_payee_current": "PAYPAL *FACEBOOK",
+                "target_payee_current": "",
+                "source_category_current": "",
+                "target_category_current": "",
+                "source_memo": "PAYPAL *FACEBOOK",
+                "target_memo": "",
+                "source_fingerprint": "paypal facebook עסקת חו",
+                "target_fingerprint": "",
+                "source_bank_txn_id": "",
+                "source_card_txn_id": "CARD:1",
+                "source_card_suffix": "9922",
+                "source_secondary_date": "",
+                "source_ref": "",
+                "source_context_kind": "",
+                "source_context_category_id": "",
+                "source_context_category_name": "",
+                "source_context_matching_split_ids": "",
+                "source_payee_selected": "",
+                "source_category_selected": "",
+                "target_context_kind": "",
+                "target_context_matching_split_ids": "",
+                "target_payee_selected": "",
+                "target_category_selected": "",
+                "source_transaction": {"transaction_id": "facebook-1"},
+                "target_transaction": None,
+            }
+        ]
+    )
+
+    review_rows = build_proposed_transactions._apply_review_target_suggestions(
+        relations,
+        map_path=map_path,
+    )
+
+    row = review_rows.row(0, named=True)
+    assert row["target_payee_selected"] == "Facebook"
+    assert row["target_category_selected"] == "Aikido"

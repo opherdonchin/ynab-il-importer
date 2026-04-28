@@ -233,6 +233,41 @@ def fingerprint_v0(value: Any, token_limit: int = DEFAULT_TOKEN_LIMIT) -> str:
     return " ".join(tokens[:token_limit])
 
 
+def canonicalize_text(
+    value: Any,
+    *,
+    map_rules: list[dict[str, Any]] | None = None,
+) -> tuple[str, str, str, str]:
+    text_normalized = normalize.normalize_text(value)
+    if not map_rules:
+        return text_normalized, text_normalized, "", ""
+
+    for rule in map_rules:
+        pattern = str(rule["pattern"]).strip()
+        if not pattern:
+            continue
+        if pattern in text_normalized:
+            return (
+                text_normalized,
+                str(rule["canonical_text"]),
+                str(rule["rule_id"]),
+                pattern,
+            )
+    return text_normalized, text_normalized, "", ""
+
+
+def canonicalize_fingerprint_value(
+    value: Any,
+    *,
+    map_rules: list[dict[str, Any]] | None = None,
+) -> str:
+    _text_normalized, canonical_text, _rule_id, _pattern = canonicalize_text(
+        value,
+        map_rules=map_rules,
+    )
+    return fingerprint_v0(canonical_text)
+
+
 def _blank_to_none(value: Any) -> str | None:
     if value is None or (isinstance(value, float) and math.isnan(value)):
         return None
@@ -359,20 +394,24 @@ def apply_fingerprints(
     canonical_text = text_normalized.copy()
 
     if rules:
-        unmatched = matched_rule_id == ""
-        for rule in rules:
-            pattern = str(rule["pattern"]).strip()
-            if not pattern:
-                continue
-            mask = unmatched & text_normalized.str.contains(pattern, na=False, regex=False)
-            if not mask.any():
-                continue
-            canonical_text.loc[mask] = rule["canonical_text"]
-            matched_rule_id.loc[mask] = rule["rule_id"]
-            matched_pattern.loc[mask] = pattern
-            unmatched = matched_rule_id == ""
-            if not unmatched.any():
-                break
+        canonicalized = [
+            canonicalize_text(value, map_rules=rules) for value in text_normalized.tolist()
+        ]
+        canonical_text = pd.Series(
+            [canonical for _norm, canonical, _rule_id, _pattern in canonicalized],
+            index=out.index,
+            dtype="string",
+        )
+        matched_rule_id = pd.Series(
+            [rule_id for _norm, _canonical, rule_id, _pattern in canonicalized],
+            index=out.index,
+            dtype="string",
+        )
+        matched_pattern = pd.Series(
+            [pattern for _norm, _canonical, _rule_id, pattern in canonicalized],
+            index=out.index,
+            dtype="string",
+        )
 
     out["description_clean_norm"] = text_normalized
     out["fingerprint"] = canonical_text.map(fingerprint_v0)

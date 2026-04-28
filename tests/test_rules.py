@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 import polars as pl
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -247,3 +248,57 @@ def test_specific_account_rule_beats_generic_facebook_payee_default() -> None:
     assert out["match_rule_id"].to_list() == ["specific", "generic"]
     assert out["payee_canonical_suggested"].to_list() == ["Facebook", "Facebook"]
     assert out["category_target_suggested"].to_list() == ["Aikido", ""]
+
+
+def test_load_payee_map_canonicalizes_fingerprint_keys_with_fingerprint_map(
+    tmp_path: Path,
+) -> None:
+    payee_map_path = tmp_path / "payee_map.csv"
+    fingerprint_map_path = tmp_path / "fingerprint_map.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "rule_id": "adrian_rule",
+                "is_active": True,
+                "priority": 10,
+                "txn_kind": "",
+                "fingerprint": "אדריאן דדון",
+                "description_clean_norm": "",
+                "account_name": "",
+                "source": "",
+                "direction": "",
+                "currency": "",
+                "amount_bucket": "",
+                "payee_canonical": "Adrian Sports Trainer",
+                "category_target": "Chugim",
+                "notes": "",
+                "card_suffix": "",
+            }
+        ],
+        columns=rules_mod.PAYEE_MAP_COLUMNS,
+    ).to_csv(payee_map_path, index=False, encoding="utf-8-sig")
+
+    fingerprint_map_path.write_text(
+        "\n".join(
+            [
+                "rule_id,is_active,priority,pattern,canonical_text,notes",
+                "adrian,TRUE,0,אדריאן,Adrian Sports Trainer,",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    rules = rules_mod.load_payee_map(
+        payee_map_path,
+        fingerprint_map_path=fingerprint_map_path,
+    )
+    tx = pl.DataFrame(
+        [{"fingerprint": "adrian sports trainer", "outflow_ils": 297, "inflow_ils": 0}]
+    )
+
+    out = rules_mod.apply_payee_map_rules(tx, rules)
+
+    assert rules[0, "fingerprint"] == "adrian sports trainer"
+    assert out[0, "match_status"] == "unique"
+    assert out[0, "payee_canonical_suggested"] == "Adrian Sports Trainer"

@@ -8,6 +8,7 @@ import re
 
 import polars as pl
 
+import ynab_il_importer.fingerprint as fingerprint
 import ynab_il_importer.normalize as normalize
 
 # Decision:
@@ -153,12 +154,43 @@ def normalize_payee_map_rules(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def load_payee_map(path: str | Path) -> pl.DataFrame:
+def _canonicalize_payee_rule_fingerprints(
+    rules: pl.DataFrame,
+    *,
+    fingerprint_map_path: str | Path,
+) -> pl.DataFrame:
+    map_rules = fingerprint.load_fingerprint_map(fingerprint_map_path)
+    return rules.with_columns(
+        pl.col("fingerprint").map_elements(
+            lambda value: (
+                fingerprint.canonicalize_fingerprint_value(
+                    value,
+                    map_rules=map_rules,
+                )
+                if _blank_to_none(value) is not None
+                else None
+            ),
+            return_dtype=pl.Utf8,
+        )
+    )
+
+
+def load_payee_map(
+    path: str | Path,
+    *,
+    fingerprint_map_path: str | Path | None = None,
+) -> pl.DataFrame:
     map_path = Path(path)
     if not map_path.exists():
         raise FileNotFoundError(f"Missing payee map file: {map_path}")
     raw = pl.read_csv(map_path, infer_schema_length=0).fill_null("")
-    return normalize_payee_map_rules(raw)
+    normalized = normalize_payee_map_rules(raw)
+    if fingerprint_map_path is None:
+        return normalized
+    return _canonicalize_payee_rule_fingerprints(
+        normalized,
+        fingerprint_map_path=fingerprint_map_path,
+    )
 
 
 def _compute_direction(amount_ils: Any) -> str:

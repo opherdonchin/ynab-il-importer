@@ -297,6 +297,7 @@ def main() -> None:
         source_paths=source_paths,
         ynab_path=ynab_path,
         map_path=context.payee_map_path,
+        fingerprint_map_path=context.fingerprint_map_path,
         out_path=out_path,
         pairs_out=str(pairs_out),
         allowed_target_accounts=target_account_names,
