@@ -232,11 +232,13 @@ def review_data_view(df: pl.DataFrame) -> pl.DataFrame:
         dtype=pl.Boolean,
     )
     target_mutation_action = action_expr.is_in(["create_target", "update_target"])
-    missing_payee = target_mutation_action & target_payee_selected.eq("")
+    payee_autofill, category_autofill = _singleton_target_suggestion_masks(frame)
+    missing_payee = target_mutation_action & target_payee_selected.eq("") & ~payee_autofill
     missing_category = (
         target_mutation_action
         & (target_category_selected.eq("") | no_category_required)
         & target_category_required
+        & ~(target_category_selected.eq("") & category_autofill)
     )
     uncategorized_selected = (
         target_category_selected.str.to_lowercase().str.contains("uncategorized", literal=True)
@@ -353,7 +355,10 @@ def review_filter_state_view(
             }
         )
 
-    blocker_values = blocker_series.cast(pl.Utf8, strict=False).fill_null("").to_list()
+    blocker_values = _effective_state_blocker_series(
+        data_view,
+        blocker_series,
+    ).to_list()
     save_values = save_state.cast(pl.Utf8, strict=False).fill_null("Unsaved").to_list()
     changed_values = (
         changed_mask.cast(pl.Boolean, strict=False).fill_null(False).to_list()
@@ -500,6 +505,73 @@ def _id_list(df: pl.DataFrame, col: str) -> list[str]:
     return [str(value or "").strip() for value in _id_series(df, col).to_list()]
 
 
+def _singleton_target_suggestion_masks(df: pl.DataFrame) -> tuple[pl.Series, pl.Series]:
+    rows = df.to_dicts()
+    payee_autofill: list[bool] = []
+    category_autofill: list[bool] = []
+
+    for row in rows:
+        selected_payee = _normalize_text(
+            row.get("target_payee_selected", row.get("payee_selected", ""))
+        )
+        payee_options = model.parse_option_string(row.get("payee_options", ""))
+        payee_has_singleton = selected_payee == "" and len(payee_options) == 1
+        effective_payee = selected_payee or (payee_options[0] if payee_has_singleton else "")
+
+        selected_category = model.normalize_category_value(
+            row.get("target_category_selected", row.get("category_selected", ""))
+        )
+        category_options = model.parse_option_string(row.get("category_options", ""))
+        category_required = model.category_required_for_payee(
+            effective_payee,
+            current_account_on_budget=_optional_row_bool(row, "target_account_on_budget"),
+            transfer_target_on_budget=_optional_row_bool(
+                row, "target_transfer_account_on_budget"
+            ),
+        )
+        if category_required:
+            category_options = [
+                value
+                for value in category_options
+                if not model.is_no_category_required(value)
+            ]
+        category_has_singleton = selected_category == "" and len(category_options) == 1
+
+        payee_autofill.append(payee_has_singleton)
+        category_autofill.append(category_has_singleton)
+
+    return (
+        pl.Series(payee_autofill, dtype=pl.Boolean),
+        pl.Series(category_autofill, dtype=pl.Boolean),
+    )
+
+
+def _effective_state_blocker_series(
+    df: pl.DataFrame,
+    blocker_series: pl.Series,
+) -> pl.Series:
+    payee_autofill, category_autofill = _singleton_target_suggestion_masks(df)
+    blocker_values = [
+        _normalize_text(value)
+        for value in blocker_series.cast(pl.Utf8, strict=False).fill_null("").to_list()
+    ]
+    effective: list[str] = []
+    for blocker_value, payee_ready, category_ready in zip(
+        blocker_values,
+        payee_autofill.to_list(),
+        category_autofill.to_list(),
+        strict=False,
+    ):
+        if blocker_value == "Missing payee" and payee_ready:
+            effective.append("None")
+            continue
+        if blocker_value == "Missing category" and category_ready:
+            effective.append("None")
+            continue
+        effective.append(blocker_value)
+    return pl.Series(effective, dtype=pl.Utf8)
+
+
 def _component_mask_from_map(
     df: pl.DataFrame,
     idx: Any,
@@ -544,8 +616,14 @@ def _missing_value_masks(df: pl.DataFrame) -> tuple[pl.Series, pl.Series, pl.Ser
         ],
         dtype=pl.Boolean,
     )
-    missing_payee = target_mutation & payee_blank
-    missing_category = target_mutation & (category_blank | no_category_required) & category_required
+    payee_autofill, category_autofill = _singleton_target_suggestion_masks(df)
+    missing_payee = target_mutation & payee_blank & ~payee_autofill
+    missing_category = (
+        target_mutation
+        & (category_blank | no_category_required)
+        & category_required
+        & ~(category_blank & category_autofill)
+    )
     return missing_payee, missing_category, target_mutation
 
 
@@ -876,7 +954,7 @@ def truthy_series(df: pl.DataFrame, column: str) -> pl.Series:
 
 def primary_state_series(df: pl.DataFrame, blocker_series: pl.Series) -> pl.Series:
     reviewed = truthy_series(df, "reviewed")
-    blocker = [str(value or "").strip() for value in blocker_series.to_list()]
+    blocker = _effective_state_blocker_series(df, blocker_series).to_list()
     action = [str(value or "").strip() for value in action_series(df).to_list()]
     reviewed_values = reviewed.to_list()
     states: list[str] = []

@@ -641,6 +641,42 @@ def test_primary_state_series_maps_fix_decide_and_settled() -> None:
     assert states.to_list() == ["Needs fix", "Needs review", "Settled"]
 
 
+def test_singleton_target_suggestions_show_as_needs_review_not_fix() -> None:
+    df = _review_rows(
+        [
+            {
+                "transaction_id": "singleton-review",
+                "match_status": "source_only",
+                "source_present": True,
+                "target_present": False,
+                "decision_action": "create_target",
+                "reviewed": False,
+                "target_payee_selected": "",
+                "target_category_selected": "",
+                "payee_options": "Facebook",
+                "category_options": "Aikido",
+            }
+        ]
+    )
+
+    blockers = review_validation.blocker_series(df)
+    states = review_state.primary_state_series(df, blockers)
+    view = review_state.review_data_view(df)
+    counts = review_state.summary_counts(df)
+
+    assert blockers.to_list() == ["Missing payee"]
+    assert states.to_list() == ["Needs review"]
+    assert view.get_column("missing_payee").to_list() == [False]
+    assert view.get_column("missing_category").to_list() == [False]
+    assert counts == {
+        "total": 1,
+        "missing_payee": 0,
+        "missing_category": 0,
+        "unresolved": 0,
+        "update_maps": 0,
+    }
+
+
 def test_allowed_decision_actions_allow_source_mutation_for_cross_budget_target_only() -> None:
     actions = review_validation.allowed_decision_actions(
         pd.Series(
