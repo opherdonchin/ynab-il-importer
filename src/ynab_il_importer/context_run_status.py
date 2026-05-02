@@ -38,6 +38,16 @@ def _normalize_text(value: object) -> str:
     return str(value or "").strip()
 
 
+def _display_text(value: object) -> str:
+    return (
+        str(value or "")
+        .replace("\r\n", " / ")
+        .replace("\n", " / ")
+        .encode("ascii", "replace")
+        .decode("ascii")
+    )
+
+
 def _account_key(value: str) -> str:
     text = re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower())
     return text.strip("_") or "account"
@@ -656,6 +666,73 @@ def _live_category_checks(
     ]
 
 
+def _manual_match_detail_text(detail: dict[str, Any]) -> str:
+    amount_ils = float(detail.get("amount_ils", 0.0) or 0.0)
+    payee_name = _normalize_text(detail.get("payee_name", "")) or "<blank>"
+    memo = _normalize_text(detail.get("memo", "")) or "<blank>"
+    candidate_summary = _normalize_text(detail.get("candidate_summary", "")) or "<none>"
+    return (
+        f"{_display_text(detail['import_id'])} | {_display_text(detail['date'])} | {amount_ils:.2f} | "
+        f"payee={_display_text(payee_name)} | memo={_display_text(memo)} | "
+        f"candidates={detail['candidate_count']} | {_display_text(candidate_summary)}"
+    )
+
+
+def _live_upload_preflight_checks(
+    *,
+    plan_id: str,
+    reviewed_path: Path,
+    account_cache: dict[str, list[dict[str, Any]]],
+    transaction_cache: dict[str, list[dict[str, Any]]],
+    category_cache: dict[str, pl.DataFrame],
+) -> list[dict[str, Any]]:
+    if not reviewed_path.exists():
+        return []
+
+    try:
+        accounts = _budget_accounts(plan_id, account_cache)
+        transactions = _budget_transactions(plan_id, transaction_cache)
+        categories = _budget_categories(plan_id, category_cache)
+        reviewed = upload_prep.load_upload_working_frame(reviewed_path)
+        prepared = upload_prep.prepare_upload_transactions(
+            reviewed,
+            accounts=accounts,
+            categories_df=categories,
+        )
+        preflight = upload_prep.upload_preflight(prepared, transactions)
+        details = preflight["potential_match_details"]
+        if details:
+            rendered = " || ".join(
+                _manual_match_detail_text(detail) for detail in details[:3]
+            )
+            return [
+                _check(
+                    name="live upload preflight manual matches",
+                    status="attention",
+                    detail=f"rows={len(details)} | {rendered}",
+                    path=reviewed_path,
+                    data={"manual_match_details": details},
+                )
+            ]
+        return [
+            _check(
+                name="live upload preflight manual matches",
+                status="clean",
+                detail="rows=0",
+                path=reviewed_path,
+            )
+        ]
+    except Exception as exc:  # pragma: no cover - defensive status path
+        return [
+            _check(
+                name="live upload preflight manual matches",
+                status="error",
+                detail=str(exc),
+                path=reviewed_path,
+            )
+        ]
+
+
 def collect_context_run_status(
     *,
     context_name: str,
@@ -881,6 +958,16 @@ def collect_context_run_status(
                         contexts_root=contexts_root,
                     )
                 )
+
+        live_checks.extend(
+            _live_upload_preflight_checks(
+                plan_id=target_plan_id,
+                reviewed_path=reviewed_path,
+                account_cache=account_cache,
+                transaction_cache=transaction_cache,
+                category_cache=category_cache,
+            )
+        )
 
     artifact_summary = Counter(check["status"] for check in artifact_checks)
     report_summary = Counter(check["status"] for check in report_checks)

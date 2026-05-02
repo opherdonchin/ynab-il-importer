@@ -31,6 +31,28 @@ def _print_messages(title: str, messages: list[str]) -> None:
         print(f"  - {message}")
 
 
+def _display_text(value: object) -> str:
+    return (
+        str(value or "")
+        .replace("\r\n", " / ")
+        .replace("\n", " / ")
+        .encode("ascii", "replace")
+        .decode("ascii")
+    )
+
+
+def _format_manual_match_warning(detail: dict[str, object]) -> str:
+    amount_ils = float(detail.get("amount_ils", 0.0) or 0.0)
+    payee_name = str(detail.get("payee_name", "") or "").strip() or "<blank>"
+    memo = str(detail.get("memo", "") or "").strip() or "<blank>"
+    candidate_summary = str(detail.get("candidate_summary", "") or "").strip() or "<none>"
+    return (
+        f"{_display_text(detail['import_id'])} | {_display_text(detail['date'])} | {amount_ils:.2f} | "
+        f"payee={_display_text(payee_name)} | memo={_display_text(memo)} | "
+        f"candidates={detail['candidate_count']} | {_display_text(candidate_summary)}"
+    )
+
+
 def _parse_bool_arg(value: str) -> bool:
     normalized = value.strip().lower()
     if normalized in {"true", "1", "yes"}:
@@ -243,6 +265,13 @@ def main() -> None:
             "Some rows may match existing user-entered transactions instead of creating brand-new imports."
         )
     _print_messages("Notes", preflight_notes)
+    _print_messages(
+        "Possible manual match details",
+        [
+            _format_manual_match_warning(detail)
+            for detail in preflight["potential_match_details"]
+        ],
+    )
     if preflight["payload_duplicate_import_keys"]:
         raise ValueError(
             "Payload contains duplicate (account_id, import_id) keys: "

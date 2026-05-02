@@ -1371,6 +1371,146 @@ def _account_import_label(account_id: str, import_id: str) -> str:
     return f"{_normalize_text(account_id)}::{_normalize_text(import_id)}"
 
 
+def _truncate_text(value: Any, *, limit: int = 80) -> str:
+    text = _normalize_text(value)
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3]}..."
+
+
+def _format_manual_match_candidate_summary(row: Mapping[str, Any]) -> str:
+    amount_milliunits = int(row.get("amount_milliunits", 0) or 0)
+    amount_ils = round(amount_milliunits / 1000.0, 2)
+    return (
+        f"{_normalize_text(row.get('date', ''))} | {amount_ils:.2f} | "
+        f"payee={_truncate_text(row.get('payee_name', '<blank>'), limit=40) or '<blank>'} | "
+        f"memo={_truncate_text(row.get('memo', '<blank>'), limit=60) or '<blank>'} | "
+        f"cleared={_normalize_text(row.get('cleared', '')) or '<blank>'} | "
+        f"id={_normalize_text(row.get('id', '')) or '<blank>'}"
+    )
+
+
+def _manual_match_details(
+    prepared: pl.DataFrame,
+    existing_df: pl.DataFrame,
+) -> list[dict[str, Any]]:
+    prepared = prepared.filter(
+        pl.col("decision_action")
+        .cast(pl.Utf8, strict=False)
+        .fill_null("")
+        .str.strip_chars()
+        .str.to_lowercase()
+        .eq(_CREATE_TARGET_ACTION)
+    )
+    if prepared.is_empty():
+        return []
+
+    candidates = existing_df.filter(pl.col("import_id") == "")
+    if candidates.is_empty():
+        return []
+
+    merged = (
+        prepared.select(
+            "upload_transaction_id",
+            "account_id",
+            "amount_milliunits",
+            pl.col("import_id").alias("import_id_prepared"),
+            pl.col("date").alias("date_prepared"),
+            pl.col("date_key").alias("date_key_prepared"),
+            pl.col("payee_name_upload").alias("payee_name_prepared"),
+            pl.col("memo").alias("memo_prepared"),
+        )
+        .join(
+            candidates.select(
+                pl.col("id").alias("candidate_transaction_id"),
+                "account_id",
+                "amount_milliunits",
+                pl.col("date").alias("date_existing"),
+                pl.col("date_key").alias("date_key_existing"),
+                pl.col("payee_name").alias("payee_name_existing"),
+                pl.col("memo").alias("memo_existing"),
+                pl.col("cleared").alias("cleared_existing"),
+                pl.col("category_name").alias("category_name_existing"),
+            ),
+            on=["account_id", "amount_milliunits"],
+            how="inner",
+        )
+        .with_columns(
+            (
+                (pl.col("date_key_prepared") - pl.col("date_key_existing"))
+                .dt.total_days()
+                .abs()
+            ).alias("date_gap_days")
+        )
+        .filter(pl.col("date_gap_days") <= 10)
+        .sort(
+            [
+                "import_id_prepared",
+                "date_gap_days",
+                "date_existing",
+                "candidate_transaction_id",
+            ]
+        )
+    )
+    if merged.is_empty():
+        return []
+
+    rows = merged.to_dicts()
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        import_id = _normalize_text(row.get("import_id_prepared", ""))
+        if not import_id:
+            continue
+        detail = grouped.get(import_id)
+        if detail is None:
+            amount_milliunits = int(row.get("amount_milliunits", 0) or 0)
+            detail = {
+                "upload_transaction_id": _normalize_text(
+                    row.get("upload_transaction_id", "")
+                ),
+                "account_id": _normalize_text(row.get("account_id", "")),
+                "import_id": import_id,
+                "date": _normalize_text(row.get("date_prepared", "")),
+                "amount_milliunits": amount_milliunits,
+                "amount_ils": round(amount_milliunits / 1000.0, 2),
+                "payee_name": _normalize_text(row.get("payee_name_prepared", "")),
+                "memo": _normalize_text(row.get("memo_prepared", "")),
+                "candidate_count": 0,
+                "candidate_summary": "",
+                "candidate_summaries": [],
+                "candidate_transaction_ids": [],
+                "date_gap_days_min": None,
+            }
+            grouped[import_id] = detail
+
+        candidate_summary = _format_manual_match_candidate_summary(
+            {
+                "id": row.get("candidate_transaction_id", ""),
+                "date": row.get("date_existing", ""),
+                "amount_milliunits": row.get("amount_milliunits", 0),
+                "payee_name": row.get("payee_name_existing", ""),
+                "memo": row.get("memo_existing", ""),
+                "cleared": row.get("cleared_existing", ""),
+            }
+        )
+        detail["candidate_count"] += 1
+        detail["candidate_transaction_ids"].append(
+            _normalize_text(row.get("candidate_transaction_id", ""))
+        )
+        detail["candidate_summaries"].append(candidate_summary)
+        date_gap_days = row.get("date_gap_days")
+        if isinstance(date_gap_days, int):
+            if detail["date_gap_days_min"] is None:
+                detail["date_gap_days_min"] = date_gap_days
+            else:
+                detail["date_gap_days_min"] = min(detail["date_gap_days_min"], date_gap_days)
+
+    details = sorted(grouped.values(), key=lambda item: item["import_id"])
+    for detail in details:
+        detail["candidate_summary"] = " || ".join(detail["candidate_summaries"][:3])
+    return details
+
+
 def _response_transaction_lookup(
     transactions: list[dict[str, Any]],
 ) -> dict[tuple[str, str], dict[str, Any]]:
@@ -1415,6 +1555,7 @@ def upload_preflight(
     existing_df = _transactions_frame(existing_transactions)
     existing_import_id_hits: list[tuple[str, str]] = []
     potential_match_import_ids: list[str] = []
+    potential_match_details: list[dict[str, Any]] = []
     if not existing_df.is_empty():
         existing_with_import = existing_df.filter(pl.col("import_id") != "")
         if not existing_with_import.is_empty():
@@ -1428,38 +1569,21 @@ def upload_preflight(
             }
             existing_import_id_hits = sorted(prepared_keys.intersection(existing_keys))
 
-        candidates = existing_df.filter(pl.col("import_id") == "")
-        if not candidates.is_empty():
-            merged = (
-                prepared.select(
-                    "account_id",
-                    "amount_milliunits",
-                    pl.col("import_id").alias("import_id_prepared"),
-                    pl.col("date_key").alias("date_key_prepared"),
-                )
-                .join(
-                    candidates.select(
-                        "account_id",
-                        "amount_milliunits",
-                        pl.col("date_key").alias("date_key_existing"),
-                    ),
-                    on=["account_id", "amount_milliunits"],
-                    how="inner",
-                )
-                .with_columns(
-                    (
-                        (pl.col("date_key_prepared") - pl.col("date_key_existing"))
-                        .dt.total_days()
-                        .abs()
-                    ).alias("date_gap_days")
-                )
-                .filter(pl.col("date_gap_days") <= 10)
+        potential_match_details = _manual_match_details(prepared, existing_df)
+        if potential_match_details:
+            potential_match_import_ids = sorted(
+                {
+                    detail["import_id"]
+                    for detail in potential_match_details
+                    if _normalize_text(detail.get("import_id", ""))
+                }
+                - {import_id for _, import_id in existing_import_id_hits}
             )
-            if not merged.is_empty():
-                potential_match_import_ids = sorted(
-                    set(merged.get_column("import_id_prepared").to_list())
-                    - {import_id for _, import_id in existing_import_id_hits}
-                )
+            potential_match_details = [
+                detail
+                for detail in potential_match_details
+                if detail["import_id"] in potential_match_import_ids
+            ]
 
     transfer_payload_issue_ids = sorted(
         prepared.filter(
@@ -1492,6 +1616,7 @@ def upload_preflight(
         "payload_duplicate_import_keys": payload_duplicate_keys,
         "existing_import_id_hits": existing_import_id_hits,
         "potential_match_import_ids": potential_match_import_ids,
+        "potential_match_details": potential_match_details,
         "transfer_payload_issue_ids": transfer_payload_issue_ids,
         "unsupported_transaction_unit_ids": unsupported_transaction_unit_ids,
     }

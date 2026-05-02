@@ -997,6 +997,25 @@ def test_upload_preflight_reports_duplicate_and_match_risks() -> None:
     assert preflight["payload_duplicate_import_keys"] == [("acc-bank", "YNAB:-1000:2026-01-01:1")]
     assert preflight["existing_import_id_hits"] == []
     assert preflight["potential_match_import_ids"] == ["YNAB:-2000:2026-01-02:1"]
+    assert preflight["potential_match_details"] == [
+        {
+            "upload_transaction_id": "upload_txn_2",
+            "account_id": "acc-bank",
+            "import_id": "YNAB:-2000:2026-01-02:1",
+            "date": "2026-01-02",
+            "amount_milliunits": -2000,
+            "amount_ils": -2.0,
+            "payee_name": "",
+            "memo": "",
+            "candidate_count": 1,
+            "candidate_summary": "2026-01-02 | -2.00 | payee=<blank> | memo=<blank> | cleared=<blank> | id=existing-1",
+            "candidate_summaries": [
+                "2026-01-02 | -2.00 | payee=<blank> | memo=<blank> | cleared=<blank> | id=existing-1"
+            ],
+            "candidate_transaction_ids": ["existing-1"],
+            "date_gap_days_min": 0,
+        }
+    ]
     assert preflight["transfer_payload_issue_ids"] == []
 
 
@@ -1017,6 +1036,58 @@ def test_upload_preflight_allows_same_import_id_on_different_accounts() -> None:
     preflight = upload_prep.upload_preflight(prepared, [])
 
     assert preflight["payload_duplicate_import_keys"] == []
+
+
+def test_upload_preflight_only_flags_create_target_manual_match_risks() -> None:
+    prepared = pl.DataFrame(
+        {
+            "decision_action": ["create_target", "update_target"],
+            "import_id": ["BANK:V1:create", "YNAB:500000:2026-04-04:1"],
+            "account_id": ["acc-bank", "acc-bank"],
+            "date": ["2026-04-25", "2026-04-04"],
+            "amount_milliunits": [-50000, 500000],
+            "upload_kind": ["regular", "regular"],
+            "payee_id": ["", ""],
+            "payee_name_upload": ["Dana movie", "Hava"],
+            "category_id": ["cat-going-out", "cat-birthdays"],
+            "memo": ["BIT [card x0849]", "gift"],
+        }
+    )
+    existing = [
+        {
+            "id": "manual-1",
+            "account_id": "acc-bank",
+            "date": "2026-04-26",
+            "amount": -50000,
+            "memo": "Bit Dana Cohen",
+            "payee_name": "Cinema City",
+            "import_id": "",
+            "matched_transaction_id": "",
+            "transfer_account_id": "",
+            "category_name": "Going out",
+            "cleared": "cleared",
+        },
+        {
+            "id": "manual-2",
+            "account_id": "acc-bank",
+            "date": "2026-04-04",
+            "amount": 500000,
+            "memo": "gift",
+            "payee_name": "Hava",
+            "import_id": "",
+            "matched_transaction_id": "",
+            "transfer_account_id": "",
+            "category_name": "Birthdays",
+            "cleared": "cleared",
+        },
+    ]
+
+    preflight = upload_prep.upload_preflight(prepared, existing)
+
+    assert preflight["potential_match_import_ids"] == ["BANK:V1:create"]
+    assert [detail["import_id"] for detail in preflight["potential_match_details"]] == [
+        "BANK:V1:create"
+    ]
 
 
 def test_prepare_upload_transactions_builds_update_target_payloads() -> None:

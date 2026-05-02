@@ -243,3 +243,137 @@ def test_collect_context_run_status_can_run_live_bank_checks_with_stubs(
     assert live_by_name["live bank sync demo_bank"]["status"] == "clean"
     assert live_by_name["live bank uncleared demo_bank"]["status"] == "clean"
     assert live_by_name["live bank reconcile demo_bank"]["status"] == "clean"
+
+
+def test_collect_context_run_status_surfaces_live_manual_match_warnings(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    defaults_path = tmp_path / "defaults.toml"
+    contexts_root = tmp_path / "contexts"
+    _write_defaults(defaults_path, tmp_path)
+    _write_bank_context(contexts_root)
+
+    raw_dir = tmp_path / "data/raw/2026_04_28"
+    derived_dir = tmp_path / "data/derived/2026_04_28"
+    paired_dir = tmp_path / "data/paired/2026_04_28"
+    raw_dir.mkdir(parents=True)
+    derived_dir.mkdir(parents=True)
+    paired_dir.mkdir(parents=True)
+
+    (raw_dir / "demo-bank.dat").write_text("demo", encoding="utf-8")
+    pl.DataFrame({"value": [1]}).write_parquet(derived_dir / "demo_bank_norm.parquet")
+    pl.DataFrame({"value": [1]}).write_parquet(derived_dir / "demo_ynab_api_norm.parquet")
+    reviewed_path = paired_dir / "demo_proposed_transactions_reviewed.parquet"
+    reviewed_path.write_text("placeholder", encoding="utf-8")
+
+    monkeypatch.setattr(
+        context_run_status,
+        "_review_artifact_check",
+        lambda reviewed_path: context_run_status._check(
+            name="reviewed artifact",
+            status="present",
+            detail="rows=1 | reviewed=1 | upload_decisions=1 | actions: create_target=1",
+            path=reviewed_path,
+        ),
+    )
+    monkeypatch.setattr(
+        context_run_status.ynab_api,
+        "fetch_accounts",
+        lambda plan_id=None: [{"id": "acc-1", "name": "Bank Demo"}],
+    )
+    monkeypatch.setattr(
+        context_run_status.ynab_api,
+        "fetch_transactions",
+        lambda plan_id=None: [{"id": "txn-1"}],
+    )
+    monkeypatch.setattr(
+        context_run_status,
+        "_budget_categories",
+        lambda plan_id, cache: pl.DataFrame(),
+    )
+    monkeypatch.setattr(
+        context_run_status.bank_reconciliation,
+        "load_bank_transactions",
+        lambda _path: pd.DataFrame([{"amount": 1}]),
+    )
+    monkeypatch.setattr(
+        context_run_status.bank_reconciliation,
+        "plan_bank_match_sync",
+        lambda *_args, **_kwargs: {
+            "report": pd.DataFrame([{"action": "matched"}]),
+            "matched_count": 1,
+            "update_count": 0,
+        },
+    )
+    monkeypatch.setattr(
+        context_run_status.bank_reconciliation,
+        "plan_uncleared_ynab_triage",
+        lambda *_args, **_kwargs: {
+            "report": pd.DataFrame([]),
+            "recent_pending_count": 0,
+            "candidate_source_match_count": 0,
+            "stale_orphan_count": 0,
+        },
+    )
+    monkeypatch.setattr(
+        context_run_status.bank_reconciliation,
+        "plan_bank_statement_reconciliation",
+        lambda *_args, **_kwargs: {
+            "report": pd.DataFrame([{"action": "anchor_history"}]),
+            "ok": True,
+            "update_count": 0,
+            "reason": "",
+        },
+    )
+    monkeypatch.setattr(
+        context_run_status.upload_prep,
+        "load_upload_working_frame",
+        lambda _path: pl.DataFrame({"value": [1]}),
+    )
+    monkeypatch.setattr(
+        context_run_status.upload_prep,
+        "prepare_upload_transactions",
+        lambda *_args, **_kwargs: pl.DataFrame({"value": [1]}),
+    )
+    monkeypatch.setattr(
+        context_run_status.upload_prep,
+        "upload_preflight",
+        lambda *_args, **_kwargs: {
+            "prepared_count": 1,
+            "transfer_count": 0,
+            "split_count": 0,
+            "payload_duplicate_import_keys": [],
+            "existing_import_id_hits": [],
+            "potential_match_import_ids": ["BANK:V1:demo"],
+            "potential_match_details": [
+                {
+                    "upload_transaction_id": "src-1",
+                    "account_id": "acc-1",
+                    "import_id": "BANK:V1:demo",
+                    "date": "2026-04-25",
+                    "amount_milliunits": -50000,
+                    "amount_ils": -50.0,
+                    "payee_name": "Dana movie",
+                    "memo": "BIT [card x0849]",
+                    "candidate_count": 1,
+                    "candidate_summary": "2026-04-26 | -50.00 | payee=Cinema City | memo=Bit Dana Cohen | cleared=cleared | id=ynab-1",
+                }
+            ],
+            "transfer_payload_issue_ids": [],
+            "unsupported_transaction_unit_ids": [],
+        },
+    )
+
+    status = context_run_status.collect_context_run_status(
+        context_name="demo",
+        run_tag="2026_04_28",
+        defaults_path=defaults_path,
+        contexts_root=contexts_root,
+        budget_id="budget-1",
+        verify_live=True,
+    )
+
+    live_by_name = {item["name"]: item for item in status["live_checks"]}
+    assert live_by_name["live upload preflight manual matches"]["status"] == "attention"
+    assert "BANK:V1:demo" in live_by_name["live upload preflight manual matches"]["detail"]
