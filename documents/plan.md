@@ -2,62 +2,40 @@
 
 ## Workstream
 
-Carry the April 14 workflow fixes back to `main`, then start the next update from a clean branch on top of the merged workflow.
+Add a workflow status command that inspects one context/run-tag end to end from canonical artifacts, saved closeout reports, and optional live dry-run YNAB verification.
 
 ## Current State
 
-- canonical transaction artifacts are Parquet `transaction_v1`
-- canonical review artifacts are Parquet `review_v4`
-- `build-context-review` excludes settled YNAB history by default
-- `build-context-review` now carries forward staged previous card snapshots into ordinary review until it reaches the first fully reconciled statement boundary
-- closeout remains strict by source kind:
-  - bank: sync plus statement reconciliation
-  - card: sync plus cycle reconciliation
-  - `ynab_category`: category/account parity reconciliation
-- `download-context-ynab` now honors declared `ynab_category` dependencies
-- Pilates again declares `In Family` as a Family-backed `ynab_category` source
-- Family `2026_04_28` is closed
-- Pilates `2026_04_28` is in closeout with corrected card account/path and one lingering bank upload row already identified
-- Aikido `2026_04_28` upload is complete and category/account reconcile now resolves all 17 reviewed rows correctly, with 5 unreconciled live rows ready to patch
+- canonical transaction artifacts remain Parquet `transaction_v1`
+- canonical review artifacts remain Parquet `review_v4`
+- the repo now has `pixi run context-run-status -- <context> <run_tag>`
+- the status command reports:
+  - raw input resolution
+  - normalized source artifacts
+  - YNAB snapshot artifacts, including upstream `ynab_category` dependencies
+  - paired proposal/review/upload artifacts
+  - existing closeout report summaries from disk
+- `pixi run context-run-status -- <context> <run_tag> --verify-live` now reuses the live bank/card/category reconciliation logic in dry-run mode without mutating YNAB
+- live card verification infers the latest saved previous snapshot whose cycle is not after the run month
+- focused coverage exists for:
+  - artifact/report status collection
+  - previous card snapshot inference
+  - stubbed live bank verification
 
 ## Recently Completed
 
-- surfaced unreconciled carried-forward card statement rows in ordinary review before card reconciliation
-- restored Family bank transfer defaults for:
-  - Leumi Visa card-payment rows keyed by suffix
-  - Leumi `העברת זהב` inflows keyed to `US Money`
-- tightened review scope to declared target accounts and removed in-scope internal transfer counterparts from ordinary institutional review
-- stabilized transfer review behavior in the review app:
-  - internal transfer budget metadata now survives row and grouped edits
-  - grouped transfer category checks use the same budget facts as row-level validation
-- restored Pilates cross-budget dependency flow:
-  - Pilates now declares its Family-backed source in config
-  - `download-context-ynab` refreshes upstream YNAB dependencies in config order
-  - `normalize-context` remains the materialization boundary for `ynab_category` sources
-- fixed Pilates `In Family` transfer defaults so on-budget transfers stay categoryless in review
-- fixed upload prep and `ynab_category` reconciliation to use live YNAB transaction ids instead of synthetic row ids
-- fixed `ynab_category` reconciliation legacy-boundary handling and projected cleared/uncleared parity checks
-- closed `family / 2026_04_14`, `pilates / 2026_04_14`, and `aikido / 2026_04_14`
-- fixed review-app target category defaults so mapped/suggested categories win before `Uncategorized` for both single-row and grouped review edits
-- added stable `paypal facebook` fingerprint consolidation plus a generic `Facebook` card payee default while preserving the more specific `Opher x9922 -> Aikido` rule
-- normalized payee-map fingerprint keys through the context fingerprint map during review suggestion loading so legacy payee rules stay in the same canonical fingerprint namespace as normalized transactions
-- fixed source-side review suggestions to use canonical YNAB `account_name` instead of raw `source_account` when evaluating account-specific payee rules
-- rebuilt `family / 2026_04_28` review artifacts on the repaired mapping path and verified that Adrian, Facebook, Decathlon, Delek, and similar previously-missed suggestions now surface coherently in review
-- collapsed `קמח הארץ נתיב אשכול ביטול` back onto the ordinary `קמח הארץ נתיב אשכול` fingerprint so refund/cancellation rows stay in the same mapping namespace during review
-- reclassified singleton source-only target suggestions from `Needs fix` to `Needs review` in review state so coherent one-option defaults no longer show as missing-value failures before explicit acceptance
-- fixed upload prep to recover untouched YNAB split subtransactions from canonical review artifacts and to resolve selected categories against the live category table before trusting cached category ids, unblocking `family / 2026_04_28` closeout
-- fixed upload prep grouping so independent reviewed `create_target` rows no longer collapse into one split upload merely because they share the same content-derived review `transaction_id`
-- removed the `ynab_category` legacy skip path so reviewed pre-run backlog rows now block closeout until they are actually uploaded into the target budget instead of silently reporting success
-- fixed `ynab_category` reconciliation prepared-unit lookup to follow upload prep identity boundaries:
-  - reviewed `create_target` rows now resolve prepared uploads by `source_row_id`
-  - live Aikido `2026_04_28` dry run now resolves 17 of 17 rows with 5 reconcile updates planned
+- added [context_run_status.py](../src/ynab_il_importer/context_run_status.py) as the shared status/verification engine
+- added [context_run_status.py](../scripts/context_run_status.py) as the script entrypoint
+- added the `context-run-status` pixi task in [pixi.toml](../pixi.toml)
+- documented the command in [context_workflow_spec.md](context_workflow_spec.md)
+- verified the command against the real `pilates / 2026_04_28` run in both artifact-only and `--verify-live` modes
 
 ## Next Steps
 
-1. Merge `handle_splits` back into `main`.
-2. Start the next update from a fresh branch off the merged `main`.
-3. Finish `pilates / 2026_04_28` closeout with the corrected bank/card commands.
-4. Finish `aikido / 2026_04_28` by rerunning category/account reconciliation with `--execute` now that the prepared-upload lookup matches live uploaded rows.
+1. Merge this status-script slice cleanly without carrying unrelated formatter churn.
+2. Decide whether `context-run-status` should become the authoritative pre-closeout checklist for live runs.
+3. Decide whether card previous-snapshot selection should stay inferred or move to an explicit declared/configured boundary.
+4. Once the separate closure-fix branch lands, refresh the active docs so the reported April 28 live state and the status command examples match.
 
 ## Working Rules
 

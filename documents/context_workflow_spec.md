@@ -154,6 +154,23 @@ Default behavior is intentionally conservative:
 This means a context like `family` will only review YNAB rows from accounts declared by its active bank/card sources, rather than every account in the Family budget.
 It also means card-payment transfer pairs like `Opher x9922 <-> Bank Leumi` do not surface as ordinary unmatched review rows; they are handled by the closeout logic for the relevant source kind.
 
+### Check run status
+
+```bash
+pixi run context-run-status -- <context> <run_tag>
+pixi run context-run-status -- <context> <run_tag> --verify-live
+```
+
+This command walks the active workflow boundaries for one context/run-tag pair and reports:
+
+- raw input resolution
+- normalized source artifacts
+- YNAB snapshot artifacts, including upstream `ynab_category` dependencies
+- paired proposal/review/upload artifacts
+- existing closeout reports on disk
+
+`--verify-live` also runs fresh dry-run closeout checks against live YNAB using the same reconciliation logic as the workflow scripts. It does not patch YNAB or rewrite the reviewed artifact.
+
 ### Post-review closeout
 
 Closeout is source-kind specific:
