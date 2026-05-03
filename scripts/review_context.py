@@ -13,6 +13,22 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 import ynab_il_importer.context_config as context_config
+import ynab_il_importer.review_app.io as review_io
+import ynab_il_importer.review_reconcile as review_reconcile
+
+
+def _rebase_reviewed_artifact(reviewed_path: Path, proposal_path: Path) -> None:
+    old_reviewed = review_io.project_review_artifact_to_working_dataframe(
+        review_io.load_review_artifact(reviewed_path)
+    )
+    new_proposed = review_io.project_review_artifact_to_working_dataframe(
+        review_io.load_review_artifact(proposal_path)
+    )
+    merged, _stats = review_reconcile.reconcile_reviewed_transactions(
+        old_reviewed,
+        new_proposed,
+    )
+    review_io.save_reviewed_transactions(merged, reviewed_path)
 
 
 def main() -> None:
@@ -64,6 +80,8 @@ def main() -> None:
         raise FileNotFoundError(f"Missing proposal review artifact: {proposal_path}")
 
     reviewed_path = args.resume_path or run_paths.reviewed_review_path(defaults, context.name)
+    if reviewed_path.exists():
+        _rebase_reviewed_artifact(reviewed_path, proposal_path)
     command = [
         sys.executable,
         str(ROOT / "scripts" / "review_app.py"),

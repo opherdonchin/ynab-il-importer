@@ -1031,7 +1031,12 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
             text("card_suffix").alias("source_card_suffix"),
             text("ref").alias("source_ref"),
             pl.coalesce(
-                [nonempty("bank_txn_id"), nonempty("card_txn_id"), pl.lit("")]
+                [
+                    nonempty("bank_txn_id"),
+                    nonempty("card_txn_id"),
+                    nonempty("import_id"),
+                    pl.lit(""),
+                ]
             ).alias("source_lineage_id"),
             text("memo").alias("source_memo"),
             text("date")
@@ -1316,14 +1321,140 @@ def _institutional_candidate_pairs(
 ) -> pl.DataFrame:
     if prepared_source.is_empty() or prepared_target.is_empty():
         return pl.DataFrame()
-    pairs = prepared_source.join(
+
+    source_date_expr = (
+        pl.col("source_date").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
+        if "source_date" in prepared_source.columns
+        else pl.col("date_key").dt.strftime("%Y-%m-%d").fill_null("")
+    )
+    source_outflow_expr = (
+        pl.col("outflow_ils").cast(pl.Float64, strict=False).fill_null(0.0)
+        if "outflow_ils" in prepared_source.columns
+        else pl.when(pl.col("amount_key") < 0)
+        .then((-pl.col("amount_key")).cast(pl.Float64, strict=False))
+        .otherwise(pl.lit(0.0))
+    )
+    source_inflow_expr = (
+        pl.col("inflow_ils").cast(pl.Float64, strict=False).fill_null(0.0)
+        if "inflow_ils" in prepared_source.columns
+        else pl.when(pl.col("amount_key") > 0)
+        .then(pl.col("amount_key").cast(pl.Float64, strict=False))
+        .otherwise(pl.lit(0.0))
+    )
+    source_account_expr = (
+        pl.col("account_name")
+        .cast(pl.Utf8, strict=False)
+        .fill_null("")
+        .str.strip_chars()
+        if "account_name" in prepared_source.columns
+        else pl.col("account_key").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars()
+    )
+    source_fingerprint_expr = (
+        pl.col("fingerprint")
+        .cast(pl.Utf8, strict=False)
+        .fill_null("")
+        .str.strip_chars()
+        if "fingerprint" in prepared_source.columns
+        else pl.lit("")
+    )
+    source_memo_expr = (
+        pl.col("source_memo")
+        .cast(pl.Utf8, strict=False)
+        .fill_null("")
+        .str.strip_chars()
+        if "source_memo" in prepared_source.columns
+        else pl.lit("")
+    )
+
+    source_for_import = (
+        prepared_source.with_columns(
+            pl.col("source_lineage_id")
+            .cast(pl.Utf8, strict=False)
+            .fill_null("")
+            .str.strip_chars()
+            .alias("_source_lineage_id"),
+            source_date_expr.alias("_import_date"),
+            (pl.col("amount_key").cast(pl.Float64, strict=False).fill_null(0.0) * 1000)
+            .round(0)
+            .cast(pl.Int64)
+            .alias("_import_amount_milliunits"),
+            pl.struct(
+                account_name=source_account_expr,
+                date=source_date_expr,
+                outflow_ils=source_outflow_expr,
+                inflow_ils=source_inflow_expr,
+                fingerprint=source_fingerprint_expr,
+                raw_text=source_memo_expr,
+            )
+            .map_elements(lambda row: _make_transaction_id(row), return_dtype=pl.String)
+            .alias("_review_transaction_id"),
+        )
+        .sort(
+            [
+                "account_key",
+                "_import_date",
+                "_import_amount_milliunits",
+                "_review_transaction_id",
+                "source_row_id",
+            ]
+        )
+        .with_columns(
+            (
+                pl.int_range(0, pl.len()).over(
+                    ["account_key", "_import_date", "_import_amount_milliunits"]
+                )
+                + 1
+            ).alias("_import_occurrence")
+        )
+        .with_columns(
+            pl.when(pl.col("_source_lineage_id") != "")
+            .then(pl.col("_source_lineage_id"))
+            .otherwise(
+                pl.format(
+                    "YNAB:{}:{}:{}",
+                    pl.col("_import_amount_milliunits"),
+                    pl.col("_import_date"),
+                    pl.col("_import_occurrence"),
+                )
+            )
+            .alias("_match_lineage_id")
+        )
+    )
+
+    date_pairs = prepared_source.join(
         prepared_target,
         on=["account_key", "date_key", "amount_key"],
         how="inner",
         suffix="_target",
     )
-    if pairs.is_empty():
-        return pairs
+    import_pairs = (
+        source_for_import.filter(pl.col("_match_lineage_id") != "")
+        .join(
+            prepared_target.with_columns(
+                pl.col("ynab_import_id").alias("_target_import_key")
+            ).filter(
+                pl.col("_target_import_key")
+                .cast(pl.Utf8, strict=False)
+                .fill_null("")
+                .str.strip_chars()
+                != ""
+            ),
+            left_on=["account_key", "_match_lineage_id"],
+            right_on=["account_key", "_target_import_key"],
+            how="inner",
+            suffix="_target",
+        )
+    )
+    pair_frames = [
+        frame for frame in [import_pairs, date_pairs] if not frame.is_empty()
+    ]
+    if not pair_frames:
+        return date_pairs.with_columns(pl.lit(False).alias("ambiguous_key"))
+    pairs = pl.concat(pair_frames, how="diagonal_relaxed").unique(
+        subset=["source_row_id", "target_row_id"],
+        keep="first",
+        maintain_order=True,
+    )
 
     pairs = (
         pairs.with_columns(

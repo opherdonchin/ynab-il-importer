@@ -2109,6 +2109,69 @@ def test_build_review_rows_preserves_ynab_category_source_context(tmp_path: Path
     assert row["source_context_category_name"] == "Aikido"
 
 
+def test_build_review_rows_hides_reconciled_ynab_category_match_by_generated_import_id(
+    tmp_path: Path,
+) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    _write_payee_map(map_path)
+
+    source_df = _canonical_transaction_polars(
+        pd.DataFrame(
+            [
+                {
+                    "transaction_id": "family-parent-2",
+                    "ynab_id": "family-parent-2",
+                    "account_name": "Personal In Leumi",
+                    "source_account": "Family Leumi",
+                    "date": "2026-04-29",
+                    "outflow_ils": 735.0,
+                    "inflow_ils": 0.0,
+                    "payee_raw": "Facebook",
+                    "category_id": "cat-aikido",
+                    "category_raw": "Aikido",
+                    "memo": "Facebook",
+                    "fingerprint": "facebook",
+                    "import_id": "",
+                    "is_subtransaction": False,
+                    "ref": "family-parent-2",
+                }
+            ]
+        ),
+        source_system="ynab_category",
+        artifact_kind="normalized_source_transaction",
+    )
+    ynab_df = _canonical_target_polars(
+        pd.DataFrame(
+            [
+                {
+                    "ynab_id": "ynab-match",
+                    "account_id": "acc-1",
+                    "account_name": "Personal In Leumi",
+                    "date": "2026-05-01",
+                    "outflow_ils": 735.0,
+                    "inflow_ils": 0.0,
+                    "payee_raw": "Facebook",
+                    "category_raw": "Marketing",
+                    "fingerprint": "facebook",
+                    "memo": "",
+                    "import_id": "YNAB:-735000:2026-04-29:1",
+                    "cleared": "reconciled",
+                }
+            ]
+        )
+    )
+
+    review_rows, pairs = build_proposed_transactions.build_review_rows(
+        source_df,
+        ynab_df,
+        map_path=map_path,
+    )
+
+    assert pairs.height == 1
+    assert pairs["ynab_import_id"].to_list() == ["YNAB:-735000:2026-04-29:1"]
+    assert review_rows.is_empty()
+
+
 def test_apply_review_target_suggestions_uses_current_pilates_bank_transfer_alias(
     tmp_path: Path,
 ) -> None:
