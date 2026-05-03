@@ -494,6 +494,18 @@ def _normalize_card_suffix(value: object) -> str:
     return digits[-4:]
 
 
+def _tag_bank_debit_memo(memo: object, card_suffix: object, source_type: object) -> str:
+    memo_text = _optional_text(memo)
+    suffix = _normalize_card_suffix(card_suffix)
+    if _optional_text(source_type).lower() != "bank" or not suffix:
+        return memo_text
+    if _CARD_SUFFIX_MEMO_TAG_RE.search(memo_text):
+        return memo_text
+    if not memo_text:
+        return f"[card x{suffix}]"
+    return f"{memo_text} [card x{suffix}]"
+
+
 def _annotate_bank_debit_card_memo(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     memo = (
@@ -911,7 +923,7 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
     canonical_lineage = pl.coalesce(
         [nonempty("import_id"), nonempty("transaction_id"), pl.lit("")]
     )
-    raw_card_suffix = pl.struct(
+    resolved_card_suffix = pl.struct(
         [
             optional_text("card_suffix").alias("card_suffix"),
             optional_text("description_raw").alias("description_raw"),
@@ -924,7 +936,6 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
         or _extract_leumi_visa_ref_suffix(row["payee_raw"], row["ref"]),
         return_dtype=pl.String,
     )
-    normalized_suffix = text("card_suffix")
     source_type = text("source_system").str.to_lowercase().replace("", "source")
     bank_raw_text = pl.coalesce(
         [
@@ -957,7 +968,7 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
             pl.lit("").alias("source_file"),
             pl.lit("").alias("raw_text"),
             canonical_lineage.alias("_canonical_lineage_id"),
-            raw_card_suffix.alias("card_suffix"),
+            resolved_card_suffix.alias("card_suffix"),
         )
         .with_columns(
             pl.when(source_type == "bank")
@@ -992,19 +1003,16 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
             .alias("card_txn_id"),
         )
         .with_columns(
-            pl.when(
-                (pl.col("source_type") == "bank")
-                & normalized_suffix.replace("", None).is_not_null()
-                & ~pl.col("memo").str.contains(_CARD_SUFFIX_MEMO_TAG_RE.pattern)
+            pl.struct(["memo", "card_suffix", "source_type"])
+            .map_elements(
+                lambda row: _tag_bank_debit_memo(
+                    row["memo"], row["card_suffix"], row["source_type"]
+                ),
+                return_dtype=pl.String,
             )
-            .then(
-                pl.concat_str(
-                    [pl.col("memo"), pl.format("[card x{}]", normalized_suffix)],
-                    separator=" ",
-                ).str.strip_chars()
-            )
-            .otherwise(pl.col("memo"))
-            .alias("memo"),
+            .alias("memo")
+        )
+        .with_columns(
             pl.coalesce(
                 [
                     nonempty("payee_raw"),
@@ -1392,6 +1400,11 @@ def _apply_review_target_suggestions(
         .fill_null("")
         .str.strip_chars()
     )
+
+    def singleton_option_text(value: object) -> str:
+        options = review_model.parse_option_string(value)
+        return options[0] if len(options) == 1 else ""
+
     suggestion_schema = [
         ("suggested_payee_options", pl.String),
         ("suggested_category_options", pl.String),
@@ -1550,6 +1563,7 @@ def _apply_review_target_suggestions(
             .fill_null("")
             .map_elements(review_model.normalize_category_value, return_dtype=pl.String)
             .alias("_target_suggested_category"),
+            text("source_payee_selected").alias("_source_selected_payee"),
         )
         .with_columns(
             pl.struct(
@@ -1584,19 +1598,27 @@ def _apply_review_target_suggestions(
                 return_dtype=pl.String,
             )
             .alias("category_options"),
-            pl.when(pl.col("target_present") & (pl.col("_current_target_payee") != ""))
-            .then(pl.col("_current_target_payee"))
-            .otherwise(pl.col("_source_suggested_payee"))
-            .alias("target_payee_selected"),
         )
         .with_columns(
-            pl.when(
-                (~pl.col("target_present"))
-                & (pl.col("target_payee_selected") == "")
-                & (pl.col("_target_suggested_payee") != "")
-            )
+            pl.col("payee_options")
+            .map_elements(singleton_option_text, return_dtype=pl.String)
+            .alias("_singleton_payee_option"),
+            pl.col("category_options")
+            .map_elements(singleton_option_text, return_dtype=pl.String)
+            .alias("_singleton_category_option"),
+        )
+        .with_columns(
+            pl.when(pl.col("target_present") & (pl.col("_current_target_payee") != ""))
+            .then(pl.col("_current_target_payee"))
+            .when(pl.col("_source_suggested_payee") != "")
+            .then(pl.col("_source_suggested_payee"))
+            .when(pl.col("_target_suggested_payee") != "")
             .then(pl.col("_target_suggested_payee"))
-            .otherwise(pl.col("target_payee_selected"))
+            .when((~pl.col("target_present")) & (pl.col("_singleton_payee_option") != ""))
+            .then(pl.col("_singleton_payee_option"))
+            .when((~pl.col("target_present")) & (pl.col("_source_selected_payee") != ""))
+            .then(pl.col("_source_selected_payee"))
+            .otherwise(pl.lit(""))
             .alias("target_payee_selected"),
         )
         .with_columns(
@@ -1632,6 +1654,8 @@ def _apply_review_target_suggestions(
             .then(pl.col("_source_suggested_category"))
             .when(pl.col("_target_suggested_category") != "")
             .then(pl.col("_target_suggested_category"))
+            .when((~pl.col("target_present")) & (pl.col("_singleton_category_option") != ""))
+            .then(pl.col("_singleton_category_option"))
             .otherwise(pl.lit(""))
             .alias("target_category_selected"),
         )
@@ -1652,6 +1676,9 @@ def _apply_review_target_suggestions(
         "_target_suggested_payee",
         "_source_suggested_category",
         "_target_suggested_category",
+        "_source_selected_payee",
+        "_singleton_payee_option",
+        "_singleton_category_option",
         "_replace_current_target_category",
     )
 

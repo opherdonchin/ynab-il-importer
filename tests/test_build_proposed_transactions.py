@@ -1986,6 +1986,35 @@ def test_prepare_review_source_rows_uses_canonical_transaction_id_for_lineage() 
     assert pairs["ambiguous_key"].to_list() == [False, False]
 
 
+def test_prepare_review_source_rows_tags_bank_debit_memo_with_card_suffix() -> None:
+    source_df = _canonical_source_polars(
+        pd.DataFrame(
+            [
+                {
+                    "transaction_id": "BANK:V1:bit-a",
+                    "account_name": "Bank Leumi",
+                    "source_account": "67833011333622",
+                    "date": "2026-03-03",
+                    "outflow_ils": 200.0,
+                    "inflow_ils": 0.0,
+                    "payee_raw": "BIT",
+                    "merchant_raw": "BIT",
+                    "description_clean": "BIT",
+                    "fingerprint": "bit",
+                    "description_raw": "BIT- ב0849- בכרטיס המסתיים ב14:29  03/03/26",
+                    "ref": "0031429",
+                }
+            ]
+        )
+    )
+
+    prepared = build_proposed_transactions._prepare_review_source_rows(source_df)
+    row = prepared.row(0, named=True)
+
+    assert row["source_card_suffix"] == "0849"
+    assert row["source_memo"] == "BIT [card x0849]"
+
+
 def test_prepare_review_source_rows_marks_ynab_category_split_context() -> None:
     source_df = _canonical_transaction_polars(
         pd.DataFrame(
@@ -2262,3 +2291,185 @@ def test_apply_review_target_suggestions_uses_canonical_account_name_for_rules(
     row = review_rows.row(0, named=True)
     assert row["target_payee_selected"] == "Facebook"
     assert row["target_category_selected"] == "Aikido"
+
+
+def test_apply_review_target_suggestions_falls_back_to_source_payee_when_target_unknown(
+    tmp_path: Path,
+) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    pd.DataFrame(
+        columns=build_proposed_transactions.rules_mod.PAYEE_MAP_COLUMNS
+    ).to_csv(map_path, index=False, encoding="utf-8-sig")
+
+    relations = pl.DataFrame(
+        [
+            {
+                "transaction_id": "family-backlog-1",
+                "source": "ynab",
+                "account_name": "In Family",
+                "date": "2024-07-09",
+                "outflow_ils": 350.0,
+                "inflow_ils": 0.0,
+                "memo": "Boaz",
+                "fingerprint": "boaz",
+                "match_status": "source_only",
+                "update_maps": "",
+                "decision_action": "create_target",
+                "reviewed": False,
+                "workflow_type": "institutional",
+                "relation_kind": "source_only",
+                "match_method": "",
+                "source_present": True,
+                "target_present": False,
+                "source_row_id": "source-row-1",
+                "target_row_id": "",
+                "source_account": "In Family",
+                "target_account": "In Family",
+                "source_date": "2024-07-09",
+                "target_date": "",
+                "source_payee_current": "Boaz",
+                "target_payee_current": "",
+                "source_category_current": "Pilates",
+                "target_category_current": "",
+                "source_memo": "Boaz",
+                "target_memo": "",
+                "source_fingerprint": "boaz",
+                "target_fingerprint": "",
+                "source_bank_txn_id": "",
+                "source_card_txn_id": "",
+                "source_card_suffix": "",
+                "source_secondary_date": "",
+                "source_ref": "family-backlog-1",
+                "source_context_kind": "ynab_parent_category_match",
+                "source_context_category_id": "cat-pilates",
+                "source_context_category_name": "Pilates",
+                "source_context_matching_split_ids": "",
+                "source_payee_selected": "Boaz",
+                "source_category_selected": "Pilates",
+                "target_context_kind": "",
+                "target_context_matching_split_ids": "",
+                "target_payee_selected": "",
+                "target_category_selected": "",
+                "source_transaction": {"transaction_id": "family-backlog-1"},
+                "target_transaction": None,
+            }
+        ]
+    )
+
+    review_rows = build_proposed_transactions._apply_review_target_suggestions(
+        relations,
+        map_path=map_path,
+    )
+
+    row = review_rows.row(0, named=True)
+    assert row["target_payee_selected"] == "Boaz"
+    assert row["target_category_selected"] == ""
+
+
+def test_apply_review_target_suggestions_materializes_singleton_payee_option_only(
+    tmp_path: Path,
+) -> None:
+    map_path = tmp_path / "payee_map.csv"
+    pd.DataFrame(
+        [
+            {
+                "rule_id": "adrian_1",
+                "is_active": True,
+                "priority": 0,
+                "txn_kind": "",
+                "fingerprint": "adrian sports trainer",
+                "description_clean_norm": "",
+                "account_name": "",
+                "source": "",
+                "direction": "",
+                "currency": "",
+                "amount_bucket": "",
+                "payee_canonical": "Adrian Dado",
+                "category_target": "Stuff I Forgot to Budget For",
+                "notes": "",
+                "card_suffix": "",
+            },
+            {
+                "rule_id": "adrian_2",
+                "is_active": True,
+                "priority": 0,
+                "txn_kind": "",
+                "fingerprint": "adrian sports trainer",
+                "description_clean_norm": "",
+                "account_name": "",
+                "source": "",
+                "direction": "",
+                "currency": "",
+                "amount_bucket": "",
+                "payee_canonical": "Adrian Dado",
+                "category_target": "Adrian 570 NIS 28th",
+                "notes": "",
+                "card_suffix": "",
+            },
+        ],
+        columns=build_proposed_transactions.rules_mod.PAYEE_MAP_COLUMNS,
+    ).to_csv(map_path, index=False, encoding="utf-8-sig")
+
+    relations = pl.DataFrame(
+        [
+            {
+                "transaction_id": "family-backlog-2",
+                "source": "ynab",
+                "account_name": "In Family",
+                "date": "2025-08-30",
+                "outflow_ils": 0.0,
+                "inflow_ils": 300.0,
+                "memo": "Adrian Sports Trainer",
+                "fingerprint": "adrian sports trainer",
+                "match_status": "source_only",
+                "update_maps": "",
+                "decision_action": "create_target",
+                "reviewed": False,
+                "workflow_type": "institutional",
+                "relation_kind": "source_only",
+                "match_method": "",
+                "source_present": True,
+                "target_present": False,
+                "source_row_id": "source-row-2",
+                "target_row_id": "",
+                "source_account": "In Family",
+                "target_account": "In Family",
+                "source_date": "2025-08-30",
+                "target_date": "",
+                "source_payee_current": "Adrian Sports Trainer",
+                "target_payee_current": "",
+                "source_category_current": "Pilates",
+                "target_category_current": "",
+                "source_memo": "Adrian Sports Trainer",
+                "target_memo": "",
+                "source_fingerprint": "adrian sports trainer",
+                "target_fingerprint": "",
+                "source_bank_txn_id": "",
+                "source_card_txn_id": "",
+                "source_card_suffix": "",
+                "source_secondary_date": "",
+                "source_ref": "family-backlog-2",
+                "source_context_kind": "ynab_split_category_match",
+                "source_context_category_id": "cat-pilates",
+                "source_context_category_name": "Pilates",
+                "source_context_matching_split_ids": "",
+                "source_payee_selected": "Adrian Sports Trainer",
+                "source_category_selected": "Pilates",
+                "target_context_kind": "",
+                "target_context_matching_split_ids": "",
+                "target_payee_selected": "",
+                "target_category_selected": "",
+                "source_transaction": {"transaction_id": "family-backlog-2"},
+                "target_transaction": None,
+            }
+        ]
+    )
+
+    review_rows = build_proposed_transactions._apply_review_target_suggestions(
+        relations,
+        map_path=map_path,
+    )
+
+    row = review_rows.row(0, named=True)
+    assert row["target_payee_selected"] == "Adrian Dado"
+    assert row["target_category_selected"] == ""
