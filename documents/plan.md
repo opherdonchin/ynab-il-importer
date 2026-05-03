@@ -2,49 +2,52 @@
 
 ## Workstream
 
-Keep the institutional workflow boundaries explicit: Family debit-card MAX rows stay available for source overlap handling, but only statement-reconciled card accounts participate in Family card closeout.
+Keep institutional workflow boundaries explicit while maintaining a fully reproducible clean closeout state for the active Family run.
 
 ## Current State
 
-- `family / 2026_05_02` is clean in live closeout state:
-  - bank sync `matched=40 | updates=0 | unmatched=0 | blocked=0`
-  - bank reconcile `ok=True | updates=0 | unmatched=0`
-  - card sync/reconcile clean for:
-    - `Liya X7195`
-    - `Opher X5898`
-    - `Opher x9922`
-- Family MAX source scope still includes `Bank Leumi`, `Liya X7195`, `Opher X5898`, and `Opher x9922`
-- Family card closeout scope is now explicitly narrower than Family MAX source scope:
+- `family / 2026_05_02` is now fully clean both on disk and in live verification:
+  - artifact-only status: `reports clean=9`
+  - live status: `reports clean=9`, `live clean=10`
+- saved closeout reports were refreshed in dry-run mode for:
+  - Family bank sync
+  - Family bank uncleared triage
+  - Family bank reconcile
+  - Family card sync/reconcile for `Liya X7195`
+  - Family card sync/reconcile for `Opher X5898`
+  - Family card sync/reconcile for `Opher x9922`
+- Family MAX source scope still includes:
+  - `Bank Leumi`
+  - `Liya X7195`
+  - `Opher X5898`
+  - `Opher x9922`
+- Family card closeout scope remains explicitly narrower:
   - `Bank Leumi` stays in source scope for overlap/dedupe behavior
-  - `Bank Leumi` does not participate in Family card closeout because those `x0740` / `x0849` rows do not have monthly statement reconciliation
-- canonical card lineage compatibility remains in place for known MAX sheet drift:
-  - `עסקאות לידיעה`
-  - `עסקאות חו"ל ומט"ח`
-- saved May 2 closeout reports on disk are still historical and do not fully reflect the current live-clean state
+  - only the statement-reconciled Family card accounts participate in card closeout
+- Family has no review/upload work pending for this run:
+  - proposal rows `0`
+  - reviewed rows `0`
+  - live upload preflight manual matches `0`
 
 ## Recently Completed
 
-- added explicit source-level closeout account scope in context config:
-  - raw-backed sources can now declare `closeout_account_names`
-  - when omitted, closeout scope defaults to full `target_account_names`
-- updated Family MAX context so:
-  - `target_account_names` still includes `Bank Leumi`
-  - `closeout_account_names` only includes the true statement-reconciled Family card accounts
-- updated card carryforward/status logic to use closeout scope rather than full source target scope:
-  - [build_context_review.py](build_context_review.py)
-  - [context_run_status.py](../src/ynab_il_importer/context_run_status.py)
-- verified config/build/status coverage:
-  - `tests/test_context_config.py`
-  - `tests/test_build_context_review_script.py`
-  - `tests/test_context_run_status.py`
-- verified live status:
+- refreshed the saved `family / 2026_05_02` closeout reports so disk state matches current live YNAB state
+- verified refreshed artifact-only status:
+  - `pixi run context-run-status -- family 2026_05_02`
+- verified refreshed live status:
   - `pixi run context-run-status -- family 2026_05_02 --verify-live`
+- confirmed final clean summaries:
+  - bank sync report `noop=40`
+  - bank reconcile report `already_reconciled=33 | anchor_history=7`
+  - `Liya X7195` sync `noop=28`, reconcile `already_reconciled=26 | keep_cleared=27`
+  - `Opher X5898` sync `noop=10`, reconcile `already_reconciled=9 | keep_cleared=10`
+  - `Opher x9922` sync `noop=26`, reconcile `already_reconciled=42 | keep_cleared=26`
 
 ## Next Steps
 
-1. Decide whether to refresh the saved `2026_05_02` Family closeout reports/artifacts so on-disk status matches the current live-clean state.
-2. If that refresh is desired, rerun the Family closeout reports against current live YNAB and replace the stale saved report files.
-3. Leave `x0602` for the separate Pilates closeout workflow.
+1. Leave Family `2026_05_02` closed unless a new source file or live YNAB change requires reopening it.
+2. Keep `x0602` for the separate Pilates closeout workflow.
+3. When the next active run starts, preserve the same explicit distinction between source scope and closeout scope where needed.
 
 ## Working Rules
 
