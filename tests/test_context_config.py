@@ -22,6 +22,11 @@ def test_load_family_context_resolves_map_paths() -> None:
         "Opher X5898",
         "Opher x9922",
     ]
+    assert loaded.config.sources[1].closeout_account_names == [
+        "Liya X7195",
+        "Opher X5898",
+        "Opher x9922",
+    ]
 
 
 def test_load_aikido_context_with_ynab_category_source() -> None:
@@ -97,6 +102,11 @@ def test_resolve_context_sources_supports_exact_and_regex(tmp_path: Path) -> Non
         "Opher X5898",
         "Opher x9922",
     )
+    assert sources[1].closeout_account_names == (
+        "Liya X7195",
+        "Opher X5898",
+        "Opher x9922",
+    )
 
 
 def test_ynab_category_source_validation_requires_context_and_single_category() -> None:
@@ -156,6 +166,19 @@ def test_ynab_category_source_rejects_target_account_names() -> None:
                 "category_name": "Aikido",
                 "target_account_name": "Personal In Leumi",
                 "target_account_names": ["Personal In Leumi"],
+            }
+        )
+
+
+def test_raw_backed_source_rejects_closeout_accounts_outside_target_scope() -> None:
+    with pytest.raises(ValueError, match="closeout_account_names"):
+        context_config.ContextSourceConfig.model_validate(
+            {
+                "id": "source-1",
+                "kind": "max",
+                "raw_file": "card.xlsx",
+                "target_account_names": ["Liya X7195"],
+                "closeout_account_names": ["Bank Leumi"],
             }
         )
 

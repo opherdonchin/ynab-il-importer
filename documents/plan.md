@@ -2,63 +2,52 @@
 
 ## Workstream
 
-Close the `family / 2026_05_02` card boundary cleanly, starting with the historical MAX lineage drift that was blocking `Opher X5898`, then moving through the remaining in-scope Family card accounts one at a time.
+Keep the institutional workflow boundaries explicit: Family debit-card MAX rows stay available for source overlap handling, but only statement-reconciled card accounts participate in Family card closeout.
 
 ## Current State
 
-- `family / 2026_05_02` live bank closeout is clean:
-  - sync `matched=40 | updates=0 | unmatched=0 | blocked=0`
-  - reconcile `ok=True | updates=0 | unmatched=0`
-- the May 2 Family card source contains only one live Family blocker now:
-  - `Bank Leumi` still has `updates=58 | unmatched=6` and no inferred previous snapshot
-- `Opher X5898` is now clean live after fixing MAX lineage compatibility:
-  - sync `matched=10 | updates=0 | unmatched=0 | blocked=0`
-  - reconcile `updates=0`
-- `Liya X7195` is also clean live after the same lineage fix:
-  - sync `matched=28 | updates=0 | unmatched=0 | blocked=0`
-  - reconcile `updates=0`
-- `Opher x9922` was already clean live and remains clean:
-  - sync `matched=26 | updates=0 | unmatched=0 | blocked=0`
-  - reconcile `updates=0`
-- the canonical transaction boundary now preserves MAX identity inputs needed for lineage compatibility:
-  - `max_sheet`
-  - `max_txn_type`
-  - `max_original_amount`
-  - `max_original_currency`
-- card lineage matching now accepts the known MAX sheet drift between:
+- `family / 2026_05_02` is clean in live closeout state:
+  - bank sync `matched=40 | updates=0 | unmatched=0 | blocked=0`
+  - bank reconcile `ok=True | updates=0 | unmatched=0`
+  - card sync/reconcile clean for:
+    - `Liya X7195`
+    - `Opher X5898`
+    - `Opher x9922`
+- Family MAX source scope still includes `Bank Leumi`, `Liya X7195`, `Opher X5898`, and `Opher x9922`
+- Family card closeout scope is now explicitly narrower than Family MAX source scope:
+  - `Bank Leumi` stays in source scope for overlap/dedupe behavior
+  - `Bank Leumi` does not participate in Family card closeout because those `x0740` / `x0849` rows do not have monthly statement reconciliation
+- canonical card lineage compatibility remains in place for known MAX sheet drift:
   - `עסקאות לידיעה`
   - `עסקאות חו"ל ומט"ח`
+- saved May 2 closeout reports on disk are still historical and do not fully reflect the current live-clean state
 
 ## Recently Completed
 
-- reproduced the `Opher X5898` blocker against `family / 2026_05_02`
-- confirmed the root cause:
-  - the same March MAX transactions changed `CARD:V1` ids between the April 1 and May 2 exports because the row moved between MAX sheet buckets while the hash still included `max_sheet`
-- fixed the boundary without rewriting historical YNAB card ids:
-  - canonical `transaction_v1` artifacts now retain the MAX identity inputs needed to reason about historical card ids
-  - card sync/reconcile now recognizes the known MAX sheet-compatible alias set instead of treating those rows as unrelated transactions
-- rebuilt `data/derived/2026_05_02/family_max_norm.parquet`
-- verified with focused tests:
-  - `tests/test_card_identity.py`
-  - `tests/test_card_reconciliation.py`
-  - `tests/test_transaction_artifacts.py`
+- added explicit source-level closeout account scope in context config:
+  - raw-backed sources can now declare `closeout_account_names`
+  - when omitted, closeout scope defaults to full `target_account_names`
+- updated Family MAX context so:
+  - `target_account_names` still includes `Bank Leumi`
+  - `closeout_account_names` only includes the true statement-reconciled Family card accounts
+- updated card carryforward/status logic to use closeout scope rather than full source target scope:
+  - [build_context_review.py](build_context_review.py)
+  - [context_run_status.py](../src/ynab_il_importer/context_run_status.py)
+- verified config/build/status coverage:
+  - `tests/test_context_config.py`
   - `tests/test_build_context_review_script.py`
   - `tests/test_context_run_status.py`
-- verified live status with:
+- verified live status:
   - `pixi run context-run-status -- family 2026_05_02 --verify-live`
 
 ## Next Steps
 
-1. Leave `x0602` out of Family work; it belongs to the separate Pilates Leumi-card closeout.
-2. Confirm there is no remaining Family work for `Opher x9922`; keep it closed unless a fresh live rerun regresses.
-3. Confirm there is no remaining Family work for `Liya X7195`; keep it closed unless a fresh live rerun regresses.
-4. Decide how to handle Family `Bank Leumi`:
-   - keep it in Family scope and fix previous-snapshot inference plus the 6 ambiguous rows, or
-   - explicitly move/defer that account if it should not be part of the current Family closeout
-5. If Family `Bank Leumi` stays in scope, make status/review use the declared account-map boundary for previous-card lookup instead of inferring from digits in the YNAB account name.
+1. Decide whether to refresh the saved `2026_05_02` Family closeout reports/artifacts so on-disk status matches the current live-clean state.
+2. If that refresh is desired, rerun the Family closeout reports against current live YNAB and replace the stale saved report files.
+3. Leave `x0602` for the separate Pilates closeout workflow.
 
 ## Working Rules
 
-- Prefer explicit account-map boundaries over name-based inference.
-- Keep card identity compatibility at the canonical source boundary, not as ad hoc live cleanup.
-- Do not mutate live YNAB just to paper over an unstable local identity rule.
+- Keep source scope and closeout scope separate when they are semantically different.
+- Preserve debit-card source rows when they help overlap/dedupe behavior, but do not force them through statement-reconciliation workflows.
+- Prefer explicit per-source configuration over name-based inference or account-type guesswork.

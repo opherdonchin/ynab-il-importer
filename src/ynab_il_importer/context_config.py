@@ -79,6 +79,7 @@ class ContextSourceConfig(BaseModel):
     target_account_name: str = ""
     target_account_id: str = ""
     target_account_names: list[str] = Field(default_factory=list)
+    closeout_account_names: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_source_selector(self) -> "ContextSourceConfig":
@@ -106,6 +107,10 @@ class ContextSourceConfig(BaseModel):
                 raise ValueError(
                     "ynab_category sources cannot define target_account_names."
                 )
+            if self.closeout_account_names:
+                raise ValueError(
+                    "ynab_category sources cannot define closeout_account_names."
+                )
             return self
 
         selectors = [bool(self.raw_file), bool(self.raw_match)]
@@ -117,6 +122,21 @@ class ContextSourceConfig(BaseModel):
             raise ValueError(
                 "Raw-backed sources must define at least one target_account_names entry."
             )
+        if self.closeout_account_names:
+            target_names = {
+                str(name or "").strip()
+                for name in self.target_account_names
+                if str(name or "").strip()
+            }
+            closeout_names = {
+                str(name or "").strip()
+                for name in self.closeout_account_names
+                if str(name or "").strip()
+            }
+            if not closeout_names.issubset(target_names):
+                raise ValueError(
+                    "closeout_account_names must be a subset of target_account_names."
+                )
         return self
 
 
@@ -261,6 +281,7 @@ class ResolvedContextSource:
     target_account_name: str = ""
     target_account_id: str = ""
     target_account_names: tuple[str, ...] = ()
+    closeout_account_names: tuple[str, ...] = ()
 
 
 def _read_toml(path: Path) -> dict:
@@ -360,6 +381,7 @@ def resolve_context_sources(
                     target_account_name=source.target_account_name.strip(),
                     target_account_id=source.target_account_id.strip(),
                     target_account_names=(),
+                    closeout_account_names=(),
                 )
             )
             continue
@@ -379,6 +401,13 @@ def resolve_context_sources(
                     target_account_names=tuple(
                         account.strip()
                         for account in source.target_account_names
+                        if str(account).strip()
+                    ),
+                    closeout_account_names=tuple(
+                        account.strip()
+                        for account in (
+                            source.closeout_account_names or source.target_account_names
+                        )
                         if str(account).strip()
                     ),
                 )
@@ -401,6 +430,13 @@ def resolve_context_sources(
                 target_account_names=tuple(
                     account.strip()
                     for account in source.target_account_names
+                    if str(account).strip()
+                ),
+                closeout_account_names=tuple(
+                    account.strip()
+                    for account in (
+                        source.closeout_account_names or source.target_account_names
+                    )
                     if str(account).strip()
                 ),
             )
@@ -466,6 +502,11 @@ def resolve_context_target_account_names(context: LoadedContext) -> list[str]:
             f"Context {context.name!r} has no declared target account scope."
         )
     return ordered
+
+
+def resolve_source_closeout_account_names(source: ContextSourceConfig) -> list[str]:
+    accounts = source.closeout_account_names or source.target_account_names
+    return [str(account or "").strip() for account in accounts if str(account).strip()]
 
 
 def select_context_sources(

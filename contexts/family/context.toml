@@ -23,3 +23,4 @@ raw_match = "^transaction-details_export_\\d+\\.xlsx$"
 normalized_name = "family_max_norm.parquet"
 allow_reconciled_source = true
 target_account_names = ["Bank Leumi", "Liya X7195", "Opher X5898", "Opher x9922"]
+closeout_account_names = ["Liya X7195", "Opher X5898", "Opher x9922"]

@@ -69,11 +69,7 @@ def _load_card_account_mappings(
             "for card carryforward."
         )
 
-    target_names = {
-        str(name or "").strip()
-        for name in source.target_account_names
-        if str(name or "").strip()
-    }
+    target_names = set(context_config.resolve_source_closeout_account_names(source))
     ordered: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for row in rows:

@@ -504,7 +504,7 @@ def _live_card_checks(
     source_df = card_reconciliation.load_card_source(normalized_path)
     checks: list[dict[str, Any]] = []
 
-    for account_name in source.target_account_names:
+    for account_name in context_config.resolve_source_closeout_account_names(source):
         sync_result = card_reconciliation.plan_card_match_sync(
             account_name=account_name,
             source_df=source_df,
@@ -862,7 +862,7 @@ def collect_context_run_status(
             continue
 
         if source.kind in CARD_SOURCE_KINDS:
-            for account_name in source.target_account_names:
+            for account_name in context_config.resolve_source_closeout_account_names(source):
                 account_key = _account_key(account_name)
                 report_checks.append(
                     _report_file_check(
