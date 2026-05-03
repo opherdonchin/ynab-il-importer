@@ -5,7 +5,10 @@ from pathlib import Path
 import pandas as pd
 import polars as pl
 
-from ynab_il_importer.artifacts.transaction_io import write_transactions_parquet
+from ynab_il_importer.artifacts.transaction_io import (
+    flat_projection_to_canonical_table,
+    write_transactions_parquet,
+)
 import ynab_il_importer.card_identity as card_identity
 import ynab_il_importer.card_reconciliation as card_reconciliation
 import ynab_il_importer.io_max as io_max
@@ -1147,6 +1150,99 @@ def test_plan_card_match_sync_noops_on_max_sheet_alias_lineage(tmp_path: Path) -
     spotify_row = report[report["description_raw"].str.contains("SPOTIFY")].iloc[0]
     assert spotify_row["resolved_via"] == "import_id_alias"
     assert spotify_row["action"] == "noop"
+
+
+def test_plan_card_match_sync_noops_on_leumi_pending_alias_lineage(
+    tmp_path: Path,
+) -> None:
+    current_card_txn_id = card_identity.make_card_txn_id(
+        source="card",
+        source_account="x0602",
+        card_suffix="0602",
+        date="2026-04-01",
+        secondary_date="2026-05-01",
+        outflow_ils=329.47,
+        inflow_ils=0.0,
+        description_raw="בוסטאפ",
+        max_sheet='סה"כ:',
+        max_txn_type="עסקה רגילה",
+        max_original_amount="",
+        max_original_currency="",
+    )
+    prior_pending_card_txn_id = card_identity.make_card_txn_id(
+        source="card",
+        source_account="x0602",
+        card_suffix="0602",
+        date="2026-04-01",
+        secondary_date="2026-04-01",
+        outflow_ils=329.47,
+        inflow_ils=0.0,
+        description_raw="בוסטאפ",
+        max_sheet="עסקאות אחרונות שטרם נקלטו",
+        max_txn_type="עסקה רגילה",
+        max_original_amount="",
+        max_original_currency="",
+    )
+
+    source_flat = pl.DataFrame(
+        [
+            {
+                "source": "card",
+                "account_name": "Opher x9922",
+                "source_account": "x0602",
+                "card_txn_id": current_card_txn_id,
+                "date": "2026-04-01",
+                "secondary_date": "2026-05-01",
+                "txn_kind": "expense",
+                "merchant_raw": "בוסטאפ",
+                "description_raw": "בוסטאפ",
+                "description_clean": "בוסטאפ",
+                "description_clean_norm": "בוסטאפ",
+                "fingerprint": "בוסטאפ",
+                "outflow_ils": 329.47,
+                "inflow_ils": 0.0,
+                "currency": "ILS",
+                "amount_bucket": "",
+                "max_sheet": 'סה"כ:',
+                "max_txn_type": "עסקה רגילה",
+                "max_original_amount": None,
+                "max_original_currency": "",
+            }
+        ]
+    )
+    source_canonical = flat_projection_to_canonical_table(
+        source_flat,
+        artifact_kind="normalized_source_transaction",
+        source_system="card",
+    )
+    source_path = tmp_path / "current.parquet"
+    write_transactions_parquet(source_canonical, source_path)
+    source_df = card_reconciliation.load_card_source(source_path)
+
+    transactions = [
+        _txn_manual(
+            txn_id="txn-1",
+            date="2026-04-01",
+            amount_ils=329.47,
+            payee_name="boostap",
+            cleared="cleared",
+            import_id=prior_pending_card_txn_id,
+            memo="בוסטאפ",
+        )
+    ]
+
+    result = card_reconciliation.plan_card_match_sync(
+        account_name="Opher x9922",
+        source_df=source_df,
+        accounts=_accounts(),
+        transactions=transactions,
+    )
+
+    assert result["update_count"] == 0
+    assert result["updates"] == []
+    report = result["report"]
+    assert report.loc[0, "resolved_via"] == "import_id_alias"
+    assert report.loc[0, "action"] == "noop"
 
 
 def test_plan_card_match_sync_filters_source_rows_by_date(tmp_path: Path) -> None:

@@ -19,6 +19,19 @@ _MAX_COMPATIBLE_SHEET_GROUPS = (
         'עסקאות חו"ל ומט"ח',
     ),
 )
+_LEUMI_COMPATIBLE_SECTION_GROUPS = (
+    (
+        "עסקאות אחרונות שטרם נקלטו",
+        'עסקאות בש"ח במועד החיוב',
+        "סה\"כ:",
+    ),
+)
+_LEUMI_COMPATIBLE_TXN_TYPE_GROUPS = (
+    (
+        "עסקה רגילה",
+        'סייקל חו"ל',
+    ),
+)
 
 
 def _normalize_text(value: Any) -> str:
@@ -102,14 +115,47 @@ def make_card_txn_id(
     return f"{CARD_TXN_ID_PREFIX}{digest}"
 
 
-def _compatible_max_sheets(max_sheet: Any) -> list[str]:
-    current = _normalize_text(max_sheet)
+def _compatible_card_sections(max_section: Any) -> list[str]:
+    current = _normalize_text(max_section)
     if not current:
         return [""]
-    for group in _MAX_COMPATIBLE_SHEET_GROUPS:
+    for group in _MAX_COMPATIBLE_SHEET_GROUPS + _LEUMI_COMPATIBLE_SECTION_GROUPS:
         if current in group:
-            return [current, *(sheet for sheet in group if sheet != current)]
+            return [current, *(section for section in group if section != current)]
     return [current]
+
+
+def _compatible_card_txn_types(max_txn_type: Any) -> list[str]:
+    current = _normalize_text(max_txn_type)
+    if not current:
+        return [""]
+    for group in _LEUMI_COMPATIBLE_TXN_TYPE_GROUPS:
+        if current in group:
+            return [current, *(txn_type for txn_type in group if txn_type != current)]
+    return [current]
+
+
+def _compatible_secondary_dates(
+    *, date: Any, secondary_date: Any, max_section: Any
+) -> list[str]:
+    current_secondary = _normalize_date(secondary_date)
+    current_date = _normalize_date(date)
+    values: list[str] = []
+
+    def _append(value: str) -> None:
+        if value not in values:
+            values.append(value)
+
+    _append(current_secondary)
+    if _normalize_text(max_section) in {
+        section
+        for group in _LEUMI_COMPATIBLE_SECTION_GROUPS
+        for section in group
+    }:
+        _append(current_date)
+    if not values:
+        return [""]
+    return values
 
 
 def make_card_txn_id_aliases(
@@ -128,23 +174,29 @@ def make_card_txn_id_aliases(
     max_original_currency: Any,
 ) -> list[str]:
     aliases: list[str] = []
-    for candidate_sheet in _compatible_max_sheets(max_sheet):
-        alias = make_card_txn_id(
-            source=source,
-            source_account=source_account,
-            card_suffix=card_suffix,
-            date=date,
-            secondary_date=secondary_date,
-            outflow_ils=outflow_ils,
-            inflow_ils=inflow_ils,
-            description_raw=description_raw,
-            max_sheet=candidate_sheet,
-            max_txn_type=max_txn_type,
-            max_original_amount=max_original_amount,
-            max_original_currency=max_original_currency,
-        )
-        if alias not in aliases:
-            aliases.append(alias)
+    for candidate_sheet in _compatible_card_sections(max_sheet):
+        for candidate_txn_type in _compatible_card_txn_types(max_txn_type):
+            for candidate_secondary_date in _compatible_secondary_dates(
+                date=date,
+                secondary_date=secondary_date,
+                max_section=candidate_sheet,
+            ):
+                alias = make_card_txn_id(
+                    source=source,
+                    source_account=source_account,
+                    card_suffix=card_suffix,
+                    date=date,
+                    secondary_date=candidate_secondary_date,
+                    outflow_ils=outflow_ils,
+                    inflow_ils=inflow_ils,
+                    description_raw=description_raw,
+                    max_sheet=candidate_sheet,
+                    max_txn_type=candidate_txn_type,
+                    max_original_amount=max_original_amount,
+                    max_original_currency=max_original_currency,
+                )
+                if alias not in aliases:
+                    aliases.append(alias)
     return aliases
 
 

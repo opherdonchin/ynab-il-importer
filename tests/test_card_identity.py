@@ -60,6 +60,74 @@ def test_make_card_txn_id_aliases_cover_known_max_sheet_drift() -> None:
     assert aliases[0] != aliases[1]
 
 
+def test_make_card_txn_id_aliases_cover_known_leumi_pending_to_posted_drift() -> None:
+    aliases = card_identity.make_card_txn_id_aliases(
+        source="card",
+        source_account="x0602",
+        card_suffix="0602",
+        date="2026-04-13",
+        secondary_date="2026-05-01",
+        outflow_ils=100.0,
+        inflow_ils=0.0,
+        description_raw="FACEBK *5PBFJLZ8C2",
+        max_sheet='סה"כ:',
+        max_txn_type='סייקל חו"ל',
+        max_original_amount="",
+        max_original_currency="",
+    )
+
+    prior_pending_id = card_identity.make_card_txn_id(
+        source="card",
+        source_account="x0602",
+        card_suffix="0602",
+        date="2026-04-13",
+        secondary_date="2026-05-01",
+        outflow_ils=100.0,
+        inflow_ils=0.0,
+        description_raw="FACEBK *5PBFJLZ8C2",
+        max_sheet="עסקאות אחרונות שטרם נקלטו",
+        max_txn_type="עסקה רגילה",
+        max_original_amount="",
+        max_original_currency="",
+    )
+
+    assert prior_pending_id in aliases
+
+
+def test_make_card_txn_id_aliases_cover_known_leumi_pending_secondary_date_drift() -> None:
+    aliases = card_identity.make_card_txn_id_aliases(
+        source="card",
+        source_account="x0602",
+        card_suffix="0602",
+        date="2026-04-01",
+        secondary_date="2026-05-01",
+        outflow_ils=329.47,
+        inflow_ils=0.0,
+        description_raw="בוסטאפ",
+        max_sheet='סה"כ:',
+        max_txn_type="עסקה רגילה",
+        max_original_amount="",
+        max_original_currency="",
+    )
+
+    prior_pending_id = card_identity.make_card_txn_id(
+        source="card",
+        source_account="x0602",
+        card_suffix="0602",
+        date="2026-04-01",
+        secondary_date="2026-04-01",
+        outflow_ils=329.47,
+        inflow_ils=0.0,
+        description_raw="בוסטאפ",
+        max_sheet="עסקאות אחרונות שטרם נקלטו",
+        max_txn_type="עסקה רגילה",
+        max_original_amount="",
+        max_original_currency="",
+    )
+
+    assert prior_pending_id in aliases
+
+
 def test_parse_card_txn_id_rejects_unknown_versions() -> None:
     with pytest.raises(ValueError, match="Unsupported card_txn_id version"):
         card_identity.parse_card_txn_id("CARD:V2:1234567890abcdef12345678")
