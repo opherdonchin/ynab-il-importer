@@ -2,50 +2,63 @@
 
 ## Workstream
 
-Add a workflow status command that inspects one context/run-tag end to end from canonical artifacts, saved closeout reports, and optional live dry-run YNAB verification.
+Close the `family / 2026_05_02` card boundary cleanly, starting with the historical MAX lineage drift that was blocking `Opher X5898`, then moving through the remaining in-scope Family card accounts one at a time.
 
 ## Current State
 
-- canonical transaction artifacts remain Parquet `transaction_v1`
-- canonical review artifacts remain Parquet `review_v4`
-- the repo now has `pixi run context-run-status -- <context> <run_tag>`
-- the status command reports:
-  - raw input resolution
-  - normalized source artifacts
-  - YNAB snapshot artifacts, including upstream `ynab_category` dependencies
-  - paired proposal/review/upload artifacts
-  - existing closeout report summaries from disk
-- `pixi run context-run-status -- <context> <run_tag> --verify-live` now reuses the live bank/card/category reconciliation logic in dry-run mode without mutating YNAB
-- live card verification infers the latest saved previous snapshot whose cycle is not after the run month
-- live status now surfaces row-level likely manual-match warnings for reviewed `create_target` rows against live YNAB transactions
-- `prepare_ynab_upload.py` now prints row-level likely manual-match details instead of only a count
-- focused coverage exists for:
-  - artifact/report status collection
-  - previous card snapshot inference
-  - stubbed live bank verification
-  - upload preflight manual-match warnings
+- `family / 2026_05_02` live bank closeout is clean:
+  - sync `matched=40 | updates=0 | unmatched=0 | blocked=0`
+  - reconcile `ok=True | updates=0 | unmatched=0`
+- the May 2 Family card source contains only one live Family blocker now:
+  - `Bank Leumi` still has `updates=58 | unmatched=6` and no inferred previous snapshot
+- `Opher X5898` is now clean live after fixing MAX lineage compatibility:
+  - sync `matched=10 | updates=0 | unmatched=0 | blocked=0`
+  - reconcile `updates=0`
+- `Liya X7195` is also clean live after the same lineage fix:
+  - sync `matched=28 | updates=0 | unmatched=0 | blocked=0`
+  - reconcile `updates=0`
+- `Opher x9922` was already clean live and remains clean:
+  - sync `matched=26 | updates=0 | unmatched=0 | blocked=0`
+  - reconcile `updates=0`
+- the canonical transaction boundary now preserves MAX identity inputs needed for lineage compatibility:
+  - `max_sheet`
+  - `max_txn_type`
+  - `max_original_amount`
+  - `max_original_currency`
+- card lineage matching now accepts the known MAX sheet drift between:
+  - `עסקאות לידיעה`
+  - `עסקאות חו"ל ומט"ח`
 
 ## Recently Completed
 
-- added [context_run_status.py](../src/ynab_il_importer/context_run_status.py) as the shared status/verification engine
-- added [context_run_status.py](../scripts/context_run_status.py) as the script entrypoint
-- added the `context-run-status` pixi task in [pixi.toml](../pixi.toml)
-- documented the command in [context_workflow_spec.md](context_workflow_spec.md)
-- verified the command against the real `pilates / 2026_04_28` run in both artifact-only and `--verify-live` modes
-- added lightweight row-level manual-match surfacing without changing pairing behavior:
-  - `prepare_ynab_upload.py` reports exact candidate details for likely manual duplicates
-  - `context-run-status --verify-live` reports the same warnings before upload/closeout
+- reproduced the `Opher X5898` blocker against `family / 2026_05_02`
+- confirmed the root cause:
+  - the same March MAX transactions changed `CARD:V1` ids between the April 1 and May 2 exports because the row moved between MAX sheet buckets while the hash still included `max_sheet`
+- fixed the boundary without rewriting historical YNAB card ids:
+  - canonical `transaction_v1` artifacts now retain the MAX identity inputs needed to reason about historical card ids
+  - card sync/reconcile now recognizes the known MAX sheet-compatible alias set instead of treating those rows as unrelated transactions
+- rebuilt `data/derived/2026_05_02/family_max_norm.parquet`
+- verified with focused tests:
+  - `tests/test_card_identity.py`
+  - `tests/test_card_reconciliation.py`
+  - `tests/test_transaction_artifacts.py`
+  - `tests/test_build_context_review_script.py`
+  - `tests/test_context_run_status.py`
+- verified live status with:
+  - `pixi run context-run-status -- family 2026_05_02 --verify-live`
 
 ## Next Steps
 
-1. Merge this status-script slice cleanly without carrying unrelated formatter churn.
-2. Decide whether `context-run-status` should become the authoritative pre-closeout checklist for live runs.
-3. Decide whether card previous-snapshot selection should stay inferred or move to an explicit declared/configured boundary.
-4. Decide whether likely manual-match warnings should also be surfaced directly in review-build artifacts or a dedicated triage report.
-5. Once the separate closure-fix branch lands, refresh the active docs so the reported April 28 live state and the status command examples match.
+1. Leave `x0602` out of Family work; it belongs to the separate Pilates Leumi-card closeout.
+2. Confirm there is no remaining Family work for `Opher x9922`; keep it closed unless a fresh live rerun regresses.
+3. Confirm there is no remaining Family work for `Liya X7195`; keep it closed unless a fresh live rerun regresses.
+4. Decide how to handle Family `Bank Leumi`:
+   - keep it in Family scope and fix previous-snapshot inference plus the 6 ambiguous rows, or
+   - explicitly move/defer that account if it should not be part of the current Family closeout
+5. If Family `Bank Leumi` stays in scope, make status/review use the declared account-map boundary for previous-card lookup instead of inferring from digits in the YNAB account name.
 
 ## Working Rules
 
-- Prefer strict canonical boundaries over compatibility wrappers.
-- Keep nested data only where it is semantically real.
-- Treat active docs plus code as the source of truth; move history to `documents/archive/` instead of keeping duplicate active docs.
+- Prefer explicit account-map boundaries over name-based inference.
+- Keep card identity compatibility at the canonical source boundary, not as ad hoc live cleanup.
+- Do not mutate live YNAB just to paper over an unstable local identity rule.

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 import hashlib
 from pathlib import Path
+import re
 from typing import Any
 
 import pandas as pd  # kept for report DataFrame construction only
@@ -76,6 +77,38 @@ def _truncate_text(value: Any, limit: int = 80) -> str:
 
 def _normalize_match_text(value: Any) -> str:
     return normalize.normalize_text(card_identity.strip_card_txn_id_markers(value))
+
+
+def _optional_source_expr(df: pl.DataFrame, name: str, *, dtype: pl.DataType) -> pl.Expr:
+    if name in df.columns:
+        return pl.col(name).cast(dtype, strict=False)
+    return pl.lit(None, dtype=dtype).alias(name)
+
+
+def _source_card_txn_id_variants(source_row: dict[str, Any]) -> list[str]:
+    current = _normalize_text(source_row.get("card_txn_id", ""))
+    source_account = _normalize_text(source_row.get("source_account", ""))
+    suffix_match = re.search(r"(\d{4})", source_account)
+    if suffix_match is None:
+        return [current] if current else []
+
+    aliases = card_identity.make_card_txn_id_aliases(
+        source="card",
+        source_account=source_account,
+        card_suffix=suffix_match.group(1),
+        date=source_row.get("date", ""),
+        secondary_date=source_row.get("secondary_date", ""),
+        outflow_ils=source_row.get("outflow_ils", 0.0),
+        inflow_ils=source_row.get("inflow_ils", 0.0),
+        description_raw=source_row.get("description_raw", ""),
+        max_sheet=source_row.get("max_sheet", ""),
+        max_txn_type=source_row.get("max_txn_type", ""),
+        max_original_amount=source_row.get("max_original_amount"),
+        max_original_currency=source_row.get("max_original_currency", ""),
+    )
+    if current and current not in aliases:
+        return [current, *aliases]
+    return aliases
 
 
 def _row_identity_hash(row: dict[str, Any]) -> str:
@@ -152,16 +185,20 @@ def load_card_source(path: str | Path) -> pl.DataFrame:
 def _build_card_source_frame(df: pl.DataFrame, account_name: str) -> pl.DataFrame:
     work = (
         df.select(
-            "account_name",
-            "source_account",
-            "transaction_id",
-            "date",
-            "secondary_date",
-            "outflow_ils",
-            "inflow_ils",
-            "signed_amount_ils",
-            "description_raw",
-            "fingerprint",
+            pl.col("account_name"),
+            pl.col("source_account"),
+            pl.col("transaction_id"),
+            pl.col("date"),
+            pl.col("secondary_date"),
+            pl.col("outflow_ils"),
+            pl.col("inflow_ils"),
+            pl.col("signed_amount_ils"),
+            pl.col("description_raw"),
+            pl.col("fingerprint"),
+            _optional_source_expr(df, "max_sheet", dtype=pl.Utf8),
+            _optional_source_expr(df, "max_txn_type", dtype=pl.Utf8),
+            _optional_source_expr(df, "max_original_amount", dtype=pl.Float64),
+            _optional_source_expr(df, "max_original_currency", dtype=pl.Utf8),
         )
         .with_columns(
             pl.col("account_name").fill_null("").str.strip_chars(),
@@ -169,6 +206,9 @@ def _build_card_source_frame(df: pl.DataFrame, account_name: str) -> pl.DataFram
             pl.col("transaction_id").fill_null("").str.strip_chars().alias("card_txn_id"),
             pl.col("description_raw").fill_null("").str.strip_chars(),
             pl.col("fingerprint").fill_null("").str.strip_chars(),
+            pl.col("max_sheet").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars(),
+            pl.col("max_txn_type").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars(),
+            pl.col("max_original_currency").cast(pl.Utf8, strict=False).fill_null("").str.strip_chars(),
         )
     )
     mask = (pl.col("account_name") == account_name) | (
@@ -458,12 +498,13 @@ def _resolve_exact_card_lineage(
     import_map: dict[str, list[int]],
     memo_map: dict[str, list[int]],
 ) -> tuple[dict[str, Any] | None, str, str]:
-    card_txn_id = _normalize_text(source_row.get("card_txn_id", ""))
+    card_txn_ids = _source_card_txn_id_variants(source_row)
     source_date = source_row.get("date")
     source_amount = round(float(source_row.get("signed_ils", 0.0) or 0.0), 2)
     mismatch_reasons: list[str] = []
 
-    if card_txn_id:
+    for index, card_txn_id in enumerate(card_txn_ids):
+        via_suffix = "" if index == 0 else "_alias"
         import_hits = import_map.get(card_txn_id, [])
         if len(import_hits) > 1:
             return None, "", f"duplicate YNAB import_id matches for {card_txn_id}"
@@ -473,7 +514,7 @@ def _resolve_exact_card_lineage(
                 candidate.get("date") == source_date
                 and abs(float(candidate.get("signed_ils", 0.0) or 0.0) - source_amount) < 0.001
             ):
-                return candidate, "import_id", ""
+                return candidate, f"import_id{via_suffix}", ""
             mismatch_reasons.append(
                 "card_txn_id import_id is attached to a YNAB transaction with different date/amount"
             )
@@ -487,7 +528,7 @@ def _resolve_exact_card_lineage(
                 candidate.get("date") == source_date
                 and abs(float(candidate.get("signed_ils", 0.0) or 0.0) - source_amount) < 0.001
             ):
-                return candidate, "memo_marker", ""
+                return candidate, f"memo_marker{via_suffix}", ""
             mismatch_reasons.append(
                 "card_txn_id memo marker is attached to a YNAB transaction with different date/amount"
             )
@@ -795,12 +836,12 @@ def _resolve_card_match(source_row: dict[str, Any], ynab_rows: list[dict[str, An
             None, "", "no_candidates", "no YNAB transaction candidates"
         )
 
-    card_txn_id = _normalize_text(source_row.get("card_txn_id", ""))
-    if card_txn_id:
+    for index, card_txn_id in enumerate(_source_card_txn_id_variants(source_row)):
+        via_suffix = "" if index == 0 else "_alias"
         import_hits = [i for i, r in enumerate(ynab_rows) if r.get("import_id") == card_txn_id]
         if len(import_hits) == 1:
             return _ResolvedMatch(
-                ynab_rows[import_hits[0]], "import_id", "exact_lineage", ""
+                ynab_rows[import_hits[0]], f"import_id{via_suffix}", "exact_lineage", ""
             )
         if len(import_hits) > 1:
             return _ResolvedMatch(
@@ -813,7 +854,7 @@ def _resolve_card_match(source_row: dict[str, Any], ynab_rows: list[dict[str, An
         memo_hits = [i for i, r in enumerate(ynab_rows) if r.get("card_txn_id_marker") == card_txn_id]
         if len(memo_hits) == 1:
             return _ResolvedMatch(
-                ynab_rows[memo_hits[0]], "memo_marker", "exact_lineage", ""
+                ynab_rows[memo_hits[0]], f"memo_marker{via_suffix}", "exact_lineage", ""
             )
         if len(memo_hits) > 1:
             return _ResolvedMatch(

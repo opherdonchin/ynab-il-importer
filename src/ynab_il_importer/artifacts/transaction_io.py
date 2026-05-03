@@ -58,6 +58,11 @@ def flat_projection_to_canonical_table(
             return pl.col(name).cast(pl.Float64, strict=False).fill_null(0.0)
         return pl.lit(0.0, dtype=pl.Float64)
 
+    def _optional_float_expr(name: str) -> pl.Expr:
+        if name in df.columns:
+            return pl.col(name).cast(pl.Float64, strict=False)
+        return pl.lit(None, dtype=pl.Float64)
+
     def _bool_expr(name: str, default: bool = False) -> pl.Expr:
         if name in df.columns:
             return (
@@ -135,6 +140,10 @@ def flat_projection_to_canonical_table(
         _text_expr("description_clean").alias("description_clean"),
         _text_expr("description_clean_norm").alias("description_clean_norm"),
         _text_expr("merchant_raw").alias("merchant_raw"),
+        _text_expr("max_sheet").alias("max_sheet"),
+        _text_expr("max_txn_type").alias("max_txn_type"),
+        _optional_float_expr("max_original_amount").alias("max_original_amount"),
+        _text_expr("max_original_currency").alias("max_original_currency"),
         _text_expr("ref").alias("ref"),
         _text_expr("matched_transaction_id").alias("matched_transaction_id"),
         _text_expr("cleared").alias("cleared"),

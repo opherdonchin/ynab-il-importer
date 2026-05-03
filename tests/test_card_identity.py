@@ -39,6 +39,27 @@ def test_make_card_txn_id_is_deterministic_and_versioned() -> None:
     assert card_identity.parse_card_txn_id(value)["version"] == "V1"
 
 
+def test_make_card_txn_id_aliases_cover_known_max_sheet_drift() -> None:
+    aliases = card_identity.make_card_txn_id_aliases(
+        source="card",
+        source_account="x5898",
+        card_suffix="5898",
+        date="2026-03-23",
+        secondary_date="2026-05-10",
+        outflow_ils=43.9,
+        inflow_ils=0.0,
+        description_raw='SPOTIFY                STOCKHOLM     SE | חיוב עסקת חו"ל בש"ח',
+        max_sheet='עסקאות חו"ל ומט"ח',
+        max_txn_type="דחוי חודש",
+        max_original_amount=43.9,
+        max_original_currency="ILS",
+    )
+
+    assert aliases[0].startswith("CARD:V1:")
+    assert len(aliases) == 2
+    assert aliases[0] != aliases[1]
+
+
 def test_parse_card_txn_id_rejects_unknown_versions() -> None:
     with pytest.raises(ValueError, match="Unsupported card_txn_id version"):
         card_identity.parse_card_txn_id("CARD:V2:1234567890abcdef12345678")

@@ -6,6 +6,7 @@ import pandas as pd
 import polars as pl
 
 from ynab_il_importer.artifacts.transaction_io import write_transactions_parquet
+import ynab_il_importer.card_identity as card_identity
 import ynab_il_importer.card_reconciliation as card_reconciliation
 import ynab_il_importer.io_max as io_max
 
@@ -1075,6 +1076,77 @@ def test_plan_card_match_sync_noops_on_exact_lineage(tmp_path: Path) -> None:
     report = result["report"]
     assert report.loc[0, "resolved_via"] == "import_id"
     assert report.loc[0, "action"] == "noop"
+
+
+def test_plan_card_match_sync_noops_on_max_sheet_alias_lineage(tmp_path: Path) -> None:
+    source_path = tmp_path / "current.xlsx"
+    _write_snapshot(
+        source_path,
+        period="05/2026",
+        billed_rows=[
+            _billed_row(
+                date="09-03-2026",
+                merchant="MERCHANT A",
+                amount="100",
+                charge_date="10-04-2026",
+            )
+        ],
+        foreign_rows=[
+            _billed_row(
+                date="23-03-2026",
+                merchant="SPOTIFY                STOCKHOLM     SE",
+                amount="43.9",
+                charge_date="10-05-2026",
+                txn_type="דחוי חודש",
+            )
+            | {"הערות": 'חיוב עסקת חו"ל בש"ח '}
+        ],
+    )
+    source_df = card_reconciliation.load_card_source(source_path)
+    source_rows = card_reconciliation._build_card_source_frame(source_df, "Opher x9922")
+    source_row = source_rows.filter(pl.col("max_sheet") == 'עסקאות חו"ל ומט"ח').row(
+        0, named=True
+    )
+    prior_card_txn_id = card_identity.make_card_txn_id(
+        source="card",
+        source_account=source_row["source_account"],
+        card_suffix="9922",
+        date=source_row["date"],
+        secondary_date=source_row["secondary_date"],
+        outflow_ils=source_row["outflow_ils"],
+        inflow_ils=source_row["inflow_ils"],
+        description_raw=source_row["description_raw"],
+        max_sheet="עסקאות לידיעה",
+        max_txn_type=source_row["max_txn_type"],
+        max_original_amount=source_row["max_original_amount"],
+        max_original_currency=source_row["max_original_currency"],
+    )
+
+    transactions = [
+        _txn_manual(
+            txn_id="txn-1",
+            date="2026-03-23",
+            amount_ils=43.9,
+            payee_name="Spotify",
+            cleared="cleared",
+            import_id=prior_card_txn_id,
+            memo=source_row["description_raw"],
+        )
+    ]
+
+    result = card_reconciliation.plan_card_match_sync(
+        account_name="Opher x9922",
+        source_df=source_df,
+        accounts=_accounts(),
+        transactions=transactions,
+    )
+
+    assert result["update_count"] == 0
+    assert result["updates"] == []
+    report = result["report"]
+    spotify_row = report[report["description_raw"].str.contains("SPOTIFY")].iloc[0]
+    assert spotify_row["resolved_via"] == "import_id_alias"
+    assert spotify_row["action"] == "noop"
 
 
 def test_plan_card_match_sync_filters_source_rows_by_date(tmp_path: Path) -> None:

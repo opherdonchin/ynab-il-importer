@@ -13,6 +13,12 @@ CARD_TXN_ID_PREFIX = f"{CARD_TXN_ID_SCHEME}:{CARD_TXN_ID_VERSION}:"
 _CARD_TXN_ID_RE = re.compile(r"^(CARD):(V\d+):([0-9a-f]{24})$")
 _MEMO_MARKER_RE = re.compile(r"\[ynab-il card_txn_id=([^\]]+)\]")
 _KNOWN_VERSIONS = {CARD_TXN_ID_VERSION}
+_MAX_COMPATIBLE_SHEET_GROUPS = (
+    (
+        "עסקאות לידיעה",
+        'עסקאות חו"ל ומט"ח',
+    ),
+)
 
 
 def _normalize_text(value: Any) -> str:
@@ -94,6 +100,52 @@ def make_card_txn_id(
     ]
     digest = hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:24]
     return f"{CARD_TXN_ID_PREFIX}{digest}"
+
+
+def _compatible_max_sheets(max_sheet: Any) -> list[str]:
+    current = _normalize_text(max_sheet)
+    if not current:
+        return [""]
+    for group in _MAX_COMPATIBLE_SHEET_GROUPS:
+        if current in group:
+            return [current, *(sheet for sheet in group if sheet != current)]
+    return [current]
+
+
+def make_card_txn_id_aliases(
+    *,
+    source: Any,
+    source_account: Any,
+    card_suffix: Any,
+    date: Any,
+    secondary_date: Any,
+    outflow_ils: Any,
+    inflow_ils: Any,
+    description_raw: Any,
+    max_sheet: Any,
+    max_txn_type: Any,
+    max_original_amount: Any,
+    max_original_currency: Any,
+) -> list[str]:
+    aliases: list[str] = []
+    for candidate_sheet in _compatible_max_sheets(max_sheet):
+        alias = make_card_txn_id(
+            source=source,
+            source_account=source_account,
+            card_suffix=card_suffix,
+            date=date,
+            secondary_date=secondary_date,
+            outflow_ils=outflow_ils,
+            inflow_ils=inflow_ils,
+            description_raw=description_raw,
+            max_sheet=candidate_sheet,
+            max_txn_type=max_txn_type,
+            max_original_amount=max_original_amount,
+            max_original_currency=max_original_currency,
+        )
+        if alias not in aliases:
+            aliases.append(alias)
+    return aliases
 
 
 def parse_card_txn_id(value: Any) -> dict[str, str]:

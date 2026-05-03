@@ -134,6 +134,10 @@ def test_flat_projection_to_canonical_table_uses_existing_row_ids() -> None:
             "inflow_ils": [0.0],
             "balance_ils": [910.0],
             "bank_txn_id": ["BANK:1"],
+            "max_sheet": ["עסקאות במועד החיוב"],
+            "max_txn_type": ["רגילה"],
+            "max_original_amount": [90.0],
+            "max_original_currency": ["ILS"],
             "currency": ["ILS"],
             "amount_bucket": [""],
         }
@@ -150,6 +154,8 @@ def test_flat_projection_to_canonical_table_uses_existing_row_ids() -> None:
     assert canonical["merchant_raw"].to_pylist() == ["Mega Pet"]
     assert canonical["signed_amount_ils"].to_pylist() == [-90.0]
     assert canonical["balance_ils"].to_pylist() == [910.0]
+    assert canonical["max_sheet"].to_pylist() == ["עסקאות במועד החיוב"]
+    assert canonical["max_original_amount"].to_pylist() == [90.0]
 
 
 def test_write_flat_transaction_artifacts_writes_csv_and_parquet(tmp_path) -> None:
