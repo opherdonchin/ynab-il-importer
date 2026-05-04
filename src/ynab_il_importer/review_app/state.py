@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections import Counter
 from typing import Any
 
@@ -48,6 +49,7 @@ _REVIEW_DATA_TEXT_COLUMNS = [
     "target_merchant_raw",
 ]
 _REVIEW_DATA_BOOL_COLUMNS = ["reviewed", "source_present", "target_present"]
+_CARD_SUFFIX_MEMO_TAG_RE = re.compile(r"\[card x(?P<suffix>\d{4})\]", re.IGNORECASE)
 
 
 def _empty_text_series(length: int) -> pl.Series:
@@ -71,6 +73,22 @@ def _normalize_flag_series(series: pl.Series) -> pl.Series:
         [_normalize_text(value).casefold() in TRUE_VALUES for value in series.to_list()],
         dtype=pl.Boolean,
     )
+
+
+def _display_source_account(row: dict[str, Any]) -> str:
+    source_account = _normalize_text(row.get("source_account"))
+    account_name = _normalize_text(row.get("account_name"))
+    target_account = _normalize_text(row.get("target_account"))
+    source_memo = _normalize_text(row.get("source_memo"))
+
+    suffix_match = _CARD_SUFFIX_MEMO_TAG_RE.search(source_memo)
+    if suffix_match is None:
+        return source_account
+
+    base_account = target_account or account_name or source_account
+    if not base_account:
+        return f"card x{suffix_match.group('suffix')}"
+    return f"{base_account} / card x{suffix_match.group('suffix')}"
 
 
 def _parse_float_value(value: Any) -> float:
@@ -137,6 +155,11 @@ def _normalized_review_data_frame(df: pl.DataFrame) -> pl.DataFrame:
 
 def canonical_review_helpers(df: pl.DataFrame) -> pl.DataFrame:
     df = _normalized_review_data_frame(df)
+    text_col = (
+        lambda name: pl.col(name).cast(pl.Utf8, strict=False).fill_null("")
+        if name in df.columns
+        else pl.lit("", dtype=pl.Utf8)
+    )
     if df.is_empty():
         return df.with_columns(
             [
@@ -165,7 +188,16 @@ def canonical_review_helpers(df: pl.DataFrame) -> pl.DataFrame:
             pl.col("target_payee_current").alias("target_display_payee"),
             pl.col("source_category_current").alias("source_display_category"),
             pl.col("target_category_current").alias("target_display_category"),
-            pl.col("source_account").alias("source_display_account"),
+            pl.struct(
+                [
+                    text_col("source_account").alias("source_account"),
+                    text_col("account_name").alias("account_name"),
+                    text_col("target_account").alias("target_account"),
+                    text_col("source_memo").alias("source_memo"),
+                ]
+            )
+            .map_elements(_display_source_account, return_dtype=pl.Utf8)
+            .alias("source_display_account"),
             pl.col("target_account").alias("target_display_account"),
             pl.col("source_date").alias("source_display_date"),
             pl.col("target_date").alias("target_display_date"),

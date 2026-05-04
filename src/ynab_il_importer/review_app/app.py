@@ -1769,6 +1769,44 @@ def _split_category_summary(splits: list[dict[str, Any]] | None) -> str:
     return "Yes"
 
 
+def _side_keeps_split_category(row: dict[str, Any], side: str) -> bool:
+    for name in (f"{side}_category_selected", f"{side}_category_current"):
+        if review_model.normalize_category_value(row.get(name, "")) == "Split":
+            return True
+    transaction = row.get(f"{side}_current_transaction")
+    if isinstance(transaction, dict):
+        return review_model.normalize_category_value(
+            transaction.get("category_raw", "")
+        ) == "Split"
+    return False
+
+
+def _side_split_records(row: dict[str, Any], side: str) -> list[dict[str, Any]]:
+    splits = review_io._normalize_split_records(row.get(f"{side}_splits"))
+    if splits:
+        return splits
+
+    current_transaction = row.get(f"{side}_current_transaction")
+    if isinstance(current_transaction, dict):
+        current_splits = review_io._normalize_split_records(
+            current_transaction.get("splits")
+        )
+        if current_splits:
+            return current_splits
+
+    if not _side_keeps_split_category(row, side):
+        return []
+
+    original_transaction = row.get(f"{side}_original_transaction")
+    if isinstance(original_transaction, dict):
+        original_splits = review_io._normalize_split_records(
+            original_transaction.get("splits")
+        )
+        if original_splits:
+            return original_splits
+    return []
+
+
 def _row_context_lines(row: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     source_context = str(row.get("source_context_kind", "") or "").strip()
@@ -1915,7 +1953,7 @@ def _split_caption_lines(
 
 
 def _target_split_editor_rows(row: dict[str, Any]) -> list[dict[str, Any]]:
-    splits = review_io._normalize_split_records(row.get("target_splits"))
+    splits = _side_split_records(row, "target")
     if splits:
         rows: list[dict[str, Any]] = []
         for split in splits:
@@ -2170,7 +2208,7 @@ def _render_split_action_buttons(
     idx: Any,
     group_fingerprint: str | None = None,
 ) -> None:
-    target_splits = review_io._normalize_split_records(row.get("target_splits"))
+    target_splits = _side_split_records(row, "target")
     is_split = bool(target_splits)
     action_label = "Edit split" if is_split else "Create split"
     if st.button(action_label, key=_editor_key(f"split_action_{idx}")):
@@ -2246,8 +2284,8 @@ def _render_row_details(
         )
         return review_model.transfer_target_account_name(payee)
 
-    source_splits = review_io._normalize_split_records(row.get("source_splits"))
-    target_splits = review_io._normalize_split_records(row.get("target_splits"))
+    source_splits = _side_split_records(row, "source")
+    target_splits = _side_split_records(row, "target")
     source_category_current = _format_category_label(
         str(row.get("source_category_current", "") or "").strip(),
         category_group_map,

@@ -729,6 +729,136 @@ def test_target_split_editor_rows_accept_array_backed_split_payloads() -> None:
     ]
 
 
+def test_target_split_editor_rows_fall_back_to_original_split_lines() -> None:
+    row = pd.Series(
+        {
+            "target_splits": None,
+            "target_current_transaction": {
+                "payee_raw": "Hava",
+                "category_raw": "Split",
+                "memo": "Parent memo",
+                "inflow_ils": 500.0,
+                "outflow_ils": 0.0,
+                "splits": None,
+            },
+            "target_original_transaction": {
+                "payee_raw": "Hava",
+                "category_raw": "Split",
+                "memo": "Parent memo",
+                "inflow_ils": 500.0,
+                "outflow_ils": 0.0,
+                "splits": [
+                    {
+                        "split_id": "split-1",
+                        "payee_raw": "Hava",
+                        "category_raw": "Birthdays",
+                        "memo": "gift",
+                        "inflow_ils": 500.0,
+                        "outflow_ils": 0.0,
+                    },
+                    {
+                        "split_id": "split-2",
+                        "payee_raw": "Hava",
+                        "category_raw": "Loans and transfers",
+                        "memo": "gift",
+                        "inflow_ils": 0.0,
+                        "outflow_ils": 0.0,
+                    },
+                ],
+            },
+            "target_payee_selected": "Hava",
+            "target_category_selected": "Split",
+            "target_memo": "Parent memo",
+            "memo": "Parent memo",
+            "inflow_ils": 500.0,
+            "outflow_ils": 0.0,
+            "target_present": True,
+        }
+    )
+
+    assert review_app._target_split_editor_rows(row) == [
+        {
+            "split_id": "split-1",
+            "payee_raw": "Hava",
+            "category_raw": "Birthdays",
+            "memo": "gift",
+            "amount_ils": 500.0,
+        },
+        {
+            "split_id": "split-2",
+            "payee_raw": "Hava",
+            "category_raw": "Loans and transfers",
+            "memo": "gift",
+            "amount_ils": 0.0,
+        },
+    ]
+
+
+def test_target_split_editor_rows_do_not_revive_original_splits_after_collapse() -> None:
+    row = pd.Series(
+        {
+            "target_splits": None,
+            "target_current_transaction": {
+                "payee_raw": "Hava",
+                "category_raw": "Birthdays",
+                "memo": "gift",
+                "inflow_ils": 500.0,
+                "outflow_ils": 0.0,
+                "splits": None,
+            },
+            "target_original_transaction": {
+                "payee_raw": "Hava",
+                "category_raw": "Split",
+                "memo": "Parent memo",
+                "inflow_ils": 500.0,
+                "outflow_ils": 0.0,
+                "splits": [
+                    {
+                        "split_id": "split-1",
+                        "payee_raw": "Hava",
+                        "category_raw": "Birthdays",
+                        "memo": "gift",
+                        "inflow_ils": 500.0,
+                        "outflow_ils": 0.0,
+                    },
+                    {
+                        "split_id": "split-2",
+                        "payee_raw": "Hava",
+                        "category_raw": "Loans and transfers",
+                        "memo": "gift",
+                        "inflow_ils": 0.0,
+                        "outflow_ils": 0.0,
+                    },
+                ],
+            },
+            "target_payee_selected": "Hava",
+            "target_category_selected": "Birthdays",
+            "target_memo": "gift",
+            "memo": "gift",
+            "inflow_ils": 500.0,
+            "outflow_ils": 0.0,
+            "target_present": True,
+        }
+    )
+
+    assert review_app._target_split_editor_rows(row) == [
+        {
+            "split_id": "",
+            "payee_raw": "Hava",
+            "category_raw": "Birthdays",
+            "memo": "gift",
+            "amount_ils": 500.0,
+        },
+        {
+            "split_id": "",
+            "payee_raw": "",
+            "category_raw": "",
+            "memo": "",
+            "amount_ils": 0.0,
+        },
+    ]
+
+
 def test_pick_summary_text_falls_back_to_canonical_transaction_data() -> None:
     row = pd.Series(
         {

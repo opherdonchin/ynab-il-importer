@@ -1548,6 +1548,36 @@ def test_canonical_review_helpers_derive_split_and_display_fields() -> None:
     assert rows[1]["target_display_payee"] == "Manual Split"
 
 
+def test_canonical_review_helpers_show_bank_debit_card_on_source_account() -> None:
+    df = _review_rows(
+        [
+            {
+                "transaction_id": "txn-1",
+                "account_name": "Bank Leumi",
+                "date": "2026-04-15",
+                "outflow_ils": 190.0,
+                "inflow_ils": 0.0,
+                "memo": "BIT [card x0740]",
+                "source_account": "67833011333622",
+                "target_account": "Bank Leumi",
+                "source_payee_current": "BIT",
+                "source_category_current": "",
+                "source_memo": "BIT [card x0740]",
+                "target_payee_current": "",
+                "target_category_current": "",
+                "target_memo": "",
+                "source_present": True,
+                "target_present": False,
+            }
+        ]
+    )
+
+    augmented = review_state.canonical_review_helpers(df)
+    row = augmented.row(0, named=True)
+
+    assert row["source_display_account"] == "Bank Leumi / card x0740"
+
+
 def test_review_data_view_search_text_includes_context_and_split_text() -> None:
     df = _review_rows(
         [
