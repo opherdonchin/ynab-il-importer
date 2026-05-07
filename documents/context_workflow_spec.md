@@ -102,6 +102,7 @@ Budget ids are resolved in this order:
 3. [config/ynab.local.toml](../config/ynab.local.toml), if present
 
 Committed config stores only the environment-variable name, not the live budget id.
+If the local budget id is missing but `YNAB_ACCESS_TOKEN` is available, run `pixi run download-context-ynab -- --list-budgets` to list the budget/plan ids available to that token.
 
 ## Active Entry Points
 
@@ -119,12 +120,15 @@ For `ynab_category` sources, normalization is still run-tag based, but the input
 
 ```bash
 pixi run download-context-ynab -- <context> <run_tag>
+pixi run download-context-ynab -- <context> <run_tag> --source-window
 ```
 
 Writes the declared normalized YNAB artifact to `data/derived/<run_tag>/`.
 
 If the context declares one or more `ynab_category` sources, this step also refreshes the upstream contexts' normalized YNAB snapshots first, in dependency order.
 It does not materialize the `ynab_category` source rows themselves; that still happens in `normalize-context`.
+
+`--source-window` infers any missing `--since`/`--until` bounds from the context's already-normalized raw-backed source artifacts and pads the min/max source dates by 14 days by default. Use `--source-window-padding-days <n>` to choose a different padding. This is intended for bootstrap runs where the local historical YNAB export is absent but the current institutional source files are present.
 
 ### Build review artifact
 

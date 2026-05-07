@@ -112,6 +112,11 @@ def fetch_months(plan_id: str | None = None) -> list[dict[str, Any]]:
     return payload.get("data", {}).get("months", [])
 
 
+def fetch_budgets() -> list[dict[str, Any]]:
+    payload = _ynab_get("/plans")
+    return payload.get("data", {}).get("plans", [])
+
+
 def fetch_month_detail(
     month: str,
     *,

@@ -24,6 +24,15 @@ Read these in order:
 
 Use one `context` such as `family`, `pilates`, or `aikido`, plus one `run_tag` such as `2026_04_01`.
 
+## Current Handoff
+
+The 2026-05-07 office-machine handoff for the `family` run lives in:
+
+- [documents/sync_handoffs/family_2026_05_07_handoff.md](documents/sync_handoffs/family_2026_05_07_handoff.md)
+- `documents/sync_handoffs/family_2026_05_07_handoff.zip`
+
+Pull the synced branch at home, read the handoff note, and unpack the ZIP from the repo root if the generated `data/` artifacts are missing locally.
+
 ### 1. Install the environment
 
 ```bash
@@ -57,6 +66,13 @@ This writes canonical transaction artifacts to `data/derived/<run_tag>/`.
 pixi run download-context-ynab -- <context> <run_tag>
 ```
 
+If the normalized source artifacts already exist, the command can infer a padded
+YNAB window from those source dates:
+
+```bash
+pixi run download-context-ynab -- <context> <run_tag> --source-window
+```
+
 Budget resolution comes from one of:
 
 - `--budget-id`
@@ -64,6 +80,9 @@ Budget resolution comes from one of:
 - `config/ynab.local.toml`
 
 You also need `YNAB_ACCESS_TOKEN` available in the environment or `.env`.
+If the budget id is missing, set only `YNAB_ACCESS_TOKEN` first and run
+`pixi run download-context-ynab -- --list-budgets` to print the available
+budget/plan ids.
 
 ### 5. Build the review artifact
 
