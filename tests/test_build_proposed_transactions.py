@@ -2048,6 +2048,42 @@ def test_prepare_review_source_rows_marks_ynab_category_split_context() -> None:
     assert row["source_context_category_id"] == "cat-aikido"
     assert row["source_context_category_name"] == "Aikido"
     assert row["source_context_matching_split_ids"] == "split-1"
+    assert row["source_memo"] == "April class"
+
+
+def test_prepare_review_source_rows_keeps_ynab_category_memo_over_clean_label() -> None:
+    source_df = _canonical_transaction_polars(
+        pd.DataFrame(
+            [
+                {
+                    "transaction_id": "trial-1",
+                    "ynab_id": "trial-1",
+                    "account_name": "Personal In Leumi",
+                    "source_account": "Family Leumi",
+                    "date": "2026-05-06",
+                    "outflow_ils": 0.0,
+                    "inflow_ils": 70.0,
+                    "payee_raw": "Trial class",
+                    "category_id": "cat-aikido",
+                    "category_raw": "Aikido",
+                    "memo": "דניאל זלצר\nDaniel Zelzer",
+                    "description_raw": "דניאל זלצר\nDaniel Zelzer",
+                    "description_clean": "Trial class",
+                    "fingerprint": "trial class",
+                    "is_subtransaction": False,
+                    "ref": "trial-1",
+                }
+            ]
+        ),
+        source_system="ynab_category",
+        artifact_kind="normalized_source_transaction",
+    )
+
+    prepared = build_proposed_transactions._prepare_review_source_rows(source_df)
+    row = prepared.row(0, named=True)
+
+    assert row["source_payee_current"] == "Trial class"
+    assert row["source_memo"] == "דניאל זלצר\nDaniel Zelzer"
 
 
 def test_build_review_rows_preserves_ynab_category_source_context(tmp_path: Path) -> None:

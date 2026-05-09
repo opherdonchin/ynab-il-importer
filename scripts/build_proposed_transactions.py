@@ -962,6 +962,16 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
             pl.lit(""),
         ]
     )
+    ynab_category_raw_text = pl.coalesce(
+        [
+            nonempty("memo"),
+            nonempty("description_raw"),
+            nonempty("description_clean"),
+            nonempty("merchant_raw"),
+            nonempty("raw_text"),
+            pl.lit(""),
+        ]
+    )
     source_work = (
         source_df.with_row_index("_row_index")
         .with_columns(
@@ -975,6 +985,8 @@ def _prepare_review_source_rows(source_df: pl.DataFrame) -> pl.DataFrame:
             .then(bank_raw_text)
             .when(source_type == "card")
             .then(card_raw_text)
+            .when(source_type == "ynab_category")
+            .then(ynab_category_raw_text)
             .otherwise(default_raw_text)
             .alias("raw_text"),
         )
