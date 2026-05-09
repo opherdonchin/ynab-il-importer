@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pyarrow as pa
+import polars as pl
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "download_ynab_api.py"
@@ -15,6 +16,7 @@ sys.modules["download_ynab_api_script"] = download_ynab_api
 SPEC.loader.exec_module(download_ynab_api)
 
 import ynab_il_importer.context_config as context_config  # noqa: E402
+from ynab_il_importer.artifacts.transaction_io import write_transactions_parquet  # noqa: E402
 
 
 def test_main_writes_context_parquet(monkeypatch, tmp_path) -> None:
@@ -87,6 +89,37 @@ def test_main_writes_context_parquet(monkeypatch, tmp_path) -> None:
     assert captured["path"] == tmp_path / "derived" / "2026_04_01" / "family_ynab_api_norm.parquet"
     assert captured["rows"] == 1
     assert captured["transaction_id"] == "txn-1"
+
+
+def test_main_lists_budgets(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        download_ynab_api.ynab_api,
+        "fetch_budgets",
+        lambda: [
+            {
+                "id": "budget-family",
+                "name": "Family",
+                "last_modified_on": "2026-05-07T12:34:56Z",
+            },
+            {
+                "id": "budget-pilates",
+                "name": "Pilates",
+                "last_modified_on": "",
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["download_ynab_api.py", "--list-budgets"],
+    )
+
+    download_ynab_api.main()
+
+    out = capsys.readouterr().out
+    assert "YNAB budgets available to this token:" in out
+    assert "Family\tbudget-family last_modified=2026-05-07T12:34:56Z" in out
+    assert "Pilates\tbudget-pilates" in out
 
 
 def test_main_downloads_upstream_ynab_dependencies(monkeypatch, tmp_path) -> None:
@@ -182,6 +215,150 @@ def test_main_downloads_upstream_ynab_dependencies(monkeypatch, tmp_path) -> Non
             tmp_path / "derived" / "2026_04_14" / "pilates_ynab_api_norm.parquet",
         ),
     ]
+
+
+def test_main_can_infer_download_window_from_normalized_sources(
+    monkeypatch, tmp_path
+) -> None:
+    defaults = context_config.DefaultsConfig(
+        raw_root=tmp_path / "raw",
+        derived_root=tmp_path / "derived",
+        paired_root=tmp_path / "paired",
+        outputs_root=tmp_path / "outputs",
+    )
+    context = context_config.load_context("family")
+    run_dir = tmp_path / "derived" / "2026_04_01"
+    write_transactions_parquet(
+        pl.DataFrame(
+            {
+                "transaction_id": ["bank-1", "bank-2"],
+                "date": ["2026-03-01", "2026-03-10"],
+            }
+        ),
+        run_dir / "family_leumi_norm.parquet",
+    )
+    write_transactions_parquet(
+        pl.DataFrame(
+            {
+                "transaction_id": ["card-1", "card-2"],
+                "date": ["2026-03-05", "2026-04-05"],
+            }
+        ),
+        run_dir / "family_max_norm.parquet",
+    )
+    captured: dict[str, object] = {"fetch_since_dates": []}
+
+    monkeypatch.setattr(
+        download_ynab_api.context_config,
+        "load_defaults",
+        lambda *_args, **_kwargs: defaults,
+    )
+    monkeypatch.setattr(
+        download_ynab_api.context_config,
+        "load_context",
+        lambda *_args, **_kwargs: context,
+    )
+    monkeypatch.setattr(
+        download_ynab_api.context_config,
+        "resolve_context_ynab_dependencies",
+        lambda current, **_kwargs: [current],
+    )
+    monkeypatch.setattr(
+        download_ynab_api.context_config,
+        "resolve_context_budget_id",
+        lambda *_args, **_kwargs: "family-budget",
+    )
+    monkeypatch.setattr(
+        download_ynab_api.ynab_api,
+        "fetch_accounts",
+        lambda plan_id=None: [{"id": "acc-1", "name": "Family Leumi"}],
+    )
+
+    def fake_fetch_transactions(plan_id=None, since_date=None):
+        captured["fetch_since_dates"].append(since_date)
+        return [
+            {
+                "id": "before-window",
+                "account_id": "acc-1",
+                "date": "2026-02-20",
+                "payee_name": "Early",
+                "category_name": "Category",
+                "category_id": "cat-1",
+                "amount": -1000,
+                "memo": "",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "cleared",
+                "approved": True,
+            },
+            {
+                "id": "inside-window",
+                "account_id": "acc-1",
+                "date": "2026-04-10",
+                "payee_name": "Inside",
+                "category_name": "Category",
+                "category_id": "cat-1",
+                "amount": -1000,
+                "memo": "",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "cleared",
+                "approved": True,
+            },
+            {
+                "id": "after-window",
+                "account_id": "acc-1",
+                "date": "2026-04-20",
+                "payee_name": "Late",
+                "category_name": "Category",
+                "category_id": "cat-1",
+                "amount": -1000,
+                "memo": "",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "cleared",
+                "approved": True,
+            },
+        ]
+
+    monkeypatch.setattr(
+        download_ynab_api.ynab_api,
+        "fetch_transactions",
+        fake_fetch_transactions,
+    )
+    monkeypatch.setattr(
+        download_ynab_api,
+        "write_transactions_parquet",
+        lambda table, path: captured.update(
+            {
+                "path": path,
+                "transaction_ids": table["transaction_id"].to_pylist(),
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        download_ynab_api.export,
+        "wrote_message",
+        lambda *_args, **_kwargs: "",
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "download_ynab_api.py",
+            "family",
+            "2026_04_01",
+            "--source-window",
+            "--source-window-padding-days",
+            "7",
+        ],
+    )
+
+    download_ynab_api.main()
+
+    assert captured["fetch_since_dates"] == ["2026-02-22"]
+    assert captured["transaction_ids"] == ["inside-window"]
+    assert captured["path"] == run_dir / "family_ynab_api_norm.parquet"
 
 
 def test_filter_canonical_by_date_filters_string_dates() -> None:

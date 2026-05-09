@@ -53,6 +53,7 @@ _FALSE_VALUES = {"0", "false", "f", "no", "n"}
 _AMOUNT_BUCKET_RE = re.compile(
     r"^(?P<op><=|>=|=|<|>)(?P<value>\d+(?:\.\d+)?)$"
 )
+_AMOUNT_EXACT_RE = re.compile(r"^(?P<value>\d+(?:\.\d+)?)$")
 _AMOUNT_RANGE_RE = re.compile(
     r"^(?P<low>\d+(?:\.\d+)?)[\\s]*-[\\s]*(?P<high>\d+(?:\.\d+)?)$"
 )
@@ -433,6 +434,10 @@ def _parse_amount_bucket(rule_value: str) -> tuple[Callable[[float], bool], str]
     text = rule_value.strip().replace(" ", "")
     if not text:
         return None
+    match = _AMOUNT_EXACT_RE.match(text)
+    if match:
+        value = float(match.group("value"))
+        return (lambda amt: amt == value), text
     match = _AMOUNT_BUCKET_RE.match(text)
     if match:
         op = match.group("op")

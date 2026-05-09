@@ -5,6 +5,17 @@ import pandas as pd
 import ynab_il_importer.ynab_api as ynab_api
 
 
+def test_fetch_budgets_reads_plans_endpoint(monkeypatch) -> None:
+    def fake_get(path: str, params: dict | None = None) -> dict:
+        assert path == "/plans"
+        assert params is None
+        return {"data": {"plans": [{"id": "plan-1", "name": "Family"}]}}
+
+    monkeypatch.setattr(ynab_api, "_ynab_get", fake_get)
+
+    assert ynab_api.fetch_budgets() == [{"id": "plan-1", "name": "Family"}]
+
+
 def test_create_transactions_reads_save_transactions_response(monkeypatch) -> None:
     def fake_post(path: str, payload: dict) -> dict:
         assert path == "/plans/test-plan/transactions"

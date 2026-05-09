@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 import sys
 from pathlib import Path
 
@@ -169,6 +171,33 @@ def test_exact_amount_bucket_matches_only_exact_value() -> None:
 
     assert out[0, "match_status"] == "unique"
     assert out[0, "payee_canonical_suggested"] == "Transfer : Planned Liya"
+    assert out[1, "match_status"] == "none"
+
+
+def test_bare_amount_bucket_matches_exact_value() -> None:
+    rules = _rules(
+        [
+            {
+                "rule_id": "bare",
+                "fingerprint": "הפקדות קופג",
+                "amount_bucket": "600",
+                "payee_canonical": "Transfer : Unplanned Opher",
+                "category_target": review_model.NO_CATEGORY_REQUIRED,
+            }
+        ]
+    )
+    tx = pl.DataFrame(
+        [
+            {"fingerprint": "הפקדות קופג", "outflow_ils": 600, "inflow_ils": 0},
+            {"fingerprint": "הפקדות קופג", "outflow_ils": 6300, "inflow_ils": 0},
+        ]
+    )
+
+    out = rules_mod.apply_payee_map_rules(tx, rules)
+
+    assert out[0, "match_status"] == "unique"
+    assert out[0, "payee_canonical_suggested"] == "Transfer : Unplanned Opher"
+    assert out[0, "category_target_suggested"] == review_model.NO_CATEGORY_REQUIRED
     assert out[1, "match_status"] == "none"
 
 

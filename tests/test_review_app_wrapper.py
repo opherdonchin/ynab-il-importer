@@ -28,6 +28,10 @@ def test_build_streamlit_command_includes_control_dir_and_resume(tmp_path: Path)
 
     assert "--server.port" in cmd
     assert "8510" in cmd
+    assert "--server.headless" in cmd
+    assert "true" in cmd
+    assert "--browser.gatherUsageStats" in cmd
+    assert "false" in cmd
     assert "--control-dir" in cmd
     assert str(control_dir) in cmd
     assert "--resume" in cmd
