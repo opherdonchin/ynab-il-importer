@@ -2,41 +2,40 @@
 
 ## Workstream
 
-Keep the May 2, 2026 closeout workflow rerunnable and explicit, with rebuilt proposals staying empty once a context is truly closed.
+Keep the May 2026 context closeout workflow rerunnable and explicit, with uploaded runs staying clean after sync, reconciliation, and report refresh.
 
 ## Current State
 
-- `family / 2026_05_02` is fully clean on disk and in live verification:
-  - artifact-only status: `reports clean=9`
-  - live status: `reports clean=9 | live clean=10`
-- `pilates / 2026_05_02` is fully clean on disk and in live verification.
-- `aikido / 2026_05_02` is now fully clean on disk and in live verification:
-  - proposal artifact: `rows=0`
-  - reviewed artifact: `rows=0`
-  - upload artifacts: `create=0 | update=0`
-  - category reconcile report: `rows=0`
-  - live status: `reports clean=1 | live clean=2`
-- Closed category-account runs no longer resurface stale reviewed rows on reopen:
-  - review matching now pairs existing target transactions by canonical lineage when present
-  - category-source rows without source `import_id` now also pair by the deterministic `YNAB:<amount>:<date>:<occurrence>` import id that upload prep would generate
-  - `review-context` now rebases the saved reviewed artifact onto the current proposal before auto-resume
+- `family / 2026_05_07` is fully uploaded, synced, and clean in live verification:
+  - upload artifact: `create=55 | update=0`
+  - upload execution: `newly saved=60 | duplicate_import_ids=0 | matched_existing=0`
+  - bank sync execution: `patched=3`
+  - bank reconcile execution: `patched=36`
+  - final artifact-only status: `reports clean=9`
+  - final live status: `live clean=10`
+- The restored handoff artifacts for `family / 2026_05_07` came from [family_2026_05_07_handoff.zip](sync_handoffs/family_2026_05_07_handoff.zip).
+- The local raw input directory for `2026_05_07` is still absent on this machine; canonical derived and paired artifacts are present.
+- `family / 2026_05_02`, `pilates / 2026_05_02`, and `aikido / 2026_05_02` remain closed from the previous workstream.
 
 ## Recently Completed
 
-- fixed MAX card lineage drift and explicit Family card closeout scoping so `family / 2026_05_02` is clean on disk and live
-- fixed Leumi HTML pending-to-posted card lineage drift for Pilates card imports
-- completed the full `pilates / 2026_05_02` closeout
-- fixed category-source proposal resurfacing for already-uploaded Aikido rows
-- hardened review resume so stale reviewed artifacts cannot repopulate an empty rebuilt proposal
-- refreshed the Aikido May 2 artifacts so the saved on-disk state matches the clean live state
+- recovered the office-machine `family / 2026_05_07` generated artifacts from the committed handoff zip
+- reviewed all 55 proposed family rows
+- uploaded the reviewed family rows to YNAB
+- synced the three bank lineage stamps needed after upload
+- reconciled the Bank Leumi statement through the May 7 run
+- refreshed bank and card closeout reports so on-disk status matches clean live state
 
 ## Next Steps
 
 1. Take the next context/run-tag closeout in priority order as directed by the user.
-2. When revisiting a previously closed context, refresh the YNAB snapshot and rebuild the proposal before opening review.
-3. Keep the review boundary strict:
-   - empty rebuilt proposal should mean empty reviewed artifact after rebase
-   - no stale upload payloads should remain attached to a zero-row reviewed artifact
+2. When revisiting `family / 2026_05_07`, note that live state and reports are clean, but raw source files are not present locally.
+3. When starting a new run:
+   - normalize the context sources
+   - download a source-windowed YNAB snapshot
+   - build and review the proposal
+   - prepare upload artifacts before any `--execute`
+   - run `context-run-status --verify-live` after each closing step until reports and live checks are clean
 
 ## Working Rules
 
