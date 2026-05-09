@@ -145,6 +145,59 @@ def test_plan_bank_match_sync_stamps_unique_date_amount_match() -> None:
     assert result["report"].loc[0, "action"] == "stamp+clear"
 
 
+def test_plan_bank_match_sync_ignores_stale_ref_marker_for_unique_date_amount_match() -> (
+    None
+):
+    bank_df = _bank_df(
+        _bank_row(
+            date="2026-03-01",
+            amount_ils=10,
+            balance_ils=110,
+            description_raw="TRANSFER",
+            index=1,
+        )
+    )
+    bank_txn_id = bank_df.item(0, "transaction_id")
+    ynab_transactions = [
+        {
+            "id": "old-ref-txn",
+            "account_id": "acc-bank",
+            "date": "2026-02-01",
+            "amount": 5000,
+            "memo": "[ynab-il bank_txn_id=BANK:V1:old ref=001]",
+            "import_id": "",
+            "cleared": "reconciled",
+            "approved": True,
+        },
+        {
+            "id": "txn-1",
+            "account_id": "acc-bank",
+            "date": "2026-03-01",
+            "amount": 10000,
+            "memo": "manual memo",
+            "import_id": "",
+            "cleared": "cleared",
+            "approved": True,
+        },
+    ]
+
+    result = bank_reconciliation.plan_bank_match_sync(
+        bank_df,
+        _accounts(),
+        ynab_transactions,
+    )
+
+    assert result["update_count"] == 1
+    assert result["updates"] == [
+        {
+            "id": "txn-1",
+            "memo": f"manual memo\n[ynab-il bank_txn_id={bank_txn_id} ref=001]",
+        }
+    ]
+    assert result["report"].loc[0, "resolved_via"] == "unique_date_amount"
+    assert result["report"].loc[0, "action"] == "stamp"
+
+
 def test_plan_bank_match_sync_stamps_legacy_nonbank_import_id_on_exact_memo_match() -> (
     None
 ):

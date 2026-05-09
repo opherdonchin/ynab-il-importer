@@ -503,9 +503,8 @@ def _resolve_exact_lineage(
             candidate_amount = int(candidate.get("amount_milliunits", 0) or 0)
             if candidate_date == bank_date and candidate_amount == bank_amount:
                 return candidate, "memo_ref", ""
-            mismatch_reasons.append(
-                "memo ref marker is attached to a YNAB transaction with different date/amount"
-            )
+            # Bank refs are not globally unique enough to block a later
+            # date/amount match when an older stamped row reused the same ref.
 
     legacy_import_id = _normalize_text(bank_row.get("legacy_import_id", ""))
     if legacy_import_id:
