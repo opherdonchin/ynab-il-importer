@@ -325,6 +325,57 @@ def test_source_only_clears_uncleared_current_rows(tmp_path: Path) -> None:
     assert set(result["report"]["action"]) == {"clear", "keep_cleared"}
 
 
+def test_source_only_blocks_duplicate_cross_channel_lineage(tmp_path: Path) -> None:
+    source_path = tmp_path / "current.xlsx"
+    _write_snapshot(
+        source_path,
+        period="04/2026",
+        billed_rows=[
+            _billed_row(
+                date="09-03-2026",
+                merchant="MERCHANT A",
+                amount="100",
+                charge_date="10-04-2026",
+            )
+        ],
+    )
+    source_df = card_reconciliation.load_card_source(source_path)
+    source_rows = card_reconciliation._build_card_source_frame(source_df, "Opher x9922")
+    card_txn_id = source_rows.row(0, named=True)["card_txn_id"]
+
+    transactions = [
+        _txn_manual(
+            txn_id="txn-import",
+            date="2026-03-09",
+            amount_ils=100.0,
+            payee_name="Canonical Payee",
+            cleared="cleared",
+            import_id=card_txn_id,
+        ),
+        _txn_manual(
+            txn_id="txn-memo",
+            date="2026-03-09",
+            amount_ils=100.0,
+            payee_name="Canonical Payee",
+            cleared="cleared",
+            memo=card_identity.append_card_txn_id_marker("", card_txn_id),
+        ),
+    ]
+
+    result = card_reconciliation.plan_card_cycle_reconciliation(
+        account_name="Opher x9922",
+        source_df=source_df,
+        accounts=_accounts(),
+        transactions=transactions,
+    )
+
+    assert result["ok"] is False
+    assert "duplicate YNAB card_txn_id matches" in result["reason"]
+    report = result["report"]
+    assert report.loc[0, "action"] == "blocked"
+    assert "duplicate YNAB card_txn_id matches" in report.loc[0, "reason"]
+
+
 def test_transition_reconciles_previous_and_keeps_current_open(tmp_path: Path) -> None:
     previous_path = tmp_path / "previous.xlsx"
     current_path = tmp_path / "current.xlsx"
@@ -1079,6 +1130,61 @@ def test_plan_card_match_sync_noops_on_exact_lineage(tmp_path: Path) -> None:
     report = result["report"]
     assert report.loc[0, "resolved_via"] == "import_id"
     assert report.loc[0, "action"] == "noop"
+
+
+def test_plan_card_match_sync_blocks_duplicate_cross_channel_lineage(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "current.xlsx"
+    _write_snapshot(
+        source_path,
+        period="04/2026",
+        billed_rows=[
+            _billed_row(
+                date="09-03-2026",
+                merchant="MERCHANT A",
+                amount="100",
+                charge_date="10-04-2026",
+            )
+        ],
+    )
+    source_df = card_reconciliation.load_card_source(source_path)
+    source_rows = card_reconciliation._build_card_source_frame(source_df, "Opher x9922")
+    card_txn_id = source_rows.row(0, named=True)["card_txn_id"]
+
+    transactions = [
+        _txn_manual(
+            txn_id="txn-import",
+            date="2026-03-09",
+            amount_ils=100.0,
+            payee_name="Canonical Payee",
+            cleared="cleared",
+            import_id=card_txn_id,
+        ),
+        _txn_manual(
+            txn_id="txn-memo",
+            date="2026-03-09",
+            amount_ils=100.0,
+            payee_name="Canonical Payee",
+            cleared="cleared",
+            memo=card_identity.append_card_txn_id_marker("", card_txn_id),
+        ),
+    ]
+
+    result = card_reconciliation.plan_card_match_sync(
+        account_name="Opher x9922",
+        source_df=source_df,
+        accounts=_accounts(),
+        transactions=transactions,
+    )
+
+    assert result["update_count"] == 0
+    assert result["updates"] == []
+    report = result["report"]
+    assert report.loc[0, "action"] == "unmatched"
+    assert "duplicate YNAB card_txn_id matches" in report.loc[0, "reason"]
+    assert "txn-import" in report.loc[0, "lineage_conflict_summary"]
+    assert "txn-memo" in report.loc[0, "lineage_conflict_summary"]
 
 
 def test_plan_card_match_sync_noops_on_max_sheet_alias_lineage(tmp_path: Path) -> None:

@@ -404,6 +404,14 @@ def _card_lineage_maps(
     return import_map, memo_map
 
 
+def _linked_card_row_indexes(
+    card_txn_id: str,
+    import_map: dict[str, list[int]],
+    memo_map: dict[str, list[int]],
+) -> list[int]:
+    return sorted(set(import_map.get(card_txn_id, [])) | set(memo_map.get(card_txn_id, [])))
+
+
 def _card_date_amount_candidates_for_field(
     source_row: dict[str, Any], ynab_rows: list[dict[str, Any]], *, date_field: str
 ) -> list[dict[str, Any]]:
@@ -477,18 +485,14 @@ def _card_lineage_conflict_summary(
     import_map: dict[str, list[int]],
     memo_map: dict[str, list[int]],
 ) -> str:
-    card_txn_id = source_row.get("card_txn_id", "")
     parts: list[str] = []
-    import_hits = import_map.get(card_txn_id, [])
-    if len(import_hits) == 1:
-        parts.append(
-            f"import_id -> {_summarize_card_candidate(ynab_rows[import_hits[0]])}"
-        )
-    memo_hits = memo_map.get(card_txn_id, [])
-    if len(memo_hits) == 1:
-        parts.append(
-            f"memo_marker -> {_summarize_card_candidate(ynab_rows[memo_hits[0]])}"
-        )
+    for card_txn_id in _source_card_txn_id_variants(source_row):
+        import_hits = import_map.get(card_txn_id, [])
+        for hit in import_hits:
+            parts.append(f"import_id {card_txn_id} -> {_summarize_card_candidate(ynab_rows[hit])}")
+        memo_hits = memo_map.get(card_txn_id, [])
+        for hit in memo_hits:
+            parts.append(f"memo_marker {card_txn_id} -> {_summarize_card_candidate(ynab_rows[hit])}")
     return " || ".join(parts)
 
 
@@ -506,31 +510,21 @@ def _resolve_exact_card_lineage(
     for index, card_txn_id in enumerate(card_txn_ids):
         via_suffix = "" if index == 0 else "_alias"
         import_hits = import_map.get(card_txn_id, [])
-        if len(import_hits) > 1:
-            return None, "", f"duplicate YNAB import_id matches for {card_txn_id}"
-        if len(import_hits) == 1:
-            candidate = ynab_rows[import_hits[0]]
-            if (
-                candidate.get("date") == source_date
-                and abs(float(candidate.get("signed_ils", 0.0) or 0.0) - source_amount) < 0.001
-            ):
-                return candidate, f"import_id{via_suffix}", ""
-            mismatch_reasons.append(
-                "card_txn_id import_id is attached to a YNAB transaction with different date/amount"
-            )
-
         memo_hits = memo_map.get(card_txn_id, [])
-        if len(memo_hits) > 1:
-            return None, "", f"duplicate YNAB memo markers for {card_txn_id}"
-        if len(memo_hits) == 1:
-            candidate = ynab_rows[memo_hits[0]]
+        linked_hits = _linked_card_row_indexes(card_txn_id, import_map, memo_map)
+        if len(linked_hits) > 1:
+            return None, "", f"duplicate YNAB card_txn_id matches for {card_txn_id}"
+        if len(linked_hits) == 1:
+            hit = linked_hits[0]
+            candidate = ynab_rows[hit]
+            resolved_via = "import_id" if hit in import_hits else "memo_marker"
             if (
                 candidate.get("date") == source_date
                 and abs(float(candidate.get("signed_ils", 0.0) or 0.0) - source_amount) < 0.001
             ):
-                return candidate, f"memo_marker{via_suffix}", ""
+                return candidate, f"{resolved_via}{via_suffix}", ""
             mismatch_reasons.append(
-                "card_txn_id memo marker is attached to a YNAB transaction with different date/amount"
+                f"card_txn_id {resolved_via} is attached to a YNAB transaction with different date/amount"
             )
 
     legacy_import_id = _normalize_text(source_row.get("legacy_import_id", ""))
@@ -839,29 +833,20 @@ def _resolve_card_match(source_row: dict[str, Any], ynab_rows: list[dict[str, An
     for index, card_txn_id in enumerate(_source_card_txn_id_variants(source_row)):
         via_suffix = "" if index == 0 else "_alias"
         import_hits = [i for i, r in enumerate(ynab_rows) if r.get("import_id") == card_txn_id]
-        if len(import_hits) == 1:
-            return _ResolvedMatch(
-                ynab_rows[import_hits[0]], f"import_id{via_suffix}", "exact_lineage", ""
-            )
-        if len(import_hits) > 1:
-            return _ResolvedMatch(
-                None,
-                "",
-                "duplicate_import_id",
-                f"duplicate YNAB import_id matches for {card_txn_id}",
-            )
-
         memo_hits = [i for i, r in enumerate(ynab_rows) if r.get("card_txn_id_marker") == card_txn_id]
-        if len(memo_hits) == 1:
+        linked_hits = sorted(set(import_hits) | set(memo_hits))
+        if len(linked_hits) == 1:
+            hit = linked_hits[0]
+            resolved_via = "import_id" if hit in import_hits else "memo_marker"
             return _ResolvedMatch(
-                ynab_rows[memo_hits[0]], f"memo_marker{via_suffix}", "exact_lineage", ""
+                ynab_rows[hit], f"{resolved_via}{via_suffix}", "exact_lineage", ""
             )
-        if len(memo_hits) > 1:
+        if len(linked_hits) > 1:
             return _ResolvedMatch(
                 None,
                 "",
-                "duplicate_memo_marker",
-                f"duplicate YNAB memo markers for {card_txn_id}",
+                "duplicate_card_txn_id",
+                f"duplicate YNAB card_txn_id matches for {card_txn_id}",
             )
 
     legacy_import_id = _normalize_text(source_row.get("legacy_import_id", ""))
