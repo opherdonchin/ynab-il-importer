@@ -2,65 +2,54 @@
 
 ## Workstream
 
-Keep the May 2026 context closeout workflow rerunnable and explicit, with uploaded runs staying clean after sync, reconciliation, and report refresh.
+Process the `2026_06_06` context update through review, upload prep, and closeout without mixing source review, upload, and reconciliation scopes.
 
 ## Current State
 
-- `family / 2026_05_07` is fully uploaded, synced, and clean in live verification:
-  - upload artifact: `create=55 | update=0`
-  - upload execution: `newly saved=60 | duplicate_import_ids=0 | matched_existing=0`
-  - bank sync execution: `patched=3`
-  - bank reconcile execution: `patched=36`
-  - final artifact-only status: `reports clean=9`
-  - final live status: `live clean=10`
-- `pilates / 2026_05_07` is fully uploaded, synced, and clean in live verification:
-  - upload artifact: `create=2 | update=0`
-  - upload execution: `newly saved=3 | duplicate_import_ids=0 | matched_existing=0`
-  - bank sync execution: `patched=1`
-  - bank reconcile execution: `patched=3`
-  - category reconcile execution: `patched=1`
-  - final artifact-only status: `reports clean=6`
-  - final live status: `live clean=7`
-- `aikido / 2026_05_07` is fully uploaded and clean in live verification:
-  - upload artifact: `create=2 | update=0`
-  - upload execution: `newly saved=2 | duplicate_import_ids=0 | matched_existing=0`
-  - category reconcile execution: `patched=2`
-  - final artifact-only status: `reports clean=1`
-  - final live status: `live clean=2`
-- The restored handoff artifacts for `family / 2026_05_07` came from [family_2026_05_07_handoff.zip](sync_handoffs/family_2026_05_07_handoff.zip).
-- The local raw input directory for `2026_05_07` is still absent on this machine; canonical derived and paired artifacts are present.
-- `family / 2026_05_02`, `pilates / 2026_05_02`, and `aikido / 2026_05_02` remain closed from the previous workstream.
+- `family / 2026_06_06` is ready for human review:
+  - raw sources present: bank + MAX card
+  - normalized sources: bank `139` rows, MAX card `194` rows
+  - source-windowed YNAB snapshot: `1,478` rows for `2025-11-25` through `2026-06-18`
+  - matched pairs: `120` rows
+  - proposal artifact: `113` rows
+  - review app: `http://localhost:8502`
+- `pilates / 2026_06_06` is ready for human review:
+  - raw sources present: bank + Leumi card HTML
+  - normalized sources: bank `12` rows, Leumi card `3` rows, family category source `56` rows
+  - previous Leumi card `x0602 / 2026_06` normalized to `14` rows
+  - source-windowed YNAB snapshot: `222` rows for `2025-11-22` through `2026-06-19`
+  - matched pairs: `71` rows
+  - proposal artifact: `20` rows
+  - review app: `http://localhost:8501`
+- `aikido / 2026_06_06` has no proposed review rows:
+  - normalized family category source: `83` rows
+  - source-windowed YNAB snapshot: `88` rows for `2025-11-13` through `2026-06-01`
+  - matched pairs: `86` rows
+  - proposal artifact: `0` rows
 
 ## Recently Completed
 
-- recovered the office-machine `family / 2026_05_07` generated artifacts from the committed handoff zip
-- reviewed all 55 proposed family rows
-- uploaded the reviewed family rows to YNAB
-- synced the three bank lineage stamps needed after upload
-- reconciled the Bank Leumi statement through the May 7 run
-- refreshed bank and card closeout reports so on-disk status matches clean live state
-- uploaded the reviewed Pilates rows to YNAB
-- fixed bank sync/reconcile resolution so stale weak bank `ref` memo markers do not block a unique date/amount candidate
-- synced the one Pilates bank lineage stamp needed after upload
-- reconciled the Pilates bank statement and family-category account through the May 7 run
-- refreshed Pilates bank, card, and category reports so on-disk status matches clean live state
-- fixed Aikido category-source review rows so original YNAB memos are preserved instead of being replaced by cleaned payee labels
-- uploaded the reviewed Aikido rows to YNAB
-- reconciled the Aikido family-category account through the May 7 run
-- refreshed the Aikido category report so on-disk status matches clean live state
+- normalized the June previous Leumi card statement for Pilates account `x0602`
+- normalized family direct bank/card sources for `2026_06_06`
+- downloaded the family source-windowed YNAB snapshot
+- normalized Pilates direct sources and family-category source rows
+- normalized Aikido family-category source rows
+- downloaded Pilates and Aikido source-windowed YNAB snapshots
+- built family, Pilates, and Aikido review proposals
+- started review apps for the contexts that have review rows
 
 ## Next Steps
 
-1. Take the next context/run-tag closeout in priority order as directed by the user.
-2. When revisiting `family / 2026_05_07`, note that live state and reports are clean, but raw source files are not present locally.
-3. When revisiting `pilates / 2026_05_07`, live state and reports are clean.
-4. When revisiting `aikido / 2026_05_07`, live state and reports are clean.
-5. When starting a new run:
-   - normalize the context sources
-   - download a source-windowed YNAB snapshot
-   - build and review the proposal
-   - prepare upload artifacts before any `--execute`
-   - run `context-run-status --verify-live` after each closing step until reports and live checks are clean
+1. Complete human review for `family / 2026_06_06` and save the reviewed artifact.
+2. Complete human review for `pilates / 2026_06_06` and save the reviewed artifact.
+3. Run `context-run-status` for reviewed contexts and confirm only expected upload/report artifacts are missing.
+4. Prepare upload artifacts with:
+   - `pixi run python scripts/prepare_ynab_upload.py family 2026_06_06 --ready-only --skip-missing-accounts`
+   - `pixi run python scripts/prepare_ynab_upload.py pilates 2026_06_06 --ready-only --skip-missing-accounts`
+5. After review and upload prep look correct, proceed with upload, sync, and reconciliation closeout one context at a time.
+6. For Pilates card closeout, use the normalized previous statement:
+   - `data/derived/previous_leumi_card/x0602/2026_06_leumi_card_html_norm.parquet`
+7. Run `context-run-status --verify-live` after each closing step until reports and live checks are clean.
 
 ## Working Rules
 
