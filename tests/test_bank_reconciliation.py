@@ -6,15 +6,23 @@ import ynab_il_importer.bank_reconciliation as bank_reconciliation
 
 
 def _accounts(
-    *, last_reconciled_at: str = "2026-03-10T12:00:00Z"
-) -> list[dict[str, str]]:
+    *,
+    last_reconciled_at: str = "2026-03-10T12:00:00Z",
+    cleared_balance: int | None = None,
+    uncleared_balance: int | None = None,
+) -> list[dict[str, object]]:
+    account: dict[str, object] = {
+        "id": "acc-bank",
+        "name": "Bank Leumi",
+        "transfer_payee_id": "payee-bank",
+        "last_reconciled_at": last_reconciled_at,
+    }
+    if cleared_balance is not None:
+        account["cleared_balance"] = cleared_balance
+    if uncleared_balance is not None:
+        account["uncleared_balance"] = uncleared_balance
     return [
-        {
-            "id": "acc-bank",
-            "name": "Bank Leumi",
-            "transfer_payee_id": "payee-bank",
-            "last_reconciled_at": last_reconciled_at,
-        }
+        account
     ]
 
 
@@ -285,6 +293,54 @@ def test_plan_bank_match_sync_uses_legacy_import_id_fallback() -> None:
     assert result["report"].loc[0, "action"] == "stamp+clear"
 
 
+def test_plan_bank_match_sync_blocks_duplicate_cross_channel_bank_lineage() -> None:
+    bank_df = _bank_df(
+        _bank_row(
+            date="2026-03-01",
+            amount_ils=-10,
+            balance_ils=90,
+            description_raw="ROW 1",
+            index=1,
+        )
+    )
+    bank_txn_id = bank_df.item(0, "transaction_id")
+    ynab_transactions = [
+        {
+            "id": "txn-bank",
+            "account_id": "acc-bank",
+            "date": "2026-03-01",
+            "amount": -10000,
+            "memo": "ROW 1",
+            "import_id": bank_txn_id,
+            "cleared": "reconciled",
+            "approved": True,
+        },
+        {
+            "id": "txn-legacy",
+            "account_id": "acc-bank",
+            "date": "2026-03-01",
+            "amount": -10000,
+            "memo": f"ROW 1\n[ynab-il bank_txn_id={bank_txn_id}]",
+            "import_id": "YNAB:-10000:2026-03-01:1",
+            "cleared": "reconciled",
+            "approved": True,
+        },
+    ]
+
+    result = bank_reconciliation.plan_bank_match_sync(
+        bank_df,
+        _accounts(),
+        ynab_transactions,
+    )
+
+    assert result["matched_count"] == 0
+    assert result["update_count"] == 0
+    assert result["report"].loc[0, "action"] == "unmatched"
+    assert "duplicate YNAB bank lineage matches" in result["report"].loc[0, "reason"]
+    assert "txn-bank" in result["report"].loc[0, "reason"]
+    assert "txn-legacy" in result["report"].loc[0, "reason"]
+
+
 def test_plan_bank_match_sync_stamps_unique_reconciled_date_amount_candidate() -> None:
     bank_df = _bank_df(
         _bank_row(
@@ -377,6 +433,170 @@ def test_plan_bank_statement_reconciliation_uses_exact_lineage_and_running_balan
     assert result["updates"] == [{"id": "txn-8", "cleared": "reconciled"}]
     assert result["report"].iloc[-1]["resolved_via"] == "memo_marker"
     assert bool(result["report"].iloc[-1]["balance_match"]) is True
+
+
+def test_plan_bank_statement_reconciliation_blocks_duplicate_cross_channel_bank_lineage() -> (
+    None
+):
+    bank_df = _bank_df(
+        _bank_row(
+            date="2026-03-01",
+            amount_ils=-10,
+            balance_ils=90,
+            description_raw="ROW 1",
+            index=1,
+        )
+    )
+    bank_txn_id = bank_df.item(0, "transaction_id")
+    ynab_transactions = [
+        {
+            "id": "txn-bank",
+            "account_id": "acc-bank",
+            "date": "2026-03-01",
+            "amount": -10000,
+            "memo": "ROW 1",
+            "import_id": bank_txn_id,
+            "cleared": "reconciled",
+            "approved": True,
+        },
+        {
+            "id": "txn-legacy",
+            "account_id": "acc-bank",
+            "date": "2026-03-01",
+            "amount": -10000,
+            "memo": f"ROW 1\n[ynab-il bank_txn_id={bank_txn_id}]",
+            "import_id": "YNAB:-10000:2026-03-01:1",
+            "cleared": "reconciled",
+            "approved": True,
+        },
+    ]
+
+    result = bank_reconciliation.plan_bank_statement_reconciliation(
+        bank_df,
+        _accounts(),
+        ynab_transactions,
+        anchor_streak=1,
+    )
+
+    assert result["ok"] is False
+    assert result["matched_count"] == 0
+    assert "duplicate YNAB bank lineage matches" in result["reason"]
+    assert "txn-bank" in result["reason"]
+    assert "txn-legacy" in result["reason"]
+
+
+def test_plan_bank_statement_reconciliation_blocks_live_cleared_balance_mismatch() -> (
+    None
+):
+    amounts = [-10, -20, -30, -40, -50, -60, -70, -80]
+    balances = [990, 970, 940, 900, 850, 790, 720, 640]
+    bank_rows = [
+        _bank_row(
+            date=f"2026-03-0{i + 1}",
+            amount_ils=amount,
+            balance_ils=balance,
+            description_raw=f"ROW {i + 1}",
+            index=i + 1,
+        )
+        for i, (amount, balance) in enumerate(zip(amounts, balances))
+    ]
+    bank_df = _bank_df(*bank_rows)
+    ynab_transactions = [
+        {
+            "id": f"txn-{i + 1}",
+            "account_id": "acc-bank",
+            "date": bank_row["date"],
+            "amount": int(round(amounts[i] * 1000)),
+            "memo": f"ROW {i + 1}",
+            "import_id": bank_row["bank_txn_id"],
+            "cleared": "reconciled",
+            "approved": True,
+        }
+        for i, bank_row in enumerate(bank_rows)
+    ]
+
+    result = bank_reconciliation.plan_bank_statement_reconciliation(
+        bank_df,
+        _accounts(cleared_balance=999000, uncleared_balance=0),
+        ynab_transactions,
+    )
+
+    assert result["ok"] is False
+    assert result["update_count"] == 0
+    assert "Live cleared balance mismatch" in result["reason"]
+    assert result["final_balance_ils"] == 640.0
+    assert result["live_cleared_balance_ils"] == 999.0
+    assert result["live_uncleared_balance_ils"] == 0.0
+    assert result["post_statement_cleared_amount_ils"] == 0.0
+    assert result["projected_cleared_balance_ils"] == 640.0
+    assert result["cleared_balance_difference_ils"] == 359.0
+
+
+def test_plan_bank_statement_reconciliation_counts_post_statement_cleared_rows() -> None:
+    amounts = [-10, -20, -30, -40, -50, -60, -70, -80]
+    balances = [990, 970, 940, 900, 850, 790, 720, 640]
+    bank_rows = [
+        _bank_row(
+            date=f"2026-03-0{i + 1}",
+            amount_ils=amount,
+            balance_ils=balance,
+            description_raw=f"ROW {i + 1}",
+            index=i + 1,
+        )
+        for i, (amount, balance) in enumerate(zip(amounts, balances))
+    ]
+    bank_df = _bank_df(*bank_rows)
+    ynab_transactions = [
+        {
+            "id": f"txn-{i + 1}",
+            "account_id": "acc-bank",
+            "date": bank_row["date"],
+            "amount": int(round(amounts[i] * 1000)),
+            "memo": f"ROW {i + 1}",
+            "import_id": bank_row["bank_txn_id"],
+            "cleared": "reconciled",
+            "approved": True,
+        }
+        for i, bank_row in enumerate(bank_rows)
+    ]
+    ynab_transactions.extend(
+        [
+            {
+                "id": "post-statement-cleared",
+                "account_id": "acc-bank",
+                "date": "2026-03-09",
+                "amount": -40000,
+                "memo": "card settlement after downloaded statement",
+                "import_id": "",
+                "cleared": "cleared",
+                "approved": True,
+            },
+            {
+                "id": "post-statement-uncleared",
+                "account_id": "acc-bank",
+                "date": "2026-03-10",
+                "amount": -50000,
+                "memo": "pending row after downloaded statement",
+                "import_id": "",
+                "cleared": "uncleared",
+                "approved": True,
+            },
+        ]
+    )
+
+    result = bank_reconciliation.plan_bank_statement_reconciliation(
+        bank_df,
+        _accounts(cleared_balance=600000, uncleared_balance=-50000),
+        ynab_transactions,
+    )
+
+    assert result["ok"] is True
+    assert result["final_balance_ils"] == 640.0
+    assert result["live_cleared_balance_ils"] == 600.0
+    assert result["live_uncleared_balance_ils"] == -50.0
+    assert result["post_statement_cleared_amount_ils"] == -40.0
+    assert result["projected_cleared_balance_ils"] == 600.0
+    assert result["cleared_balance_difference_ils"] == 0.0
 
 
 def test_plan_bank_statement_reconciliation_respects_custom_anchor_streak() -> None:

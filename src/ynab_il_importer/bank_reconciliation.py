@@ -235,6 +235,27 @@ def _same_balance(left: float, right: float) -> bool:
     return abs(round(float(left), 2) - round(float(right), 2)) <= 0.005
 
 
+def _account_balance_ils(account_payload: dict[str, Any], key: str) -> float | None:
+    if key not in account_payload or account_payload.get(key) is None:
+        return None
+    return round(float(account_payload.get(key, 0) or 0) / 1000.0, 2)
+
+
+def _post_statement_cleared_amount_ils(
+    ynab_rows: list[dict[str, Any]],
+    latest_bank_date: date,
+) -> float:
+    amount = 0.0
+    for row in ynab_rows:
+        row_date = row.get("date")
+        if row_date is None or row_date <= latest_bank_date:
+            continue
+        if _normalize_text(row.get("cleared", "")) not in {"cleared", "reconciled"}:
+            continue
+        amount += round(float(row.get("amount_milliunits", 0) or 0) / 1000.0, 2)
+    return round(amount, 2)
+
+
 def _active_accounts(accounts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [account for account in accounts if not bool(account.get("deleted", False))]
 
@@ -454,6 +475,20 @@ def _linked_row_indexes_for_bank_txn_id(
     return sorted(linked)
 
 
+def _linked_rows_for_bank_txn_id(
+    bank_txn_id: str,
+    ynab_rows: list[dict[str, Any]],
+    import_map: dict[str, list[int]],
+    memo_map: dict[str, list[int]],
+) -> list[dict[str, Any]]:
+    return [
+        ynab_rows[idx]
+        for idx in _linked_row_indexes_for_bank_txn_id(
+            bank_txn_id, import_map, memo_map
+        )
+    ]
+
+
 def _resolve_exact_lineage(
     bank_row: dict[str, Any],
     ynab_rows: list[dict[str, Any]],
@@ -466,6 +501,17 @@ def _resolve_exact_lineage(
     bank_amount = int(bank_row["amount_milliunits"])
     bank_ref = _normalize_text(bank_row.get("ref", ""))
     mismatch_reasons: list[str] = []
+
+    linked_rows = _linked_rows_for_bank_txn_id(
+        bank_txn_id, ynab_rows, import_map, memo_map
+    )
+    if len(linked_rows) > 1:
+        return (
+            None,
+            "",
+            f"duplicate YNAB bank lineage matches for {bank_txn_id}: "
+            + _summarize_candidate_rows(linked_rows),
+        )
 
     import_hits = import_map.get(bank_txn_id, [])
     if len(import_hits) > 1:
@@ -590,14 +636,16 @@ def _lineage_conflict_summary(
     bank_txn_id = bank_row["bank_txn_id"]
     parts: list[str] = []
     import_hits = import_map.get(bank_txn_id, [])
-    if len(import_hits) == 1:
+    if import_hits:
         parts.append(
-            f"import_id -> {_summarize_ynab_candidate(ynab_rows[import_hits[0]])}"
+            "import_id -> "
+            + " || ".join(_summarize_ynab_candidate(ynab_rows[i]) for i in import_hits)
         )
     memo_hits = memo_map.get(bank_txn_id, [])
-    if len(memo_hits) == 1:
+    if memo_hits:
         parts.append(
-            f"memo_marker -> {_summarize_ynab_candidate(ynab_rows[memo_hits[0]])}"
+            "memo_marker -> "
+            + " || ".join(_summarize_ynab_candidate(ynab_rows[i]) for i in memo_hits)
         )
     return " || ".join(parts)
 
@@ -1424,6 +1472,23 @@ def _find_anchor_window(
     return found_start, best_start, best_count
 
 
+def _anchor_failure_detail(
+    report_rows: list[dict[str, Any]],
+    diagnostic_anchor_start: int | None,
+    anchor_streak: int,
+) -> str:
+    if diagnostic_anchor_start is None:
+        return ""
+    diagnostic_rows = report_rows[
+        diagnostic_anchor_start : diagnostic_anchor_start + anchor_streak
+    ]
+    for row in diagnostic_rows:
+        reason = _normalize_text(row.get("reason", ""))
+        if reason:
+            return f" First blocking row {int(row['row_index'])}: {reason}"
+    return ""
+
+
 def _reconciliation_result(
     *,
     resolved_account: ResolvedAccount,
@@ -1439,6 +1504,10 @@ def _reconciliation_result(
     anchor_window_start: int | None = None,
     updates: list[dict[str, Any]] | None = None,
     final_balance_ils: float | None = None,
+    live_cleared_balance_ils: float | None = None,
+    live_uncleared_balance_ils: float | None = None,
+    projected_cleared_balance_ils: float | None = None,
+    post_statement_cleared_amount_ils: float | None = None,
 ) -> dict[str, Any]:
     report = pd.DataFrame(report_rows, columns=RECONCILIATION_REPORT_COLUMNS)
     resolved_ids = (
@@ -1559,6 +1628,16 @@ def _reconciliation_result(
         "report": report,
         "update_count": len(updates or []),
         "final_balance_ils": final_balance_ils,
+        "live_cleared_balance_ils": live_cleared_balance_ils,
+        "live_uncleared_balance_ils": live_uncleared_balance_ils,
+        "projected_cleared_balance_ils": projected_cleared_balance_ils,
+        "post_statement_cleared_amount_ils": post_statement_cleared_amount_ils,
+        "cleared_balance_difference_ils": (
+            round(live_cleared_balance_ils - projected_cleared_balance_ils, 2)
+            if live_cleared_balance_ils is not None
+            and projected_cleared_balance_ils is not None
+            else None
+        ),
         "matched_count": matched_count,
         "reconciled_match_count": reconciled_match_count,
         "probable_legacy_match_count": probable_legacy_match_count,
@@ -1649,6 +1728,9 @@ def plan_bank_statement_reconciliation(
             else best_anchor_start_index
         )
         if anchor_start_index is None:
+            anchor_detail = _anchor_failure_detail(
+                report_rows, diagnostic_anchor_start, anchor_streak
+            )
             return _reconciliation_result(
                 resolved_account=resolved_account,
                 prepared_bank=prepared_bank,
@@ -1661,6 +1743,7 @@ def plan_bank_statement_reconciliation(
                 reason=(
                     "Could not establish reconciliation anchor: best candidate streak "
                     f"covered {best_anchor_count} / {anchor_streak} rows."
+                    f"{anchor_detail}"
                 ),
             )
         for i in range(anchor_start_index):
@@ -1845,6 +1928,51 @@ def plan_bank_statement_reconciliation(
             final_balance_ils=final_bank_balance,
         )
 
+    latest_bank_date = prepared_bank["date"].max()
+    live_cleared_balance = _account_balance_ils(
+        resolved_account.account_payload, "cleared_balance"
+    )
+    live_uncleared_balance = _account_balance_ils(
+        resolved_account.account_payload, "uncleared_balance"
+    )
+    post_statement_cleared_amount = 0.0
+    projected_cleared_balance = None
+    if live_cleared_balance is not None and latest_bank_date is not None:
+        post_statement_cleared_amount = _post_statement_cleared_amount_ils(
+            ynab_rows,
+            latest_bank_date,
+        )
+        projected_cleared_balance = round(
+            final_bank_balance + post_statement_cleared_amount,
+            2,
+        )
+        if not _same_balance(live_cleared_balance, projected_cleared_balance):
+            return _reconciliation_result(
+                resolved_account=resolved_account,
+                prepared_bank=prepared_bank,
+                report_rows=report_rows,
+                anchor_streak=anchor_streak,
+                last_reconciled_exists=last_reconciled_exists,
+                ok=False,
+                reason=(
+                    "Live cleared balance mismatch: "
+                    f"YNAB cleared {live_cleared_balance:.2f} vs "
+                    f"statement final {final_bank_balance:.2f} + "
+                    f"post-statement cleared {post_statement_cleared_amount:.2f} "
+                    f"= {projected_cleared_balance:.2f}."
+                ),
+                anchor_type=anchor_type,
+                anchor_transaction_id=anchor_transaction_id,
+                anchor_balance_ils=anchor_balance,
+                anchor_window_start=anchor_window_start,
+                updates=[],
+                final_balance_ils=final_bank_balance,
+                live_cleared_balance_ils=live_cleared_balance,
+                live_uncleared_balance_ils=live_uncleared_balance,
+                projected_cleared_balance_ils=projected_cleared_balance,
+                post_statement_cleared_amount_ils=post_statement_cleared_amount,
+            )
+
     return _reconciliation_result(
         resolved_account=resolved_account,
         prepared_bank=prepared_bank,
@@ -1858,4 +1986,8 @@ def plan_bank_statement_reconciliation(
         anchor_window_start=anchor_window_start,
         updates=updates,
         final_balance_ils=final_bank_balance,
+        live_cleared_balance_ils=live_cleared_balance,
+        live_uncleared_balance_ils=live_uncleared_balance,
+        projected_cleared_balance_ils=projected_cleared_balance,
+        post_statement_cleared_amount_ils=post_statement_cleared_amount,
     )
