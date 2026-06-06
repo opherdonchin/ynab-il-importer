@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import sys
 import tempfile
 from pathlib import Path
@@ -12,6 +13,7 @@ if str(SRC) not in sys.path:
 
 import ynab_il_importer.io_leumi as leumi
 import ynab_il_importer.io_leumi_xls as leumi_xls
+import ynab_il_importer.fingerprint as fingerprint
 
 
 def _stub_apply_fingerprints(
@@ -88,6 +90,47 @@ def test_read_bankin_dat_extracts_card_suffix_from_ref_for_leumi_visa(
 
     assert actual.loc[0, "description_clean"] == "לאומי ויזה"
     assert actual.loc[0, "card_suffix"] == "7195"
+
+
+def test_transfer_mapping_text_keeps_counterparty_account_for_fingerprint(
+    tmp_path: Path,
+) -> None:
+    description = "10-678-022523701 , עופר דונחין:העברה עצמית העברה מאת"
+    clean = leumi.description_clean_for_mapping(
+        description,
+        "עופר דונחין",
+        "transfer",
+    )
+
+    assert clean == "עופר דונחין 10678022523701"
+
+    normalized = fingerprint.apply_fingerprints(
+        pd.DataFrame(
+            [
+                {
+                    "source": "bank",
+                    "account_name": "Bank Leumi",
+                    "date": "2026-05-24",
+                    "outflow_ils": 0.0,
+                    "inflow_ils": 3500.0,
+                    "description_clean": clean,
+                    "description_raw": description,
+                }
+            ]
+        ),
+        map_rules=[
+            {
+                "rule_id": "pilates_leumi_transfer_225237",
+                "priority": 20,
+                "pattern": "225237",
+                "canonical_text": "transfer pilates leumi",
+                "notes": "",
+            }
+        ],
+        log_path=tmp_path / "fingerprint_log.csv",
+    )
+
+    assert normalized.loc[0, "fingerprint"] == "pilates leumi"
 
 
 def test_read_bank_xls_forwards_balance_column(monkeypatch: pytest.MonkeyPatch) -> None:

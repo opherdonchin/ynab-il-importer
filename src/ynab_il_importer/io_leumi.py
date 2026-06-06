@@ -146,6 +146,21 @@ def extract_merchant(description: str) -> tuple[str, str]:
     return fallback, "other"
 
 
+def description_clean_for_mapping(
+    description_raw: str,
+    merchant_raw: str,
+    base_kind: str,
+) -> str:
+    merchant = str(merchant_raw).strip()
+    if str(base_kind).strip().lower() != "transfer":
+        return merchant
+    account_tokens = _ACCOUNT_TOKEN_RE.findall(str(description_raw))
+    if not account_tokens:
+        return merchant
+    account_digits = [re.sub(r"\D+", "", token) for token in account_tokens]
+    return _collapse_whitespace(f"{merchant} {' '.join(account_digits)}")
+
+
 def _infer_txn_kind(base_kind: str, inflow_ils: float, outflow_ils: float) -> str:
     kind = str(base_kind).strip().lower()
     inflow = float(inflow_ils or 0.0)
@@ -255,7 +270,11 @@ def read_raw(
                 "secondary_date": posting_date,
                 "txn_kind": txn_kind,
                 "merchant_raw": merchant_raw,
-                "description_clean": merchant_raw,
+                "description_clean": description_clean_for_mapping(
+                    description_fixed,
+                    merchant_raw,
+                    base_kind,
+                ),
                 "description_raw": description_fixed,
                 "ref": ref,
                 "card_suffix": card_suffix,

@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 import re
 from typing import Any
+import unicodedata
 
 import pandas as pd
 
@@ -35,6 +36,7 @@ LOG_COLUMNS = [
 ]
 
 _STANDALONE_NUMBER_RE = re.compile(r"\b\d+\b")
+_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 _SPACE_RE = re.compile(r"\s+")
 
 _DROP_TOKENS = {
@@ -233,14 +235,23 @@ def fingerprint_v0(value: Any, token_limit: int = DEFAULT_TOKEN_LIMIT) -> str:
     return " ".join(tokens[:token_limit])
 
 
+def _normalize_map_match_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = unicodedata.normalize("NFKC", str(value)).casefold()
+    text = _PUNCT_RE.sub(" ", text)
+    return _SPACE_RE.sub(" ", text).strip()
+
+
 def canonicalize_text(
     value: Any,
     *,
     map_rules: list[dict[str, Any]] | None = None,
 ) -> tuple[str, str, str, str]:
-    text_normalized = normalize.normalize_text(value)
+    text_normalized = _normalize_map_match_text(value)
     if not map_rules:
-        return text_normalized, text_normalized, "", ""
+        normalized = normalize.normalize_text(value)
+        return normalized, normalized, "", ""
 
     for rule in map_rules:
         pattern = str(rule["pattern"]).strip()
@@ -340,7 +351,7 @@ def load_fingerprint_map(path: str | Path) -> list[dict[str, Any]]:
                 {
                     "rule_id": rule_id,
                     "priority": priority,
-                    "pattern": normalize.normalize_text(pattern),
+                    "pattern": _normalize_map_match_text(pattern),
                     "canonical_text": normalize.normalize_text(canonical_raw),
                     "notes": notes,
                 }
@@ -395,7 +406,7 @@ def apply_fingerprints(
 
     if rules:
         canonicalized = [
-            canonicalize_text(value, map_rules=rules) for value in text_normalized.tolist()
+            canonicalize_text(value, map_rules=rules) for value in text_raw.tolist()
         ]
         canonical_text = pd.Series(
             [canonical for _norm, canonical, _rule_id, _pattern in canonicalized],

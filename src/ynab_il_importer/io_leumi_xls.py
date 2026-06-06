@@ -15,6 +15,7 @@ import ynab_il_importer.bank_identity as bank_identity
 import ynab_il_importer.fingerprint as fingerprint
 from ynab_il_importer.artifacts.transaction_io import flat_projection_to_canonical_table
 from ynab_il_importer.io_leumi import (
+    description_clean_for_mapping,
     extract_merchant,
     _infer_txn_kind as _infer_txn_kind_leumi,
 )
@@ -330,7 +331,19 @@ def read_raw(
     )  # returns (merchant_raw, base_kind)
     merchant_raw = extracted.map(lambda t: t[0])
     base_kind = extracted.map(lambda t: t[1])
-    description_clean = merchant_raw.copy()
+    description_clean = pd.Series(
+        [
+            description_clean_for_mapping(raw_text, merchant, kind)
+            for raw_text, merchant, kind in zip(
+                description_raw.tolist(),
+                merchant_raw.tolist(),
+                base_kind.tolist(),
+                strict=True,
+            )
+        ],
+        index=raw.index,
+        dtype="string",
+    )
 
     result = pd.DataFrame(
         {
