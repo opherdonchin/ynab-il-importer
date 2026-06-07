@@ -111,7 +111,8 @@ It:
   - existing target transaction id for `keep_match`
   - prepared upload import id for `create_target`
   - existing target transaction id for `update_target`
-- verifies parity between the live source category balance and the live target account balances
+- reports live source category and target account balance diagnostics
+- optionally enforces balance parity with `--enforce-balance-parity` when the category source covers the whole target account history
 - patches the resolved target transactions to `cleared = reconciled` on `--execute`
 
 This replaces the old archived cross-budget anchored reconcile for active Aikido-style workflows. It is intentionally strict and works only on the reviewed source rows for the declared category/account pair.

@@ -359,7 +359,7 @@ def test_plan_category_account_reconciliation_blocks_on_missing_legacy_uploads()
     ]
 
 
-def test_plan_category_account_reconciliation_blocks_on_cleared_balance_mismatch() -> None:
+def test_plan_category_account_reconciliation_reports_balance_mismatch_as_diagnostic() -> None:
     reviewed = pl.DataFrame(
         {
             "transaction_id": ["review-1"],
@@ -399,9 +399,57 @@ def test_plan_category_account_reconciliation_blocks_on_cleared_balance_mismatch
         source_category=source_category,
     )
 
+    assert result["ok"] is True
+    assert result["reason"] == ""
+    assert result["cleared_parity_ok"] is False
+    assert result["balance_parity_enforced"] is False
+
+
+def test_plan_category_account_reconciliation_can_enforce_balance_parity() -> None:
+    reviewed = pl.DataFrame(
+        {
+            "transaction_id": ["review-1"],
+            "decision_action": ["keep_match"],
+            "target_row_id": ["txn-live-1"],
+            "source_date": ["2026-03-31"],
+            "source_payee_current": ["Tayo"],
+            "outflow_ils": [0.0],
+            "inflow_ils": [150.0],
+        }
+    )
+    target_transactions = [
+        {
+            "id": "txn-live-1",
+            "account_id": "acc-target",
+            "import_id": "",
+            "amount": 150000,
+            "date": "2026-03-31",
+            "payee_name": "Tayo",
+            "cleared": "reconciled",
+        }
+    ]
+    target_account = {
+        "id": "acc-target",
+        "name": "Personal In Leumi",
+        "balance": 500000,
+        "cleared_balance": 400000,
+        "uncleared_balance": 0,
+    }
+    source_category = {"id": "cat-aikido", "name": "Aikido", "balance": 500000}
+
+    result = category_reconciliation.plan_category_account_reconciliation(
+        reviewed,
+        pl.DataFrame(),
+        target_transactions=target_transactions,
+        target_account=target_account,
+        source_category=source_category,
+        enforce_balance_parity=True,
+    )
+
     assert result["ok"] is False
     assert "category/cleared balance mismatch" in result["reason"]
     assert result["cleared_parity_ok"] is False
+    assert result["balance_parity_enforced"] is True
 
 
 def test_plan_category_account_reconciliation_projects_uncleared_reconciles_into_parity() -> None:

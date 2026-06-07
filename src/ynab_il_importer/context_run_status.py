@@ -659,6 +659,9 @@ def _live_category_checks(
                 f"reviewed={result['reviewed_row_count']} | resolved={result['resolved_count']} | "
                 f"updates={result['update_count']} | blocked={result['blocked_count']} | "
                 f"already_reconciled={result['already_reconciled_count']} | "
+                f"balance_parity={result['balance_parity_ok']} | "
+                f"cleared_parity={result['cleared_parity_ok']} | "
+                f"uncleared_zero={result['uncleared_zero_ok']} | "
                 f"reason={_normalize_text(result.get('reason')) or '<none>'}"
             ),
             path=reviewed_path,

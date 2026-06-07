@@ -128,7 +128,7 @@ Writes the declared normalized YNAB artifact to `data/derived/<run_tag>/`.
 If the context declares one or more `ynab_category` sources, this step also refreshes the upstream contexts' normalized YNAB snapshots first, in dependency order.
 It does not materialize the `ynab_category` source rows themselves; that still happens in `normalize-context`.
 
-`--source-window` infers any missing `--since`/`--until` bounds from the context's already-normalized raw-backed source artifacts and pads the min/max source dates by 14 days by default. Use `--source-window-padding-days <n>` to choose a different padding. This is intended for bootstrap runs where the local historical YNAB export is absent but the current institutional source files are present.
+`--source-window` infers any missing `--since`/`--until` bounds from the context's already-normalized review input artifacts and pads the min/max source dates by 14 days by default. For card contexts, this also includes staged previous-card snapshots under `derived/previous_max/` or `derived/previous_leumi_card/` when present, so the inferred YNAB window covers the same historical tail that review build may carry forward. If the latest raw previous-card snapshot exists for an in-scope account but its normalized parquet artifact is missing, the command now fails fast instead of silently inferring a too-narrow window. Use `--source-window-padding-days <n>` to choose a different padding. This is intended for bootstrap runs where the local historical YNAB export is absent but the current institutional source files are present.
 
 ### Build review artifact
 
@@ -189,13 +189,11 @@ Closeout is source-kind specific:
 - `ynab_category` sources:
   - `pixi run reconcile-category-account -- <context> <run_tag>`
 
-For `ynab_category` sources, the closeout step is not bank/card lineage sync. It verifies live parity between:
+For `ynab_category` sources, the closeout step is not bank/card lineage sync. It resolves the reviewed source-category rows against the live target-account transactions, reports source-category/target-account balance diagnostics, and patches the resolved target-side rows to `cleared = reconciled`.
 
-- the source budget category balance for the run month
-- the target account balance
-- the target account cleared balance
+Use `--enforce-balance-parity` only when the category source covers the whole target account history and the live source category balance should equal the target account balance after planned reconcile updates.
 
-and then patches the resolved target-side rows to `cleared = reconciled`.
+After any closeout command that runs with `--execute`, rerun that same command once without `--execute` to refresh the saved report CSV against current live state. Without that refresh pass, `context-run-status` may show live checks as clean while the saved report still reflects the pre-patch plan output.
 
 ### Launch review app
 

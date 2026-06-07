@@ -238,6 +238,7 @@ def plan_category_account_reconciliation(
     target_transactions: list[dict[str, Any]],
     target_account: dict[str, Any],
     source_category: dict[str, Any],
+    enforce_balance_parity: bool = False,
 ) -> dict[str, Any]:
     relevant = reviewed_rows.clone()
     units = prepared_units.clone()
@@ -407,17 +408,17 @@ def plan_category_account_reconciliation(
     )
     uncleared_zero_ok = _same_amount(projected_target_account_uncleared_balance_ils, 0.0)
 
-    if not blocked_reason and not balance_parity_ok:
+    if enforce_balance_parity and not blocked_reason and not balance_parity_ok:
         blocked_reason = (
             f"category/account balance mismatch: source {source_category_balance_ils:.2f} "
             f"vs target balance {target_account_balance_ils:.2f}"
         )
-    if not blocked_reason and not cleared_parity_ok:
+    if enforce_balance_parity and not blocked_reason and not cleared_parity_ok:
         blocked_reason = (
             f"category/cleared balance mismatch: source {source_category_balance_ils:.2f} "
             f"vs target cleared {target_account_cleared_balance_ils:.2f}"
         )
-    if not blocked_reason and not uncleared_zero_ok:
+    if enforce_balance_parity and not blocked_reason and not uncleared_zero_ok:
         blocked_reason = (
             f"target account still has uncleared balance {target_account_uncleared_balance_ils:.2f}"
         )
@@ -458,4 +459,5 @@ def plan_category_account_reconciliation(
         "balance_parity_ok": balance_parity_ok,
         "cleared_parity_ok": cleared_parity_ok,
         "uncleared_zero_ok": uncleared_zero_ok,
+        "balance_parity_enforced": enforce_balance_parity,
     }

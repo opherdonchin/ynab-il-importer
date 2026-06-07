@@ -85,6 +85,15 @@ def main() -> None:
         help="PATCH eligible YNAB transactions to cleared=reconciled after validation passes.",
     )
     parser.add_argument(
+        "--enforce-balance-parity",
+        action="store_true",
+        help=(
+            "Require the live source category balance to equal the target account balance "
+            "after planned reconcile updates. Use only when the category source covers the "
+            "whole target account history."
+        ),
+    )
+    parser.add_argument(
         "--defaults",
         dest="defaults_path",
         type=Path,
@@ -186,6 +195,7 @@ def main() -> None:
         target_transactions=target_transactions,
         target_account=target_account,
         source_category=source_category,
+        enforce_balance_parity=args.enforce_balance_parity,
     )
     export.write_dataframe(result["report"], report_path)
     _print_summary(result, report_path, execute=args.execute)
