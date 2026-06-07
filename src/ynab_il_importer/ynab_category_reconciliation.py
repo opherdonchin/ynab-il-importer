@@ -351,6 +351,9 @@ def plan_category_account_reconciliation(
             if not _same_amount(resolved_amount_ils, report_row["source_amount_ils"]):
                 report_row["action"] = "blocked"
                 report_row["reason"] = "resolved_amount_mismatch"
+            elif report_row["resolved_date"] != report_row["source_date"]:
+                report_row["action"] = "blocked"
+                report_row["reason"] = "resolved_date_mismatch"
             elif report_row["prior_cleared"] == "reconciled":
                 report_row["action"] = "already_reconciled"
                 report_row["reason"] = ""

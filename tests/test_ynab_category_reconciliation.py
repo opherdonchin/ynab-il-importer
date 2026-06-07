@@ -359,6 +359,52 @@ def test_plan_category_account_reconciliation_blocks_on_missing_legacy_uploads()
     ]
 
 
+def test_plan_category_account_reconciliation_blocks_on_resolved_date_mismatch() -> None:
+    reviewed = pl.DataFrame(
+        {
+            "transaction_id": ["review-1"],
+            "decision_action": ["keep_match"],
+            "target_row_id": ["txn-live-1"],
+            "source_date": ["2026-05-23"],
+            "source_payee_current": ["Transfer : Pilates Leumi"],
+            "outflow_ils": [0.0],
+            "inflow_ils": [3500.0],
+        }
+    )
+    target_transactions = [
+        {
+            "id": "txn-live-1",
+            "account_id": "acc-target",
+            "import_id": "",
+            "amount": 3500000,
+            "date": "2026-05-24",
+            "payee_name": "Transfer : Bank Leumi 225237",
+            "cleared": "reconciled",
+        }
+    ]
+    target_account = {
+        "id": "acc-target",
+        "name": "In Family",
+        "balance": 3500000,
+        "cleared_balance": 3500000,
+        "uncleared_balance": 0,
+    }
+    source_category = {"id": "cat-pilates", "name": "Pilates", "balance": 3500000}
+
+    result = category_reconciliation.plan_category_account_reconciliation(
+        reviewed,
+        pl.DataFrame(),
+        target_transactions=target_transactions,
+        target_account=target_account,
+        source_category=source_category,
+    )
+
+    assert result["ok"] is False
+    assert "resolved_date_mismatch" in result["reason"]
+    assert result["report"]["action"].tolist() == ["blocked"]
+    assert result["report"]["reason"].tolist() == ["resolved_date_mismatch"]
+
+
 def test_plan_category_account_reconciliation_reports_balance_mismatch_as_diagnostic() -> None:
     reviewed = pl.DataFrame(
         {
