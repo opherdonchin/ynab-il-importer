@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date, timedelta
 import sys
 from pathlib import Path
 
@@ -15,12 +14,14 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ynab_il_importer.artifacts.transaction_io import (
-    read_transactions_polars,
     write_transactions_parquet,
 )
+from ynab_il_importer.artifacts.transaction_io import write_canonical_transaction_artifacts
 from ynab_il_importer.artifacts.transaction_projection import project_top_level_transactions
 import ynab_il_importer.context_config as context_config
 import ynab_il_importer.export as export
+import ynab_il_importer.review_source_paths as review_source_paths
+import ynab_il_importer.ynab_category_source as ynab_category_source
 import ynab_il_importer.ynab_api as ynab_api
 
 
@@ -55,55 +56,52 @@ def _infer_source_date_window(
     run_tag: str,
     padding_days: int,
 ) -> tuple[str, str] | None:
-    if padding_days < 0:
-        raise ValueError("--source-window-padding-days cannot be negative.")
-
     run_paths = context_config.resolve_run_paths(defaults, run_tag=run_tag)
-    min_dates: list[date] = []
-    max_dates: list[date] = []
+    return review_source_paths.infer_source_window(
+        context,
+        defaults,
+        run_paths,
+        run_tag=run_tag,
+        padding_days=padding_days,
+    )
+
+
+def _refresh_ynab_category_sources_for_source_window(
+    *,
+    context: context_config.LoadedContext,
+    defaults: context_config.DefaultsConfig,
+    run_tag: str,
+    contexts_root: Path,
+) -> None:
+    run_paths = context_config.resolve_run_paths(defaults, run_tag=run_tag)
+    run_paths.derived_dir.mkdir(parents=True, exist_ok=True)
+
+    fingerprint_log_path = (
+        defaults.outputs_root / context.name / defaults.files.fingerprint_log
+    ).resolve()
+    fingerprint_log_path.parent.mkdir(parents=True, exist_ok=True)
+
     for source in context.config.sources:
-        if source.kind == "ynab_category":
+        if source.kind != "ynab_category":
             continue
-        if not source.normalized_name:
-            raise ValueError(
-                f"Context source {source.id!r} must declare normalized_name "
-                "to infer a YNAB source window."
-            )
-        source_path = run_paths.derived_dir / source.normalized_name
-        if not source_path.exists():
-            raise FileNotFoundError(
-                "Cannot infer YNAB source window before normalized source "
-                f"artifacts exist. Missing: {source_path}. Run "
-                f"`pixi run normalize-context -- {context.name} {run_tag}` first."
-            )
-        frame = read_transactions_polars(source_path)
-        if "date" not in frame.columns:
-            raise ValueError(f"{source_path} is missing required date column.")
-        dates = (
-            frame.select(
-                pl.col("date")
-                .cast(pl.String, strict=False)
-                .fill_null("")
-                .str.strip_chars()
-                .alias("date")
-            )
-            .filter(pl.col("date") != "")
+        from_context = context_config.load_context(
+            source.from_context,
+            contexts_root=contexts_root,
         )
-        if dates.is_empty():
-            continue
-        stats = dates.select(
-            pl.col("date").min().alias("min_date"),
-            pl.col("date").max().alias("max_date"),
-        ).row(0, named=True)
-        min_dates.append(date.fromisoformat(str(stats["min_date"])))
-        max_dates.append(date.fromisoformat(str(stats["max_date"])))
-
-    if not min_dates:
-        return None
-
-    since = min(min_dates) - timedelta(days=padding_days)
-    until = max(max_dates) + timedelta(days=padding_days)
-    return since.isoformat(), until.isoformat()
+        from_ynab_path = context_config.resolve_context_ynab_path(from_context, run_paths)
+        canonical = ynab_category_source.build_category_source_canonical(
+            from_ynab_path,
+            category_name=source.category_name,
+            category_id=source.category_id,
+            target_account_name=source.target_account_name,
+            target_account_id=source.target_account_id,
+            use_fingerprint_map=True,
+            fingerprint_map_path=context.fingerprint_map_path,
+            fingerprint_log_path=fingerprint_log_path,
+        )
+        out_path = run_paths.derived_dir / source.normalized_name
+        _, parquet_path = write_canonical_transaction_artifacts(canonical, out_path)
+        print(f"Wrote {parquet_path} ({canonical.num_rows} rows)")
 
 
 def _download_context_snapshot(
@@ -117,11 +115,18 @@ def _download_context_snapshot(
     infer_source_window: bool = False,
     source_window_padding_days: int = 14,
     out_path: Path | None = None,
+    contexts_root: Path = context_config.CONTEXTS_ROOT,
 ) -> None:
     run_paths = context_config.resolve_run_paths(defaults, run_tag=run_tag)
     run_paths.derived_dir.mkdir(parents=True, exist_ok=True)
 
     if infer_source_window:
+        _refresh_ynab_category_sources_for_source_window(
+            context=context,
+            defaults=defaults,
+            run_tag=run_tag,
+            contexts_root=contexts_root,
+        )
         inferred = _infer_source_date_window(
             context=context,
             defaults=defaults,
@@ -200,7 +205,8 @@ def main() -> None:
         action="store_true",
         help=(
             "Infer missing --since/--until bounds from the context's normalized "
-            "source artifacts for this run."
+            "source artifacts for this run, including staged previous-card "
+            "snapshots when present."
         ),
     )
     parser.add_argument(
@@ -239,6 +245,7 @@ def main() -> None:
             until_date=args.until_date,
             infer_source_window=args.source_window,
             source_window_padding_days=args.source_window_padding_days,
+            contexts_root=args.contexts_root,
         )
     _download_context_snapshot(
         context=context,
@@ -250,6 +257,7 @@ def main() -> None:
         infer_source_window=args.source_window,
         source_window_padding_days=args.source_window_padding_days,
         out_path=args.out_path,
+        contexts_root=args.contexts_root,
     )
 
 

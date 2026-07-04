@@ -1326,6 +1326,51 @@ def test_app_renders_canonical_split_detail_from_parquet(tmp_path: Path) -> None
     assert "Split</td><td>House and stuff -140" in markdown_text
 
 
+def test_app_renders_raw_description_when_it_adds_information(tmp_path: Path) -> None:
+    source_current = _txn(
+        transaction_id="src-raw-description",
+        payee="ליה דונחין",
+        category="",
+        category_id="",
+        memo="ליה דונחין",
+    )
+    source_current["description_raw"] = (
+        "משיכה לחשבון הבנק12-799-0 ליה דונחין:הפועלים-ביט העברה מאת"
+    )
+    target_current = _txn(
+        transaction_id="tgt-raw-description",
+        payee="",
+        category="",
+        category_id="",
+        memo="",
+    )
+    target_current["description_raw"] = ""
+    records = [
+        _canonical_record(
+            review_transaction_id="raw-description-row",
+            source_current=source_current,
+            target_current=target_current,
+            target_present=False,
+        )
+    ]
+
+    app, _ = _build_canonical_app_test(tmp_path, records=records)
+
+    app.run()
+    app.sidebar.radio[0].set_value("Row")
+    app.run()
+    _show_all_primary_states(app)
+    app.run()
+
+    row = app.expander[0]
+    markdown_text = "\n".join(_markdown_values(row))
+    assert "Memo</td><td>ליה דונחין" in markdown_text
+    assert (
+        "Raw description</td><td>משיכה לחשבון הבנק12-799-0 ליה דונחין:הפועלים-ביט העברה מאת"
+        in markdown_text
+    )
+
+
 def test_changed_mask_aligns_duplicate_transaction_ids() -> None:
     base = pl.DataFrame(
         {

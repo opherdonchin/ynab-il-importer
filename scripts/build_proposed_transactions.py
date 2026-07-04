@@ -31,6 +31,10 @@ from ynab_il_importer.artifacts.transaction_schema import TRANSACTION_SCHEMA
 _CARD_SUFFIX_DIGITS_RE = re.compile(r"\D+")
 _CARD_SUFFIX_MEMO_TAG_RE = re.compile(r"\[card x\d{4}\]", flags=re.IGNORECASE)
 _BANK_CARD_SUFFIX_RE = re.compile(r"(?<!\d)(\d{4})-\s*בכרטיס המסתיים\b", re.IGNORECASE)
+_OVERLAP_SCRIPT_BOUNDARY_RE = re.compile(
+    r"(?<=[A-Za-z])(?=[\u0590-\u05FF])|(?<=[\u0590-\u05FF])(?=[A-Za-z])"
+)
+_OVERLAP_TOKEN_RE = re.compile(r"[0-9A-Za-z\u0590-\u05FF]+")
 TARGET_SUGGESTION_COLUMNS = [
     "transaction_id",
     "source",
@@ -212,6 +216,9 @@ def _dedupe_source_overlaps(source_df: pl.DataFrame) -> pl.DataFrame:
         pl.col("outflow_ils").round(2).alias("_outflow_key"),
         pl.col("inflow_ils").round(2).alias("_inflow_key"),
         text("fingerprint").alias("_fingerprint_key"),
+        text("fingerprint")
+        .map_elements(_canonicalize_overlap_text, return_dtype=pl.String)
+        .alias("_overlap_text_key"),
     )
     has_bank, has_card = work.select(
         (pl.col("_source_norm") == "bank").any().alias("has_bank"),
@@ -225,12 +232,12 @@ def _dedupe_source_overlaps(source_df: pl.DataFrame) -> pl.DataFrame:
         "_date_key",
         "_outflow_key",
         "_inflow_key",
-        "_fingerprint_key",
+        "_overlap_text_key",
         "_linked_card_suffix",
     ]
     valid = (
         pl.col("_date_key").is_not_null()
-        & (pl.col("_fingerprint_key") != "")
+        & (pl.col("_overlap_text_key") != "")
         & (pl.col("_linked_card_suffix") != "")
     )
 
@@ -260,7 +267,7 @@ def _dedupe_source_overlaps(source_df: pl.DataFrame) -> pl.DataFrame:
         "_secondary_date_key",
         "_outflow_key",
         "_inflow_key",
-        "_fingerprint_key",
+        "_overlap_text_key",
         "_linked_card_suffix",
     ]
     secondary_card = (
@@ -492,6 +499,25 @@ def _normalize_card_suffix(value: object) -> str:
     if not digits:
         return ""
     return digits[-4:]
+
+
+def _canonicalize_overlap_text(value: object) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    text = text.replace("&", " ")
+    text = _OVERLAP_SCRIPT_BOUNDARY_RE.sub(" ", text)
+    tokens = _OVERLAP_TOKEN_RE.findall(text)
+    if not tokens:
+        return ""
+    filtered = [
+        token
+        for token in tokens
+        if not (len(token) == 1 and any("\u0590" <= ch <= "\u05FF" for ch in token))
+    ]
+    if not filtered:
+        filtered = tokens
+    return " ".join(sorted(filtered))
 
 
 def _tag_bank_debit_memo(memo: object, card_suffix: object, source_type: object) -> str:

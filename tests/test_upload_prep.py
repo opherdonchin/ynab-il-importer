@@ -1038,6 +1038,30 @@ def test_upload_preflight_allows_same_import_id_on_different_accounts() -> None:
     assert preflight["payload_duplicate_import_keys"] == []
 
 
+def test_upload_preflight_allows_categorized_off_budget_transfer() -> None:
+    prepared = pl.DataFrame(
+        {
+            "decision_action": ["create_target"],
+            "import_id": ["BANK:V1:test-transfer"],
+            "account_id": ["acc-bank"],
+            "date": ["2026-03-01"],
+            "amount_milliunits": [-10500],
+            "upload_kind": ["transfer"],
+            "payee_id": ["payee-loan"],
+            "payee_name_upload": [""],
+            "category_id": ["cat-loan"],
+            "memo": ["loan payment"],
+            "unsupported_reason": [""],
+            "upload_transaction_id": ["u1"],
+            "transfer_target_account_id": ["acc-loan"],
+        }
+    )
+
+    preflight = upload_prep.upload_preflight(prepared, [])
+
+    assert preflight["transfer_payload_issue_ids"] == []
+
+
 def test_upload_preflight_only_flags_create_target_manual_match_risks() -> None:
     prepared = pl.DataFrame(
         {

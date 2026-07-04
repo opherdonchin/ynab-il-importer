@@ -67,7 +67,8 @@ pixi run download-context-ynab -- <context> <run_tag>
 ```
 
 If the normalized source artifacts already exist, the command can infer a padded
-YNAB window from those source dates:
+YNAB window from the review input dates, including staged previous-card
+snapshots when present:
 
 ```bash
 pixi run download-context-ynab -- <context> <run_tag> --source-window

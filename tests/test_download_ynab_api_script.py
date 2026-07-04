@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pyarrow as pa
 import polars as pl
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "download_ynab_api.py"
@@ -246,6 +247,17 @@ def test_main_can_infer_download_window_from_normalized_sources(
         ),
         run_dir / "family_max_norm.parquet",
     )
+    write_transactions_parquet(
+        pl.DataFrame(
+            {
+                "transaction_id": ["previous-card-1"],
+                "date": ["2026-01-26"],
+                "account_name": ["Liya X7195"],
+                "source_account": ["x7195"],
+            }
+        ),
+        tmp_path / "derived" / "previous_max" / "x7195" / "2026_04_max_norm.parquet",
+    )
     captured: dict[str, object] = {"fetch_since_dates": []}
 
     monkeypatch.setattr(
@@ -356,9 +368,251 @@ def test_main_can_infer_download_window_from_normalized_sources(
 
     download_ynab_api.main()
 
-    assert captured["fetch_since_dates"] == ["2026-02-22"]
-    assert captured["transaction_ids"] == ["inside-window"]
+    assert captured["fetch_since_dates"] == ["2026-01-19"]
+    assert captured["transaction_ids"] == ["before-window", "inside-window"]
     assert captured["path"] == run_dir / "family_ynab_api_norm.parquet"
+
+
+def test_main_source_window_requires_latest_previous_snapshot_normalized(
+    monkeypatch, tmp_path
+) -> None:
+    defaults = context_config.DefaultsConfig(
+        raw_root=tmp_path / "raw",
+        derived_root=tmp_path / "derived",
+        paired_root=tmp_path / "paired",
+        outputs_root=tmp_path / "outputs",
+    )
+    context = context_config.load_context("family")
+    run_dir = tmp_path / "derived" / "2026_04_01"
+    write_transactions_parquet(
+        pl.DataFrame(
+            {
+                "transaction_id": ["bank-1"],
+                "date": ["2026-03-01"],
+            }
+        ),
+        run_dir / "family_leumi_norm.parquet",
+    )
+    write_transactions_parquet(
+        pl.DataFrame(
+            {
+                "transaction_id": ["card-1"],
+                "date": ["2026-03-05"],
+            }
+        ),
+        run_dir / "family_max_norm.parquet",
+    )
+    write_transactions_parquet(
+        pl.DataFrame(
+            {
+                "transaction_id": ["previous-card-1"],
+                "date": ["2026-01-26"],
+                "account_name": ["Liya X7195"],
+                "source_account": ["x7195"],
+            }
+        ),
+        tmp_path / "derived" / "previous_max" / "x7195" / "2026_03_max_norm.parquet",
+    )
+    latest_raw_path = tmp_path / "raw" / "previous_max" / "x7195" / "2026_04.xlsx"
+    latest_raw_path.parent.mkdir(parents=True, exist_ok=True)
+    latest_raw_path.write_text("placeholder", encoding="utf-8")
+
+    monkeypatch.setattr(
+        download_ynab_api.context_config,
+        "load_defaults",
+        lambda *_args, **_kwargs: defaults,
+    )
+    monkeypatch.setattr(
+        download_ynab_api.context_config,
+        "load_context",
+        lambda *_args, **_kwargs: context,
+    )
+    monkeypatch.setattr(
+        download_ynab_api.context_config,
+        "resolve_context_ynab_dependencies",
+        lambda current, **_kwargs: [current],
+    )
+    monkeypatch.setattr(
+        download_ynab_api.context_config,
+        "resolve_context_budget_id",
+        lambda *_args, **_kwargs: "family-budget",
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "download_ynab_api.py",
+            "family",
+            "2026_04_01",
+            "--source-window",
+        ],
+    )
+
+    with pytest.raises(FileNotFoundError, match="2026_04_max_norm\\.parquet"):
+        download_ynab_api.main()
+
+
+def test_main_source_window_refreshes_ynab_category_sources_before_inferring_window(
+    monkeypatch, tmp_path
+) -> None:
+    defaults = context_config.DefaultsConfig(
+        raw_root=tmp_path / "raw",
+        derived_root=tmp_path / "derived",
+        paired_root=tmp_path / "paired",
+        outputs_root=tmp_path / "outputs",
+    )
+    context = context_config.load_context("pilates")
+    family_context = context_config.load_context("family")
+    run_dir = tmp_path / "derived" / "2026_05_16"
+    write_transactions_parquet(
+        pl.DataFrame(
+            {
+                "transaction_id": ["bank-1"],
+                "date": ["2026-04-20"],
+            }
+        ),
+        run_dir / "pilates_leumi_norm.parquet",
+    )
+    write_transactions_parquet(
+        pl.DataFrame(
+            {
+                "transaction_id": ["card-1"],
+                "date": ["2026-05-01"],
+            }
+        ),
+        run_dir / "pilates_leumi_card_html_norm.parquet",
+    )
+    write_transactions_parquet(
+        pl.DataFrame(
+            {
+                "transaction_id": ["stale-category-1"],
+                "date": ["2026-04-10"],
+                "account_name": ["In Family"],
+                "source_account": ["Bank Leumi"],
+                "payee_raw": ["Loan Pilates"],
+                "memo": ["פרעון הלוואה"],
+                "description_raw": ["פרעון הלוואה"],
+                "category_raw": ["Pilates"],
+            }
+        ),
+        run_dir / "pilates_family_category_norm.parquet",
+    )
+    write_transactions_parquet(
+        pl.DataFrame(
+            {
+                "artifact_kind": ["ynab_transaction"],
+                "artifact_version": ["transaction_v1"],
+                "source_system": ["ynab"],
+                "transaction_id": ["family-pilates-1"],
+                "ynab_id": ["family-pilates-1"],
+                "import_id": ["BANK:V1:family-1"],
+                "parent_transaction_id": ["family-pilates-1"],
+                "account_id": ["acc-family"],
+                "account_name": ["Bank Leumi"],
+                "source_account": ["Bank Leumi"],
+                "date": ["2025-12-10"],
+                "secondary_date": [""],
+                "inflow_ils": [0.0],
+                "outflow_ils": [1836.8],
+                "signed_amount_ils": [-1836.8],
+                "balance_ils": [0.0],
+                "payee_raw": ["Loan Pilates"],
+                "category_id": ["cat-pilates"],
+                "category_raw": ["Pilates"],
+                "memo": ["פרעון הלוואה"],
+                "txn_kind": ["expense"],
+                "fingerprint": ["loan pilates"],
+                "description_raw": ["פרעון הלוואה"],
+                "description_clean": ["Loan Pilates"],
+                "description_clean_norm": ["loan pilates"],
+                "merchant_raw": ["Loan Pilates"],
+                "max_sheet": [""],
+                "max_txn_type": [""],
+                "max_original_amount": [0.0],
+                "max_original_currency": [""],
+                "ref": ["family-pilates-1"],
+                "matched_transaction_id": [""],
+                "cleared": ["reconciled"],
+                "approved": [True],
+                "is_subtransaction": [False],
+                "splits": [None],
+            }
+        ),
+        run_dir / "family_ynab_api_norm.parquet",
+    )
+    captured: dict[str, object] = {"fetch_since_dates": []}
+
+    monkeypatch.setattr(
+        download_ynab_api.context_config,
+        "load_defaults",
+        lambda *_args, **_kwargs: defaults,
+    )
+    monkeypatch.setattr(
+        download_ynab_api.context_config,
+        "load_context",
+        lambda name, **_kwargs: family_context if str(name).strip().lower() == "family" else context,
+    )
+    monkeypatch.setattr(
+        download_ynab_api.context_config,
+        "resolve_context_ynab_dependencies",
+        lambda current, **_kwargs: [current],
+    )
+    monkeypatch.setattr(
+        download_ynab_api.context_config,
+        "resolve_context_budget_id",
+        lambda *_args, **_kwargs: "pilates-budget",
+    )
+    monkeypatch.setattr(
+        download_ynab_api.ynab_api,
+        "fetch_accounts",
+        lambda plan_id=None: [{"id": "acc-1", "name": "Pilates"}],
+    )
+
+    def fake_fetch_transactions(plan_id=None, since_date=None):
+        captured["fetch_since_dates"].append(since_date)
+        return [
+            {
+                "id": "inside-window",
+                "account_id": "acc-1",
+                "date": "2026-04-10",
+                "payee_name": "Inside",
+                "category_name": "Category",
+                "category_id": "cat-1",
+                "amount": -1000,
+                "memo": "",
+                "import_id": "",
+                "matched_transaction_id": "",
+                "cleared": "cleared",
+                "approved": True,
+            }
+        ]
+
+    monkeypatch.setattr(
+        download_ynab_api.ynab_api,
+        "fetch_transactions",
+        fake_fetch_transactions,
+    )
+    monkeypatch.setattr(
+        download_ynab_api.export,
+        "wrote_message",
+        lambda *_args, **_kwargs: "",
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "download_ynab_api.py",
+            "pilates",
+            "2026_05_16",
+            "--source-window",
+        ],
+    )
+
+    download_ynab_api.main()
+
+    assert captured["fetch_since_dates"] == ["2025-11-26"]
+    refreshed_category = pl.read_parquet(run_dir / "pilates_family_category_norm.parquet")
+    assert refreshed_category.select(pl.col("date").min()).item() == "2025-12-10"
 
 
 def test_filter_canonical_by_date_filters_string_dates() -> None:

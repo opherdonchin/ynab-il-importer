@@ -1591,7 +1591,6 @@ def upload_preflight(
                 (pl.col("upload_kind") == "transfer")
                 & (
                     (pl.col("payee_id") == "")
-                    | (pl.col("category_id") != "")
                     | (pl.col("payee_name_upload") != "")
                 )
             )

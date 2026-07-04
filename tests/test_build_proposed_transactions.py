@@ -510,6 +510,69 @@ def test_dedupe_source_overlaps_collapses_four_way_linked_duplicates() -> None:
     assert deduped["memo"].to_list() == ["bank 1", "bank 2"]
 
 
+def test_dedupe_source_overlaps_handles_mixed_script_immediate_debit_variants() -> None:
+    source_df = pl.DataFrame(
+        [
+            {
+                "source_system": "bank",
+                "account_name": "Bank Leumi",
+                "source_account": "67833011333622",
+                "date": "2026-05-07",
+                "secondary_date": "2026-05-10",
+                "outflow_ils": 245.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "wat sang sushi אmore",
+                "description_raw": "WAT SANG SUSHI  אMORE- ב0740- בכרטיס המסתיים ב16:12  07/05/26",
+                "memo": "WAT SANG SUSHI אMORE [card x0740]",
+            },
+            {
+                "source_system": "card",
+                "account_name": "Bank Leumi",
+                "source_account": "x0740",
+                "date": "2026-05-07",
+                "secondary_date": "2026-05-10",
+                "outflow_ils": 245.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "wat sang sushi more",
+                "description_raw": "WAT SANG SUSHI & MORE",
+                "memo": "WAT SANG SUSHI & MORE",
+            },
+            {
+                "source_system": "bank",
+                "account_name": "Bank Leumi",
+                "source_account": "67833011333622",
+                "date": "2026-05-07",
+                "secondary_date": "2026-05-10",
+                "outflow_ils": 77.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "רוטשילדtea bar",
+                "description_raw": "-  רוטשילדTEA BAR- ב0740- בכרטיס המסתיים ב17:05  07/05/26",
+                "memo": "רוטשילדTEA BAR [card x0740]",
+            },
+            {
+                "source_system": "card",
+                "account_name": "Bank Leumi",
+                "source_account": "x0740",
+                "date": "2026-05-07",
+                "secondary_date": "2026-05-10",
+                "outflow_ils": 77.0,
+                "inflow_ils": 0.0,
+                "fingerprint": "tea bar רוטשילד",
+                "description_raw": "TEA BAR רוטשילד -",
+                "memo": "TEA BAR רוטשילד -",
+            },
+        ]
+    )
+
+    with pytest.warns(UserWarning, match="Dropping 2 bank/card overlap rows"):
+        deduped = build_proposed_transactions._dedupe_source_overlaps(source_df)
+
+    assert deduped["memo"].to_list() == [
+        "WAT SANG SUSHI אMORE [card x0740]",
+        "רוטשילדTEA BAR [card x0740]",
+    ]
+
+
 def test_build_review_rows_emits_institutional_statuses(tmp_path: Path) -> None:
     map_path = tmp_path / "payee_map.csv"
     _write_payee_map(map_path)

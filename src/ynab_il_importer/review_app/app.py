@@ -1740,6 +1740,14 @@ def _render_detail_section(title: str, entries: list[tuple[str, Any]]) -> None:
     )
 
 
+def _raw_description_entries(row: dict[str, Any], side: str) -> list[tuple[str, str]]:
+    memo = str(row.get(f"{side}_memo", "") or "").strip()
+    description_raw = str(row.get(f"{side}_description_raw", "") or "").strip()
+    if not description_raw or description_raw == memo:
+        return []
+    return [("Raw description", description_raw)]
+
+
 def _format_current_selected(current: Any, selected: Any) -> str:
     current_text = str(current or "").strip()
     selected_text = str(selected or "").strip()
@@ -2348,6 +2356,7 @@ def _render_row_details(
                 ("Category", source_category),
                 ("Split", _split_category_summary(source_splits)),
                 ("Memo", row.get("source_memo", "")),
+                *_raw_description_entries(row, "source"),
             ],
         )
     with target_col:
@@ -2361,6 +2370,7 @@ def _render_row_details(
                 ("Category", target_category),
                 ("Split", _split_category_summary(target_splits)),
                 ("Memo", row.get("target_memo", "")),
+                *_raw_description_entries(row, "target"),
             ],
         )
     for line in _row_context_lines(row):
